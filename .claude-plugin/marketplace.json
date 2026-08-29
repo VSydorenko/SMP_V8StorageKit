@@ -1,0 +1,11 @@
+{
+  "name": "smp-v8storagekit",
+  "owner": { "name": "VSydorenko" },
+  "plugins": [
+    {
+      "name": "v8storagekit",
+      "source": "./",
+      "description": "Конвеєр «сховище конфігурацій 1С ↔ git» для репозиторіїв SMP_*"
+    }
+  ]
+}
