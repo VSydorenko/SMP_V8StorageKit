@@ -66,7 +66,11 @@ Describe 'Скрипти відмовляють на не-git RepoRoot' {
         # дочірнього процесу на UTF-8 (сам цільовий скрипт лишається недоторканим) і сама
         # ловить виняток, друкуючи $_.Exception.Message одним сирим рядком через
         # Console.Error.WriteLine — в обхід форматування/переносу рядків хоста. Той самий
-        # UTF-8 виставляємо і з боку батьківського процесу, що декодує $out.
+        # UTF-8 виставляємо і з боку батьківського процесу, що декодує $out. Run-Tests.ps1
+        # прогонає весь набір в одній сесії pwsh, тож цю зміну кодування батьківського
+        # процесу відновлюємо в AfterAll нижче — інакше вона просочилась би в наступні
+        # *.Tests.ps1 того самого прогону.
+        $script:PrevOutputEncoding = [Console]::OutputEncoding
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
         $script:Utf8Wrapper = Join-Path $TestDrive 'utf8-wrapper.ps1'
@@ -81,6 +85,10 @@ Describe 'Скрипти відмовляють на не-git RepoRoot' {
             '    exit 1'
             '}'
         )
+    }
+
+    AfterAll {
+        [Console]::OutputEncoding = $script:PrevOutputEncoding
     }
 
     It '<name> зупиняється до будь-якої роботи' -ForEach @(
