@@ -15,6 +15,10 @@
 - `templates/` — шаблони файлів репо-споживача (CLAUDE.md, .gitattributes, .gitignore, settings.json, storage.json)
 - `docs/` — архітектура контуру «сховище ↔ git»
 
+Скіли реєструються з префіксом плагіна: викликаються як `v8storagekit:storage-pipeline`,
+`v8storagekit:product-onboarding`, `v8storagekit:repo-migration` (не голим іменем зі
+`skills/` вище — плагін-реєстр додає префікс сам, і без нього виклик впаде з `Unknown skill`).
+
 ## Розробка
 
 Робоча копія — звичайний клон. Живе тестування на реальному проєкті:
