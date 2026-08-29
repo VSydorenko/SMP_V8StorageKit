@@ -3,9 +3,9 @@
 .SYNOPSIS
     Переносить нові версії сховища конфігурацій 1С у git — по коміту на версію.
 .EXAMPLE
-    pwsh tools/storage-sync.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+    pwsh tools/storage-sync.ps1 -RepoRoot <шлях до репо-споживача> -Product <Продукт>
 .EXAMPLE
-    pwsh tools/storage-sync.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
+    pwsh tools/storage-sync.ps1 -RepoRoot . -Product <Продукт> -Apply
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +39,7 @@ if (-not (Test-Path -LiteralPath $productPath)) {
 $state     = Read-SyncState -ProductPath $productPath
 
 # storagePath у storage.json — єдиний спільний для команди шлях (закомічений навмисно,
-# docs/architecture/storage-and-git.md, "Пряме обмеження на локальні шляхи розробників").
+# docs/storage-and-git.md, "Пряме обмеження на локальні шляхи розробників").
 # У другого розробника з іншим розташуванням дисків цей шлях може не існувати;
 # v8project.local.yaml (gitignored) може перевизначити його локально, не чіпаючи
 # закомічений файл.

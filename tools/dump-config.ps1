@@ -6,9 +6,9 @@
     Потрібно для операцій Unica, яким треба знати склад конфігурації-власника:
     cfe.borrow, cfe.diff, cfe.validate. Займає 20-40 хвилин і 1-2 ГБ на диску.
 .EXAMPLE
-    pwsh tools/dump-config.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+    pwsh tools/dump-config.ps1 -RepoRoot <шлях до репо-споживача> -Product <Продукт>
 .EXAMPLE
-    pwsh tools/dump-config.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
+    pwsh tools/dump-config.ps1 -RepoRoot . -Product <Продукт> -Apply
 #>
 [CmdletBinding()]
 param(

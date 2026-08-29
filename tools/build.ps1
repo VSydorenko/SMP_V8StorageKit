@@ -7,7 +7,7 @@
     падає на публікації артефакту ("Отказано в доступе, os error 5"), лишаючи файл
     у стейджі.
 .EXAMPLE
-    pwsh tools/build.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMBru -Apply
+    pwsh tools/build.ps1 -RepoRoot <шлях до репо-споживача> -Product <Продукт> -Apply
 .EXAMPLE
     pwsh tools/build.ps1 -RepoRoot . -Product epf -Apply
 #>

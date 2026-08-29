@@ -6,9 +6,9 @@
     Зворотний напрямок контуру: git -> база. Крок «база -> сховище» виконує
     людина в Конфігураторі; цей скрипт сховища не торкається.
 .EXAMPLE
-    pwsh tools/load-ext.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+    pwsh tools/load-ext.ps1 -RepoRoot <шлях до репо-споживача> -Product <Продукт>
 .EXAMPLE
-    pwsh tools/load-ext.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
+    pwsh tools/load-ext.ps1 -RepoRoot . -Product <Продукт> -Apply
 #>
 [CmdletBinding()]
 param(
