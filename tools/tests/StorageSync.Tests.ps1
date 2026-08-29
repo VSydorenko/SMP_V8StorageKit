@@ -147,6 +147,162 @@ Describe 'storage-sync.ps1 -Apply: запобіжник чистоти робо�
     }
 }
 
+Describe 'storage-sync.ps1 -Apply: запобіжник, коли "git status" не може виконатись' {
+    # Окремий, повністю ізольований фейковий репозиторій (а не спільний $script:FakeRepo
+    # Describe вище) — сценарій навмисно псує .git/index, і жоден інший It не повинен
+    # успадкувати пошкоджений індекс через порядок виконання.
+    #
+    # Повідомлення винятку читаємо не з консольного виводу дочірнього pwsh (2>&1 |
+    # Out-String, як в Invoke-StorageSync вище), а через маленьку обгортку, що ловить
+    # виняток сама і пише $_.Exception.Message у файл з явним -Encoding UTF8. Причина —
+    # емпірично підтверджена на цій машині: [Console]::OutputEncoding дочірнього pwsh —
+    # CP866 (DOS-кирилиця), яка не має символу "і" (U+0456) і мовчки підмінює його на "?"
+    # у БУДЬ-ЯКОМУ тексті, що йде через консольний хост (Write-Host, неперехоплений throw)
+    # — байдуже, чи це канал, чи "*> файл": і "Не вдалося перевірити" перетворюється на
+    # "Не вдалося перев?рити". Пряме читання $_.Exception.Message в pscore обходить
+    # консольний хост і зберігає текст без втрат.
+    BeforeAll {
+        $script:FailRepo = Join-Path $TestDrive 'fake-repo-git-status-fails'
+        $toolsDir = Join-Path $script:FailRepo 'tools'
+        $libDir   = Join-Path $toolsDir 'lib'
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+
+        $realTools = Resolve-Path "$PSScriptRoot/.."
+        Copy-Item -LiteralPath (Join-Path $realTools 'storage-sync.ps1') -Destination (Join-Path $toolsDir 'storage-sync.ps1')
+        Copy-Item -Path (Join-Path $realTools 'lib/*.psm1') -Destination $libDir
+
+        Set-Content -LiteralPath (Join-Path $script:FailRepo 'AUTHORS') -Encoding UTF8 -Value @(
+            'gitbot=Test Bot <test@example.invalid>'
+        )
+
+        git -C $script:FailRepo init -q
+        git -C $script:FailRepo config user.email 'test@example.invalid'
+        git -C $script:FailRepo config user.name 'Test Bot'
+        git -C $script:FailRepo config commit.gpgsign false
+
+        $script:FailScriptPath = Join-Path $toolsDir 'storage-sync.ps1'
+        $script:FailProductName = 'Product_GitStatusFails'
+        $productPath = Join-Path $script:FailRepo $script:FailProductName
+        New-Item -ItemType Directory -Path $productPath -Force | Out-Null
+        [ordered]@{
+            storagePath       = (Join-Path $TestDrive 'no-such-storage-git-status-fails')
+            extensionName     = 'FAKE_EXT'
+            lastSyncedVersion = 0
+            sourcePath        = 'cfe/src'
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $productPath 'storage.json') -Encoding UTF8
+
+        git -C $script:FailRepo add -A
+        git -C $script:FailRepo commit -q -m 'фікстура: продукт перед пошкодженням індексу'
+
+        # Пошкоджений .git/index — найнадійніший спосіб відтворити реальний провал
+        # "git status" без залежності від платформи чи сховища (той самий прийом, яким
+        # тест M4 нижче відтворює провал "git add" через index.lock).
+        Set-Content -LiteralPath (Join-Path $script:FailRepo '.git/index') -Encoding UTF8 `
+            -Value 'зумисно пошкоджений індекс, не насправжній git index'
+
+        $script:FailWrapperPath = Join-Path $TestDrive 'invoke-catching-git-status-fails.ps1'
+        Set-Content -LiteralPath $script:FailWrapperPath -Encoding UTF8 -Value @'
+param([string]$ScriptPath, [string]$ProductName, [string]$RepoRoot, [string]$ResultFile)
+try {
+    & $ScriptPath -Product $ProductName -Apply -RepoRoot $RepoRoot | Out-Null
+    Set-Content -LiteralPath $ResultFile -Encoding UTF8 -Value 'THREW=0'
+} catch {
+    Set-Content -LiteralPath $ResultFile -Encoding UTF8 -Value ("THREW=1`nMESSAGE=" + $_.Exception.Message)
+}
+'@
+        $script:FailResultFile = Join-Path $TestDrive 'result-git-status-fails.txt'
+    }
+
+    It 'зупиняється з поясненням "не вдалося перевірити", а не мовчки минає запобіжник' {
+        & pwsh -NoProfile -File $script:FailWrapperPath -ScriptPath $script:FailScriptPath `
+            -ProductName $script:FailProductName -RepoRoot $script:FailRepo -ResultFile $script:FailResultFile | Out-Null
+        $result = Get-Content -LiteralPath $script:FailResultFile -Raw -Encoding UTF8
+
+        $result | Should -BeLike 'THREW=1*'
+        $result | Should -BeLike '*Не вдалося перевірити чистоту робочої копії*'
+        # Не мало впасти на дружній гілці "не чиста" — це геть інша причина (реальний
+        # брудний git status, а не провал самої команди git status).
+        $result | Should -Not -BeLike '*не чиста*'
+
+        # Запобіжник — перший у $Apply-блоці, до створення робочої теки в build/sync.
+        Join-Path $script:FailRepo 'build/sync' $script:FailProductName | Should -Not -Exist
+    }
+}
+
+Describe 'storage-sync.ps1 -Apply: запобіжник чужих застейджених змін в індексі' {
+    # Так само ізольований репозиторій і той самий прийом читання винятку через файл з
+    # явним -Encoding UTF8 (див. коментар у Describe вище) — повідомлення цього
+    # запобіжника теж рясніє літерою "і".
+    BeforeAll {
+        $script:ForeignRepo = Join-Path $TestDrive 'fake-repo-foreign-staged'
+        $toolsDir = Join-Path $script:ForeignRepo 'tools'
+        $libDir   = Join-Path $toolsDir 'lib'
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+
+        $realTools = Resolve-Path "$PSScriptRoot/.."
+        Copy-Item -LiteralPath (Join-Path $realTools 'storage-sync.ps1') -Destination (Join-Path $toolsDir 'storage-sync.ps1')
+        Copy-Item -Path (Join-Path $realTools 'lib/*.psm1') -Destination $libDir
+
+        Set-Content -LiteralPath (Join-Path $script:ForeignRepo 'AUTHORS') -Encoding UTF8 -Value @(
+            'gitbot=Test Bot <test@example.invalid>'
+        )
+
+        git -C $script:ForeignRepo init -q
+        git -C $script:ForeignRepo config user.email 'test@example.invalid'
+        git -C $script:ForeignRepo config user.name 'Test Bot'
+        git -C $script:ForeignRepo config commit.gpgsign false
+
+        $script:ForeignScriptPath = Join-Path $toolsDir 'storage-sync.ps1'
+        $script:ForeignProductName = 'Product_ForeignStaged'
+        $productPath = Join-Path $script:ForeignRepo $script:ForeignProductName
+        New-Item -ItemType Directory -Path $productPath -Force | Out-Null
+        [ordered]@{
+            storagePath       = (Join-Path $TestDrive 'no-such-storage-foreign-staged')
+            extensionName     = 'FAKE_EXT'
+            lastSyncedVersion = 0
+            sourcePath        = 'cfe/src'
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $productPath 'storage.json') -Encoding UTF8
+
+        git -C $script:ForeignRepo add -A
+        git -C $script:ForeignRepo commit -q -m 'фікстура: продукт до появи чужих застейджених змін'
+
+        # Чужий, ще не закомічений слід поза текою продукту — те, що лишив би розробник,
+        # який почав "git add" щось своє в іншій частині репозиторію до запуску -Apply.
+        New-Item -ItemType Directory -Path (Join-Path $script:ForeignRepo 'OtherStuff') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:ForeignRepo 'OtherStuff/foreign.txt') -Value 'чужа робота, ще не закомічена'
+        git -C $script:ForeignRepo add -- OtherStuff/foreign.txt
+
+        $script:ForeignWrapperPath = Join-Path $TestDrive 'invoke-catching-foreign-staged.ps1'
+        Set-Content -LiteralPath $script:ForeignWrapperPath -Encoding UTF8 -Value @'
+param([string]$ScriptPath, [string]$ProductName, [string]$RepoRoot, [string]$ResultFile)
+try {
+    & $ScriptPath -Product $ProductName -Apply -RepoRoot $RepoRoot | Out-Null
+    Set-Content -LiteralPath $ResultFile -Encoding UTF8 -Value 'THREW=0'
+} catch {
+    Set-Content -LiteralPath $ResultFile -Encoding UTF8 -Value ("THREW=1`nMESSAGE=" + $_.Exception.Message)
+}
+'@
+        $script:ForeignResultFile = Join-Path $TestDrive 'result-foreign-staged.txt'
+    }
+
+    It 'зупиняється, а не комітить чужі застейджені зміни разом із версією сховища' {
+        & pwsh -NoProfile -File $script:ForeignWrapperPath -ScriptPath $script:ForeignScriptPath `
+            -ProductName $script:ForeignProductName -RepoRoot $script:ForeignRepo -ResultFile $script:ForeignResultFile | Out-Null
+        $result = Get-Content -LiteralPath $script:ForeignResultFile -Raw -Encoding UTF8
+
+        $result | Should -BeLike 'THREW=1*'
+        $result | Should -BeLike '*У індексі репозиторію є застейджені зміни*'
+        # Перша перевірка чистоти ("-- $Product") сама по собі не бачить чужих файлів —
+        # переконуємось, що впала саме друга (без pathspec), а не перша.
+        $result | Should -Not -BeLike '*не чиста*'
+        # І не мало дійти до перевірки storagePath — друга перевірка зупиняє прогін
+        # раніше, до створення робочої теки.
+        $result | Should -Not -BeLike '*Каталог сховища не знайдено*'
+
+        Join-Path $script:ForeignRepo 'build/sync' $script:ForeignProductName | Should -Not -Exist
+    }
+}
+
 Describe 'storage-sync.ps1 -Apply: M4 — "git add" перевіряється так само, як "git commit"' {
     # Цикл по версіях (storage-sync.ps1:107+) вимагає реальної платформи й реального
     # сховища задовго до "git add -A -- $Product" — тому цей рядок не можна дійти
