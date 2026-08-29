@@ -33,8 +33,14 @@ Describe 'Resolve-V8RepoRoot' {
         { Resolve-V8RepoRoot -Path $script:tmp } | Should -Throw '*не є коренем git-репозиторію*'
     }
 
-    It 'кидає виняток на неіснуючому шляху' {
-        { Resolve-V8RepoRoot -Path (Join-Path $script:tmp 'нема') } | Should -Throw
+    It 'кидає виняток із зрозумілим повідомленням на неіснуючому шляху' {
+        { Resolve-V8RepoRoot -Path (Join-Path $script:tmp 'нема') } | Should -Throw '*не існує*'
+    }
+
+    It 'кидає виняток, коли шлях указує на файл, а не на теку' {
+        $file = Join-Path $script:tmp 'file.txt'
+        Set-Content -LiteralPath $file -Value 'x'
+        { Resolve-V8RepoRoot -Path $file } | Should -Throw '*не є коренем git-репозиторію*'
     }
 }
 

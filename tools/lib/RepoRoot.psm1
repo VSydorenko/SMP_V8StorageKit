@@ -10,9 +10,15 @@ function Resolve-V8RepoRoot {
         передається параметром (типово '.'). Fail-closed: не-git тека зупиняє роботу
         до будь-якого читання чи запису — у дусі guard-перевірок storage-sync.
         .git може бути і текою (звичайний клон), і файлом (git worktree).
+        Існування шляху перевіряється ДО Resolve-Path, щоб на неіснуючому -RepoRoot
+        сама функція кинула зрозуміле повідомлення замість PropertyNotFoundException від .Path на $null.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Шлях '$Path' не існує — -RepoRoot має вказувати на корінь git-репозиторію."
+    }
 
     $resolved = (Resolve-Path -LiteralPath $Path).Path
     if (-not (Test-Path -LiteralPath (Join-Path $resolved '.git'))) {
