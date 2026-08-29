@@ -32,7 +32,11 @@ $buildIb   = Join-Path $repoRoot 'build/build-ib'
 
 # Продукт — тека з storage.json у корені репо; epf — за наявності epf/src.
 # Вшитого списку немає: kit обслуговує будь-який репозиторій цієї схеми.
-$products = if ($Product) { @($Product) } else {
+# @(...) навколо ВСЬОГО if/else — інакше рівно один знайдений продукт (звичайний випадок
+# для репо з одним розширенням) розгортається PowerShell у скаляр при присвоєнні з
+# гілки if/else. @(...) лише навколо внутрішнього $found тут не рятує — розгортання
+# відбувається саме на межі присвоєння $products.
+$products = @(if ($Product) { @($Product) } else {
     $found = @(Get-ChildItem -LiteralPath $repoRoot -Directory |
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') } |
         Sort-Object Name | Select-Object -ExpandProperty Name)
@@ -41,7 +45,7 @@ $products = if ($Product) { @($Product) } else {
         throw "У $repoRoot не знайдено жодного продукту: ні теки зі storage.json, ні epf/src."
     }
     $found
-}
+})
 
 Write-Host "Збирати: $($products -join ', ')"
 Write-Host "Куди:    $outDir"

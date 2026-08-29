@@ -36,4 +36,14 @@ Describe 'build.ps1 — виявлення продуктів' {
         $LASTEXITCODE | Should -Be 0
         $out | Should -Match 'Gamma_SMB'
     }
+
+    It 'знаходить рівно один продукт без epf/src' {
+        New-Item -ItemType Directory -Path (Join-Path $script:tmp 'Solo_ACC') | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:tmp 'Solo_ACC' 'storage.json') -Value '{}'
+
+        $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Match 'Solo_ACC'
+        $out | Should -Not -Match 'жодного продукту'
+    }
 }
