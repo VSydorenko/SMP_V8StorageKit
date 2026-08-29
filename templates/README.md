@@ -11,3 +11,4 @@
 | `settings.json` | `.claude/settings.json` |
 | `CLAUDE.md` | `CLAUDE.md` |
 | `storage.json.example` | `<Продукт>/storage.json` |
+| `AUTHORS.example` | `AUTHORS` (у корені репо, не в теці продукту) |
