@@ -5,18 +5,24 @@
 .DESCRIPTION
     Зворотний напрямок контуру: git -> база. Крок «база -> сховище» виконує
     людина в Конфігураторі; цей скрипт сховища не торкається.
+.EXAMPLE
+    pwsh tools/load-ext.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+.EXAMPLE
+    pwsh tools/load-ext.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Product,
     [switch]$Apply,
-    [switch]$UpdateDbCfg
+    [switch]$UpdateDbCfg,
+    [string]$RepoRoot = '.'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Import-Module (Join-Path $PSScriptRoot 'lib/RepoRoot.psm1') -Force
+$repoRoot = Resolve-V8RepoRoot -Path $RepoRoot
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
 

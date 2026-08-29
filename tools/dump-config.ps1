@@ -5,17 +5,23 @@
 .DESCRIPTION
     Потрібно для операцій Unica, яким треба знати склад конфігурації-власника:
     cfe.borrow, cfe.diff, cfe.validate. Займає 20-40 хвилин і 1-2 ГБ на диску.
+.EXAMPLE
+    pwsh tools/dump-config.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+.EXAMPLE
+    pwsh tools/dump-config.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Product,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$RepoRoot = '.'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Import-Module (Join-Path $PSScriptRoot 'lib/RepoRoot.psm1') -Force
+$repoRoot = Resolve-V8RepoRoot -Path $RepoRoot
 Import-Module (Join-Path $PSScriptRoot 'lib/PathSafety.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 

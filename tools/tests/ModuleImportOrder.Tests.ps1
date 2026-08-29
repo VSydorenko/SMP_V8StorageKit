@@ -28,6 +28,7 @@ Describe 'Порядок імпорту модулів у storage-sync.ps1' {
         # (а не лише зсередини одного з lib-модулів) — тобто ті, що мають лишитись
         # видимими в глобальній області після всіх чотирьох імпортів.
         $script:RequiredCommands = @(
+            'Resolve-V8RepoRoot'
             'Assert-SafeWorkPath'
             'New-ExtensionInfobase'
             'Invoke-V8Designer'

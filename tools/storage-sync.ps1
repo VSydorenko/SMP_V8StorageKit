@@ -3,21 +3,24 @@
 .SYNOPSIS
     Переносить нові версії сховища конфігурацій 1С у git — по коміту на версію.
 .EXAMPLE
-    pwsh tools/storage-sync.ps1 -Product BankExchange_SMB
-    pwsh tools/storage-sync.ps1 -Product BankExchange_SMB -Apply
+    pwsh tools/storage-sync.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMB
+.EXAMPLE
+    pwsh tools/storage-sync.ps1 -RepoRoot . -Product BankExchange_SMB -Apply
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Product,
     [switch]$Apply,
     [int]$MaxVersions = 0,
-    [string]$StorageUser = 'gitbot'
+    [string]$StorageUser = 'gitbot',
+    [string]$RepoRoot = '.'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Import-Module (Join-Path $PSScriptRoot 'lib/RepoRoot.psm1') -Force
+$repoRoot = Resolve-V8RepoRoot -Path $RepoRoot
 # PathSafety — першою: V8.psm1 і SyncState.psm1 самі вкладено імпортують її (без -Force,
 # та сама обережність, що й довкола V8.psm1 у StorageReport.psm1 — див. коментар там).
 # Завантаживши її тут глобально й раніше за них, вкладені імпорти лише підтвердять, що

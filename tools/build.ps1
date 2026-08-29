@@ -7,19 +7,22 @@
     падає на публікації артефакту ("Отказано в доступе, os error 5"), лишаючи файл
     у стейджі.
 .EXAMPLE
-    pwsh tools/build.ps1 -Product BankExchange_SMBru -Apply
-    pwsh tools/build.ps1 -Product epf -Apply
+    pwsh tools/build.ps1 -RepoRoot R:\github\SMP_BankExchange -Product BankExchange_SMBru -Apply
+.EXAMPLE
+    pwsh tools/build.ps1 -RepoRoot . -Product epf -Apply
 #>
 [CmdletBinding()]
 param(
     [string]$Product,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$RepoRoot = '.'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Import-Module (Join-Path $PSScriptRoot 'lib/RepoRoot.psm1') -Force
+$repoRoot = Resolve-V8RepoRoot -Path $RepoRoot
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
 

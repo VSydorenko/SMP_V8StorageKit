@@ -68,7 +68,11 @@ Describe 'storage-sync.ps1 -Apply: запобіжник чистоти робо�
         function script:Invoke-StorageSync {
             param([Parameter(Mandatory)][string]$Name)
 
-            $output = & pwsh -NoProfile -File $script:ScriptPath -Product $Name -Apply 2>&1 |
+            # -RepoRoot явно на фейковий репозиторій: типове значення '.' розв'язується
+            # від робочої теки процесу, що запускає Pester (справжній репозиторій цієї
+            # сесії), а не від $PSScriptRoot копії скрипта, як було до Task 4.
+            $output = & pwsh -NoProfile -File $script:ScriptPath -Product $Name -Apply `
+                -RepoRoot $script:FakeRepo 2>&1 |
                 Out-String
             [pscustomobject]@{
                 ExitCode = $LASTEXITCODE
