@@ -30,8 +30,17 @@ $stubPath  = Join-Path $PSScriptRoot 'assets/empty-extension'
 $outDir    = Join-Path $repoRoot 'build/artifacts'
 $buildIb   = Join-Path $repoRoot 'build/build-ib'
 
+# Продукт — тека з storage.json у корені репо; epf — за наявності epf/src.
+# Вшитого списку немає: kit обслуговує будь-який репозиторій цієї схеми.
 $products = if ($Product) { @($Product) } else {
-    @('BankExchange_SMB', 'BankExchange_SMBru', 'BankExchange_ACC', 'epf')
+    $found = @(Get-ChildItem -LiteralPath $repoRoot -Directory |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') } |
+        Sort-Object Name | Select-Object -ExpandProperty Name)
+    if (Test-Path -LiteralPath (Join-Path $repoRoot 'epf/src')) { $found += 'epf' }
+    if (-not $found) {
+        throw "У $repoRoot не знайдено жодного продукту: ні теки зі storage.json, ні epf/src."
+    }
+    $found
 }
 
 Write-Host "Збирати: $($products -join ', ')"
