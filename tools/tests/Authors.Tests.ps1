@@ -26,6 +26,43 @@ Describe 'Read-AuthorMap' {
     }
 }
 
+Describe 'Read-AuthorMap: дублікат ключа' {
+    It 'кидає виняток, коли той самий логін сховища має дві різні git-особи' {
+        # Реалістичний сценарій — AUTHORS-файли двох продуктів, злиті вручну при
+        # repo-migration (skills/repo-migration/SKILL.md, розділ 6): один і той самий
+        # логін сховища міг у різних продуктах отримати різне ім'я/пошту. Мовчазне
+        # $map[$key] = ... лишило б чинним лише останній рядок — версії цього
+        # користувача комітились би під випадковим із двох авторів.
+        $dupFile = Join-Path $TestDrive 'AUTHORS-conflict'
+        @(
+            'дубльований=Перша Особа <first@example.com>'
+            'дубльований=Друга Особа <second@example.com>'
+        ) | Set-Content -LiteralPath $dupFile -Encoding UTF8
+
+        $err = { Read-AuthorMap -Path $dupFile } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match 'дубльований'
+        $err.Exception.Message | Should -Match 'Перша Особа'
+        $err.Exception.Message | Should -Match 'first@example\.com'
+        $err.Exception.Message | Should -Match 'Друга Особа'
+        $err.Exception.Message | Should -Match 'second@example\.com'
+        $err.Exception.Message | Should -Match ([regex]::Escape($dupFile))
+    }
+
+    It 'не кидає виняток, коли дублікат рядка для ключа буквально той самий (злиття унікальних рядків)' {
+        # repo-migration радить обʼєднувати AUTHORS "унікальними рядками" — якщо той
+        # самий рядок трапився в обох файлах-джерелах, це не конфлікт, а звичайний
+        # дубль після злиття.
+        $sameFile = Join-Path $TestDrive 'AUTHORS-same'
+        @(
+            'однаковий=Та Сама Особа <same@example.com>'
+            'однаковий=Та Сама Особа <same@example.com>'
+        ) | Set-Content -LiteralPath $sameFile -Encoding UTF8
+
+        { Read-AuthorMap -Path $sameFile } | Should -Not -Throw
+        (Read-AuthorMap -Path $sameFile)['однаковий'].Email | Should -Be 'same@example.com'
+    }
+}
+
 Describe 'Resolve-Author' {
     It 'повертає git-автора для відомого користувача' {
         $map = Read-AuthorMap -Path $script:MapFile

@@ -18,10 +18,29 @@ function Read-AuthorMap {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
         if ($trimmed -match '^(?<key>.+?)=(?<name>.+?)\s*<(?<mail>[^>]+)>\s*$') {
-            $map[$Matches['key'].Trim()] = [pscustomobject]@{
+            $key = $Matches['key'].Trim()
+            $entry = [pscustomobject]@{
                 Name  = $Matches['name'].Trim()
                 Email = $Matches['mail'].Trim()
             }
+
+            # Мовчазне перезаписування ($map[$key] = ...) ховало б випадок, коли той самий
+            # логін сховища трапляється двічі з РІЗНИМИ git-особами — цілком реальний сценарій
+            # після злиття AUTHORS при міграції репозиторію (repo-migration тут же й радить
+            # користувачу таке злиття). Тоді кожна версія цього користувача комітилась би під
+            # тим, хто випадково опинився нижче у файлі — та сама категорія тихої помилки
+            # авторства, якій уже не дає статись Get-UnknownAuthors.
+            if ($map.ContainsKey($key)) {
+                $existing = $map[$key]
+                if ($existing.Name -ne $entry.Name -or $existing.Email -ne $entry.Email) {
+                    throw "Користувач сховища '$key' зустрічається в $Path більше одного разу з " +
+                          "різними git-особами: «$($existing.Name) <$($existing.Email)>» і " +
+                          "«$($entry.Name) <$($entry.Email)>». Залиште в файлі один правильний " +
+                          "рядок для цього логіна."
+                }
+            }
+
+            $map[$key] = $entry
         }
     }
     $map
