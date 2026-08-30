@@ -10,6 +10,9 @@ build/
 # Локальні перевизначення з підключеннями й логінами
 v8project.local.yaml
 
+# Стан редактора
+.vscode/
+
 # Побічні файли платформи
 ConfigDumpInfo.xml
 DumpFilesIndex.txt
