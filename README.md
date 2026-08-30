@@ -14,6 +14,7 @@
 - `skills/` — storage-pipeline (щоденний цикл), product-onboarding (новий продукт), repo-migration (міграція старого репо)
 - `templates/` — шаблони файлів репо-споживача (CLAUDE.md, .gitattributes, .gitignore, settings.json, storage.json)
 - `docs/` — архітектура контуру «сховище ↔ git»
+  - `docs/follow-ups.md` — свідомо припарковані знахідки аудиту й фінального рев'ю (junction/symlink, RepoRoot, MXL-обрив, тести, модульний probe)
 
 Скіли реєструються з префіксом плагіна: викликаються як `v8storagekit:storage-pipeline`,
 `v8storagekit:product-onboarding`, `v8storagekit:repo-migration` (не голим іменем зі
