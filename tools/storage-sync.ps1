@@ -228,13 +228,26 @@ foreach ($v in $pending) {
     $env:GIT_AUTHOR_DATE    = $stamp
     $env:GIT_COMMITTER_DATE = $stamp
     try {
-        git -C $repoRoot add -A -- $Product
+        # 2>&1 — щоб побачити й відфільтрувати стандартне попередження eol нижче, а не
+        # тому, що воно потрібне для перевірки коду виходу: $LASTEXITCODE відображає
+        # завершення "git add" незалежно від того, чи перехоплено його вивід.
+        $addOutput = git -C $repoRoot add -A -- $Product 2>&1
         # M4: без цієї перевірки провалений "git add" мовчки лишає джерела поза індексом, а
         # наступний "git commit --allow-empty" усе одно завершується успішно — порожній коміт,
         # що просуває lastSyncedVersion, лишаючи джерела цієї версії поза git. --allow-empty
         # нижче навмисний (сусідні версії сховища можуть дати однаковий дамп); тут же будь-який
         # ненульовий код — завжди помилка git, а не легітимний стан.
         if ($LASTEXITCODE -ne 0) { throw "git add завершився з кодом $LASTEXITCODE" }
+
+        # Фільтруємо, а не глушимо: "* text=auto eol=crlf" (.gitattributes) — свідома
+        # політика, яка лишається, і саме вона на кожному "git add" щойно вивантаженого
+        # Designer XML/BSL друкує ~16 рядків "warning: in the working copy of '…', LF
+        # will be replaced by CRLF the next time Git touches it". На реплеї довгого
+        # хвоста (десятки версій) це сотні рядків, під якими губляться "→ версія N" і
+        # підсумок унизу. Прибираємо лише цю відому форму попередження; будь-що інше в
+        # stderr "git add" — реальний сигнал і має лишитись видимим.
+        $crlfEolWarning = "^warning: in the working copy of '.+', (LF will be replaced by CRLF|CRLF will be replaced by LF) the next time Git touches it$"
+        $addOutput | Where-Object { $_ -notmatch $crlfEolWarning } | ForEach-Object { Write-Host $_ }
 
         # Дві сусідні версії сховища можуть дати побайтово однаковий дамп (версія змінила щось
         # поза XML-вивантаженням) — тоді "git commit" без --allow-empty впав би з ненульовим

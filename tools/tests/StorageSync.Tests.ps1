@@ -340,3 +340,69 @@ Describe 'storage-sync.ps1 -Apply: M4 — "git add" перевіряється �
         }
     }
 }
+
+Describe 'storage-sync.ps1 -Apply: фільтр попереджень CRLF/LF на "git add"' {
+    # Той самий регекс, що й у storage-sync.ps1 (рядок з $crlfEolWarning) — навмисно
+    # продубльований тут, а не імпортований: скрипт не модуль, і сам цикл по версіях
+    # (де стоїть фільтр) недосяжний без реальної платформи й сховища (той самий
+    # аргумент, що й у Describe M4 вище). Тест доводить дві речі порізно: перша It —
+    # що під реальною політикою ".gitattributes" ("* text=auto eol=crlf", яка й лишає
+    # цю поведінку) "git add" насправді видає попередження саме такої форми, а не
+    # вигаданої; друга It — що фільтр (сам regex) прибирає лише цю форму й пропускає
+    # будь-що інше, не перевіряючи його вміст.
+    BeforeAll {
+        # Regex-літерал, побайтово скопійований зі storage-sync.ps1 — якщо один зміниться
+        # без іншого, тест-намір (a) чи (b) нижче розійдеться з реальною поведінкою скрипту.
+        $script:CrlfEolWarning = "^warning: in the working copy of '.+', (LF will be replaced by CRLF|CRLF will be replaced by LF) the next time Git touches it$"
+    }
+
+    It 'реальний "git add" під політикою eol=crlf видає попередження саме цієї форми' {
+        $repo = Join-Path $TestDrive 'git-add-crlf-repo'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        git -C $repo init -q
+        git -C $repo config user.email 'test@example.invalid'
+        git -C $repo config user.name 'Test Bot'
+
+        Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Encoding UTF8 -Value '* text=auto eol=crlf'
+        # LF, без BOM — саме той стан робочої копії, на якому "* text=auto eol=crlf"
+        # друкує попередження на "git add" (докладніше — templates/gitattributes і
+        # docs/storage-and-git.md, сценарій "~900 файлів").
+        [System.IO.File]::WriteAllText((Join-Path $repo 'f.xml'), "<a/>`n<b/>`n", [System.Text.UTF8Encoding]::new($false))
+
+        $addOutput = git -C $repo add -A 2>&1
+        $LASTEXITCODE | Should -Be 0
+
+        $addOutput.Count | Should -BeGreaterThan 0
+        foreach ($line in $addOutput) {
+            $line.ToString() | Should -Match $script:CrlfEolWarning
+        }
+    }
+
+    It 'фільтр прибирає лише відому форму eol-попередження й лишає будь-що інше видимим' {
+        $repo = Join-Path $TestDrive 'git-add-crlf-repo-2'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        git -C $repo init -q
+        git -C $repo config user.email 'test@example.invalid'
+        git -C $repo config user.name 'Test Bot'
+
+        Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Encoding UTF8 -Value '* text=auto eol=crlf'
+        [System.IO.File]::WriteAllText((Join-Path $repo 'f.xml'), "<a/>`n<b/>`n", [System.Text.UTF8Encoding]::new($false))
+
+        $addOutput = git -C $repo add -A 2>&1
+        $LASTEXITCODE | Should -Be 0
+
+        # Непередбачене попередження, дописане поруч із реальним виводом "git add" —
+        # моделює те, чого сам regex не смів би прибрати.
+        $unexpected = 'warning: something totally unrelated happened'
+        $combined = @($addOutput) + @($unexpected)
+
+        # @(...) навколо Where-Object — інакше рівно один елемент, що лишився після
+        # фільтрації, розгортається PowerShell у скаляр (голий рядок), і "$kept[0]"
+        # індексує символи цього рядка, а не елемент колекції (той самий гачок, від
+        # якого storage-sync.ps1 захищається довкола "Select-Object -First" вище).
+        $kept = @($combined | Where-Object { $_.ToString() -notmatch $script:CrlfEolWarning })
+
+        $kept.Count | Should -Be 1
+        $kept[0].ToString() | Should -Be $unexpected
+    }
+}
