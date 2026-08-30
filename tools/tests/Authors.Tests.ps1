@@ -63,6 +63,47 @@ Describe 'Read-AuthorMap: дублікат ключа' {
     }
 }
 
+Describe 'Read-AuthorMap: злиті рядки без завершального порожнього рядка' {
+    It 'кидає виняток, коли останній рядок одного AUTHORS зливається з першим рядком іншого' {
+        # Реальний випадок: обидва AUTHORS, задіяні в пілотній міграції (SMP_BankExchange,
+        # SMP_SimplyConnect), закінчуються без завершального порожнього рядка. Якщо їх
+        # конкатенувати (repo-migration/SKILL.md, розділ 7, "обʼєднайте вручну"), останній
+        # рядок першого файлу й перший рядок другого стають ОДНИМ рядком — рядок нижче
+        # відтворює точні рядки з практики.
+        $fusedFile = Join-Path $TestDrive 'AUTHORS-fused'
+        Set-Content -LiteralPath $fusedFile -Encoding UTF8 -NoNewline -Value (
+            'Володимир Прудніков=PrudnikovV <Prudnikovv@ukr.net>' +
+            'AlpenPharma_UNF_work=PROBE PLACEHOLDER <probe@local>'
+        )
+
+        $err = { Read-AuthorMap -Path $fusedFile } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match 'Володимир Прудніков'
+        $err.Exception.Message | Should -Match 'PrudnikovV <Prudnikovv@ukr\.net>AlpenPharma_UNF_work=PROBE PLACEHOLDER'
+        $err.Exception.Message | Should -Match ([regex]::Escape($fusedFile))
+        $err.Exception.Message | Should -Match 'AUTHORS'
+        $err.Exception.Message | Should -Match 'порожн'
+    }
+
+    It 'далі читає звичайні записи — з дужками й кількома словами в імені — без хибних спрацювань' {
+        # Guard не повинен чіплятись за легітимні записи. Перевірено фактично на
+        # R:\github\SMP_BankExchange\AUTHORS і
+        # R:\github\SMP_SimplyConnect\SimplyConnect_SMB\AUTHORS: жодне справжнє імʼя не
+        # містить <, > чи =.
+        $realisticFile = Join-Path $TestDrive 'AUTHORS-realistic'
+        @(
+            "Володимир Сидоренко=Volodymyr Sydorenko <v.m.sydorenko@gmail.com>"
+            "Василь Прокоф'єв=evil beaver <va.prokophev@gmail.com>"
+            "Олександр (alexsvlight)=alexsvlight <alexsv2012@gmail.com>"
+        ) | Set-Content -LiteralPath $realisticFile -Encoding UTF8
+
+        $map = Read-AuthorMap -Path $realisticFile
+        $map.Count | Should -Be 3
+        $map['Володимир Сидоренко'].Name | Should -Be 'Volodymyr Sydorenko'
+        $map["Василь Прокоф'єв"].Name | Should -Be 'evil beaver'
+        $map['Олександр (alexsvlight)'].Name | Should -Be 'alexsvlight'
+    }
+}
+
 Describe 'Resolve-Author' {
     It 'повертає git-автора для відомого користувача' {
         $map = Read-AuthorMap -Path $script:MapFile
