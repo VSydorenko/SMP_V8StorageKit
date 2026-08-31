@@ -165,9 +165,35 @@ v8-runner.
 **Ціна цього розходження для нас уже сплачена:** коментар у `tools/build.ps1` донині
 стверджує, що `make` на Windows падає на публікації — узагальнення з `.epf` на `.cfe`,
 зроблене саме через застарілу прозу.
-**Форма рішення:** docs-PR, що вирівнює обидва файли на ADR-0074.
-**Зовнішня перевірка:** з `references/command-selection.md` і `project-workflows.md`
-зникають «fails closed» для applied-операцій.
+**Стан:** PR [#643](https://github.com/IngvarConsulting/unica/pull/643) подано 2026-08-31.
+Обсяг ширший, ніж два файли: те саме розходження сиділо в `SKILL.md` v8-runner, чотирьох
+його `references`, у `references/tooling/` і ще семи скілах — разом 17 файлів.
+**Зовнішня перевірка:** у `references/` не лишається жодного «fails closed» щодо applied
+`build`/`make`/`load`/`dump`/`launch`, а в `command-selection.md` з'являється таблиця
+кодів ризику по операціях.
+
+> **Не прочитати #643 ширше, ніж він є.** Два маршрути справді недоступні, і після влиття
+> PR хтось може вирішити, що вони відкрились. Вони не відкрились, і причина в них інша —
+> не класифікація ADR-0074, а окремі гарди: **асинхронний** full dump (`mod.rs:2550` —
+> межа фонового завдання не повертає private staged tree для перевірки 8.3.27/2.20) і
+> **dump для external source-set** (`full_dump_publication.rs:1841` — full dump підтримує
+> лише `CONFIGURATION` і `EXTENSION`). Для нас це означає, що `dump-config.ps1` лишається
+> потрібним незалежно від долі #643.
+>
+> Так само лишаються чинними ті `fail-closed`, яких PR свідомо не чіпав: гарди
+> встановлення платформи, `tools.platform.strict` і **заборона проводити
+> `DumpConfigToFiles`/`LoadConfigFromFiles` через `rawKeys`**. Останнє прямо стосується
+> нас: обхід Уніки для цих команд неможливий, і саме тому kit кличе платформу сам.
+
+**Таблиця кодів ризику** (з #643, знадобиться для попереджень користувачу перед
+застосовним викликом):
+
+| Операція | Код ризику |
+|---|---|
+| `init`, `build`, `load`, `test`, `extensions` | `runtime_risk_critical_non_abortable` |
+| `config-init`, `dump`, `convert`, `make`, `tools-download` | `runtime_risk_publication_without_bounded_recovery` |
+| `syntax` (designer/edt), `launch` із `waitForExit` | `runtime_risk_unproven_process_ownership` |
+| `launch` без `waitForExit` | `runtime_risk_detached_child` |
 
 ### B9. `git.text_resource_marked_binary` на `-text`
 
