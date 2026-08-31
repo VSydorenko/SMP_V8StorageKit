@@ -137,14 +137,43 @@ description: Підключити новий продукт (розширенн�
    builder: DESIGNER
    workPath: 'build'
    execution_timeout: 600000
+   infobase:
+     connection: 'File=build/ib'
    source-set:
      - name: base
        type: CONFIGURATION
        path: 'cf/src'
-     - name: <Продукт>
+     - name: <extensionName зі storage.json>
        type: EXTENSION
        path: 'cfe/src'
    ```
+
+   Два місця в цьому шаблоні неочевидні, і обидва були дефектами до 0.6.0.
+
+   **`infobase.connection` вказує на файлову базу під `build/`, а не на дев-базу.**
+   Це база воркспейсу Уніки — машинна, повністю похідна від git, яку можна викинути й
+   відтворити `operation=build`. Дев-база лишається людською: у ній працюють
+   Конфігуратором і комітять у сховище, і торкаються її лише `dump-config.ps1` і
+   `load-ext.ps1` на явне прохання. Без блоку `infobase:` підключення приходить із
+   `v8project.local.yaml`, і Уніка починає мутувати робочу базу людини.
+
+   **Ім'я EXTENSION-джерела мусить дорівнювати `extensionName` зі `storage.json`** —
+   імені розширення в 1С, а не імені теки продукту. Вони законно різні: тека
+   `SimplyConnect_SMBru`, розширення `SMP_SimplyConnect_SMBru`. Стороннiй v8-runner
+   виводить ім'я розширення з імені source-set, і при розбіжності `operation=make`
+   падає:
+
+       validation error: source-set 'SimplyConnect_SMBru' resolves to extension
+       'SimplyConnect_SMBru', expected 'SMP_SimplyConnect_SMBru'
+
+   Правила немає в документації Уніки — воно відоме лише з тексту помилки й
+   відстежується в `${CLAUDE_PLUGIN_ROOT}/docs/unica-contract.md`, B5-B6. Там же
+   записано, що `operation=make` окремо вимагає `--extension`, попри вже переданий
+   `--source-set`.
+
+   **Звірка перед комітом:** якщо `<Продукт>/cfe/src/Configuration.xml` уже існує, його
+   `<Name>` мусить дорівнювати `extensionName` зі `storage.json`. Розбіжність означає, що
+   один із двох файлів правили руками, і вона зламає і збірку, і синхронізацію.
 
 Нагадайте користувачу: `<Продукт>/v8project.local.yaml` (gitignored) — підключення
 дев-бази й логін — заповнюється руками окремо, цей скіл його не створює (немає звідки

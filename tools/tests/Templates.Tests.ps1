@@ -42,3 +42,26 @@ Describe 'templates/gitattributes — політика тексту' {
         $script:Lines | Should -Contain '*.gif binary'
     }
 }
+
+Describe 'product-onboarding — шаблон v8project.yaml' {
+    BeforeAll {
+        $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
+            Resolve-Path "$PSScriptRoot/../../skills/product-onboarding/SKILL.md").Path
+    }
+
+    It 'шаблон оголошує власну базу воркспейсу' {
+        # Без цього блоку infobase.connection приходить з v8project.local.yaml і
+        # вказує на серверну дев-базу - тобто Уніка мутує базу, де людина працює
+        # Конфігуратором. Це і була першопричина всього розбору.
+        $script:Skill | Should -Match "(?m)^\s*infobase:\s*$"
+        $script:Skill | Should -Match "connection:\s*'File=build/ib'"
+    }
+
+    It 'імʼя EXTENSION-джерела береться з extensionName, а не з імені теки' {
+        # v8-runner виводить імʼя розширення з імені source-set. Якщо там імʼя теки
+        # продукту, operation=make падає на валідації:
+        #   source-set 'X' resolves to extension 'X', expected 'SMP_X'
+        $script:Skill | Should -Not -Match "(?m)^\s*-\s*name:\s*<Продукт>\s*$"
+        $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<extensionName зі storage\.json>\s*$"
+    }
+}
