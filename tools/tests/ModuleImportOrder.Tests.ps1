@@ -1,6 +1,6 @@
 #Requires -Version 7
 # Регресія на дефект вкладеного Import-Module -Force: storage-sync.ps1 імпортує
-# PathSafety, V8, StorageReport, Authors, SyncState по черзі в такому самому порядку і
+# RepoRoot, PathSafety, V8, StorageReport, Authors, SyncState, GitOutput по черзі в такому самому порядку і
 # потім з власної (глобальної) області викликає функції з кожного з них напряму —
 # New-ExtensionInfobase, Invoke-V8Designer, Assert-SafeWorkPath тощо. tools/lib/
 # StorageReport.psm1 сам усередині себе робить "Import-Module V8.psm1 -Force"; викликаний

@@ -113,7 +113,11 @@ description: Підключити новий продукт (розширенн�
 
    `storagePath` — з відповіді користувача, зі здвоєними зворотними скісними рисками
    (це рядок у JSON, не YAML). `sourcePath` лишайте `cfe/src`, якщо немає причини
-   інакше — саме туди `storage-sync.ps1` вивантажує Designer XML.
+   інакше — саме туди `storage-sync.ps1` вивантажує Designer XML. Якщо `sourcePath`
+   таки змінюють — політика тексту `.gitattributes` kit (`-text`) прив'язана до шляхів
+   `**/cfe/src/**`/`**/epf/src/**`, а не до розширень файлів, тож новий шлях треба
+   додати туди самому — інакше захист від псування підказок форм мовчки зникає, і
+   `git status` цього не покаже. Деталі — `${CLAUDE_PLUGIN_ROOT}/docs/text-policy.md`.
 3. **`<Продукт>/cf/README.md`** — мінімум, який справді потрібен, це один рядок:
 
    ```
@@ -159,7 +163,7 @@ description: Підключити новий продукт (розширенн�
 
    **Ім'я EXTENSION-джерела мусить дорівнювати `extensionName` зі `storage.json`** —
    імені розширення в 1С, а не імені теки продукту. Вони законно різні: тека
-   `SimplyConnect_SMBru`, розширення `SMP_SimplyConnect_SMBru`. Стороннiй v8-runner
+   `SimplyConnect_SMBru`, розширення `SMP_SimplyConnect_SMBru`. Сторонній v8-runner
    виводить ім'я розширення з імені source-set, і при розбіжності `operation=make`
    падає:
 

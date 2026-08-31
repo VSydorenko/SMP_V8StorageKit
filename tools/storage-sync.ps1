@@ -32,6 +32,32 @@ Import-Module (Join-Path $PSScriptRoot 'lib/Authors.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/GitOutput.psm1') -Force
 
+function Get-UkrainianPluralForm {
+    <#
+    .SYNOPSIS
+        Обирає українську форму слова за числівником (стандартне правило n%10/n%100).
+    .DESCRIPTION
+        Українська має три форми множини: 1 (але не 11) — форма "One"; 2-4 (крім 12-14)
+        — форма "Few"; 0, 5-9, 11-14 і решта — форма "Many". Малий інлайн-хелпер, не
+        окремий модуль — потрібен лише тут, для одного попереджувального повідомлення.
+    .EXAMPLE
+        Get-UkrainianPluralForm -Count 1 -One 'попередження' -Few 'попередження' -Many 'попереджень'
+    #>
+    param(
+        [Parameter(Mandatory)][int]$Count,
+        [Parameter(Mandatory)][string]$One,
+        [Parameter(Mandatory)][string]$Few,
+        [Parameter(Mandatory)][string]$Many
+    )
+    $mod100 = $Count % 100
+    if ($mod100 -ge 11 -and $mod100 -le 14) { return $Many }
+    switch ($Count % 10) {
+        1       { return $One }
+        { $_ -ge 2 -and $_ -le 4 } { return $Few }
+        default { return $Many }
+    }
+}
+
 $productPath = Join-Path $repoRoot $Product
 if (-not (Test-Path -LiteralPath $productPath)) {
     throw "Продукт '$Product' не знайдено в $repoRoot"
@@ -248,9 +274,12 @@ foreach ($v in $pending) {
         $addNoise = Split-GitEolNoise -Line $addOutput
         $addNoise.Kept | ForEach-Object { Write-Host $_ }
         if ($addNoise.Suppressed -gt 0) {
-            Write-Host ("  Приховано {0} попереджень git про конверсію кінців рядків." -f `
-                $addNoise.Suppressed) -ForegroundColor Yellow
-            Write-Host '  Під чинною політикою .gitattributes їх не має бути — див. docs/text-policy.md.' `
+            $warningWord = Get-UkrainianPluralForm -Count $addNoise.Suppressed `
+                -One 'попередження' -Few 'попередження' -Many 'попереджень'
+            Write-Host ("  Приховано {0} {1} git про конверсію кінців рядків." -f `
+                $addNoise.Suppressed, $warningWord) -ForegroundColor Yellow
+            Write-Host ('  Під чинною політикою .gitattributes їх не має бути — див. docs/text-policy.md ' +
+                'у плагіні v8storagekit (корінь плагіна показує команда /plugin).') `
                 -ForegroundColor Yellow
         }
 

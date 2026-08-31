@@ -351,11 +351,11 @@ Describe 'storage-sync.ps1 -Apply: фільтр попереджень CRLF/LF �
     # Копія нижче лишається свідомо, але вона більше не дзеркалить storage-sync.ps1 і
     # нічого не охороняє: якщо зразок у модулі зміниться, ці два тести й далі
     # проходитимуть проти застарілої копії. Це відомий і прийнятий борг, а не запобіжник.
-    # Тест доводить дві речі порізно: перша It — що під реальною політикою
-    # ".gitattributes" ("* text=auto eol=crlf", яка й лишає цю поведінку) "git add"
-    # насправді видає попередження саме такої форми, а не вигаданої; друга It — що
-    # фільтр (сам regex) прибирає лише цю форму й пропускає будь-що інше, не перевіряючи
-    # його вміст.
+    # Тест доводить дві речі порізно: перша It — що під колишньою політикою
+    # ".gitattributes" ("* text=auto eol=crlf" — уже не чинна; templates/gitattributes
+    # тепер несе "-text", docs/text-policy.md) "git add" насправді видає попередження
+    # саме такої форми, а не вигаданої; друга It — що фільтр (сам regex) прибирає лише
+    # цю форму й пропускає будь-що інше, не перевіряючи його вміст.
     BeforeAll {
         # Regex-літерал — свідома локальна копія, не імпорт. Зразок, з яким вона мала б
         # звірятись, раніше жив у storage-sync.ps1, тепер живе в tools/lib/GitOutput.psm1
@@ -374,8 +374,10 @@ Describe 'storage-sync.ps1 -Apply: фільтр попереджень CRLF/LF �
 
         Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Encoding UTF8 -Value '* text=auto eol=crlf'
         # LF, без BOM — саме той стан робочої копії, на якому "* text=auto eol=crlf"
-        # друкує попередження на "git add" (докладніше — templates/gitattributes і
-        # docs/storage-and-git.md, сценарій "~900 файлів").
+        # друкує попередження на "git add". Це значення вже не чинна політика kit
+        # (templates/gitattributes тепер несе "-text", докладніше — docs/text-policy.md);
+        # тут воно свідомо синтетичне — щоб відтворити форму попередження. Сценарій
+        # "~900 файлів", заради якого колись обрали eol=crlf, — docs/storage-and-git.md.
         [System.IO.File]::WriteAllText((Join-Path $repo 'f.xml'), "<a/>`n<b/>`n", [System.Text.UTF8Encoding]::new($false))
 
         $addOutput = git -C $repo add -A 2>&1
