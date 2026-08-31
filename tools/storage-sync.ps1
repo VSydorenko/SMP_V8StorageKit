@@ -30,6 +30,7 @@ Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/StorageReport.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/Authors.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/GitOutput.psm1') -Force
 
 $productPath = Join-Path $repoRoot $Product
 if (-not (Test-Path -LiteralPath $productPath)) {
@@ -239,15 +240,19 @@ foreach ($v in $pending) {
         # ненульовий код — завжди помилка git, а не легітимний стан.
         if ($LASTEXITCODE -ne 0) { throw "git add завершився з кодом $LASTEXITCODE" }
 
-        # Фільтруємо, а не глушимо: "* text=auto eol=crlf" (.gitattributes) — свідома
-        # політика, яка лишається, і саме вона на кожному "git add" щойно вивантаженого
-        # Designer XML/BSL друкує ~16 рядків "warning: in the working copy of '…', LF
-        # will be replaced by CRLF the next time Git touches it". На реплеї довгого
-        # хвоста (десятки версій) це сотні рядків, під якими губляться "→ версія N" і
-        # підсумок унизу. Прибираємо лише цю відому форму попередження; будь-що інше в
-        # stderr "git add" — реальний сигнал і має лишитись видимим.
-        $crlfEolWarning = "^warning: in the working copy of '.+', (LF will be replaced by CRLF|CRLF will be replaced by LF) the next time Git touches it$"
-        $addOutput | Where-Object { $_ -notmatch $crlfEolWarning } | ForEach-Object { Write-Host $_ }
+        # Фільтруємо з лічильником, а не глушимо. Під чинною політикою
+        # (.gitattributes: -text на деревах, які пише платформа) цих попереджень тут
+        # не має бути взагалі — тому їхня поява це сигнал, що політику в репозиторії
+        # зламано або ще не мігровано, а не шум. Обґрунтування й процедура міграції —
+        # docs/text-policy.md у плагіні.
+        $addNoise = Split-GitEolNoise -Line $addOutput
+        $addNoise.Kept | ForEach-Object { Write-Host $_ }
+        if ($addNoise.Suppressed -gt 0) {
+            Write-Host ("  Приховано {0} попереджень git про конверсію кінців рядків." -f `
+                $addNoise.Suppressed) -ForegroundColor Yellow
+            Write-Host '  Під чинною політикою .gitattributes їх не має бути — див. docs/text-policy.md.' `
+                -ForegroundColor Yellow
+        }
 
         # Дві сусідні версії сховища можуть дати побайтово однаковий дамп (версія змінила щось
         # поза XML-вивантаженням) — тоді "git commit" без --allow-empty впав би з ненульовим
