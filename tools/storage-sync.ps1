@@ -30,6 +30,33 @@ Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/StorageReport.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/Authors.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/GitOutput.psm1') -Force
+
+function Get-UkrainianPluralForm {
+    <#
+    .SYNOPSIS
+        Обирає українську форму слова за числівником (стандартне правило n%10/n%100).
+    .DESCRIPTION
+        Українська має три форми множини: 1 (але не 11) — форма "One"; 2-4 (крім 12-14)
+        — форма "Few"; 0, 5-9, 11-14 і решта — форма "Many". Малий інлайн-хелпер, не
+        окремий модуль — потрібен лише тут, для одного попереджувального повідомлення.
+    .EXAMPLE
+        Get-UkrainianPluralForm -Count 1 -One 'попередження' -Few 'попередження' -Many 'попереджень'
+    #>
+    param(
+        [Parameter(Mandatory)][int]$Count,
+        [Parameter(Mandatory)][string]$One,
+        [Parameter(Mandatory)][string]$Few,
+        [Parameter(Mandatory)][string]$Many
+    )
+    $mod100 = $Count % 100
+    if ($mod100 -ge 11 -and $mod100 -le 14) { return $Many }
+    switch ($Count % 10) {
+        1       { return $One }
+        { $_ -ge 2 -and $_ -le 4 } { return $Few }
+        default { return $Many }
+    }
+}
 
 $productPath = Join-Path $repoRoot $Product
 if (-not (Test-Path -LiteralPath $productPath)) {
@@ -59,6 +86,30 @@ Write-Host "Продукт:    $Product"
 Write-Host "Розширення: $($state.ExtensionName)"
 Write-Host "Сховище:    $($state.StoragePath)"
 Write-Host "Залито:     версія $($state.LastSyncedVersion)"
+
+# Попередження, а не зупинка: репозиторій із нетиповим sourcePath працює, просто його
+# вихідники git конвертуватиме на кожному checkout — і побачити це можна лише
+# round-trip'ом через платформу, бо "git status" при цьому чистий завжди. Перевірка
+# питає сам git (правило -text прив'язане до шляху, а sourcePath конфігурований), тож
+# ловить і випадок, коли шаблон роздали, а sourcePath у продукті інший.
+#
+# try/catch навмисний: це попередження, а не запобіжник. Якщо git не може відповісти
+# (пошкоджений індекс, недочитане репо), то це проблема, яку мусять повідомити справжні
+# перевірки нижче — своїм точним текстом. Помилка цієї перевірки не повинна їх
+# перехоплювати й підміняти діагноз.
+$textPolicyOk = $true
+try { $textPolicyOk = Test-GitTextPolicy -RepoRoot $repoRoot -Path (Join-Path $Product $state.SourcePath) }
+catch { $textPolicyOk = $true }
+
+if (-not $textPolicyOk) {
+    Write-Host ''
+    Write-Host "УВАГА: '$Product/$($state.SourcePath)' не виведено з-під конверсії кінців рядків." `
+        -ForegroundColor Yellow
+    Write-Host '  Платформа пише кінці рядків змішано в межах файлу, і git зіпсує текстові' -ForegroundColor Yellow
+    Write-Host '  значення на кожному checkout. Додайте в .gitattributes правило' -ForegroundColor Yellow
+    Write-Host "  '**/$($state.SourcePath)/** -text' і виконайте міграцію — docs/text-policy.md." -ForegroundColor Yellow
+    Write-Host ''
+}
 
 if ($Apply) {
     # Запобіжник: якщо попередній прогін -Apply перервався між видаленням $sourceDir і його
@@ -239,15 +290,22 @@ foreach ($v in $pending) {
         # ненульовий код — завжди помилка git, а не легітимний стан.
         if ($LASTEXITCODE -ne 0) { throw "git add завершився з кодом $LASTEXITCODE" }
 
-        # Фільтруємо, а не глушимо: "* text=auto eol=crlf" (.gitattributes) — свідома
-        # політика, яка лишається, і саме вона на кожному "git add" щойно вивантаженого
-        # Designer XML/BSL друкує ~16 рядків "warning: in the working copy of '…', LF
-        # will be replaced by CRLF the next time Git touches it". На реплеї довгого
-        # хвоста (десятки версій) це сотні рядків, під якими губляться "→ версія N" і
-        # підсумок унизу. Прибираємо лише цю відому форму попередження; будь-що інше в
-        # stderr "git add" — реальний сигнал і має лишитись видимим.
-        $crlfEolWarning = "^warning: in the working copy of '.+', (LF will be replaced by CRLF|CRLF will be replaced by LF) the next time Git touches it$"
-        $addOutput | Where-Object { $_ -notmatch $crlfEolWarning } | ForEach-Object { Write-Host $_ }
+        # Фільтруємо з лічильником, а не глушимо. Під чинною політикою
+        # (.gitattributes: -text на деревах, які пише платформа) цих попереджень тут
+        # не має бути взагалі — тому їхня поява це сигнал, що політику в репозиторії
+        # зламано або ще не мігровано, а не шум. Обґрунтування й процедура міграції —
+        # docs/text-policy.md у плагіні.
+        $addNoise = Split-GitEolNoise -Line $addOutput
+        $addNoise.Kept | ForEach-Object { Write-Host $_ }
+        if ($addNoise.Suppressed -gt 0) {
+            $warningWord = Get-UkrainianPluralForm -Count $addNoise.Suppressed `
+                -One 'попередження' -Few 'попередження' -Many 'попереджень'
+            Write-Host ("  Приховано {0} {1} git про конверсію кінців рядків." -f `
+                $addNoise.Suppressed, $warningWord) -ForegroundColor Yellow
+            Write-Host ('  Під чинною політикою .gitattributes їх не має бути — див. docs/text-policy.md ' +
+                'у плагіні v8storagekit (корінь плагіна показує команда /plugin).') `
+                -ForegroundColor Yellow
+        }
 
         # Дві сусідні версії сховища можуть дати побайтово однаковий дамп (версія змінила щось
         # поза XML-вивантаженням) — тоді "git commit" без --allow-empty впав би з ненульовим

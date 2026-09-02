@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Допоміжний скрипт для ModuleImportOrder.Tests.ps1. Імпортує шість lib-модулів
+    Допоміжний скрипт для ModuleImportOrder.Tests.ps1. Імпортує сім lib-модулів
     точно в тому порядку, в якому це робить tools/storage-sync.ps1, і для кожної
     переданої команди друкує "Ім'я=True" або "Ім'я=False" залежно від того, чи
     видно її в глобальній області після всіх імпортів.
@@ -23,6 +23,7 @@ Import-Module (Join-Path $LibDir 'V8.psm1') -Force
 Import-Module (Join-Path $LibDir 'StorageReport.psm1') -Force
 Import-Module (Join-Path $LibDir 'Authors.psm1') -Force
 Import-Module (Join-Path $LibDir 'SyncState.psm1') -Force
+Import-Module (Join-Path $LibDir 'GitOutput.psm1') -Force
 
 foreach ($name in ($CommandsCsv -split ',')) {
     $found = [bool](Get-Command -Name $name -ErrorAction SilentlyContinue)

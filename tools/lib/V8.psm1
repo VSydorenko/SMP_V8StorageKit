@@ -57,6 +57,29 @@ function ConvertTo-V8IbSwitch {
 }
 
 function Read-V8LocalConnection {
+    <#
+    .SYNOPSIS
+        Підключення до дев-бази з v8project.local.yaml.
+    .DESCRIPTION
+        Файл спільний з Унікою, і це джерело неоднозначності, яку функція мусить
+        ловити, а не переживати мовчки.
+
+        Уніка автоматично підхоплює v8project.local.yaml поруч із головним конфігом і
+        ПЕРЕКРИВАЄ ним блок infobase: (`references/tooling/v8project.md` у плагіні
+        unica: «may override local-only workPath, infobase, tools, tests, and mcp
+        settings»). Тому дев-база, оголошена тут під `infobase:`, скасовує машинну базу
+        воркспейсу з закоміченого v8project.yaml — і зміна, заради якої той блок туди
+        додали, стає інертною.
+
+        Тому конвенція kit: у v8project.local.yaml дев-база живе під `devInfobase:`,
+        якого Уніка не читає, а `infobase:` там не з'являється взагалі.
+
+        Друга частина ризику — наша власна. Регекс нижче не прив'язаний до
+        батьківського ключа й ловить будь-який рядок `connection:`, а `-match`
+        повертає ПЕРШИЙ збіг. Файл із двома підключеннями дав би dump-config.ps1
+        помітне падіння, а load-ext.ps1 — тихе розкочування розширення не в ту базу.
+        Обидві форми неоднозначності зупиняють роботу тут, з поясненням.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
 
@@ -65,6 +88,20 @@ function Read-V8LocalConnection {
     }
 
     $local = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+
+    $connectionCount = ([regex]::Matches($local, "(?m)^\s*connection:\s*'.+?'\s*$")).Count
+    if ($connectionCount -gt 1) {
+        throw "У $Path знайдено $connectionCount рядків connection: — неоднозначність. " +
+              "Kit бере перший збіг, і це може виявитись не та база. Лишіть рівно одне " +
+              "підключення, до дев-бази, під ключем devInfobase:."
+    }
+
+    if ($local -match "(?m)^\s*infobase:\s*$") {
+        throw "У $Path є блок infobase: — приберіть його. Уніка перекриває ним машинну " +
+              "базу воркспейсу з v8project.yaml, і та настройка стає інертною. " +
+              "Підключення до дев-бази має жити під devInfobase:."
+    }
+
     if ($local -notmatch "(?m)^\s*connection:\s*'(?<c>.+?)'\s*$") {
         throw "У $Path немає рядка connection: '...'"
     }
