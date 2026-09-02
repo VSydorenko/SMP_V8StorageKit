@@ -42,4 +42,43 @@ function Split-GitEolNoise {
     }
 }
 
-Export-ModuleMember -Function Split-GitEolNoise
+function Test-GitTextPolicy {
+    <#
+    .SYNOPSIS
+        Чи виведено дерево вихідників з-під конверсії кінців рядків (-text).
+    .DESCRIPTION
+        Правило `-text` у .gitattributes прив'язане до ШЛЯХУ (`**/cfe/src/**`), а
+        sourcePath у storage.json — конфігурований. У репозиторії з нетиповим
+        sourcePath вихідники лишаються під загальним `* text=auto`, git знову
+        конвертує їх на checkout, і дефект, заради якого політику й міняли, тихо
+        повертається. `git status` при цьому чистий завжди — побачити це можна лише
+        round-trip'ом через платформу (docs/text-policy.md).
+
+        Перевірка питає САМ git, а не розбирає .gitattributes: `git check-attr`
+        застосовує ту саму логіку пріоритетів правил, що й checkout, включно з
+        порядком рядків і перекриттям. Відповідь `text: unset` означає, що діє `-text`.
+
+        Шлях може ще не існувати — check-attr працює з правилами, не з файлами.
+    .EXAMPLE
+        if (-not (Test-GitTextPolicy -RepoRoot $repoRoot -Path 'Продукт/cfe/src')) { ... }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    # Довільне ім'я файлу під теками: правила виду "**/cfe/src/**" збігаються з
+    # вмістом теки, а не з нею самою, тож питати треба про файл усередині.
+    $probe = ($Path -replace '\\', '/').TrimEnd('/') + '/Configuration.xml'
+
+    $out = git -C $RepoRoot check-attr text -- $probe 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "git check-attr завершився з кодом ${LASTEXITCODE}: $out"
+    }
+
+    # Формат відповіді: "<шлях>: text: <значення>"
+    [bool]($out -match ':\s*text:\s*unset\s*$')
+}
+
+Export-ModuleMember -Function Split-GitEolNoise, Test-GitTextPolicy

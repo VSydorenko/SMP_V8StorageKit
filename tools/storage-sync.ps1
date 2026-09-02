@@ -87,6 +87,30 @@ Write-Host "Розширення: $($state.ExtensionName)"
 Write-Host "Сховище:    $($state.StoragePath)"
 Write-Host "Залито:     версія $($state.LastSyncedVersion)"
 
+# Попередження, а не зупинка: репозиторій із нетиповим sourcePath працює, просто його
+# вихідники git конвертуватиме на кожному checkout — і побачити це можна лише
+# round-trip'ом через платформу, бо "git status" при цьому чистий завжди. Перевірка
+# питає сам git (правило -text прив'язане до шляху, а sourcePath конфігурований), тож
+# ловить і випадок, коли шаблон роздали, а sourcePath у продукті інший.
+#
+# try/catch навмисний: це попередження, а не запобіжник. Якщо git не може відповісти
+# (пошкоджений індекс, недочитане репо), то це проблема, яку мусять повідомити справжні
+# перевірки нижче — своїм точним текстом. Помилка цієї перевірки не повинна їх
+# перехоплювати й підміняти діагноз.
+$textPolicyOk = $true
+try { $textPolicyOk = Test-GitTextPolicy -RepoRoot $repoRoot -Path (Join-Path $Product $state.SourcePath) }
+catch { $textPolicyOk = $true }
+
+if (-not $textPolicyOk) {
+    Write-Host ''
+    Write-Host "УВАГА: '$Product/$($state.SourcePath)' не виведено з-під конверсії кінців рядків." `
+        -ForegroundColor Yellow
+    Write-Host '  Платформа пише кінці рядків змішано в межах файлу, і git зіпсує текстові' -ForegroundColor Yellow
+    Write-Host '  значення на кожному checkout. Додайте в .gitattributes правило' -ForegroundColor Yellow
+    Write-Host "  '**/$($state.SourcePath)/** -text' і виконайте міграцію — docs/text-policy.md." -ForegroundColor Yellow
+    Write-Host ''
+}
+
 if ($Apply) {
     # Запобіжник: якщо попередній прогін -Apply перервався між видаленням $sourceDir і його
     # повторним наповненням (або між комітом і оновленням storage.json), робоча копія лишається

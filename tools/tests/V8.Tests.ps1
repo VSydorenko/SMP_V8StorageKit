@@ -40,7 +40,7 @@ Describe 'Read-V8LocalConnection' {
         # 'c' у $Matches до того моменту вже перезаписана групою 'u'. Значення тут навмисно
         # різні й неспівпадаючі за формою, щоб таку підміну неможливо було не помітити.
         Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
+            'devInfobase:'
             "  connection: 'Srvr=""SRV01"";Ref=""DEMO_BASE"";'"
             "  user: 'probe-user'"
         )
@@ -58,7 +58,7 @@ Describe 'Read-V8LocalConnection' {
 
     It 'кидає виняток, якщо рядка connection: немає' {
         Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
+            'devInfobase:'
             "  user: 'probe-user'"
         )
 
@@ -67,7 +67,7 @@ Describe 'Read-V8LocalConnection' {
 
     It 'кидає виняток, якщо рядок connection: не збігається з очікуваним форматом' {
         Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
+            'devInfobase:'
             '  connection: без лапок'
         )
 
@@ -76,7 +76,7 @@ Describe 'Read-V8LocalConnection' {
 
     It 'повертає порожній User, якщо рядка user: немає — не кидає виняток' {
         Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
+            'devInfobase:'
             "  connection: 'File=""C:\bases\demo"";'"
         )
 
@@ -180,5 +180,47 @@ Describe 'New-ExtensionInfobase' -Tag 'Integration' {
         $resMissing = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments @(
             '/DumpConfigToFiles "{0}" -Extension NEVER_CREATED' -f $dumpMissing)
         $resMissing.ExitCode | Should -Not -Be 0
+    }
+}
+
+Describe 'Read-V8LocalConnection: неоднозначність у v8project.local.yaml' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+    }
+
+    It 'читає підключення під devInfobase: — конвенція kit після 0.6.0' {
+        $f = Join-Path $TestDrive 'ok.yaml'
+        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
+            'devInfobase:'
+            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
+            "  user: 'Адміністратор'"
+        )
+        $r = Read-V8LocalConnection -Path $f
+        $r.Connection | Should -Be 'Srvr="VSDATA";Ref="DEV";'
+        $r.User       | Should -Be 'Адміністратор'
+    }
+
+    It 'зупиняється на двох рядках connection:' {
+        # Регекс не прив'язаний до батьківського ключа й бере ПЕРШИЙ збіг: файл із двома
+        # підключеннями дав би load-ext.ps1 тихе розкочування розширення не в ту базу.
+        $f = Join-Path $TestDrive 'two.yaml'
+        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
+            'devInfobase:'
+            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
+            'other:'
+            "  connection: 'File=build/ib'"
+        )
+        { Read-V8LocalConnection -Path $f } | Should -Throw -ExpectedMessage '*неоднозначність*'
+    }
+
+    It 'зупиняється на блоці infobase:, який перекриває базу воркспейсу' {
+        # Уніка перекриває local overlay-ем infobase: із закоміченого v8project.yaml,
+        # тому дев-база під цим ключем робить машинну базу воркспейсу інертною.
+        $f = Join-Path $TestDrive 'override.yaml'
+        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
+            'infobase:'
+            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
+        )
+        { Read-V8LocalConnection -Path $f } | Should -Throw -ExpectedMessage '*devInfobase*'
     }
 }

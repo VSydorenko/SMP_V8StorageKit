@@ -33,6 +33,22 @@
 | A3 | `v8project.yaml`: `infobase.connection` + два source-set-и (`CONFIGURATION` → `cf/src`, `EXTENSION` → `cfe/src`) | `product-onboarding` | `unica.project.status` → `ready: true`, обидва набори видно в `project.map` |
 | A4 | `cfe.borrow` / `cfe.diff` / `cfe.validate` потребують вивантаженої конфігурації-власника | `dump-config.ps1` існує заради цього | `cfe.diff` без `cf/src` неповноцінний |
 | A5 | Applied-операції класифіковані (ADR-0074) і **виконуються** з названим ризиком | увесь новий потік збірки | див. B8 — проза в `references/` цьому суперечить |
+| A6 | `v8project.local.yaml` **перекриває** `infobase` із закоміченого `v8project.yaml` | через це дев-база не може лежати під `infobase:` — конвенція kit `devInfobase:` | покласти `infobase.connection` в local overlay і подивитись, яка база виграла в `dryRun`-прев'ю |
+| A7 | Відносні шляхи (`workPath`, **infobase file paths**, source-set) розв'язуються від каталогу головного конфіга | `connection: 'File=build/ib'` дає `<Продукт>/build/ib` | `dryRun`-прев'ю показує абсолютний шлях бази |
+
+**A6 докладніше**, бо на ньому побудована конвенція `devInfobase:`. Документація каже це
+у трьох місцях: `references/tooling/v8project.md:75-78` («may override local-only
+`workPath`, **`infobase`**, `tools`, `tests`, and `mcp` settings»),
+`skills/v8-runner/SKILL.md:218` і `references/config-and-backends.md:25`. Підтверджено
+не лише прозою: у `v8-runner.exe` є `LocalOverlayConfigSchema`/`PartialInfobaseSchema` і
+рядок «local config overlay cannot override project identity key», де identity — це
+`format`/`builder`/`source-set`/`execution_timeout`, а `infobase` до них **не** належить.
+
+Наслідок, який коштував нам одного циклу: блок `infobase:` у закоміченому
+`v8project.yaml` **інертний** доти, доки в local overlay лежить свій. Саме тому
+`Read-V8LocalConnection` тепер зупиняється, побачивши там `infobase:`.
+
+**A7 джерело:** `references/tooling/v8project.md:61-63`.
 
 Окремо: **kit не запускає Уніку сам.** Її викликає агент за скілом `storage-pipeline`, і
 `templates/settings.json` навмисно **не** дозволяє `unica_runtime_execute` — застосовна
@@ -321,3 +337,36 @@ v8-runner.
 **Коли з'являється нова знахідка** — записувати сюди одразу, з тими самими чотирма
 полями: кому належить, стан, форма рішення, зовнішня перевірка. Без четвертого поля запис
 марний: він не дає перевірити, чи щось змінилось.
+
+---
+
+## F. Що готує v0.13 — заплановане, не аварія
+
+Станом на 2026-09-02 останній **реліз** — 0.12.3 (19 серпня). Але `main` в апстрімі на
+**256 комітів** попереду цього тегу, і це не накопичені фікси, а переписування на v0.13.
+Плагін у кеші лишається 0.12.3, тож на нас це поки не діє — але подіє одномоментно, у
+день релізу.
+
+Розділ існує, щоб той день не був сюрпризом. Перевіряти його треба **до** оновлення, а
+не після.
+
+| Що змінюється | Звідки відомо | Що ламає в нас |
+|---|---|---|
+| Поверхня ріжеться до **8 інструментів / 11 режимів**, legacy зникає | `docs/design/2026-08-28-v0-13-completion-wavefront-design.md`: «RC публикует ровно 8/11, legacy surface отсутствует» | **`templates/settings.json`** дозволяє ~35 інструментів **поіменно**. Більшість імен зникне: дозволи стануть мертвими, а споживач отримає запит на кожен виклик |
+| Нові імена: `unica.view`, `unica.find`, `unica.check`, `unica.diff`, `unica.apply`, `unica.task.*`, `unica.docs`, `unica.meta.*` | коміти `feat(v13): cut over to canonical 8/11 surface`, `feat(mcp): bootstrap workspace through unica.view` | усі згадки старих імен у скілах і в цьому документі |
+| `unica.project.map` виводиться з обігу | `fix(skills): remove retired project-map placeholders` | перевірка **A3** цього документа; згадки в `product-onboarding` і в ранбуку користувача |
+| `unica.template.*` і `unica.help.add` розчиняються в `meta.edit` | ADR-0072 | у конвеєрі не використовуються — до відома |
+| Змінюється контракт `dryRun` | ADR-0073, `feat(mutations): ядро dryRun-контракта` | правило «`dryRun:false` лише на явне прохання» в `storage-pipeline` треба звірити з новим контрактом |
+| Новий рантайм: демон, довговічні завдання, реєстр квитанцій | `feat(daemon)`, `feat(tasks)`, `feat(v13): add receipt actor` | довгі операції (`build` на УНФ) можуть вимагати іншого способу запуску |
+| Автовиявлення source-set із одного каталогу розкладок | ADR-0074, `fix(source-discovery)` | може закрити **B5-B6** саме собою — перевірити першим |
+
+**Головна робота, яку це створить:** `templates/settings.json` доведеться переписати під
+нову поверхню. Це роздаваний артефакт, тож зміна поїде до всіх споживачів і потребує
+бампу версії.
+
+**Чого робити не треба зараз:** цілитись у неопублікований v0.13. Наш 0.6.0 правильний
+проти 0.12.3 — версії, яку реально запускають усі. Переписувати під `main`, який ще
+рухається, означало б гадати.
+
+**Ознака, що день настав:** `claude plugin update unica@unica` повертає версію ≥ 0.13.
+Тоді — процедура E, і цей розділ разом із нею.

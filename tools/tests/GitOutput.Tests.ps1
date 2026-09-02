@@ -43,3 +43,45 @@ Describe 'Split-GitEolNoise' {
         $result.Kept | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Test-GitTextPolicy' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/GitOutput.psm1").Path -Force
+    }
+
+    BeforeEach {
+        $script:Repo = Join-Path $TestDrive ("attr-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Repo -Force | Out-Null
+        git -C $script:Repo init -q
+    }
+
+    It 'бачить -text на типовому cfe/src' {
+        Set-Content -LiteralPath (Join-Path $script:Repo '.gitattributes') -Encoding UTF8 -Value @(
+            '* text=auto'
+            '**/cfe/src/** -text'
+        )
+        Test-GitTextPolicy -RepoRoot $script:Repo -Path 'Продукт/cfe/src' | Should -BeTrue
+    }
+
+    It 'ловить нетиповий sourcePath, не накритий правилом' {
+        # Це і є дефект: правило прив'язане до шляху, а sourcePath конфігурований.
+        Set-Content -LiteralPath (Join-Path $script:Repo '.gitattributes') -Encoding UTF8 -Value @(
+            '* text=auto'
+            '**/cfe/src/** -text'
+        )
+        Test-GitTextPolicy -RepoRoot $script:Repo -Path 'Продукт/sources/ext' | Should -BeFalse
+    }
+
+    It 'бачить правило, дописане під нетиповий sourcePath' {
+        Set-Content -LiteralPath (Join-Path $script:Repo '.gitattributes') -Encoding UTF8 -Value @(
+            '* text=auto'
+            '**/cfe/src/** -text'
+            '**/sources/ext/** -text'
+        )
+        Test-GitTextPolicy -RepoRoot $script:Repo -Path 'Продукт/sources/ext' | Should -BeTrue
+    }
+
+    It 'без .gitattributes віддає false, а не падає' {
+        Test-GitTextPolicy -RepoRoot $script:Repo -Path 'Продукт/cfe/src' | Should -BeFalse
+    }
+}

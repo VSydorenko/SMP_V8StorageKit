@@ -19,6 +19,12 @@ param(
     [string[]]$ExcludeTag = @()
 )
 
+# Кирилиця в порівняннях доходить із дочірніх процесів лише при UTF-8: під кодовою
+# сторінкою 866 (типовий запуск із Git Bash) тести Environment.Tests.ps1 падали на
+# Should -Match із кириличним літералом, хоча код був справний.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 Import-Module Pester -MinimumVersion 5.0
 $config = New-PesterConfiguration
 $config.Run.Path = $PSScriptRoot
