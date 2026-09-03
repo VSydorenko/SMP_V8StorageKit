@@ -1,0 +1,15 @@
+infobases:                          # живі бази, з яких kit ЛИШЕ читає
+  devUNF:
+    connection: 'Srvr="VSDEV";Ref="SMP_UNF_sydorenko";'
+    user: 'Администратор'
+  devUNFru:
+    connection: 'Srvr="VSDEV";Ref="SMP_ruUNF_sydorenko";'
+    user: 'Абдулов (директор)'
+
+storages:                           # перевизначення шляхів сховищ на цій машині
+  SMP_BankExchange_SMB: 'D:\mirror\СМП_BankExchange_SMB'
+
+workspaces:
+  SMP_BankExchange_SMB:
+    agentBase:
+      template: 'D:\dumps\UNF_demo.dt'   # розгорнути з .dt; без ключа — порожня через Unica init
