@@ -179,6 +179,39 @@ function New-KitFakeRepo {
     $Root
 }
 
+function Add-KitFakeStorageCommit {
+    <#
+    .SYNOPSIS
+        Коміт на orphan-гілку storage/<X> тим самим механізмом, що й sync (B2): worktree,
+        V8KIT_SYNC=1 на час коміту, worktree прибирається. Робоча копія не рухається.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [Parameter(Mandatory)][string]$Branch,
+        [Parameter(Mandatory)][string]$RepoPath,
+        [Parameter(Mandatory)][string]$FileName,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Trailers,
+        [string]$Subject = 'версія'
+    )
+    $wt = Join-Path $Repo "build/sync/wt-$([guid]::NewGuid().ToString('N'))"
+    # Пробний rev-parse — не через Invoke-KitFakeGit: код виходу 1 тут означає "гілки ще
+    # немає", а не збій команди (той самий, навмисно не загорнутий, патерн, що в
+    # production-коді — StorageBranch.psm1: Test-KitBranchExists). Загортання дало б
+    # виняток на кожному ПЕРШОМУ коміті нової гілки storage/*, який якраз і легальний.
+    git -C $Repo rev-parse --verify --quiet "refs/heads/$Branch" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Invoke-KitFakeGit -C $Repo worktree add -q $wt $Branch | Out-Null }
+    else                     { Invoke-KitFakeGit -C $Repo worktree add -q --orphan -b $Branch $wt | Out-Null }
+    $dir = Join-Path $wt $RepoPath
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $dir $FileName) -Value "вміст $FileName" -Encoding UTF8
+    Invoke-KitFakeGit -C $wt add -A | Out-Null
+    $env:V8KIT_SYNC = '1'
+    try { Invoke-KitFakeGit -C $wt commit -q -m ((@($Subject, '') + $Trailers) -join "`n") | Out-Null }
+    finally { Remove-Item Env:V8KIT_SYNC -ErrorAction SilentlyContinue }
+    Invoke-KitFakeGit -C $Repo worktree remove --force $wt | Out-Null
+}
+
 function Copy-KitTools {
     <#
     .SYNOPSIS
@@ -199,4 +232,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Copy-KitTools
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools

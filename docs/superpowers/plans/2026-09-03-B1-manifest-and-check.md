@@ -2980,8 +2980,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
     It 'усе гаразд — код 0, лише інформаційні рядки' {
         $r = Invoke-Check -Repo (New-GoodRepo 'good')
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -BeLike '*[i]*'
-        $r.Output | Should -Not -BeLike '*[-]*'
+        $r.Output | Should -Match '\[i\]'
+        $r.Output | Should -Not -Match '\[-\]'
     }
 
     It 'без маніфесту — код 1 і підказка на onboarding' {
@@ -2996,7 +2996,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $repo = New-GoodRepo 'name-mismatch'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Encoding UTF8 -NoNewline `
             -Value (New-KitFakeConfigurationXml -Name 'Alpha_OLD')
-        git -C $repo commit -qam 'фікстура: інше ім'я в Configuration.xml'
+        git -C $repo commit -qam 'фікстура: інше ім''я в Configuration.xml'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*Alpha_OLD*Alpha_SMB*Configuration.xml*'
@@ -3032,6 +3032,14 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*Alpha_SMB/cfe/src*-text*'
+    }
+
+    It '§2.6: дерево, яке має бути в git, помилково гітігноровано — код 1' {
+        $repo = New-GoodRepo 'over-ignored'
+        Add-Content -LiteralPath (Join-Path $repo '.gitignore') -Encoding UTF8 -Value 'Alpha_SMB/cfe/src/**'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Alpha_SMB/cfe/src*.gitignore*'
     }
 
     It '§3.2: немонотонна гілка storage/X — код 1; лінійна з кореневим комітом — 0' {
@@ -3157,14 +3165,31 @@ function Invoke-KitCheck {
         foreach ($src in $all) {
             $tag = "$($src.Workspace)/$($src.Key)"
 
-            # §2.6 — усі дерева платформи під -text. Питаємо git, не читаємо .gitattributes.
-            try {
-                if (-not (Test-GitTextPolicy -RepoRoot $root -Path $src.RepoPath)) {
-                    & $add error gitattributes ("$tag`: дерево '$($src.RepoPath)' не виведено з-під конверсії кінців рядків — " +
-                        "додайте в .gitattributes рядок '$($src.RepoPath)/** -text' (docs/text-policy.md).")
+            # §2.6 — усі дерева платформи, ЩО ПОТРАПЛЯЮТЬ У GIT, під -text. Питаємо git, не
+            # читаємо .gitattributes. truth: vendor гітігноровано за визначенням, конверсія
+            # на checkout йому не загрожує, і шаблон gitattributes навмисно не має для нього
+            # правила — для vendor інваріант інший, нижче (check-ignore).
+            if ($src.Truth -ne 'vendor') {
+                try {
+                    if (-not (Test-GitTextPolicy -RepoRoot $root -Path $src.RepoPath)) {
+                        & $add error gitattributes ("$tag`: дерево '$($src.RepoPath)' не виведено з-під конверсії кінців рядків — " +
+                            "додайте в .gitattributes рядок '$($src.RepoPath)/** -text' (docs/text-policy.md).")
+                    }
+                } catch {
+                    & $add error gitattributes "$tag`: git check-attr не відповів: $($_.Exception.Message)"
                 }
-            } catch {
-                & $add error gitattributes "$tag`: git check-attr не відповів: $($_.Exception.Message)"
+
+                # Дзеркальна перевірка до gitignore для vendor: дерево, яке МАЄ бути в git,
+                # не повинно ловитись правилом .gitignore. Помилково широке правило викидає
+                # вихідники з git мовчки — ні sync, ні canon цього не бачать.
+                git -C $root check-ignore -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                $ignoredCode = $LASTEXITCODE
+                if ($ignoredCode -eq 0) {
+                    & $add error gitignore ("$tag`: дерево '$($src.RepoPath)' гітігноровано, хоч має потрапляти в git (truth: $($src.Truth)) — " +
+                        'перевірте правила .gitignore.')
+                } elseif ($ignoredCode -gt 1) {
+                    & $add error gitignore "$tag`: git check-ignore завершився з кодом $ignoredCode."
+                }
             }
 
             switch ($src.Truth) {

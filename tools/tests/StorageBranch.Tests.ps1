@@ -6,36 +6,8 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
 
         # Гілку storage/X будуємо тим самим механізмом, що й майбутній sync (B2): orphan через
         # worktree, коміт у ньому, worktree прибирається. Хуки в цій фікстурі не встановлені —
-        # тут перевіряються інваріанти, не захист.
-        function script:Add-StorageCommit {
-            param(
-                [Parameter(Mandatory)][string]$Repo,
-                [Parameter(Mandatory)][string]$Branch,
-                [Parameter(Mandatory)][string]$RepoPath,
-                [Parameter(Mandatory)][string]$FileName,
-                # AllowEmptyCollection(): без нього Mandatory трактує порожній масив як
-                # непереданий аргумент і кидає ParameterBindingValidationException ("Cannot
-                # bind argument ... because it is an empty array") — а тест «коміт без
-                # трейлера» саме й передає -Trailers @(), щоб змоделювати ручний коміт без
-                # жодного трейлера. Той самий дефект брифа і той самий фікс — у задачі 8,
-                # де цей хелпер стає Add-KitFakeStorageCommit у KitFixtures.psm1.
-                [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Trailers,
-                [string]$Subject = 'версія'
-            )
-            $wt = Join-Path $Repo "build/sync/wt-$([guid]::NewGuid().ToString('N'))"
-            if (git -C $Repo rev-parse --verify --quiet "refs/heads/$Branch" 2>$null) {
-                git -C $Repo worktree add -q $wt $Branch
-            } else {
-                git -C $Repo worktree add -q --orphan -b $Branch $wt
-            }
-            $dir = Join-Path $wt $RepoPath
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $dir $FileName) -Value "вміст $FileName" -Encoding UTF8
-            git -C $wt add -A
-            $msg = @($Subject, '') + $Trailers
-            git -C $wt commit -q -m ($msg -join "`n")
-            git -C $Repo worktree remove --force $wt
-        }
+        # тут перевіряються інваріанти, не захист. Сам хелпер тепер живе у фікстурі
+        # (Add-KitFakeStorageCommit, KitFixtures.psm1) — задача 8 переносить його звідси.
     }
 
     It 'імʼя гілки джерела' {
@@ -52,7 +24,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     It 'версії 17, 18, 21 — остання 21; кореневий коміт без батьків проходить; знахідок нуль' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ok')
         foreach ($v in 17, 18, 21) {
-            Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName "v$v.xml" `
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName "v$v.xml" `
                 -Trailers @('Storage-Source: Alpha_SMB', "Storage-Version: $v", 'Storage-User: gitbot')
         }
         Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 21
@@ -70,7 +42,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     It 'немонотонний трейлер — помилка, яка називає обидві версії й коміт' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'nonmono')
         foreach ($v in 17, 21, 18) {
-            Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName "v$v.xml" `
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName "v$v.xml" `
                 -Trailers @('Storage-Source: Alpha_SMB', "Storage-Version: $v")
         }
         $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
@@ -81,8 +53,8 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
 
     It 'коміт без трейлера Storage-Version — помилка; LastVersion зупиняється, а не вгадує' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'notrailer')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 3')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'b.xml' -Trailers @() -Subject 'ручний коміт без трейлерів'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 3')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'b.xml' -Trailers @() -Subject 'ручний коміт без трейлерів'
         $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
         @($f | Where-Object Message -like '*Storage-Version*').Count | Should -BeGreaterOrEqual 1
         { Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' } | Should -Throw '*Storage-Version*'
@@ -90,7 +62,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
 
     It 'merge-коміт на storage/X — помилка (два батьки), кореневий без батьків — ні' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         # Злиття main у гілку сховища — саме те, що забороняє §3.2. Робимо в тимчасовому worktree,
         # щоб не чіпати робочу копію, і без хуків (їх у цій фікстурі немає).
         $wt = Join-Path $repo 'build/sync/merge-wt'
@@ -103,15 +75,15 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
 
     It 'файл поза шляхом джерела в дереві storage/X — помилка' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'stray')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Other/place' -FileName 'stray.txt' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Other/place' -FileName 'stray.txt' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
         $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
         @($f | Where-Object Message -like '*Other/place/stray.txt*').Count | Should -Be 1
     }
 
     It 'Storage-Source іншого джерела — помилка' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'wrongsource')
-        Add-StorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Beta', 'Storage-Version: 1')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Beta', 'Storage-Version: 1')
         $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
         @($f | Where-Object Message -like '*Storage-Source*Beta*').Count | Should -Be 1
     }
