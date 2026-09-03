@@ -39,7 +39,11 @@
   **обов'язково** знімається `ConfigurationRepositoryUnbindCfg -force` у `finally`.
 - **`-Apply` — лише коли користувач явно попросив.** Прев'ю `sync` теж піднімає платформу.
 - **Гілки `storage/*` пише лише `sync`, і лише з `V8KIT_SYNC=1`** на час коміту; змінна
-  прибирається у `finally`. Хук B1 спрацьовує і в linked worktree (перевірено).
+  прибирається у `finally`. **Це контракт §3.3, не механізм:** відносний `core.hooksPath` git розв'язує
+  від кореня **свого** worktree, тож в orphan-worktree дзеркала (у дереві немає `.githooks`) хук не
+  спрацьовує взагалі (спростовано фінальним рев'ю B1; мій «встановлений факт» був артефактом проби, де
+  `git add -A` затягнув `.githooks` у дерево гілки). Змінна виставляється завжди — щоб коміт лишався
+  законним і там, де хук є (головна копія, worktree з `.githooks`). Повнота захисту — шар 3, `check`.
 - **Байти в git — байти платформи.** У worktree гілки `storage/*` немає `.gitattributes`, тому
   `git add` там виконується з `-c core.autocrlf=false`, а `ConfigDumpInfo.xml` і
   `DumpFilesIndex.txt` видаляються з дампу до `git add` (у дереві дзеркала їх нема).
@@ -505,7 +509,8 @@ Git-половина `sync`, повністю тестована без плат
 storage/X <шлях>` створює worktree з ненародженою гілкою; коміт у ньому не рухає `HEAD` і не
 чіпає робочу копію основного дерева; `git worktree add <шлях> storage/X` — для наявної;
 `git merge --allow-unrelated-histories` зливає orphan у гілку з іншими файлами; хук
-`pre-commit` спрацьовує і в linked worktree.
+`pre-commit` в orphan-worktree дзеркала **не** спрацьовує — у його дереві немає `.githooks` (відносний
+`core.hooksPath` розв'язується від кореня свого worktree; спростування фінального рев'ю B1).
 
 **Files:**
 - Modify: `tools/lib/StorageBranch.psm1` — `New-KitStorageWorktree`, `Remove-KitStorageWorktree`, `Clear-KitWorktreeSource`, `Write-KitStorageVersion`
@@ -823,7 +828,9 @@ function Write-KitStorageVersion {
         застосував би core.autocrlf машини. -c core.autocrlf=false тримає байти платформи як є —
         та сама гарантія, яку в main дає -text. ConfigDumpInfo.xml і DumpFilesIndex.txt —
         службові файли платформи, у дзеркалі їх немає (у споживача вони й так у .gitignore).
-        V8KIT_SYNC=1 — дозвіл для хука B1, який спрацьовує і в linked worktree; дати автора й
+        V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука B1), не механізм: в orphan-worktree дзеркала хука
+        немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
+        де хук є. Дати автора й
         комітера — дата версії сховища. --allow-empty: сусідні версії можуть дати однаковий дамп,
         а коміт — єдиний носій автора, дати й коментаря версії.
     #>
