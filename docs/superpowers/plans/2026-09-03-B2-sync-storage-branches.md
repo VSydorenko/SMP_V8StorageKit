@@ -53,6 +53,11 @@
   одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
   викликачі беруть результат присвоєнням чи `(F)`. Об'єкти-колекції, які pipeline розгортає (HashSet, List),
   повертати лише з комою (або `Write-Output -NoEnumerate`). Кожна кома в коді планів має коментар «навмисно».
+- **Злиття в тестах (знахідка виконавця B1, F9):** `pre-merge-commit` git викликає лише при **чистому**
+  авто-злитті; на конфлікті хука немає взагалі, а `HEAD` не рухається сам собою. Тому (а) тест, що перевіряє
+  хук злиття, мусить спершу довести, що злиття чисте; (б) дерева `main` і дзеркала у фікстурах не мають
+  колізій за шляхом із різним вмістом, якщо тест не про конфлікт. `New-KitFakeRepo` кладе на `main` фейковий
+  `<ws>/cfe/src/Configuration.xml` — перед реплеєм справжнього сховища в те саме дерево його треба прибрати з `main`.
 - **Відоме вікно між блоками:** Task 5 цього плану вилучає гілку `.cfe` зі старого `build.ps1`, а команда
   `kit build` з'являється лише в B4 Task 3. Між ними kit **не збирає `.cfe` взагалі** — це не дефект,
   а свідомий стан під локальним маркетплейсом без релізу (`.cfe` збирає `operation=make` Уніки); виконавцю
@@ -1075,7 +1080,10 @@ Describe 'kit sync — реальне сховище (перший і повто
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
         Copy-Item -LiteralPath $script:Authors -Destination (Join-Path $script:Repo 'AUTHORS') -Force
-        git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS з живого репо'
+        # F9: фікстура кладе на main фейковий Configuration.xml за тим самим шляхом, куди дзеркало покладе
+        # справжній — перше злиття дало б add/add-конфлікт. У реальному онбордингу дерева на main ще немає.
+        git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
+        git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS з живого репо; дерево джерела порожнє до першого sync'
     }
 
     It 'сховище доступне (передумова)' {

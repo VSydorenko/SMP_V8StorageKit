@@ -38,6 +38,11 @@
   одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
   викликачі беруть результат присвоєнням чи `(F)`. Об'єкти-колекції, які pipeline розгортає (HashSet, List),
   повертати лише з комою (або `Write-Output -NoEnumerate`). Кожна кома в коді планів має коментар «навмисно».
+- **Злиття в тестах (знахідка виконавця B1, F9):** `pre-merge-commit` git викликає лише при **чистому**
+  авто-злитті; на конфлікті хука немає взагалі, а `HEAD` не рухається сам собою. Тому (а) тест, що перевіряє
+  хук злиття, мусить спершу довести, що злиття чисте; (б) дерева `main` і дзеркала у фікстурах не мають
+  колізій за шляхом із різним вмістом, якщо тест не про конфлікт. `New-KitFakeRepo` кладе на `main` фейковий
+  `<ws>/cfe/src/Configuration.xml` — перед реплеєм справжнього сховища в те саме дерево його треба прибрати з `main`.
 
 ### Рішення, узгоджені з архітектором
 
@@ -879,7 +884,9 @@ Describe 'kit verify — живе сховище: рівні → сховище 
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
         Copy-Item 'R:\github\SMP_BankExchange\AUTHORS' (Join-Path $script:Repo 'AUTHORS') -Force
-        git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS'
+        # F9: прибрати фейковий Configuration.xml з main — інакше перше злиття дзеркала дасть add/add-конфлікт.
+        git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
+        git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS; дерево джерела порожнє до першого sync'
         function script:Run { param([string[]]$Arguments) $out = & pwsh -NoProfile -File $script:Kit @Arguments -RepoRoot $script:Repo 2>&1 | Out-String; [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
         function script:Complete-Authors {
             param([string]$Output)
