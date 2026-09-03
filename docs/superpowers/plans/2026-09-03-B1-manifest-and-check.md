@@ -1825,7 +1825,10 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
                 [Parameter(Mandatory)][string]$Branch,
                 [Parameter(Mandatory)][string]$RepoPath,
                 [Parameter(Mandatory)][string]$FileName,
-                [Parameter(Mandatory)][string[]]$Trailers,
+                # AllowEmptyCollection(): без нього Mandatory трактує -Trailers @() як
+                # непереданий аргумент і кидає ParameterBindingValidationException. Той самий
+                # фікс — у задачі 8 (Add-KitFakeStorageCommit у KitFixtures.psm1).
+                [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Trailers,
                 [string]$Subject = 'версія'
             )
             $wt = Join-Path $Repo "build/sync/wt-$([guid]::NewGuid().ToString('N'))"
@@ -1983,7 +1986,10 @@ function Get-KitBranchCommits {
         if ($parts.Count -ge 2 -and $parts[1].Trim()) { $parents = @($parts[1].Trim() -split '\s+') }
         $result.Add([pscustomobject]@{ Sha = $parts[0].Trim(); Parents = $parents; Trailers = $trailers })
     }
-    , $result.ToArray()
+    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
+    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
+    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    $result.ToArray()
 }
 
 function Get-KitStorageBranchLastVersion {
@@ -2022,7 +2028,9 @@ function Test-KitStorageBranchInvariants {
     )
 
     $findings = [System.Collections.Generic.List[object]]::new()
-    if (-not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)) { return , @() }
+    # Без coma-wrap (`, @()`): викликачі загортають результат у @(...), і кома тут дала б
+    # один елемент (порожній вкладений масив) замість справжніх нуля елементів.
+    if (-not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)) { return @() }
 
     $prev = $null
     foreach ($c in (Get-KitBranchCommits -RepoRoot $RepoRoot -Ref $Branch)) {
@@ -2059,7 +2067,10 @@ function Test-KitStorageBranchInvariants {
             "$Branch`: у дереві файл поза шляхом джерела '$RepoPath': $s.")))
     }
 
-    , $findings.ToArray()
+    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
+    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
+    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    $findings.ToArray()
 }
 
 Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants
