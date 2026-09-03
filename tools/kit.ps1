@@ -52,7 +52,11 @@ if (-not $Command -or $available -notcontains $Command) {
 Import-Module (Join-Path $commandsDir "$Command.psm1") -Force
 $functionName = 'Invoke-Kit' + ((($Command -split '-') | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '')
 if (-not (Get-Command -Name $functionName -ErrorAction SilentlyContinue)) {
-    throw "Модуль команди commands/$Command.psm1 не експортує функцію $functionName."
+    # Той самий дефект подачі, що й вище (Правка 6б, живий прогін задачі 11), лише рядком
+    # нижче: не throw, код 2 — так само «команда не запустилась узагалі», а не «команда
+    # відпрацювала й знайшла помилки».
+    Write-Host "Модуль команди commands/$Command.psm1 не експортує функцію $functionName." -ForegroundColor Red
+    exit 2
 }
 
 # check показує ВСЕ, що не так (Lenient); решта команд без чистого префлайту не має з чим працювати.

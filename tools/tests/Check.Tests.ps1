@@ -28,23 +28,18 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # Тут — дзеркальний сценарій: source-set у v8project.yaml Є, а маніфест його НЕ знає.
     It 'S1: source-set у v8project.yaml без ключа в маніфесті — warn undeclared-source, код 0' {
         $repo = New-GoodRepo 'undeclared-source'
+        # Ані git add, ані commit тут не потрібні: Invoke-KitCheck читає v8project.yaml з
+        # ДИСКА через Read-V8Project, а не з git, і жодної перевірки чистоти робочої копії
+        # в check.psm1 немає (рев'ю задачі 11 — стейджити тут нічого, а git add на щойно
+        # народженому LF-файлі фікстури лише додавав зайве попередження "LF will be
+        # replaced by CRLF" без жодної користі для самого тесту).
         $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
         $extra = @(
             '  - name: Extra'
             '    type: EXTERNAL_DATA_PROCESSORS'
             "    path: 'epf/src'"
         ) -join "`n"
-        # Пишемо чистим LF (нормалізуємо вміст явно, а не Add-Content) — гігієна, узгоджена
-        # з рештою фікстур. Саму знахідку git add за такого дописування все одно свідомо не
-        # чіпаємо: git тут попереджає "LF will be replaced by CRLF" за замовчуванням
-        # (core.safecrlf: warn), навіть коли в дописаному файлі жодного зайвого CR немає —
-        # перевірено побайтово. -c core.safecrlf=false на цьому виклику — те саме
-        # придушення, що New-KitFakeRepo вже дає на весь репозиторій через core.autocrlf
-        # false, лише для другого дотику до вже закомiченого файлу.
-        $normalized = ((Get-Content -LiteralPath $vp -Raw) -replace "`r`n", "`n").TrimEnd("`n")
-        Set-Content -LiteralPath $vp -Encoding UTF8 -NoNewline -Value ($normalized + "`n" + $extra + "`n")
-        git -c core.safecrlf=false -C $repo add -A -- Alpha_SMB
-        git -C $repo commit -qm 'фікстура: source-set без ключа в маніфесті'
+        Add-Content -LiteralPath $vp -Encoding UTF8 -Value $extra
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike "*[!]*Extra*EXTERNAL_DATA_PROCESSORS*немає в маніфесті*"
@@ -67,8 +62,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*не гітігноровано в корені репозиторію*'
-        # Рівно одна знахідка на весь репозиторій — не по одній на джерело (3 sources у
-        # цій фікстурі: base, Alpha_SMB — якби перевірка стояла в циклі, рядків було б 2+).
+        # Рівно одна знахідка на весь репозиторій — не по одній на джерело (2 sources у
+        # цій фікстурі: base, Alpha_SMB — якби перевірка стояла в циклі, рядків було б 2).
         $lines = @(($r.Output -split "`r?`n") | Where-Object { $_ -like '*не гітігноровано в корені репозиторію*' })
         $lines.Count | Should -Be 1
     }
@@ -216,6 +211,10 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo (New-GoodRepo 'storage-path-branches')
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*якщо диск є, а шлях помилковий — виправте v8storagekit.yaml*'
+        # Головна половина правки — не сама розвилка (вище), а те, що шлях підписаний саме
+        # як маніфестний: реалізація, яка дописала б розвилку, але викинула б другий пошук
+        # у $Context.Manifest, цей рядок уже не пройде.
+        $r.Output | Should -BeLike '*no-such-storage-Alpha_SMB*як записано в v8storagekit.yaml*'
     }
 
     It 'правка 4: шлях сховища перевизначено накладкою, але й вона недоступна — видно ОБИДВА шляхи' {
