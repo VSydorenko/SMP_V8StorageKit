@@ -39,6 +39,13 @@ function Install-KitGitHooks {
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Шаблон хука не знайдено: $src" }
         $dst = Join-Path $target $name
         Copy-Item -LiteralPath $src -Destination $dst -Force
+        # На POSIX git не запускає хук без права виконання, і робить це МОВЧКИ. Copy-Item
+        # біта не переносить, тож виставляємо явно. На Windows core.filemode = false,
+        # біт там не має значення й chmod відсутній — гілка просто не виконується.
+        if ($IsLinux -or $IsMacOS) {
+            & chmod '+x' $dst
+            if ($LASTEXITCODE -ne 0) { throw "chmod +x $dst завершився з кодом $LASTEXITCODE" }
+        }
         $installed.Add($dst)
     }
     $out = git -C $RepoRoot config core.hooksPath $script:HooksDirName 2>&1
@@ -85,6 +92,25 @@ function Test-KitGitHooks {
             $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
                 "Хук $script:HooksDirName/$name відрізняється від шаблону плагіна ($templatePath). " +
                 'Оновіть копію з templates/githooks плагіна, якщо це не свідома локальна правка.')))
+        }
+
+        # Біт виконання — окрема знахідка від вмісту. На POSIX git не запускає хук без
+        # нього і робить це мовчки: check при цьому доповів би "0 знахідок", хоча кожен
+        # коміт у storage/* на такому клоні пройде повз захист. Питаємо саме git, а не
+        # файлову систему: на Windows core.filemode = false, і те, що бачить ФС, не має
+        # стосунку до режиму, який git запише в дерево майбутнього клону.
+        $tracked = git -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
+        $trackedLine = (@($tracked) -join "`n").Trim()
+        if ($trackedLine -match '^(?<mode>\d{6})\s') {
+            # Порожній вивід — хук ще не закомічено (онбординг не дійшов до git add), і це
+            # не знахідка тут: Install-KitGitHooks свідомо не чіпає індекс споживача.
+            if ($Matches.mode -eq '100644') {
+                $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
+                    "Хук $script:HooksDirName/$name закомічено без біта виконання (режим 100644) — " +
+                    "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
+                    "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
+            }
         }
     }
 

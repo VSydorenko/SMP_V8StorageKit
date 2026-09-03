@@ -106,5 +106,30 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             $f[0].Level | Should -Be 'warn'
             $f[0].Message | Should -BeLike '*pre-commit*шаблон*'
         }
+
+        It 'закомічений хук без біта виконання — попередження саме про нього, не про пару' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-mode-warn')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            git -C $repo add .githooks
+            # Форсуємо режим явно для обох файлів: на POSIX-раннері Install-KitGitHooks
+            # уже сам виставив би 100755 (chmod), а на цій Windows-машині (core.filemode
+            # false) git add дав би 100644 обом незалежно від нього — тест не покладається
+            # на платформу прогону, а відтворює точний сценарій «один хук без біта».
+            git -C $repo update-index --chmod=-x .githooks/pre-commit
+            git -C $repo update-index --chmod=+x .githooks/pre-merge-commit
+            git -C $repo commit -q -m 'хуки закомічено, pre-commit — без біта виконання'
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            $f.Count | Should -Be 1
+            $f[0].Level | Should -Be 'warn'
+            $f[0].Message | Should -BeLike '*pre-commit*'
+            $f[0].Message | Should -Not -BeLike '*pre-merge-commit*'
+        }
+
+        It 'встановлені, але ще не закомічені хуки — про біт виконання знахідок немає' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-mode-untracked')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            @($f | Where-Object { $_.Message -like '*біта виконання*' }).Count | Should -Be 0
+        }
     }
 }

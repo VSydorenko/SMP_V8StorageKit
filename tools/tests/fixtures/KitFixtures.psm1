@@ -163,6 +163,17 @@ function New-KitFakeRepo {
 
     if (-not $NoCommit) {
         Invoke-KitFakeGit -C $Root add -A | Out-Null
+        if ($WithHooks) {
+            # Фікстура зображає стан ПІСЛЯ онбордингу, а не зламану інсталяцію: у
+            # справжньому репозиторії-споживачі біт виконання виставляє сама команда
+            # `kit install-hooks -Apply` (блок B5). На цій машині core.filemode false,
+            # тож звичайний `git add -A` вище запише .githooks/* як 100644 незалежно
+            # від того, чи спрацював POSIX-chmod усередині Install-KitGitHooks (Task 6) —
+            # без цього рядка кожен тест із -WithHooks ловив би зайву warn від
+            # Test-KitGitHooks про хук без біта виконання. update-index діє лише на вже
+            # проіндексований файл, тож рядок стоїть після add -A і до commit.
+            Invoke-KitFakeGit -C $Root update-index --chmod=+x -- .githooks/pre-commit .githooks/pre-merge-commit | Out-Null
+        }
         Invoke-KitFakeGit -C $Root commit -q -m 'фікстура: репозиторій-споживач' | Out-Null
     }
     $Root

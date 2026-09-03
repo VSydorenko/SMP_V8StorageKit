@@ -2104,6 +2104,18 @@ worktree**, інакше сам собі відмовить. `pre-merge-commit` 
 завершується кодом 0 із текстом «Not committing merge» і лишає індекс у стані злиття —
 тест перевіряє, що `HEAD` не змінився, а не код виходу.
 
+**Ще один встановлений факт (знахідка рев'ю):** `Copy-Item` не переносить біт виконання, а
+на POSIX git мовчки не запускає хук без нього — ні помилки, ні попередження, коміт у
+`storage/*` просто проходить, і `check` при цьому доповідає «0 знахідок». На машині
+розробки `core.filemode = false` (Windows): біт на файловій системі там не лише не
+виставляється, а й **не читається**, тож перевіряти файлову систему безглуздо — значення
+має лише режим, який git **записав у індекс** (`git ls-files -s <шлях>`), бо саме він
+дістанеться кожному майбутньому клону на Linux/macOS. Звідси три наслідки нижче: шаблони
+в цьому репозиторії йдуть у git як `100755`, `Install-KitGitHooks` виставляє біт явно на
+POSIX (`chmod`, недоступний і непотрібний на Windows), а `Test-KitGitHooks` дістає
+четвертий клас знахідки — `warn`, а не `error`, бо на Windows-контурі, для якого kit
+зроблено, біт ні на що не впливає.
+
 **Files:**
 - Create: `templates/githooks/pre-commit`, `templates/githooks/pre-merge-commit`
 - Create: `tools/lib/Hooks.psm1`
@@ -2180,6 +2192,17 @@ templates/githooks/* text eol=lf
 .githooks/* text eol=lf
 ```
 
+Окремо (знахідка рев'ю) — сам режим у git-індексі, не лише вміст. Шаблони, з яких
+`Install-KitGitHooks` копіює, мусять іти в git як `100755`, інакше кожен клон, узятий на
+POSIX, успадкує невиконуваний хук:
+
+```bash
+git update-index --chmod=+x templates/githooks/pre-commit templates/githooks/pre-merge-commit
+```
+
+Перевірка: `git ls-files -s templates/githooks/` має дати `100755` для обох файлів. Це
+зміна індексу — комітиться разом з рештою (Step 9), окремого кроку git add не треба.
+
 - [ ] **Step 3: Тест на шаблон — у `tools/tests/Templates.Tests.ps1` новий Describe**
 
 ```powershell
@@ -2226,7 +2249,14 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             git -C $repo rm -rq --cached . 2>$null
             git -C $repo clean -fdq -e .githooks
             New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<x/>'
+            # Файл НЕ Configuration.xml (знахідка F9, виправлена під час реалізації): main з
+            # New-KitFakeRepo уже має Alpha_SMB/cfe/src/Configuration.xml зі справжнім вмістом
+            # (New-KitFakeConfigurationXml). Однакова назва в orphan-гілці дала б реальний
+            # git-конфлікт add/add при злитті (несумісні історії, той самий шлях, різний
+            # вміст) — а pre-merge-commit git НЕ викликає, коли злиття впало на конфлікті:
+            # тест на «злиття відхилено ХУКОМ» не дістався б хука і падав би на повідомленні
+            # git про конфлікт замість повідомлення хука. Інша назва файлу прибирає збіг шляху.
+            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/StorageMirror.xml') -Value '<x/>'
             git -C $repo add -A -- Alpha_SMB
             $env:V8KIT_SYNC = '1'
             try { git -C $repo commit -q -m "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" }
@@ -2310,6 +2340,31 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             $f[0].Level | Should -Be 'warn'
             $f[0].Message | Should -BeLike '*pre-commit*шаблон*'
         }
+
+        It 'закомічений хук без біта виконання — попередження саме про нього, не про пару' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-mode-warn')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            git -C $repo add .githooks
+            # Форсуємо режим явно для обох файлів: на POSIX-раннері Install-KitGitHooks
+            # уже сам виставив би 100755 (chmod), а на цій Windows-машині (core.filemode
+            # false) git add дав би 100644 обом незалежно від нього — тест не покладається
+            # на платформу прогону, а відтворює точний сценарій «один хук без біта».
+            git -C $repo update-index --chmod=-x .githooks/pre-commit
+            git -C $repo update-index --chmod=+x .githooks/pre-merge-commit
+            git -C $repo commit -q -m 'хуки закомічено, pre-commit — без біта виконання'
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            $f.Count | Should -Be 1
+            $f[0].Level | Should -Be 'warn'
+            $f[0].Message | Should -BeLike '*pre-commit*'
+            $f[0].Message | Should -Not -BeLike '*pre-merge-commit*'
+        }
+
+        It 'встановлені, але ще не закомічені хуки — про біт виконання знахідок немає' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-mode-untracked')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            @($f | Where-Object { $_.Message -like '*біта виконання*' }).Count | Should -Be 0
+        }
     }
 }
 ```
@@ -2364,6 +2419,13 @@ function Install-KitGitHooks {
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Шаблон хука не знайдено: $src" }
         $dst = Join-Path $target $name
         Copy-Item -LiteralPath $src -Destination $dst -Force
+        # На POSIX git не запускає хук без права виконання, і робить це МОВЧКИ. Copy-Item
+        # біта не переносить, тож виставляємо явно. На Windows core.filemode = false,
+        # біт там не має значення й chmod відсутній — гілка просто не виконується.
+        if ($IsLinux -or $IsMacOS) {
+            & chmod '+x' $dst
+            if ($LASTEXITCODE -ne 0) { throw "chmod +x $dst завершився з кодом $LASTEXITCODE" }
+        }
         $installed.Add($dst)
     }
     $out = git -C $RepoRoot config core.hooksPath $script:HooksDirName 2>&1
@@ -2411,6 +2473,25 @@ function Test-KitGitHooks {
                 "Хук $script:HooksDirName/$name відрізняється від шаблону плагіна ($templatePath). " +
                 'Оновіть копію з templates/githooks плагіна, якщо це не свідома локальна правка.')))
         }
+
+        # Біт виконання — окрема знахідка від вмісту. На POSIX git не запускає хук без
+        # нього і робить це мовчки: check при цьому доповів би "0 знахідок", хоча кожен
+        # коміт у storage/* на такому клоні пройде повз захист. Питаємо саме git, а не
+        # файлову систему: на Windows core.filemode = false, і те, що бачить ФС, не має
+        # стосунку до режиму, який git запише в дерево майбутнього клону.
+        $tracked = git -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
+        $trackedLine = (@($tracked) -join "`n").Trim()
+        if ($trackedLine -match '^(?<mode>\d{6})\s') {
+            # Порожній вивід — хук ще не закомічено (онбординг не дійшов до git add), і це
+            # не знахідка тут: Install-KitGitHooks свідомо не чіпає індекс споживача.
+            if ($Matches.mode -eq '100644') {
+                $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
+                    "Хук $script:HooksDirName/$name закомічено без біта виконання (режим 100644) — " +
+                    "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
+                    "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
+            }
+        }
     }
 
     # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
@@ -2432,6 +2513,32 @@ Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGit
         Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null
     }
 ```
+
+І всередині самого `if (-not $NoCommit)` (знахідка рев'ю) — виставити біт виконання в
+індексі одразу після `git add -A`, до коміту:
+
+```powershell
+    if (-not $NoCommit) {
+        Invoke-KitFakeGit -C $Root add -A | Out-Null
+        if ($WithHooks) {
+            # Фікстура зображає стан ПІСЛЯ онбордингу, а не зламану інсталяцію: у
+            # справжньому репозиторії-споживачі біт виконання виставляє сама команда
+            # `kit install-hooks -Apply` (блок B5). На цій машині core.filemode false,
+            # тож звичайний `git add -A` вище запише .githooks/* як 100644 незалежно
+            # від того, чи спрацював POSIX-chmod усередині Install-KitGitHooks (Task 6) —
+            # без цього рядка кожен тест із -WithHooks ловив би зайву warn від
+            # Test-KitGitHooks про хук без біта виконання. update-index діє лише на вже
+            # проіндексований файл, тож рядок стоїть після add -A і до commit.
+            Invoke-KitFakeGit -C $Root update-index --chmod=+x -- .githooks/pre-commit .githooks/pre-merge-commit | Out-Null
+        }
+        Invoke-KitFakeGit -C $Root commit -q -m 'фікстура: репозиторій-споживач' | Out-Null
+    }
+```
+
+Через `Invoke-KitFakeGit`, як і решта викликів git у фікстурі — прямих викликів `git` тут
+не додавати. Перевірка: у репозиторії `New-KitFakeRepo -WithHooks` і `git ls-files -s
+.githooks/`, і `git ls-tree HEAD .githooks/` мають узгоджено дати `100755` для обох
+файлів, а `Test-KitGitHooks` — 0 знахідок.
 
 - [ ] **Step 8: Тести зелені**
 
