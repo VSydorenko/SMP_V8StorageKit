@@ -205,11 +205,17 @@ function Invoke-KitInstallHooks {
 Export-ModuleMember -Function Invoke-KitInstallHooks
 ```
 
-- [ ] **Step 3: Тести зелені; коміт**
+- [ ] **Step 3: Повідомлення знахідок називають команду** (знахідка H1 живого прогону B1: повідомлення «хука немає»
+  каже, чого бракує, і не каже, де взяти). У `Test-KitGitHooks` (`hooks`) і `Test-KitSessionHook` (`hook-shim`) до
+  тексту про відсутній/незакомічений хук чи шим додати дію: `kit install-hooks -RepoRoot . -Apply` (джерело —
+  `templates/githooks/`, `templates/hooks/` у теці плагіна; тека плагіна — `claude plugin list`). Тест у
+  `InstallHooks.Tests.ps1`: на репозиторії без хуків вивід `kit check` містить `install-hooks`.
+
+- [ ] **Step 4: Тести зелені; коміт**
 
 ```bash
-git add tools/commands/install-hooks.psm1 tools/tests/InstallHooks.Tests.ps1
-git commit -m "B5: kit install-hooks — хуки захисту й хук старту сесії одним кроком для onboarding"
+git add tools/commands/install-hooks.psm1 tools/lib/Hooks.psm1 tools/tests/InstallHooks.Tests.ps1
+git commit -m "B5: kit install-hooks — хуки захисту й хук старту сесії одним кроком для onboarding; повідомлення check називають команду"
 ```
 
 ---
@@ -424,6 +430,10 @@ git commit -m "onboarding: <ws> — маніфест, воркспейс Уні�
 ```
 
 Накладку `v8storagekit.local.yaml` не комітити — вона гітігнорована навмисно.
+
+Приймальна перевірка одразу після коміту (вікно «хуки є на диску, але не в git» має закритись тут, і саме тому
+коміт іде **до** будь-якого `-Apply`): `git ls-files -s .githooks/` → два рядки `100755`;
+`kit check` — без `[-]` і без `[!]` про хуки.
 
 ## 4. Далі
 
