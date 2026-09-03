@@ -1,0 +1,136 @@
+#Requires -Version 7
+Set-StrictMode -Version Latest
+
+<#
+.SYNOPSIS
+    Синтетичний репозиторій-споживач для тестів kit.
+.DESCRIPTION
+    Створює під -Root ізольований git-репозиторій з маніфестом, накладкою (за бажанням),
+    воркспейсами з v8project.yaml і мінімальними деревами джерел, AUTHORS і першим комітом
+    на гілці main. Тести НЕ чіпають справжніх репозиторіїв цієї машини — лише це дерево.
+
+    Типовий воркспейс — один, 'Alpha_SMB': base (CONFIGURATION, cf/src, truth: vendor)
+    і Alpha_SMB (EXTENSION, cfe/src, truth: storage, шлях до сховища навмисно неіснуючий).
+    -Workspaces переозначує набір; -ManifestText — пише маніфест дослівно замість
+    згенерованого (для тестів схеми й розбіжностей).
+#>
+
+function New-KitFakeConfigurationXml {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+    # Мінімальний Designer XML: check читає перший <Name> — саме так лежить у справжньому
+    # Configuration.xml (Properties → Name, рядок 44 у SMP_BankExchange_SMB).
+    @(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" version="2.17">'
+        '	<Configuration uuid="00000000-0000-0000-0000-000000000000">'
+        '		<Properties>'
+        "			<Name>$Name</Name>"
+        '		</Properties>'
+        '	</Configuration>'
+        '</MetaDataObject>'
+    ) -join "`r`n"
+}
+
+function New-KitFakeRepo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [string]$ManifestText,
+        [string]$OverlayText,
+        [System.Collections.IDictionary]$Workspaces,
+        [switch]$WithGitattributes,
+        [switch]$WithGitignore,
+        [switch]$NoCommit
+    )
+
+    $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
+    New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    git -C $Root init -q
+    git -C $Root config user.email 'test@example.invalid'
+    git -C $Root config user.name 'Test Bot'
+    git -C $Root config commit.gpgsign false
+    # Головна гілка — main незалежно від init.defaultBranch цієї машини.
+    git -C $Root symbolic-ref HEAD refs/heads/main
+
+    if (-not $Workspaces) {
+        $Workspaces = [ordered]@{
+            'Alpha_SMB' = @{
+                Infobase = 'File=build/ib'
+                Sets     = @(
+                    @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
+                    @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }
+                )
+            }
+        }
+    }
+
+    $manifest = [System.Collections.Generic.List[string]]::new()
+    $manifest.Add('version: 1')
+    $manifest.Add('product: Fake')
+    $manifest.Add('workspaces:')
+
+    foreach ($wsName in @($Workspaces.Keys)) {
+        $ws    = $Workspaces[$wsName]
+        $wsDir = Join-Path $Root $wsName
+        New-Item -ItemType Directory -Path $wsDir -Force | Out-Null
+
+        $proj = [System.Collections.Generic.List[string]]::new()
+        $proj.Add('format: DESIGNER'); $proj.Add('builder: DESIGNER'); $proj.Add("workPath: 'build'")
+        if ($ws.Contains('Infobase') -and $ws['Infobase']) {
+            $proj.Add('infobase:'); $proj.Add("  connection: '$($ws['Infobase'])'")
+        }
+        $proj.Add('source-set:')
+
+        $manifest.Add("  - path: $wsName")
+        $manifest.Add('    sources:')
+        foreach ($set in $ws['Sets']) {
+            $proj.Add("  - name: $($set.Name)"); $proj.Add("    type: $($set.Type)"); $proj.Add("    path: '$($set.Path)'")
+            $setDir = Join-Path $wsDir $set.Path
+            New-Item -ItemType Directory -Path $setDir -Force | Out-Null
+            switch ($set.Type) {
+                'CONFIGURATION' {
+                    # vendor: дерево лишається порожнім і в git не потрапляє — як у споживача без дампу.
+                    $manifest.Add("      $($set.Name): { truth: vendor, dump: { from: dev } }")
+                }
+                'EXTENSION' {
+                    Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
+                        -Value (New-KitFakeConfigurationXml -Name $set.Name)
+                    # Сховище навмисно неіснуюче: тести B1 до сховищ не звертаються, а перший
+                    # же запуск sync упаде на «Каталог сховища не знайдено», не діставшись платформи.
+                    $storage = Join-Path (Split-Path -Parent $Root) "no-such-storage-$($set.Name)"
+                    $manifest.Add("      $($set.Name):")
+                    $manifest.Add('        truth: storage')
+                    $manifest.Add("        storage: { path: '$storage' }")
+                }
+                'EXTERNAL_DATA_PROCESSORS' {
+                    Set-Content -LiteralPath (Join-Path $setDir 'README.md') -Value 'обробки' -Encoding UTF8
+                    $manifest.Add("      $($set.Name): { truth: git }")
+                }
+            }
+        }
+        Set-Content -LiteralPath (Join-Path $wsDir 'v8project.yaml') -Value ($proj -join "`n") -Encoding UTF8
+    }
+
+    $manifestPath = Join-Path $Root 'v8storagekit.yaml'
+    if ($PSBoundParameters.ContainsKey('ManifestText')) {
+        Set-Content -LiteralPath $manifestPath -Value $ManifestText -Encoding UTF8
+    } else {
+        Set-Content -LiteralPath $manifestPath -Value ($manifest -join "`n") -Encoding UTF8
+    }
+    if ($OverlayText) {
+        Set-Content -LiteralPath (Join-Path $Root 'v8storagekit.local.yaml') -Value $OverlayText -Encoding UTF8
+    }
+    Set-Content -LiteralPath (Join-Path $Root 'AUTHORS') -Value 'gitbot=Test Bot <test@example.invalid>' -Encoding UTF8
+
+    if ($WithGitattributes) { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes') }
+    if ($WithGitignore)     { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore')     -Destination (Join-Path $Root '.gitignore') }
+
+    if (-not $NoCommit) {
+        git -C $Root add -A
+        git -C $Root commit -q -m 'фікстура: репозиторій-споживач'
+    }
+    $Root
+}
+
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml
