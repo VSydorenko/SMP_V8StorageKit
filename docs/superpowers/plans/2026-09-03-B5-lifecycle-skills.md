@@ -140,7 +140,7 @@ Describe 'kit install-hooks — хуки захисту й хук старту �
         (git -C $repo config --get core.hooksPath) | Should -Be '.githooks'
         $check = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo 2>&1 | Out-String
         $check | Should -Not -BeLike '*core.hooksPath*'
-        $check | Should -Not -BeLike '*[!]*session-start.ps1*'
+        $check | Should -Not -Match '\[!\].*session-start\.ps1'
     }
     It 'наявний .claude/settings.json не перезаписується' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'keep')

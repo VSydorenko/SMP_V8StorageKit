@@ -890,7 +890,7 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         $v = Run @('verify')
         $v.ExitCode | Should -Be 0 -Because $v.Output
         $v.Output | Should -BeLike '*equal*'
-        $v.Output | Should -Not -BeLike '*[-]*'
+        $v.Output | Should -Not -Match '\[-\]'      # -BeLike трактує [-] як клас символів; -Match — літерально
     }
 
     It 'ще одна версія в дзеркалі — «сховище попереду»; -Apply робить звірочний коміт; далі знову рівні' {
