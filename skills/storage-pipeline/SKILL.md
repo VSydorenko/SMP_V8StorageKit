@@ -59,7 +59,7 @@ PowerShell-скрипти. Цей скіл каже, який скрипт за�
 | «покажи нові версії сховища» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/storage-sync.ps1" -RepoRoot . -Product <Продукт>` |
 | «перенеси нові версії сховища в git» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/storage-sync.ps1" -RepoRoot . -Product <Продукт> -Apply` |
 | «вивантаж базову конфігурацію» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/dump-config.ps1" -RepoRoot . -Product <Продукт> -Apply` |
-| «розкоти розширення в дев-базу» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/load-ext.ps1" -RepoRoot . -Product <Продукт> -Apply` |
+| «розкоти розширення в дев-базу» | **не виконувати** — суперечить принципу «агент ніколи не пише в базу людини» (спека 1.0, §1.3); `load-ext.ps1` вилучається в B4. Розкатка в базу АГЕНТА — `operation=build` Уніки |
 | «збери cfe/epf» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/build.ps1" -RepoRoot . -Product <Продукт> -Apply` |
 
 Що робить кожна й у що обходиться:
@@ -73,9 +73,9 @@ PowerShell-скрипти. Цей скіл каже, який скрипт за�
   продукту в `<Продукт>/cf/src`. Потрібно лише для операцій Unica, яким треба знати
   склад конфігурації-власника (`cfe.borrow`, `cfe.diff`, `cfe.validate`). **Займає
   20–40 хвилин і 1–2 ГБ на диску** — попереджайте про це користувача перед `-Apply`.
-- **load-ext** — розкочує вихідники розширення з git у дев-базу (`git → база`,
-  зворотний напрямок конвеєра). Сховища не торкається. Параметр `-UpdateDbCfg` — додатково
-  виконати `/UpdateDBCfg` (застосувати зміни до бази даних, не лише до конфігурації).
+- **load-ext** — (описово, не інструкція) розкочував вихідники розширення з git у дев-базу людини.
+  **Не запускати:** суперечить §1.3 канону 1.0, вилучається в B4; у базу агента вихідники накочує
+  `operation=build` Уніки.
 - **build** — збирає `.cfe` розширень і `.epf` обробок у `build/artifacts`. `-Product`
   тут **необов'язковий**: без нього скрипт збирає **всі** знайдені продукти (кожну теку
   зі `storage.json`) плюс `epf`, якщо є `epf/src`. Якщо користувач просив зібрати
