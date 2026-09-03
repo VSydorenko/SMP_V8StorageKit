@@ -3042,6 +3042,20 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Alpha_SMB/cfe/src*.gitignore*'
     }
 
+    It '§2.6: vendor-дерево закомічене всупереч .gitignore (git add -f) — код 1, факт відстеження' {
+        # Правило в .gitignore є (WithGitignore), тому питання "правил" мовчить — тут
+        # інша перевірка: факт. Файл додано силою (git add -f), так само, як хтось міг би
+        # це зробити руками попри правило.
+        $repo = New-GoodRepo 'vendor-tracked'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml') -Encoding UTF8 -NoNewline `
+            -Value (New-KitFakeConfigurationXml -Name 'base')
+        git -C $repo add -f -- Alpha_SMB/cf/src/Configuration.xml
+        git -C $repo commit -qm 'фікстура: vendor закомічено силою попри .gitignore'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Alpha_SMB/cf/src*'
+    }
+
     It '§3.2: немонотонна гілка storage/X — код 1; лінійна з кореневим комітом — 0' {
         $repo = New-GoodRepo 'branch'
         foreach ($v in 5, 9) {
@@ -3194,13 +3208,40 @@ function Invoke-KitCheck {
 
             switch ($src.Truth) {
                 'vendor' {
-                    git -C $root check-ignore -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                    # Vendor — два РІЗНІ питання, не одне. `git check-ignore` без прапорця
+                    # --no-index звіряється з індексом і НІКОЛИ не покаже вже трекований
+                    # файл ігнорованим (задокументована поведінка git, не артефакт — див.
+                    # git check-ignore -h: "--no-index — ignore index when checking").
+                    # Без --no-index "не ігнорований" фактично означало "закомічений", і
+                    # цей побічний ефект випадково ловив правильну тривогу для vendor, поки
+                    # не з'явився --no-index у дзеркальній перевірці вище (без нього не
+                    # ловилось зовсім протилежне — F5: над-широке правило проти вже
+                    # закомі­ченого дерева, яке МАЄ бути в git). --no-index розвів ці два
+                    # випадково злиті питання, тож тепер вони — дві окремі перевірки:
+
+                    # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево.
+                    git -C $root check-ignore -q --no-index -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: '$($src.RepoPath)' не гітігноровано (truth: vendor) — чужа конфігурація потрапила б у git. " +
                             "Додайте в .gitignore рядок '$($src.RepoPath)/**' (перевірка: git check-ignore).")
                     } elseif ($code -gt 1) {
                         & $add error gitignore "$tag`: git check-ignore завершився з кодом $code."
+                    }
+
+                    # (2) ФАКТ: чи дерево справді не в git — незалежно від правил. Правило
+                    # може бути на місці, а файли вже закомічені силою (git add -f) або з
+                    # часів до появи правила: check-ignore з --no-index цього НЕ покаже
+                    # (він свідомо ігнорує індекс), тому запитуємо індекс напряму. Код
+                    # виходу git ls-files — 0 і на протеклому, і на здоровому дереві,
+                    # розрізняє лише порожність виводу.
+                    $tracked = @(git -C $root ls-files -- $src.RepoPath 2>$null)
+                    if ($LASTEXITCODE -ne 0) {
+                        & $add error gitignore "$tag`: git ls-files завершився з кодом $LASTEXITCODE."
+                    } elseif ($tracked.Count -gt 0) {
+                        & $add error gitignore ("$tag`: дерево '$($src.RepoPath)' (truth: vendor) відстежується git — у ньому $($tracked.Count) файл(ів), " +
+                            'хоч чужа конфігурація не має потрапляти в репозиторій. Приберіть з індексу: ' +
+                            "git rm -r --cached -- '$($src.RepoPath)'.")
                     }
                 }
                 'storage' {

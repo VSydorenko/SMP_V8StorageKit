@@ -81,6 +81,20 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Alpha_SMB/cfe/src*.gitignore*'
     }
 
+    It '§2.6: vendor-дерево закомічене всупереч .gitignore (git add -f) — код 1, факт відстеження' {
+        # Правило в .gitignore є (WithGitignore), тому питання "правил" мовчить — тут
+        # інша перевірка: факт. Файл додано силою (git add -f), так само, як хтось міг би
+        # це зробити руками попри правило.
+        $repo = New-GoodRepo 'vendor-tracked'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml') -Encoding UTF8 -NoNewline `
+            -Value (New-KitFakeConfigurationXml -Name 'base')
+        git -C $repo add -f -- Alpha_SMB/cf/src/Configuration.xml
+        git -C $repo commit -qm 'фікстура: vendor закомічено силою попри .gitignore'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Alpha_SMB/cf/src*'
+    }
+
     It '§3.2: немонотонна гілка storage/X — код 1; лінійна з кореневим комітом — 0' {
         $repo = New-GoodRepo 'branch'
         foreach ($v in 5, 9) {

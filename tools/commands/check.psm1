@@ -91,16 +91,38 @@ function Invoke-KitCheck {
 
             switch ($src.Truth) {
                 'vendor' {
-                    # --no-index із тієї самої причини, що й у дзеркальній перевірці вище:
-                    # звірка має тестувати ПРАВИЛА .gitignore, а не те, чи файл уже випадково
-                    # потрапив у індекс.
-                    git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                    # Vendor — два РІЗНІ питання, не одне. До --no-index вони випадково
+                    # збігалися в одному виклику check-ignore (без прапорця check-ignore
+                    # звіряється з індексом, і тому "не ігнорований" фактично означало
+                    # "закомічений" — той самий побічний ефект, що ламав F5 у дзеркальній
+                    # перевірці вище, тут випадково ловив правильну тривогу). --no-index це
+                    # розвів, тож питання тепер задаються явно, кожне своєю перевіркою:
+
+                    # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево. --no-index — та сама
+                    # причина, що й у дзеркальній перевірці: питаємо про правила, а не про
+                    # те, що вже випадково потрапило в індекс.
+                    git -C $root check-ignore -q --no-index -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: '$($src.RepoPath)' не гітігноровано (truth: vendor) — чужа конфігурація потрапила б у git. " +
                             "Додайте в .gitignore рядок '$($src.RepoPath)/**' (перевірка: git check-ignore).")
                     } elseif ($code -gt 1) {
                         & $add error gitignore "$tag`: git check-ignore завершився з кодом $code."
+                    }
+
+                    # (2) ФАКТ: чи дерево справді не в git — незалежно від правил. Правило
+                    # може бути на місці, а файли вже закомічені силою (git add -f) або з
+                    # часів до появи правила: check-ignore цього не покаже (--no-index
+                    # свідомо ігнорує індекс), тому запитуємо індекс напряму. Код виходу
+                    # git ls-files — 0 в обох випадках (протеклого й здорового дерева),
+                    # розрізняє лише порожність виводу.
+                    $tracked = @(git -C $root ls-files -- $src.RepoPath 2>$null)
+                    if ($LASTEXITCODE -ne 0) {
+                        & $add error gitignore "$tag`: git ls-files завершився з кодом $LASTEXITCODE."
+                    } elseif ($tracked.Count -gt 0) {
+                        & $add error gitignore ("$tag`: дерево '$($src.RepoPath)' (truth: vendor) відстежується git — у ньому $($tracked.Count) файл(ів), " +
+                            'хоч чужа конфігурація не має потрапляти в репозиторій. Приберіть з індексу: ' +
+                            "git rm -r --cached -- '$($src.RepoPath)'.")
                     }
                 }
                 'storage' {
