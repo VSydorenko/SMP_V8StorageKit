@@ -70,13 +70,10 @@ for ($i = 0; $i -lt $CommandArgs.Count; $i++) {
 }
 
 $common = @{ Context = $context; Workspace = $Workspace; Source = $Source; Apply = [bool]$Apply }
+# Контракт суворий: людське команда друкує сама через Write-Host, а в success stream
+# (те, що потрапляє сюди, у $result) повертає лише $null або {ExitCode; …} — жодного
+# третього варіанту. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
 $result = & $functionName @common @splat
-# Присвоєння в $result саме по собі гасить вивід команди (PowerShell не пише в потік те,
-# що прибрали в змінну) — контракт команди каже "$null або {ExitCode}", але тестова
-# команда (і будь-яка майбутня, що повертає щось інше протоколом-заглушкою) мусить
-# лишитись видимою людині й тестам: re-emit усього, що не має форми {ExitCode}.
-if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode')) {
-    if ($result.ExitCode -ne 0) { exit $result.ExitCode }
-} elseif ($null -ne $result) {
-    $result
+if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
+    exit $result.ExitCode
 }

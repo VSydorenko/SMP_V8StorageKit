@@ -5,6 +5,9 @@ Describe 'kit.ps1 — диспетчер команд' {
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
 
         # Тестова команда: друкує, що отримала. Живе лише в копії — у справжньому tools/commands її немає.
+        # Write-Host, не return: контракт команди суворий — success stream несе лише $null
+        # або {ExitCode; …}, людське йде через Write-Host. probe зображає справжню команду
+        # (check у задачі 8 друкує саме так), тож і тут повернене значення диспетчер не показує.
         Set-Content -LiteralPath (Join-Path (Split-Path $script:Kit) 'commands/probe.psm1') -Encoding UTF8 -Value @'
 function Invoke-KitProbe {
     [CmdletBinding()]
@@ -16,7 +19,7 @@ function Invoke-KitProbe {
         [string]$Ref = 'HEAD',
         [switch]$Force
     )
-    "PROBE workspaces=$($Context.Workspaces.Count) ws=$Workspace src=$Source apply=$Apply ref=$Ref force=$Force main=$($Context.MainBranch)"
+    Write-Host "PROBE workspaces=$($Context.Workspaces.Count) ws=$Workspace src=$Source apply=$Apply ref=$Ref force=$Force main=$($Context.MainBranch)"
 }
 Export-ModuleMember -Function Invoke-KitProbe
 '@

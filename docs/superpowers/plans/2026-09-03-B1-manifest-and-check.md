@@ -2611,16 +2611,24 @@ StorageReport
 param(
     [Parameter(Mandatory)][string]$LibDir,
     [Parameter(Mandatory)][string]$CommandsCsv,
-    [Parameter(Mandatory)][string[]]$Modules
+    [Parameter(Mandatory)][string]$ModulesCsv
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-foreach ($m in $Modules) {
+foreach ($m in ($ModulesCsv -split ',')) {
     Import-Module (Join-Path $LibDir "$m.psm1") -Force
 }
 ```
+
+**Не `[string[]]$Modules` — рядок через кому, `$ModulesCsv`, за тим самим прийомом, що
+й уже наявний `$CommandsCsv`.** Масив, переданий сплатом через `&` зовнішньому процесу
+`pwsh -File`, не переживає межу процесу: PowerShell розсипає його на окремі токени
+командного рядка, і `-File`-байндер дочірнього pwsh прив'язує до параметра-масиву лише
+перший токен, а решту трактує як зайві позиційні аргументи — "A positional parameter
+cannot be found that accepts argument …". Перевірено ізольованою репродукцією при
+виконанні задачі 7 (`.superpowers/sdd/2026-09-03-B1-manifest-and-check/task-7-report.md`).
 
 Шапку `.SYNOPSIS` оновити: «Імпортує lib-модулі у переданому порядку… Список для
 `storage-sync.ps1` тест передає явно, для `kit.ps1` — читає з `tools/lib/module-order.txt`».
@@ -2631,7 +2639,7 @@ foreach ($m in $Modules) {
 
 ```powershell
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir -CommandsCsv $csv `
-            -Modules @('RepoRoot', 'PathSafety', 'V8', 'StorageReport', 'Authors', 'SyncState', 'GitOutput') 2>&1 | Out-String
+            -ModulesCsv 'RepoRoot,PathSafety,V8,StorageReport,Authors,SyncState,GitOutput' 2>&1 | Out-String
 ```
 
 Новий Describe у кінці файлу:
@@ -2653,7 +2661,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Resolve-Author', 'Get-UnknownAuthors', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
-            -CommandsCsv ($script:RequiredCommands -join ',') -Modules $script:Modules 2>&1 | Out-String
+            -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
         $script:ProbeExitCode = $LASTEXITCODE
         $script:ProbeOutput   = $output
         $script:Visibility = @{}
@@ -2715,6 +2723,9 @@ Describe 'kit.ps1 — диспетчер команд' {
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
 
         # Тестова команда: друкує, що отримала. Живе лише в копії — у справжньому tools/commands її немає.
+        # Write-Host, не return: контракт команди суворий — success stream несе лише $null
+        # або {ExitCode; …}, людське йде через Write-Host. probe зображає справжню команду
+        # (check у задачі 8 друкує саме так), тож і тут повернене значення диспетчер не показує.
         Set-Content -LiteralPath (Join-Path (Split-Path $script:Kit) 'commands/probe.psm1') -Encoding UTF8 -Value @'
 function Invoke-KitProbe {
     [CmdletBinding()]
@@ -2726,7 +2737,7 @@ function Invoke-KitProbe {
         [string]$Ref = 'HEAD',
         [switch]$Force
     )
-    "PROBE workspaces=$($Context.Workspaces.Count) ws=$Workspace src=$Source apply=$Apply ref=$Ref force=$Force main=$($Context.MainBranch)"
+    Write-Host "PROBE workspaces=$($Context.Workspaces.Count) ws=$Workspace src=$Source apply=$Apply ref=$Ref force=$Force main=$($Context.MainBranch)"
 }
 Export-ModuleMember -Function Invoke-KitProbe
 '@
@@ -2868,6 +2879,9 @@ for ($i = 0; $i -lt $CommandArgs.Count; $i++) {
 }
 
 $common = @{ Context = $context; Workspace = $Workspace; Source = $Source; Apply = [bool]$Apply }
+# Контракт суворий: людське команда друкує сама через Write-Host, а в success stream
+# (те, що потрапляє сюди, у $result) повертає лише $null або {ExitCode; …} — жодного
+# третього варіанту. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
 $result = & $functionName @common @splat
 if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
     exit $result.ExitCode
