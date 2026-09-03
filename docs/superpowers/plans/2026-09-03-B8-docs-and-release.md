@@ -1,0 +1,105 @@
+# B8. Документація kit, версія 1.0.0, повернення маркетплейсу — план реалізації
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** документація kit описує модель 1.0 (три ролі гілок, звірочні коміти, worktree,
+маніфест, база агента, хук), `README.md` і `CLAUDE.md` kit переписані, `plugin.json` → 1.0.0,
+маркетплейс повертається на GitHub. Пуш і реліз — **лише за явним проханням користувача**.
+
+**Architecture:** лише документи й метадані; код не змінюється. Джерело істини — спека і
+плани B1–B6 (сигнатури, імена команд, вердикти). Кожен документ пишеться так, щоб його можна було
+звірити з кодом `grep`-ом: імена команд, файлів, трейлерів — дослівно.
+
+**Spec:** `docs/superpowers/specs/2026-09-03-agent-contour-design.md` §14 (B8), §3, §5, §7, §11.
+
+## Global Constraints
+
+- Мова — українська; `${CLAUDE_PLUGIN_ROOT}` — лише в `README.md` як пояснення механізму (він не скіл).
+- Тести без Integration зелені після кожної задачі (`Templates.Tests`, `Skills.Tests` читають документи).
+- **`git push`, `gh release`, `claude plugin marketplace` (повернення на GitHub) — за явним підтвердженням користувача в сесії виконання.**
+
+---
+
+### Task 1: `docs/storage-and-git.md` — переписати під модель §3
+
+- [ ] Структура: «Три ролі гілок» (діаграма зі спеки §3.1, трейлери, хто пише), «Стан
+  синхронізації з git» (§3.2, `Get-KitStorageBranchLastVersion`, інваріанти `check`), «Захист
+  `storage/*`» (три шари §3.3; факт: хук спрацьовує і в linked worktree, тому `V8KIT_SYNC`), «Як
+  зливається» (§3.4, три випадки Q4), «verify» (§3.5, merge-base, п'ять категорій, сирі блоби —
+  бо `git archive` конвертує), «Канонізація» (§3.6), «Три теки `build`», «Маніфест і накладка»
+  (посилання на `templates/*.example`), «AUTHORS» (без змін), «Особливості платформи» (перенести
+  з поточного файлу: `-Extension` у команді-дії, стаб, `//` у коментарях, MXL), «Сховище
+  конфігурації без `-Extension`» (результат спайку B2).
+- [ ] Вилучити розділи про `storage.json`, «Перший прогін продукту — два коміти», clean-tree guard.
+- [ ] Коміт.
+
+### Task 2: `docs/text-policy.md`
+
+- [ ] Розділ «Приймальна перевірка» — основний метод тепер `kit verify` (порівняння з дампом зі
+  сховища на злитій версії; «лише CR» — саме цей клас); round-trip через власну робочу копію —
+  допоміжний, з тією ж пасткою методу. Міграція репозиторію під `eol=crlf` — кроки чинні; крок 3
+  — `kit verify -Ref <гілка>`.
+- [ ] Коміт.
+
+### Task 3: `docs/unica-contract.md`
+
+- [ ] A8–A11 — якщо B5 не вніс; «зафіксований стан» угорі — актуальні версії; розділ E — крок 5
+  тепер `kit verify` на репозиторії з дзеркалом; згадки `dump-config.ps1`, `build.ps1` → `kit dump`, `kit build`.
+- [ ] Коміт.
+
+### Task 4: `README.md` і `CLAUDE.md` kit
+
+- [ ] `README.md`: що це (одним абзацем зі спеки §0), встановлення (маркетплейс GitHub, `claude plugin
+  install`), механізм `${CLAUDE_PLUGIN_ROOT}` і кеш, команди `kit.ps1` таблицею (§5), скіли (§6),
+  хук (§7 — «плагін хуків не оголошує»), залежність `powershell-yaml`, посилання на `docs/`.
+- [ ] `CLAUDE.md` kit — переписати «Структура» (`tools/commands/`, `lib/`, `templates/hooks|githooks`,
+  вісім скілів + `migrate`), «Середовище» (+ `powershell-yaml`), «Тести» (зразок форми — `Check.Tests`,
+  `Sync.Tests`, `New-KitFakeRepo`), «Зв'язок з Unica» (`kit dump`/`kit build`/`operation=make`),
+  «Правила, які легко порушити» (п. 5 про хуки з B4; п. 6: `storage/*` пише лише `sync` з
+  `V8KIT_SYNC`), «Дозволи» (`kit.ps1 check` дозволено), «Межі» (база людини — лише читання), «Де що шукати».
+- [ ] Прибрати перехідні позначки B2–B4 зі `skills/*` (їх уже немає після B5 — перевірити `grep -rn 'Перехідний стан' skills templates`).
+- [ ] Коміт.
+
+### Task 5: `docs/follow-ups.md`
+
+- [ ] Пройти всі пункти: закриті в B1–B6 позначити (§5, §7, §14 — уже; §4 — зразок тесту оновлено);
+  §10 — результат прогону B6 (якщо був); §12 — посилання на A8–A11; §13 — `Export-KitTree`/`Compare-KitTrees`
+  враховують відсутність завершального переводу рядка? (перевірити: порівняння побайтове — так).
+- [ ] Коміт.
+
+### Task 6: версія й метадані плагіна
+
+- [ ] `.claude-plugin/plugin.json`: `"version": "1.0.0"`, `description` — «Контур агента для 1С
+  поруч з Unica: дзеркала сховищ у git (`storage/*`), звірка git зі сховищем, база агента, дамп із
+  живої бази, збірка `.epf`, хук старту сесії». `.claude-plugin/marketplace.json` — `description` узгодити.
+- [ ] `git tag` не ставити без прохання; коміт `release: v8storagekit 1.0.0`.
+
+### Task 7: повернення маркетплейсу на GitHub (зворотний крок B1 Task 10) — за явним підтвердженням
+
+Це має сенс **лише після** `git push` гілки з 1.0.0 у GitHub (інакше кеш підтягне стару версію) —
+тобто після рішення користувача про пуш/реліз.
+
+- [ ] `claude plugin marketplace remove smp-v8storagekit`
+- [ ] `claude plugin marketplace add VSydorenko/SMP_V8StorageKit`
+- [ ] `claude plugin update v8storagekit@smp-v8storagekit`; перевірити `installPath` → кеш `…/smp-v8storagekit/v8storagekit/1.0.0`.
+- [ ] Оновити пам'ять `v8storagekit-plugin-dev-loop` (стан реєстрації — GitHub; цикл: бамп → коміт → push → update → рестарт).
+- [ ] Нова сесія в репозиторії-споживачі: хук показує «Стан сховищ» із кешованого плагіна.
+
+### Task 8: фінальна перевірка
+
+- [ ] `pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration` — зелено.
+- [ ] `grep -rn 'CLAUDE_PLUGIN_ROOT' skills/ | grep -v '/tools/\|/templates/\|/docs/'` — порожньо.
+- [ ] `grep -rn 'storage-sync\|dump-config\|load-ext\|storage\.json\|SyncState' --include=*.md --include=*.ps1 --include=*.psm1 . | grep -v 'docs/superpowers\|docs/migration\|follow-ups'` — порожньо.
+- [ ] `test -e hooks/hooks.json` — немає.
+- [ ] Доповідь користувачу: що готово, що потребує його рішення (пуш, реліз, живі репозиторії).
+
+## Self-review
+
+| §14 B8 | Задача |
+|---|---|
+| `docs/storage-and-git.md` під модель §3 (три гілки, звірочні коміти, worktree) | 1 |
+| `docs/text-policy.md` — round-trip через сховище як основний | 2 |
+| `docs/unica-contract.md` A8–A11 | 3 |
+| `README.md`, `CLAUDE.md` kit | 4 |
+| `plugin.json` 1.0.0 | 6 |
+| повернення маркетплейсу на GitHub (§14, рішення користувача) | 7 |
