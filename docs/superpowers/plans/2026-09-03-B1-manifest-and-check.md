@@ -2097,10 +2097,18 @@ git commit -m "B1: StorageBranch.psm1 — остання версія й інв�
 `core.hooksPath .githooks`. Хук відмовляє, якщо `HEAD` → `refs/heads/storage/*` і немає
 `V8KIT_SYNC=1`.
 
-**Встановлені факти (перевірено в цій сесії):** відносний `core.hooksPath` спрацьовує і в
-linked worktree (`git worktree add …`), хоч там теки `.githooks` немає — git розв'язує його
-від головної робочої копії. Тому **`sync` (B2) мусить виставляти `V8KIT_SYNC=1` на коміт у
-worktree**, інакше сам собі відмовить. `pre-merge-commit` блокує коміт злиття, але `git merge`
+**Встановлені факти (виправлено фінальним рев'ю, 2026-09; повний розбір — `docs/follow-ups.md`
+§15):** відносний `core.hooksPath` у linked worktree (`git worktree add …`) спрацьовує лише
+тоді, коли теку `.githooks` містить дерево САМОГО worktree, а не головної робочої копії —
+перевірено двічі на git 2.53.0.windows.1: orphan-worktree без `.githooks` у своєму дереві
+дає exit=0 (хук не спрацював) на коміті без `V8KIT_SYNC`, а worktree, чиє дерево `.githooks`
+містить, дає exit=1 (спрацював). Тобто git розв'язує шлях від кореня свого власного
+worktree. `sync` (B2) `worktree add --orphan` для гілки `storage/*` не наслідує `.githooks`
+головної копії, тож шар 2 (pre-commit/pre-merge-commit) там реально не діє — повнота
+захисту лишається на шарі 3 (`check`, інваріанти гілки, спека §3.3). `sync` усе одно
+**мусить виставляти `V8KIT_SYNC=1`** на коміт у worktree — не як обхід дірки, а як
+контракт: там, де тека `.githooks` таки є в дереві worktree, коміт без цієї змінної хук
+законно відхилить. `pre-merge-commit` блокує коміт злиття, але `git merge`
 завершується кодом 0 із текстом «Not committing merge» і лишає індекс у стані злиття —
 тест перевіряє, що `HEAD` не змінився, а не код виходу.
 

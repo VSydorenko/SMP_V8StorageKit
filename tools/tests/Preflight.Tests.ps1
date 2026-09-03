@@ -45,11 +45,25 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-manifest')
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*v8storagekit.yaml*onboarding*'
+        # H3 — "з теки плагіна" саме собою не каже, де та тека.
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*claude plugin list*'
 
         $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient
         $ctx.Ok | Should -BeFalse
         @($ctx.Findings | Where-Object Level -eq 'error').Count | Should -Be 1
         $ctx.Findings[0].Message | Should -BeLike '*v8storagekit.yaml*'
+    }
+
+    # H5 (фінальне рев'ю) — до 0.6.0 конвенція клала storage.json у кожну підтеку продукту;
+    # такий репозиторій уже має все, що потрібно маніфесту (шляхи сховищ, імена розширень,
+    # дев-бази), просто не в тому файлі. Порада "пишіть v8storagekit.yaml руками" для нього
+    # хибна — правильний шлях: kit migrate. Другу гілку (без storage.json) покриває тест
+    # вище — ця фікстура так само не має storage.json, доки я його явно не додам.
+    It 'H5: без маніфесту, але зі storage.json у підтеці — підказка на репозиторій 0.6.0 і kit migrate' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'legacy-no-manifest')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/storage.json') -Value '{}' -Encoding UTF8
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*kit migrate*'
     }
 
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {

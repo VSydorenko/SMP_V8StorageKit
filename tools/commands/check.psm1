@@ -44,6 +44,19 @@ function Invoke-KitCheck {
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
             "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
 
+        # Правка 3 (фінальне рев'ю) — mainBranch друкується рядком вище, але досі не
+        # перевірявся: маніфест міг називати гілку, якої в репозиторії ще немає (описка,
+        # або репозиторій, де trunk ще не перейменували на main), а B2 зіллє storage/* саме
+        # в неї — внутрішня суперечність, видима з будь-якої машини (спека §5). warn, не
+        # error: свіжий репозиторій до першого коміту головної гілки — законний стан, і
+        # check не має права завалювати онбординг рівно за це.
+        if (-not (Test-KitBranchExists -RepoRoot $root -Branch $Context.MainBranch)) {
+            & $add warn main-branch (
+                "Головної гілки '$($Context.MainBranch)' (mainBranch: у v8storagekit.yaml) немає в репозиторії. " +
+                'Якщо це описка — виправте mainBranch: у маніфесті; якщо репозиторій ще зовсім новий — зробіть ' +
+                'у неї перший коміт до першого kit sync.')
+        }
+
         # §2.3 — ключі truth: storage унікальні в межах репозиторію (гілка storage/<ключ> одна).
         $dups = @($Context.Workspaces | ForEach-Object { $_.Sources } | Where-Object Truth -eq 'storage' |
             Group-Object Key | Where-Object Count -gt 1)
@@ -70,6 +83,23 @@ function Invoke-KitCheck {
                 "репозиторій. Додайте рядок 'v8storagekit.local.yaml' у .gitignore (зразок: templates/gitignore).")
         } elseif ($overlayIgnoredCode -gt 1) {
             & $add error overlay-ignored "git check-ignore для v8storagekit.local.yaml завершився з кодом $overlayIgnoredCode."
+        }
+
+        # Правка 1 (фінальне рев'ю) — те саме друге питання, що вже стоїть нижче для
+        # truth: vendor: ПРАВИЛА (вище) і ФАКТ — окремі питання. Правило в .gitignore може
+        # бути на місці, а файл уже закомічено (git add -f, або з часів до появи правила) —
+        # check-ignore --no-index свідомо ігнорує індекс і такого не покаже; питаємо індекс
+        # напряму. Порада самого check ("додайте рядок у .gitignore") гасила б тривогу, не
+        # прибираючи файл з історії, — це і є діра, яку рев'ю знайшло тут: правило Є, файл
+        # закомічено, а check раніше давав код 0 і одне попередження.
+        $overlayTracked = @(git -C $root ls-files -- 'v8storagekit.local.yaml' 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            & $add error overlay-ignored "git ls-files для v8storagekit.local.yaml завершився з кодом $LASTEXITCODE."
+        } elseif ($overlayTracked.Count -gt 0) {
+            & $add error overlay-ignored (
+                'v8storagekit.local.yaml вже закомічено в git — у ньому рядки підключення й користувачі ' +
+                'сховищ, а репозиторій публічний. Приберіть з індексу: git rm --cached -- v8storagekit.local.yaml. ' +
+                'Це не прибирає файл із ІСТОРІЇ попередніх комітів — лише зупиняє подальше витікання.')
         }
 
         foreach ($src in $all) {
@@ -167,8 +197,18 @@ function Invoke-KitCheck {
                             'якщо диск є, а шлях помилковий — виправте v8storagekit.yaml.')
                     }
                     if (Test-KitBranchExists -RepoRoot $root -Branch $src.Branch) {
-                        foreach ($f in @(Test-KitStorageBranchInvariants -RepoRoot $root -Branch $src.Branch -SourceKey $src.Key -RepoPath $src.RepoPath)) {
-                            $findings.Add($f)
+                        # Правка 8 (фінальне рев'ю) — Test-KitStorageBranchInvariants кидає на
+                        # збої git (StorageBranch.psm1: git log/git ls-tree). Без цього try/catch
+                        # (на відміну від Test-GitTextPolicy й Read-V8ProjectLocalInfobase поруч,
+                        # уже загорнутих) збій git тут зносив би ввесь звіт check разом з усіма
+                        # findings, уже зібраними до цього рядка — найгірший спосіб впасти для
+                        # команди, чий сенс «показати все, що не так».
+                        try {
+                            foreach ($f in @(Test-KitStorageBranchInvariants -RepoRoot $root -Branch $src.Branch -SourceKey $src.Key -RepoPath $src.RepoPath)) {
+                                $findings.Add($f)
+                            }
+                        } catch {
+                            & $add error storage-branch "$tag`: аудит інваріантів гілки $($src.Branch) впав: $($_.Exception.Message)"
                         }
                     } else {
                         & $add info storage-branch "$tag`: гілки $($src.Branch) ще немає — її створить перший sync."
@@ -179,7 +219,7 @@ function Invoke-KitCheck {
             if ($src.Truth -in @('dump', 'vendor')) {
                 if (-not $Context.Overlay) {
                     & $add warn dump-from ("$tag`: dump.from '$($src.DumpFrom)', але накладки v8storagekit.local.yaml на цій машині немає — " +
-                        'dump тут не запрацює, поки її не створити.')
+                        'dump тут не запрацює, поки її не створити (зразок: templates/v8storagekit.local.yaml.example).')
                 } elseif (-not $Context.Overlay.Infobases.ContainsKey($src.DumpFrom)) {
                     & $add warn dump-from "$tag`: дев-бази '$($src.DumpFrom)' немає в infobases: накладки $($Context.OverlayPath)."
                 }
@@ -227,6 +267,35 @@ function Invoke-KitCheck {
             }
 
             $localPath = Join-Path $ws.FullPath 'v8project.local.yaml'
+            $relLocalPath = "$($ws.Path)/v8project.local.yaml"
+
+            # Правка 1 (фінальне рев'ю) — v8project.local.yaml (файл Уніки) теж гітігнорований,
+            # теж із підключенням до бази, і check його досі не перевіряв узагалі. Той самий
+            # зразок «два питання», що вище для kit-накладки й нижче для truth: vendor: ПРАВИЛА
+            # (check-ignore --no-index) і ФАКТ (ls-files), окремо. На відміну від накладки kit —
+            # вона одна на репозиторій, v8project.local.yaml живе В КОЖНОМУ воркспейсі поруч зі
+            # своїм v8project.yaml, тому перевірка тут, усередині цього циклу, а не поза ним.
+            git -C $root check-ignore --no-index -q -- $relLocalPath 2>$null | Out-Null
+            $localIgnoredCode = $LASTEXITCODE
+            if ($localIgnoredCode -eq 1) {
+                & $add error local-ignored (
+                    "$relLocalPath не гітігноровано — це файл Уніки з підключенням до бази, і перший же " +
+                    "git add -A застейджить його в публічний репозиторій. Додайте рядок 'v8project.local.yaml' " +
+                    'у .gitignore (зразок: templates/gitignore).')
+            } elseif ($localIgnoredCode -gt 1) {
+                & $add error local-ignored "$relLocalPath`: git check-ignore завершився з кодом $localIgnoredCode."
+            }
+
+            $localTracked = @(git -C $root ls-files -- $relLocalPath 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+                & $add error local-ignored "$relLocalPath`: git ls-files завершився з кодом $LASTEXITCODE."
+            } elseif ($localTracked.Count -gt 0) {
+                & $add error local-ignored (
+                    "$relLocalPath вже закомічено в git — це файл Уніки з підключенням до бази. Приберіть з " +
+                    "індексу: git rm --cached -- $relLocalPath. Це не прибирає файл із ІСТОРІЇ попередніх " +
+                    'комітів — лише зупиняє подальше витікання.')
+            }
+
             $localConn = $null
             try { $localConn = Read-V8ProjectLocalInfobase -Path $localPath }
             catch { & $add error local-audit "$($ws.Path)/v8project.local.yaml не читається: $($_.Exception.Message)" }
@@ -241,8 +310,14 @@ function Invoke-KitCheck {
             }
         }
 
-        # §3.3, шар 2 — хуки.
-        foreach ($f in @(Test-KitGitHooks -RepoRoot $root)) { $findings.Add($f) }
+        # §3.3, шар 2 — хуки. Той самий захист, що вище для інваріантів гілки: Test-KitGitHooks
+        # кидає на збої git (Hooks.psm1: git ls-files -s), і без try/catch це так само зносило б
+        # усі findings, зібрані до цього рядка.
+        try {
+            foreach ($f in @(Test-KitGitHooks -RepoRoot $root)) { $findings.Add($f) }
+        } catch {
+            & $add error hooks "Аудит хуків впав: $($_.Exception.Message)"
+        }
     }
 
     $errors = @($findings | Where-Object Level -eq 'error')

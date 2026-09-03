@@ -89,8 +89,25 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
         It 'свіжий репозиторій без хуків — помилки про core.hooksPath і файли' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-none')
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
-            @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*core.hooksPath*' }).Count | Should -Be 1
+            # Звужено до "*не вказує*" (правка H1): тепер "git config core.hooksPath" згадує
+            # й повідомлення про відсутній файл хука (порада, куди його ввімкнути), тож
+            # голий '*core.hooksPath*' ловив би вже три знахідки замість однієї — тест мав
+            # на увазі саме "не налаштовано", а не будь-яку згадку рядка.
+            @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*core.hooksPath не вказує*' }).Count | Should -Be 1
             @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*pre-commit*' }).Count | Should -BeGreaterOrEqual 1
+        }
+
+        # H1 (фінальне рев'ю, живий онбординг з нуля) — повідомлення казало ЧОГО бракує, і
+        # не казало, ДЕ взяти файл. Тепер називає джерело (templates/githooks/ у теці
+        # плагіна), як його знайти (H3 — claude plugin list) і другий крок (core.hooksPath).
+        It 'H1: повідомлення про відсутній хук називає джерело, теку плагіна й git config core.hooksPath' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-hook-source')
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            $missing = @($f | Where-Object { $_.Message -like '*pre-commit*немає*' })
+            $missing.Count | Should -Be 1
+            $missing[0].Message | Should -BeLike '*templates/githooks*'
+            $missing[0].Message | Should -BeLike '*claude plugin list*'
+            $missing[0].Message | Should -BeLike '*git config core.hooksPath*'
         }
         # S2 (живий прогін задачі 11): Install-KitGitHooks сам по собі кладе файли на диск,
         # але НЕ чіпає індекс споживача (навмисно — див. коментар над Test-KitGitHooks).

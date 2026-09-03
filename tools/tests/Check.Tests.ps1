@@ -68,12 +68,72 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $lines.Count | Should -Be 1
     }
 
+    # Правка 1 (фінальне рев'ю) — асиметрія, яку рев'ю знайшло наживо: check питав лише
+    # "чи є ПРАВИЛО в .gitignore", і мовчав, коли правило Є, а файл уже ЗАКОМІЧЕНО (git add
+    # -f, або з часів до появи правила) — код 0, одне попередження, а рядки підключення й
+    # користувачі сховищ уже в історії публічного репозиторію. Другий, незалежний, запит:
+    # факт відстеження (той самий зразок, що вже стоїть для truth: vendor).
+    It 'S3-факт: v8storagekit.local.yaml гітігноровано ПРАВИЛОМ, але вже закомічено (git add -f) — код 1, факт відстеження, рівно ОДНА знахідка' {
+        $repo = New-GoodRepo 'overlay-tracked'
+        # CRLF, не LF (`r`n, не `n): .gitattributes фікстури — text=auto, і на цій машині
+        # (core.autocrlf false, core.eol типово native=CRLF) checkout дав би саме CRLF.
+        # LF-вміст тут спричинив би зайве "LF will be replaced by CRLF" при git add — той
+        # самий прийом, що вже застосовано в New-KitFakeConfigurationXml.
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value "storages:`r`n  dummy: 'x'"
+        git -C $repo add -f -- v8storagekit.local.yaml
+        git -C $repo commit -qm 'фікстура: v8storagekit.local.yaml закомічено силою попри .gitignore'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*git rm --cached*v8storagekit.local.yaml*'
+        # Порада самого check ("додайте рядок у .gitignore") сама по собі не прибирає файл
+        # з ІСТОРІЇ — це головне, чого людина сама не здогадається, і повідомлення мусить
+        # про це сказати прямо.
+        $r.Output | Should -BeLike '*ІСТОРІЇ*'
+        # Рівно одна знахідка на весь репозиторій — той самий доказ, що й у S3 вище: файл
+        # один на корінь, перевірка стоїть ПОЗА циклом foreach ($src in $all).
+        $lines = @(($r.Output -split "`r?`n") | Where-Object { $_ -like '*вже закомічено в git*' })
+        $lines.Count | Should -Be 1
+    }
+
+    # Той самий дефект, той самий зразок фіксу — для v8project.local.yaml (файл Уніки),
+    # якого check раніше не перевіряв УЗАГАЛІ. На відміну від kit-накладки (одна на
+    # корінь), цей файл живе В КОЖНОМУ воркспейсі поруч зі своїм v8project.yaml.
+    It 'v8project.local.yaml (файл Уніки) гітігноровано ПРАВИЛОМ, але вже закомічено — код 1, факт відстеження' {
+        $repo = New-GoodRepo 'local-tracked'
+        # CRLF — та сама причина, що в тесті вище про v8storagekit.local.yaml.
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "infobase:`r`n  connection: 'File=build/agent_ib'"
+        git -C $repo add -f -- Alpha_SMB/v8project.local.yaml
+        git -C $repo commit -qm 'фікстура: v8project.local.yaml закомічено силою попри .gitignore'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*git rm --cached*Alpha_SMB/v8project.local.yaml*'
+        $r.Output | Should -BeLike '*ІСТОРІЇ*'
+    }
+
     It 'без маніфесту — код 1 і підказка на onboarding' {
         $repo = New-GoodRepo 'no-manifest'
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8storagekit.yaml*onboarding*'
+        # H3 — "з теки плагіна" саме собою не каже, де та тека.
+        $r.Output | Should -BeLike '*claude plugin list*'
+    }
+
+    # Правка 3 (фінальне рев'ю) — mainBranch друкувався (рядок info manifest), але не
+    # перевірявся: репозиторій із маніфестом mainBranch: trunk, де є лише main, давав код 0
+    # без жодного натяку — внутрішня суперечність, видима з будь-якої машини, і саме в цю
+    # гілку B2 зіллє storage/*. warn (не error): код усе одно 0, бо свіжий репозиторій до
+    # першого коміту головної гілки — законний стан.
+    It 'правка 3: mainBranch указує на гілку, якої немає, — warn, а не error, код 0' {
+        $repo = New-GoodRepo 'main-branch-missing'
+        $manifestPath = Join-Path $repo 'v8storagekit.yaml'
+        $lines = @(Get-Content -LiteralPath $manifestPath -Encoding UTF8)
+        Set-Content -LiteralPath $manifestPath -Encoding UTF8 -Value (@($lines[0], 'mainBranch: trunk') + $lines[1..($lines.Count - 1)])
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike "*'trunk'*немає в репозиторії*"
     }
 
     It '§2.2: <Name> у Configuration.xml не збігається з ключем джерела — код 1, названо обидва' {
@@ -202,6 +262,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*[!]*v8storagekit.local.yaml*'
         $r.Output | Should -BeLike '*dump.from*'
+        # H2 — повідомлення не називало зразка накладки (тепер він є в templates/).
+        $r.Output | Should -BeLike '*templates/v8storagekit.local.yaml.example*'
     }
 
     # Правка 4 (живий прогін задачі 11): warn лишається warn, але текст має розвилку — інакше
@@ -229,12 +291,34 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*у самому v8storagekit.yaml записано*'
     }
 
-    It '-Workspace звужує перевірку; невідомий — код 1 з переліком' {
+    # Правка 8 (фінальне рев'ю) — раніше невідомий -Workspace давав сирий "Exception: ..."
+    # і жоден зі стовпців [-]/[!]/[i] узагалі не друкувався (throw усередині Select-KitSources
+    # ще ДО того, як Invoke-KitCheck дійшов до Write-Host). Тепер kit.ps1 ловить це на
+    # диспетчерському рівні (той самий зразок, що вже стояв для невідомої команди) — код 2,
+    # охайний рядок, без слова "Exception".
+    It '-Workspace звужує перевірку; невідомий — код 2, охайний рядок без "Exception"' {
         $repo = New-GoodRepo 'ws-filter'
         (Invoke-Check -Repo $repo -More @('-Workspace', 'Alpha_SMB')).ExitCode | Should -Be 0
         $r = Invoke-Check -Repo $repo -More @('-Workspace', 'Nope')
-        $r.ExitCode | Should -Not -Be 0
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike "*'Nope'*Alpha_SMB*"
+        $r.Output | Should -Not -BeLike '*Exception*'
+    }
+
+    # Правка 8 (фінальне рев'ю), друга діра з тієї самої знахідки рев'ю: Test-KitGitHooks
+    # кидає на збої git (Hooks.psm1: git ls-files -s), і без try/catch навколо нього це
+    # зносило б УСІ вже зібрані findings (напр. info manifest) разом із самим звітом —
+    # найгірший спосіб впасти для команди, чий сенс "показати все, що не так". Пошкоджений
+    # .git/index — перевірений у цьому репозиторії прийом (StorageSync.Tests.ps1, сценарій
+    # "git status fails"), який ламає САМЕ git-виклики, що читають індекс (тут — git
+    # ls-files -s усередині Test-KitGitHooks), і не займає команд, що індекс не читають.
+    It 'збій git усередині аудиту хуків не губить решти зібраних знахідок' {
+        $repo = New-GoodRepo 'hooks-git-fails'
+        Set-Content -LiteralPath (Join-Path $repo '.git/index') -Encoding UTF8 -Value 'зумисно пошкоджений індекс'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Маніфест:*'
+        $r.Output | Should -BeLike '*Аудит хуків впав*'
     }
 
     It 'check нічого не змінює: статус робочої копії й HEAD ті самі' {

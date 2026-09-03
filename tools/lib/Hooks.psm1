@@ -80,8 +80,16 @@ function Test-KitGitHooks {
     foreach ($name in $script:HookNames) {
         $installedPath = Join-Path $RepoRoot $script:HooksDirName $name
         if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+            # Правка H1 (фінальне рев'ю, живий онбординг з нуля) — старе повідомлення казало
+            # ЧОГО бракує, і не казало, ДЕ взяти файл: контраст із сусідніми повідомленнями
+            # check (маніфест — templates/v8storagekit.yaml.example, .gitignore —
+            # templates/gitignore) різкий, і саме на це вперся живий прогін. Джерело — і
+            # другий крок (core.hooksPath) — тепер названо явно.
             $findings.Add((New-KitFinding -Level error -Check 'hooks' -Message (
-                "Хука $script:HooksDirName/$name немає — гілки storage/* не захищені від ручного коміту.")))
+                "Хука $script:HooksDirName/$name немає — гілки storage/* не захищені від ручного коміту. " +
+                "Скопіюйте його з templates/githooks/ у теці плагіна (знайти теку: claude plugin list, або " +
+                "/plugin у сесії Claude Code) у $script:HooksDirName/$name і виконайте: " +
+                "git config core.hooksPath $script:HooksDirName.")))
             continue
         }
         $templatePath = Join-Path $TemplatesDir $name

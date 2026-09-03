@@ -57,13 +57,32 @@ function Invoke-KitPreflight {
     $ctx.ManifestPath = Join-Path $root $script:ManifestFileName
 
     if (-not (Test-Path -LiteralPath $ctx.ManifestPath -PathType Leaf)) {
+        # Правка H5 (фінальне рев'ю) — до 0.6.0 конвенція клала storage.json у кожну підтеку
+        # продукту в корені репозиторію; такий репозиторій уже має все, що потрібно
+        # маніфесту (шляхи сховищ, імена розширень, дев-бази), просто не в тому файлі. Порада
+        # "пишіть v8storagekit.yaml руками" для нього хибна — правильний шлях інший, і check
+        # мусить розрізняти два стани, не давати одну й ту саму пораду обом. Пошук навмисно
+        # неглибокий (Get-ChildItem -Directory по самому кореню, тоді перевірка файлу) — не
+        # рекурсія по всьому дереву, воно може бути великим.
+        $legacyDirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') -PathType Leaf })
+        if ($legacyDirs.Count -gt 0) {
+            & $fail 'manifest' (
+                "Маніфест $script:ManifestFileName не знайдено в $root, але в підтеках є storage.json " +
+                "($(($legacyDirs.Name | Sort-Object) -join ', ')) — це репозиторій старої конвенції 0.6.0. " +
+                "Не пишіть $script:ManifestFileName руками: скіл v8storagekit:migrate (команда kit migrate) сам " +
+                'прочитає шляхи сховищ, імена розширень і дев-бази з наявних storage.json.')
+            return $ctx
+        }
         # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"
         # сам по собі вів у глухий кут: цього скіла ще немає (з'явиться в B5), а це перше й
         # часто ЄДИНЕ повідомлення, яке бачить новий споживач. Пряма дія поруч зі скілом —
-        # не замість нього.
+        # не замість нього. Правка H3 (фінальне рев'ю) — "з теки плагіна" саме собою не
+        # каже, де та тека: додано, як її знайти.
         & $fail 'manifest' ("Маніфест $script:ManifestFileName не знайдено в $root. Репозиторій не підключено до kit — " +
-                            'скопіюйте templates/v8storagekit.yaml.example з теки плагіна в корінь репозиторію як ' +
-                            "$script:ManifestFileName, заповніть і запустіть kit check ще раз. Далі — скіл v8storagekit:onboarding.")
+                            'скопіюйте templates/v8storagekit.yaml.example з теки плагіна (знайти теку: claude plugin list, ' +
+                            "або /plugin у сесії Claude Code) у корінь репозиторію як $script:ManifestFileName, заповніть " +
+                            'і запустіть kit check ще раз. Далі — скіл v8storagekit:onboarding.')
         return $ctx
     }
     try { $ctx.Manifest = Read-KitManifest -Path $ctx.ManifestPath }

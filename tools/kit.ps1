@@ -82,7 +82,18 @@ $common = @{ Context = $context; Workspace = $Workspace; Source = $Source; Apply
 # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream
 # (те, що потрапляє сюди, у $result) повертає лише $null або {ExitCode; …} — жодного
 # третього варіанту. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
-$result = & $functionName @common @splat
+try {
+    $result = & $functionName @common @splat
+} catch {
+    # Правка 8 (фінальне рев'ю) — той самий дефект подачі, що вище (Правка 6б, живий
+    # прогін задачі 11): сирий throw усередині команди (наприклад Select-KitSources на
+    # невідомому -Workspace/-Source) без цього виходив стеком PowerShell і топив уже
+    # зібрані check-ом знахідки. Код 2 — той самий сенс, що й вище: «команда не
+    # завершилась узагалі», а не «відпрацювала й знайшла помилки» (той код — ExitCode
+    # самої команди, нижче).
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    exit 2
+}
 if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
     exit $result.ExitCode
 }
