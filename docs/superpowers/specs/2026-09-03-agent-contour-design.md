@@ -83,23 +83,82 @@ Unica: один source-set `CONFIGURATION` і N `EXTENSION` (плюс за по�
 - Кириличні імена тек — прийнятий ризик (`follow-ups.md` §10); `onboarding` попереджає
   вголос.
 
-### 2.3 Розкладка воркспейсу
+### 2.3 Розкладка репозиторію — два живі приклади
+
+Обидва типи репозиторіїв мають **одну форму**; різняться лише кількість воркспейсів,
+кількість розширень усередині й те, чи закомічений `cf/src`. Позначки: **[git]** —
+закомічено, **[ign]** — гітігноровано.
+
+**Продуктовий репозиторій** (`SMP_BankExchange`: одне рішення, три варіації, спільні
+обробки):
 
 ```
-<репозиторій>/
-  v8storagekit.yaml         маніфест (§2.4)
-  v8storagekit.local.yaml   локальна накладка, гітігнорена (§2.5)
-  AUTHORS                   мапінг «користувач сховища → автор git»
-  .githooks/                захист гілок storage/* (§3.3)
-  build/                    робочі теки kit: sync/<джерело>/ (worktree, тимчасова ІБ),
-                            artifacts/ (зібрані .cf/.cfe/.epf)
-  <Воркспейс>/
-    v8project.yaml          Unica: source-set-и, infobase: File=build/ib, workPath
-    cf/src/                 базова конфігурація (source-set base)
-    cfe/<Розширення>/src/   розширення; для одного розширення допускається cfe/src
-    build/                  workPath Unica: ib/ (база агента) — kit сюди не пише
-    .build/unica/           кеш Unica
+SMP_BankExchange/
+├── .claude/
+│   ├── settings.json                [git] дозволи + хук SessionStart (§7); кладе onboarding з templates/
+│   └── hooks/session-start.ps1      [git] шим хука (§7)
+├── .githooks/                       [git] pre-commit, pre-merge-commit — захист storage/* (§3.3)
+├── .gitattributes                   [git] -text на всіх деревах платформи
+├── .gitignore                       [git] build/  .build/  **/cf/**  *.local.yaml
+├── AUTHORS                          [git] користувач сховища → автор git
+├── CLAUDE.md                        [git]
+├── v8storagekit.yaml                [git] МАНІФЕСТ: product: BankExchange, чотири воркспейси (§2.4)
+├── v8storagekit.local.yaml          [ign] дев-бази, .dt для бази агента, перевизначення шляхів (§2.5)
+├── build/                           [ign] теки kit
+│   ├── sync/<джерело>/              worktree гілки storage/<джерело> + тимчасова ІБ
+│   └── artifacts/                   зібрані .cf/.cfe/.epf для людини
+│
+├── SMP_BankExchange_SMB/            воркспейс 1 — УНФ UA
+│   ├── v8project.yaml               [git] Unica: base → cf/src; SMP_BankExchange_SMB → cfe/src;
+│   │                                      infobase.connection: File=build/ib
+│   ├── cf/
+│   │   ├── README.md                [git] тримає теку в git
+│   │   └── src/                     [ign] truth: vendor — дамп УНФ з дев-бази
+│   ├── cfe/src/                     [git] truth: storage — наше розширення
+│   ├── build/ib/                    [ign] БАЗА АГЕНТА; workPath Unica — kit сюди не пише
+│   └── .build/unica/                [ign] кеш Unica
+│
+├── SMP_BankExchange_SMBru/          воркспейс 2 — УНФ RU, та сама форма
+├── SMP_BankExchange_ACC/            воркспейс 3 — БАС Бухгалтерія, та сама форма
+└── epf/                             воркспейс 4 — спільні обробки для всіх трьох
+    ├── v8project.yaml               [git] external-processors → src
+    └── src/                         [git] truth: git
 ```
+
+Гілки: `main`; `storage/SMP_BankExchange_SMB`, `storage/SMP_BankExchange_SMBru`,
+`storage/SMP_BankExchange_ACC`; `feature/<задача>`. Для `cf/src` гілки немає (`vendor`), для
+`epf/` немає (`git`).
+
+**Клієнтський репозиторій** (умовний `Alpenpharma`: одна база, одна конфігурація, кілька
+розширень):
+
+```
+Alpenpharma/
+├── .claude/  .githooks/  .gitattributes  .gitignore  AUTHORS  CLAUDE.md     — те саме
+├── v8storagekit.yaml                [git] client: Alpenpharma, один воркспейс
+├── v8storagekit.local.yaml          [ign]
+├── build/                           [ign]
+└── Alpenpharma_UNF/                 ЄДИНИЙ воркспейс: тека = ім'я бази, не розширення
+    ├── v8project.yaml               [git] base → cf/src; Адаптация → cfe/Адаптация/src;
+    │                                      SMP_BankExchange_SMB → cfe/SMP_BankExchange_SMB/src; …
+    ├── cf/src/                      [git] truth: storage — конфігурація клієнта З ІСТОРІЄЮ
+    ├── cfe/
+    │   ├── Адаптация/src/           [git] truth: storage — сховище адаптації
+    │   ├── SMP_BankExchange_SMB/src/[git] truth: storage — наше спільне сховище, user: Alpenpharma
+    │   └── SMP_Delivery_SMB/src/    [git] truth: storage
+    ├── build/ib/                    [ign]
+    └── .build/unica/                [ign]
+```
+
+Гілки: `main`; `storage/base`, `storage/Адаптация`, `storage/SMP_BankExchange_SMB`,
+`storage/SMP_Delivery_SMB`; `feature/<задача>`.
+
+**Ключі джерел із `truth: storage` унікальні в межах репозиторію** — гілка називається
+`storage/<ключ>`, і два воркспейси з однаковим ключем зіткнулись би. `check` це перевіряє.
+У продуктовому репо `base` повторюється в кожному воркспейсі, але він `vendor` і гілки не
+має; у клієнтському воркспейс один. Репозиторій із двома клієнтськими базами мусить
+назвати їхні `CONFIGURATION` source-set-и по-різному (`name:` для конфігурації Unica не
+обмежує).
 
 Три теки з іменем `build` — три різні власники, як і задокументовано в
 `docs/storage-and-git.md`: кореневий `build/` — kit, `<Воркспейс>/build/` — Unica
@@ -422,7 +481,7 @@ mtime файлів під `<сховище>\data\objects\**` проти дати
 | Скіл | Тригер | Що робить |
 |---|---|---|
 | `using-v8storagekit` | хук `SessionStart` | вступ: принципи §1, куди йти за яким наміром, результат `session-check` |
-| `onboarding` | «підключи репозиторій / воркспейс / джерело» | **питає** `truth` для кожного джерела (§2.5) і, за потреби, шлях сховища й користувача; пише маніфест; `v8project.yaml`; `.gitignore`/`.gitattributes` під фактичні шляхи; `.githooks` + `core.hooksPath`; `check`; перший `sync`; `provision` |
+| `onboarding` | «підключи репозиторій / воркспейс / джерело» | **питає** `truth` для кожного джерела (§2.5) і, за потреби, шлях сховища й користувача; пише маніфест; `v8project.yaml`; `.gitignore`/`.gitattributes` під фактичні шляхи; `.githooks` + `core.hooksPath`; **`.claude/settings.json` з хуком і шим `.claude/hooks/session-start.ps1`** (§7); `check`; перший `sync`; `provision` |
 | `sync` | «є нові версії», «перенеси зі сховища» | `session-check` → `sync` → злиття в `main` за потреби → звіт |
 | `dump` | «вивантаж конфігурацію з бази» | `dump` для вибраного джерела; попередження про Конфігуратор |
 | `reconcile` | «я поклав частину в сховище», «я закомітив у сховище» | `sync` → `canon` → `merge storage/* → F` → семантичний diff → звіт «що поглинуло сховище, що лишилось» |
@@ -442,20 +501,31 @@ mtime файлів під `<сховище>\data\objects\**` проти дати
 
 ---
 
-## 7. Хук старту сесії
+## 7. Хук старту сесії — прив'язаний до репозиторію, не до плагіна
 
-Формат за superpowers, дослівно підтверджений (дослідження, п. 3):
+Хук у `hooks/hooks.json` плагіна спрацьовував би в **кожній** сесії, де плагін
+встановлений, — і в не-1С проєктах цього оточення теж. Тому плагін **не оголошує хуків
+узагалі**. Хук живе в `.claude/settings.json` **репозиторію** — файлі, який kit і так
+роздає з `templates/settings.json`, — і з'являється лише там, де його поклав `onboarding`.
 
-- `hooks/hooks.json`: `SessionStart`, matcher `startup|clear|compact`, `shell: "bash"`,
-  `async: false`, команда `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start`.
-- `hooks/run-hook.cmd` — поліглот-обгортка, шукає Git Bash; `hooks/session-start` (bash,
-  без розширення) викликає `pwsh -NoProfile -File "$PLUGIN_ROOT/tools/kit.ps1" session-check
-  -RepoRoot "$PWD"` і друкує `{"hookSpecificOutput":{"hookEventName":"SessionStart",
-  "additionalContext":"…"}}`.
-- Контекст: вміст `using-v8storagekit/SKILL.md` плюс результат `session-check`. Якщо
-  маніфесту в `cwd` немає — хук друкує лише вступ (репозиторій не 1С або не підключений).
+- `templates/settings.json` отримує блок `hooks.SessionStart` (matcher `startup|clear|compact`,
+  `async: false`) з командою `pwsh -NoProfile -File .claude/hooks/session-start.ps1`.
+  Відносний шлях — від кореня репозиторію, який і є `cwd` сесії.
+- `.claude/hooks/session-start.ps1` — **шим**, закомічений у репозиторій (`onboarding` кладе
+  його з `templates/hooks/`). Він не містить логіки: читає
+  `~/.claude/plugins/installed_plugins.json`, знаходить `installPath` плагіна
+  `v8storagekit@smp-v8storagekit` (kit уже робить це для Unica —
+  `Get-UnicaInstallation`), викликає `<installPath>/tools/kit.ps1 session-check -RepoRoot .`
+  і друкує `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`
+  (формат підтверджений дослідженням, п. 3). Плагіна в реєстрі немає — друкує нічого,
+  код 0.
+- Bash-обгортки superpowers не потрібно: оточення Windows, `pwsh` викликається напряму, і
+  `${CLAUDE_PLUGIN_ROOT}` не потрібен — шим сам знаходить плагін.
+- Контекст: вміст `using-v8storagekit/SKILL.md` плюс результат `session-check`.
 - Хук **нічого не змінює**: він повідомляє «у сховищі X ймовірно 2 нові версії — оновити?»
   і зупиняється. Рішення — людині, дія — скіл `sync`.
+- Оновлення шима при зміні плагіна — через `check`: він порівнює закомічений шим із
+  `templates/hooks/session-start.ps1` плагіна і повідомляє про розбіжність.
 
 ---
 
@@ -563,7 +633,7 @@ mtime файлів під `<сховище>\data\objects\**` проти дати
 | `verify` §3.5 | усі п'ять категорій: побайтово рівні, лише CR, змістовна, тільки в дампі, тільки в дереві; файл під `binary` з різницею лише в CR → змістовна; `ConfigDumpInfo.xml` ігнорується; версія береться з трейлера, коли у звіті є більша |
 | `session-check` | (а) файли під `data/objects` новіші за дату останнього коміту `storage/X` → сигнал; старіші → тиша; `1cv8ddb.1CD` новіший, а `data/objects` ні → тиша; (б) коміти `storage/X`, не злиті в `main` → сигнал |
 | `dump` | тексти «база зайнята» (усі три мови з §5) → зупинка з порадою, а не сирий вивід |
-| хук старту сесії | `session-start` друкує валідний JSON із `hookSpecificOutput.hookEventName = SessionStart` і `additionalContext`; без маніфесту в `cwd` — лише вступ; дерево після запуску не змінене |
+| хук старту сесії | шим `.claude/hooks/session-start.ps1` друкує валідний JSON із `hookSpecificOutput.hookEventName = SessionStart` і `additionalContext`; без плагіна в реєстрі — порожньо, код 0; без маніфесту в `cwd` — лише вступ; дерево після запуску не змінене; `check` помічає розбіжність шима з `templates/hooks/` |
 | `build` (без платформи) | виявлення воркспейсів із `EXTERNAL_DATA_PROCESSORS`; збір артефактів у `build/artifacts/` з підготовлених файлів |
 
 **З платформою** (`Integration`): `provision` порожня та з `.dt`; `canon` — round-trip дає
@@ -593,7 +663,7 @@ mtime файлів під `<сховище>\data\objects\**` проти дати
 | **B1. Маніфест і `check`** | схема `v8storagekit.yaml` + local overlay; модуль читання; `kit.ps1` диспетчер із префлайтом; `check` (усі інваріанти §2.6, §3.2, накладки); `.githooks` + встановлення; тести | — |
 | **B2. `sync` у `storage/*`** | orphan-гілки, worktree, трейлери, стан із git, перше злиття в `main`; сховища конфігурацій (без `-Extension`); кілька джерел на воркспейс; вилучення `storage.json`/`SyncState`; тести | B1 |
 | **B3. `verify`, `dump`, `session-check`** | класифікація розбіжностей, бінарники, версія з трейлера; `dump` із розпізнаванням «зайнято»; `session-check` (обидві половини); тести. Жодна з трьох команд не потребує бази агента | B1, B2 |
-| **B4. `provision`, `canon`, `build`, хук** | база агента порожня/з `.dt` з опитуванням; `canon` через базу агента; `build` лише `.epf` + збір артефактів; вилучення `load-ext.ps1`; `hooks/` за зразком superpowers; `using-v8storagekit`; тести | B1, B3 |
+| **B4. `provision`, `canon`, `build`, хук** | база агента порожня/з `.dt` з опитуванням; `canon` через базу агента; `build` лише `.epf` + збір артефактів; вилучення `load-ext.ps1`; хук у `templates/settings.json` + шим `templates/hooks/session-start.ps1` (§7, **не** `hooks/` плагіна); `using-v8storagekit`; тести | B1, B3 |
 | **B5. Скіли життєвого циклу** | `onboarding`, `sync`, `dump`, `reconcile`, `finish`, `provision`, `verify`; переписані `templates/`; вилучення старих скілів; `unica-contract.md` A8-A11 | B1-B4 |
 | **B6. Міграція** | скіл `migrate` + прогін на SimplyConnect і BankExchange; рішення по OnlineExchange | B5 |
 | **B7. Пам'ять і ранбук** | §10 | B6 |
