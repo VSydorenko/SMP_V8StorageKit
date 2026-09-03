@@ -1243,6 +1243,9 @@ function Invoke-KitSync {
             throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
         }
 
+        # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
+        # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
+        # Загортати його в інше повідомлення чи вгадувати стан — не можна.
         $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
         Write-Host ('Дзеркало:   ' + $(if ($null -eq $last) { 'гілки ще немає — реплей усіх версій зі звіту' } else { "версія $last" }))
 
