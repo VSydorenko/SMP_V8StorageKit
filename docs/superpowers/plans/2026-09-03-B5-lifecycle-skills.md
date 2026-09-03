@@ -825,6 +825,9 @@ git commit -m "B5: скіл provision — тип бази агента пита�
             $t = Skill 'finish'
             foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
+            # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
+            $t | Should -Match 'суттєв'
+            $t | Should -Match 'ORIG_HEAD'
         }
     }
 ```
@@ -923,6 +926,14 @@ description: Закрити задачу агента — синхронізув
 4. **Звірка `F` зі сховищем**: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . -Ref <F>`.
    Очікувано `ref-ahead` (робота задачі — це й є залишок для сховища) або `equal`; `storage-ahead`/`mixed`
    означає, що крок 3 не завершено.
+
+   **Гейт «повідомити користувача» — зупинка перед кроком 5, якщо сталося суттєве** (вимога власника №13:
+   звірити сховища, подивитись, що помінялось, при суттєвому — повідомити, далі за його рішенням).
+   Суттєве — хоч одне з: (а) крок 1 приніс у дзеркало ≥1 нову версію (хтось комітив у сховище під час
+   задачі); (б) злиття на кроці 3 мало конфлікти; (в) `verify` дав `storage-ahead` або `mixed`. Тоді
+   **зупинитись** і доповісти: які версії й чиї (з виводу `sync`), що змінило злиття
+   (`git diff --stat ORIG_HEAD..HEAD -- <ws>/<path>` одразу після merge), вердикт `verify`. Продовжувати
+   до тестів і PR — лише за рішенням людини. Нічого суттєвого — йти далі без питання.
 5. **Тести й синтаксис** (Unica, `cwd` = воркспейс): `operation=syntax`, потім `operation=test`
    (`testRunner=yaxunit` або `va`). Червоне — PR не готувати; повернутись до роботи.
 6. **Артефакти**: `.cfe`/`.cf` — `operation=make` Уніки з `output=<корінь репо>/build/artifacts/<Ім'я>.cfe`
