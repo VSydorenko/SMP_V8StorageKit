@@ -891,13 +891,29 @@ Describe 'Manifest.psm1 — схема v8storagekit.yaml' {
             $p = Write-Yaml 'no-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: storage }')
             { Read-KitManifest -Path $p } | Should -Throw '*storage:*'
         }
+        It 'truth: storage зі storage: і dump: одночасно — суперечність' {
+            $p = Write-Yaml 'storage-with-dump.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: storage, storage: { path: 'x' }, dump: { from: 'y' } }")
+            { Read-KitManifest -Path $p } | Should -Throw '*storage*dump:*'
+        }
         It 'truth: vendor без dump.from' {
             $p = Write-Yaml 'no-from.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: vendor }')
             { Read-KitManifest -Path $p } | Should -Throw '*dump:*from*'
         }
+        It 'truth: vendor: dump.from порожній при наявному блоці dump: — зупинка' {
+            $p = Write-Yaml 'empty-dump-from.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: vendor, dump: { from: '' } }")
+            { Read-KitManifest -Path $p } | Should -Throw '*dump.from*порожній*'
+        }
+        It 'truth: dump зі storage: одночасно — суперечність' {
+            $p = Write-Yaml 'dump-with-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: dump, dump: { from: 'x' }, storage: { path: 'y' } }")
+            { Read-KitManifest -Path $p } | Should -Throw '*dump*storage:*'
+        }
         It 'truth: git зі storage: — суперечність' {
             $p = Write-Yaml 'git-with-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, storage: { path: 'x' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*git*storage*'
+        }
+        It 'truth: git з dump: — суперечність' {
+            $p = Write-Yaml 'git-with-dump.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, dump: { from: 'x' } }")
+            { Read-KitManifest -Path $p } | Should -Throw '*git*dump*'
         }
         It 'невідомий кореневий ключ' {
             $p = Write-Yaml 'unknown-root.yaml' @('version: 1', 'product: X', 'products: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
