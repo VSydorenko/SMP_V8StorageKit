@@ -15,6 +15,31 @@ Set-StrictMode -Version Latest
     згенерованого (для тестів схеми й розбіжностей).
 #>
 
+function Invoke-KitFakeGit {
+    <#
+    .SYNOPSIS
+        git для фікстури з перевіркою коду виходу.
+    .DESCRIPTION
+        Global Constraints B1: нативні команди перевіряються через $LASTEXITCODE явно —
+        на цій машині $PSNativeCommandUseErrorActionPreference = $false, тож git, що впав,
+        сам винятку не кине. Фікстура довгограюча (задачі 6 і 8 будують на ній коміти й
+        гілки storage/*), і мовчазний збій тут дав би провал далеко від причини.
+
+        Навмисно проста функція — без [CmdletBinding()] і без param(): $args приймає усі
+        токени позиційно, і PowerShell не намагається зіставити жоден з них з іменем
+        оголошеного параметра. Перший варіант — [CmdletBinding()] з
+        [Parameter(ValueFromRemainingArguments)][string[]]$Arguments — ламав саме
+        `git add -A`: "-A" PowerShell розпізнавав як скорочену форму -Arguments (унікальний
+        префікс імені параметра серед оголошених), а не як аргумент git, і кидав "Missing an
+        argument for parameter 'Arguments'". Внутрішній хелпер фікстури — не Export-ModuleMember.
+    #>
+    $out = & git @args 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "git $($args -join ' ') завершився з кодом ${LASTEXITCODE}: $($out -join "`n")"
+    }
+    $out
+}
+
 function New-KitFakeConfigurationXml {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
@@ -46,12 +71,17 @@ function New-KitFakeRepo {
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
     New-Item -ItemType Directory -Path $Root -Force | Out-Null
-    git -C $Root init -q
-    git -C $Root config user.email 'test@example.invalid'
-    git -C $Root config user.name 'Test Bot'
-    git -C $Root config commit.gpgsign false
+    Invoke-KitFakeGit -C $Root init -q | Out-Null
+    Invoke-KitFakeGit -C $Root config user.email 'test@example.invalid' | Out-Null
+    Invoke-KitFakeGit -C $Root config user.name 'Test Bot' | Out-Null
+    Invoke-KitFakeGit -C $Root config commit.gpgsign false | Out-Null
+    # Детермінованість, а не тиша: без цього фікстура успадковує core.autocrlf машини,
+    # яка її запускає, і git add/commit нижче друкує "warning: CRLF will be replaced by
+    # LF" щоразу, коли autocrlf глобально ввімкнено, — вивід тестів мав би залежати від
+    # налаштувань чужого середовища.
+    Invoke-KitFakeGit -C $Root config core.autocrlf false | Out-Null
     # Головна гілка — main незалежно від init.defaultBranch цієї машини.
-    git -C $Root symbolic-ref HEAD refs/heads/main
+    Invoke-KitFakeGit -C $Root symbolic-ref HEAD refs/heads/main | Out-Null
 
     if (-not $Workspaces) {
         $Workspaces = [ordered]@{
@@ -127,8 +157,8 @@ function New-KitFakeRepo {
     if ($WithGitignore)     { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore')     -Destination (Join-Path $Root '.gitignore') }
 
     if (-not $NoCommit) {
-        git -C $Root add -A
-        git -C $Root commit -q -m 'фікстура: репозиторій-споживач'
+        Invoke-KitFakeGit -C $Root add -A | Out-Null
+        Invoke-KitFakeGit -C $Root commit -q -m 'фікстура: репозиторій-споживач' | Out-Null
     }
     $Root
 }
