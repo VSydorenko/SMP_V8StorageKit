@@ -93,7 +93,9 @@
 ```
 commands/install-hooks.psm1
   Invoke-KitInstallHooks -Context [-Workspace] [-Source] [-Apply] : → {ExitCode; Installed:string[]}
-      прев'ю: що буде покладено; -Apply: Install-KitGitHooks + Install-KitSessionHook; потім Test-KitGitHooks/Test-KitSessionHook мусять мовчати
+      прев'ю: що буде покладено; -Apply: Install-KitGitHooks + Install-KitSessionHook, потім `git add .githooks/*` +
+      `git update-index --chmod=+x .githooks/*` (режим 100755 в індексі — F10: інакше клон на POSIX дістає хук без біта
+      виконання, і git мовчки його ігнорує); потім Test-KitGitHooks/Test-KitSessionHook мусять мовчати
 ```
 
 ---
@@ -138,8 +140,11 @@ Describe 'kit install-hooks — хуки захисту й хук старту �
         Join-Path $repo '.claude/hooks/session-start.ps1' | Should -Exist
         Join-Path $repo '.claude/settings.json' | Should -Exist
         (git -C $repo config --get core.hooksPath) | Should -Be '.githooks'
+        # F10: хуки застейджені з режимом 100755 — саме він дістанеться кожному клону (git ls-files -s питає індекс, не ФС)
+        foreach ($h in 'pre-commit', 'pre-merge-commit') { (git -C $repo ls-files -s -- ".githooks/$h") | Should -Match '^100755 ' }
         $check = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo 2>&1 | Out-String
         $check | Should -Not -BeLike '*core.hooksPath*'
+        $check | Should -Not -Match '100644'
         $check | Should -Not -Match '\[!\].*session-start\.ps1'
     }
     It 'наявний .claude/settings.json не перезаписується' {
@@ -181,10 +186,19 @@ function Invoke-KitInstallHooks {
     }
     $installed = @(Install-KitGitHooks -RepoRoot $root) + @(Install-KitSessionHook -RepoRoot $root)
     foreach ($p in $installed) { Write-Host "  + $p" }
+    # F10: біт виконання живе в індексі git, не в ФС Windows (core.filemode=false). Install-KitGitHooks індексу не
+    # чіпає навмисно; це робить крок онбордингу — тут. Стейджимо лише хуки: решту (шим, settings) стейджить людина
+    # чи скіл у першому коміті.
+    $hookPaths = @(Get-KitHookNames | ForEach-Object { ".githooks/$_" })
+    $out = git -C $root add -- @hookPaths 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git add .githooks завершився з кодом ${LASTEXITCODE}: $out" }
+    $out = git -C $root update-index --chmod=+x -- @hookPaths 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git update-index --chmod=+x завершився з кодом ${LASTEXITCODE}: $out" }
+    Write-Host '  + .githooks/* застейджено з режимом 100755 (біт виконання для клонів на POSIX)'
     $left = @(Test-KitGitHooks -RepoRoot $root) + @(Test-KitSessionHook -RepoRoot $root)
     $problems = @($left | Where-Object Level -ne 'info')
     foreach ($f in $problems) { Write-Host "  [$($f.Level)] $($f.Message)" -ForegroundColor Yellow }
-    Write-Host 'Готово. Додайте .githooks і .claude у перший коміт.' -ForegroundColor Green
+    Write-Host 'Готово. .githooks уже в індексі; додайте .claude у перший коміт.' -ForegroundColor Green
     [pscustomobject]@{ ExitCode = $(if ($problems.Count) { 1 } else { 0 }); Installed = $installed }
 }
 
@@ -395,14 +409,18 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .
 ```
 
 `install-hooks` кладе `.githooks/` + `core.hooksPath`, шим `.claude/hooks/session-start.ps1` і
-`.claude/settings.json` (якщо ще немає). `check` має завершитись без `[-]`; `[!]` про недоступне
-сховище чи відсутню накладку — прийнятно, але назвати людині.
+`.claude/settings.json` (якщо ще немає), і **стейджить хуки з режимом 100755** — інакше клон на
+Linux/macOS дістав би їх без біта виконання, і git мовчки їх ігнорував би. `check` має завершитись
+без `[-]`; `[!]` про недоступне сховище чи відсутню накладку — прийнятно, але назвати людині.
+Приймальна перевірка: `git ls-files -s .githooks/` → `100755` для обох файлів.
 
 ### 3.6 Перший коміт — окремо, до будь-якого `-Apply`
 
 ```bash
-git add v8storagekit.yaml <ws>/v8project.yaml <ws>/cf/README.md .gitattributes .gitignore .githooks .claude AUTHORS CLAUDE.md
+git add v8storagekit.yaml <ws>/v8project.yaml <ws>/cf/README.md .gitattributes .gitignore .claude AUTHORS CLAUDE.md
 git commit -m "onboarding: <ws> — маніфест, воркспейс Уніки, політики git, хуки"
+# .githooks уже застейджено install-hooks з режимом 100755 — не перестейджувати через `git add -A` без потреби:
+# сам `git add` режим не змінює, але `git ls-files -s .githooks/` після коміту має показати 100755.
 ```
 
 Накладку `v8storagekit.local.yaml` не комітити — вона гітігнорована навмисно.
