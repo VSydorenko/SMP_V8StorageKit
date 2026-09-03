@@ -995,7 +995,7 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         { Read-KitLocalOverlay -Path $p } | Should -Throw "*'connection'*"
     }
 
-    It 'Resolve-KitInfobase: знайдено — об’єкт; немає — зупинка з готовим блоком для вставки' {
+    It 'Resolve-KitInfobase: знайдено — об''єкт; немає — зупинка з готовим блоком для вставки' {
         $o = Read-KitLocalOverlay -Path (Join-Path $script:Fixtures 'overlay-sample.yaml')
         (Resolve-KitInfobase -Overlay $o -Name 'devUNF').User | Should -Be 'Администратор'
         { Resolve-KitInfobase -Overlay $o -Name 'devBP' } | Should -Throw '*devBP*infobases:*connection:*'
@@ -1467,7 +1467,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
     }
 
-    It 'типовий репозиторій: один воркспейс, два джерела, усе розв’язано' {
+    It 'типовий репозиторій: один воркспейс, два джерела, усе розв''язано' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ok')
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         $ctx.Ok | Should -BeTrue
@@ -1514,7 +1514,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         $ctx.Findings[0].Message | Should -BeLike '*v8storagekit.yaml*'
     }
 
-    It 'воркспейс із маніфесту без теки — зупинка з його ім’ям' {
+    It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {
         $text = "version: 1`nproduct: Fake`nworkspaces:`n  - path: Ghost`n    sources:`n      g: { truth: git }"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ghost') -ManifestText $text
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw "*'Ghost'*"
@@ -3369,7 +3369,7 @@ git commit -m "B1: kit check — маніфест, gitignore/gitattributes, <Nam
 - Modify: `templates/README.md` — таблиця відповідностей
 - Modify: `tools/tests/Templates.Tests.ps1` — зразки проходять схему; `.gitignore` ігнорує накладку
 - Modify: `.claude/settings.json` (kit) — дозвіл на `kit.ps1 check`
-- Modify: `docs/follow-ups.md` — §5 закрито
+- Modify: `docs/follow-ups.md` — §5 закрито; новий запис про `.githooks` у linked worktree
 
 - [ ] **Step 1: Тести на роздавані артефакти — у `Templates.Tests.ps1`**
 
@@ -3500,7 +3500,20 @@ v8project.local.yaml
 > який kit.ps1 не потребує) є у списку. Опис нижче — історичний.
 ```
 
-- [ ] **Step 8: Тести зелені; перевірка правила `${CLAUDE_PLUGIN_ROOT}`**
+- [ ] **Step 8: `docs/follow-ups.md` — новий `## 15.` про `.githooks` у linked worktree**
+
+У кінець файлу (перевірено: останній наявний — `## 14. Прогін -Apply не перевіряє
+канонічності вихідників`) додати розділ `## 15.`. Встановлений факт Task 6, перевірений
+у сесії планування: відносний `core.hooksPath .githooks` спрацьовує і в linked worktree
+(`git worktree add …`), хоч теки `.githooks` там немає — git розв'язує його від головної
+робочої копії. Наслідок: `sync` (B2), який комітить у гілку `storage/*` саме через
+worktree, мусить сам виставляти `V8KIT_SYNC=1`, інакше власний хук відмовить йому в
+коміті. Запис — не задача до розбору, а свідомо задокументована особливість, за тоном
+наявних розділів файлу: що спостережено, чому це має значення (захист без дірки), чому
+не «полагоджено» (лагодити нічого — це правильна поведінка git). Посилання на
+`tools/lib/Hooks.psm1`, `templates/githooks/*`.
+
+- [ ] **Step 9: Тести зелені; перевірка правила `${CLAUDE_PLUGIN_ROOT}`**
 
 ```
 pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration
@@ -3509,7 +3522,7 @@ grep -rn 'CLAUDE_PLUGIN_ROOT' skills/ | grep -v '/tools/\|/templates/\|/docs/'
 
 Друга команда має дати порожній вивід (скіли в B1 не змінювались — це контроль).
 
-- [ ] **Step 9: Коміт**
+- [ ] **Step 10: Коміт**
 
 ```bash
 git add templates/v8storagekit.yaml.example templates/v8storagekit.local.yaml.example templates/gitignore templates/README.md tools/tests/Templates.Tests.ps1 .claude/settings.json docs/follow-ups.md

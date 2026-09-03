@@ -87,3 +87,27 @@ Describe 'product-onboarding — шаблон v8project.yaml' {
         $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<extensionName зі storage\.json>\s*$"
     }
 }
+
+Describe 'templates/v8storagekit*.example — зразки проходять власну схему' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Manifest.psm1").Path -Force
+        $script:Templates = (Resolve-Path "$PSScriptRoot/../../templates").Path
+    }
+
+    It 'v8storagekit.yaml.example читається Read-KitManifest без зупинки' {
+        $m = Read-KitManifest -Path (Join-Path $script:Templates 'v8storagekit.yaml.example')
+        $m.Kind | Should -Be 'product'
+        $m.Workspaces.Count | Should -BeGreaterOrEqual 2
+    }
+
+    It 'v8storagekit.local.yaml.example читається Read-KitLocalOverlay без зупинки' {
+        $o = Read-KitLocalOverlay -Path (Join-Path $script:Templates 'v8storagekit.local.yaml.example')
+        $o.Infobases.Count | Should -BeGreaterOrEqual 1
+    }
+
+    It 'шаблон gitignore ігнорує накладку kit і досі — накладку Уніки' {
+        $lines = @(Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Encoding UTF8)
+        $lines | Should -Contain 'v8storagekit.local.yaml'
+        $lines | Should -Contain 'v8project.local.yaml'
+    }
+}
