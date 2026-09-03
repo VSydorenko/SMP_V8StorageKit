@@ -179,4 +179,24 @@ function New-KitFakeRepo {
     $Root
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml
+function Copy-KitTools {
+    <#
+    .SYNOPSIS
+        Копія kit.ps1, lib/, commands/ і templates/githooks у тимчасову теку зі збереженням
+        відносної розкладки — щоб тести запускали справжній диспетчер підпроцесом, не
+        чіпаючи робочої копії плагіна (той самий прийом, що в StorageSync.Tests.ps1).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Root)
+
+    $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
+    foreach ($rel in 'tools/lib', 'tools/commands', 'templates/githooks') {
+        $dst = Join-Path $Root $rel
+        New-Item -ItemType Directory -Path $dst -Force | Out-Null
+        Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
+    Join-Path $Root 'tools/kit.ps1'
+}
+
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Copy-KitTools
