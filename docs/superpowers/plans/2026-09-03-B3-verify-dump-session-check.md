@@ -33,6 +33,12 @@
 - **Ліцензія:** `Assert-NoLicenseProblem` на кожному виклику платформи.
 - **`ConfigDumpInfo.xml` і `DumpFilesIndex.txt`** виключаються з порівняння завжди.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Контракт командного модуля — суворий (F12):** усе людське команда пише через `Write-Host`; у success
+  stream повертається лише `$null` або `{ExitCode:int; …}`. Диспетчер `kit.ps1` забирає success stream у
+  змінну й **не виводить** його — рядок, повернений командою (у т.ч. `Write-Output`), до stdout не дійде.
+  Виклики функцій, які щось повертають, або присвоюються, або йдуть у `| Out-Null` / `$null = …`.
+- **Параметри скриптів, що викликаються через `pwsh -File` (F11):** лише скалярні; масив `[string[]]`
+  розкладається на CLI-токени, і дочірній зв'язувач бере перший. Список — рядок із роздільником (`-Csv`).
 - **Конвенція масивів (знахідка виконавця B1, F7):** кома-обгортка `, $array` у поверненні й `@(…)` у
   викликача **несумісні** — `@(F)` над `, $a` бачить один елемент (перевірено на pwsh 7.5.4). На кожну функцію
   одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
@@ -1462,7 +1468,8 @@ function Invoke-KitSessionCheck {
     }
 
     if ($AsJson) {
-        Write-Output (ConvertTo-Json -InputObject $signals.ToArray() -Depth 4)
+        # Через Write-Host, не Write-Output: success stream забирає диспетчер і не друкує (контракт F12).
+        Write-Host (ConvertTo-Json -InputObject $signals.ToArray() -Depth 4)
     } else {
         Write-Host "session-check — $($Context.Kind) $($Context.Label)"
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
@@ -1474,10 +1481,9 @@ function Invoke-KitSessionCheck {
 Export-ModuleMember -Function Invoke-KitSessionCheck
 ```
 
-> Диспетчер друкує лише те, що команда пише в хост; `-AsJson` пише в стандартний вивід через
-> `Write-Output`, а об'єкт-результат команди диспетчер не друкує (він читає лише `ExitCode`).
-> Якщо в тесті `-AsJson` до JSON домішується інший текст — перевірити, що `kit.ps1` не
-> виводить `$result` (у B1 він його лише перевіряє).
+> Диспетчер друкує лише те, що команда пише в хост (`Write-Host`); success stream він забирає у
+> `$result` і не виводить — тому й `-AsJson` іде через `Write-Host`. Якщо в тесті `-AsJson` до JSON
+> домішується інший текст — перевірити, що в гілці `-AsJson` немає інших `Write-Host`.
 
 - [ ] **Step 4: Тести зелені; коміт**
 
