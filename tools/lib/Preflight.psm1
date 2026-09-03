@@ -57,8 +57,13 @@ function Invoke-KitPreflight {
     $ctx.ManifestPath = Join-Path $root $script:ManifestFileName
 
     if (-not (Test-Path -LiteralPath $ctx.ManifestPath -PathType Leaf)) {
+        # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"
+        # сам по собі вів у глухий кут: цього скіла ще немає (з'явиться в B5), а це перше й
+        # часто ЄДИНЕ повідомлення, яке бачить новий споживач. Пряма дія поруч зі скілом —
+        # не замість нього.
         & $fail 'manifest' ("Маніфест $script:ManifestFileName не знайдено в $root. Репозиторій не підключено до kit — " +
-                            'шлях уперед: скіл v8storagekit:onboarding.')
+                            'скопіюйте templates/v8storagekit.yaml.example з теки плагіна в корінь репозиторію як ' +
+                            "$script:ManifestFileName, заповніть і запустіть kit check ще раз. Далі — скіл v8storagekit:onboarding.")
         return $ctx
     }
     try { $ctx.Manifest = Read-KitManifest -Path $ctx.ManifestPath }

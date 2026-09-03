@@ -32,15 +32,19 @@ Export-ModuleMember -Function Invoke-KitProbe
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo')
     }
 
-    It 'без команди — зупинка з переліком доступних' {
+    # Правка 6б (живий прогін задачі 11): раніше — сирий throw і стек PowerShell; тепер —
+    # Write-Host червоним і exit 2. Код саме 2, не абиякий ненульовий: щоб "команда не
+    # запустилась узагалі" відрізнялось від коду, який повертає сама команда (check дає 1,
+    # коли знайшла помилки, — це geть інший сценарій).
+    It 'без команди — зупинка з переліком доступних, код 2' {
         $r = Invoke-Kit @('-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Not -Be 0
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*probe*'
     }
 
-    It 'невідома команда — зупинка з переліком доступних' {
+    It 'невідома команда — зупинка з переліком доступних, код 2' {
         $r = Invoke-Kit @('frobnicate', '-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Not -Be 0
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike "*'frobnicate'*probe*"
     }
 

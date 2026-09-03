@@ -41,7 +41,12 @@ $commandsDir = Join-Path $PSScriptRoot 'commands'
 $available = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName | Sort-Object)
 if (-not $Command -or $available -notcontains $Command) {
     $what = if ($Command) { "Невідома команда '$Command'." } else { 'Команду не вказано.' }
-    throw "$what Доступні: $($available -join ', '). Приклад: pwsh tools/kit.ps1 check -RepoRoot ."
+    # Правка 6б (живий прогін задачі 11) — не throw: сирий стек PowerShell (номер рядка,
+    # хвилясте підкреслення) суперечить охайному [-]-виводу самого check. Код 2 (не 1),
+    # щоб «команда не запустилась узагалі» відрізнялось від «команда відпрацювала й
+    # знайшла помилки» — той код повертає сама команда нижче, рядок 77-79.
+    Write-Host "$what Доступні: $($available -join ', '). Приклад: pwsh tools/kit.ps1 check -RepoRoot ." -ForegroundColor Red
+    exit 2
 }
 
 Import-Module (Join-Path $commandsDir "$Command.psm1") -Force

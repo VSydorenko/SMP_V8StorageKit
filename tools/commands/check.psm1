@@ -52,6 +52,26 @@ function Invoke-KitCheck {
                 "гілка storage/$($d.Name) була б спільною. Перейменуйте source-set в одному з них (§2.3).")
         }
 
+        # S3 (живий прогін задачі 11) — v8storagekit.local.yaml (накладка з рядками
+        # підключення й користувачами сховищ) мусить бути гітігнорована в корені: справжній
+        # репозиторій мав .gitignore з v8project.local.yaml (Уніки), але БЕЗ *.local.yaml і
+        # без окремого рядка v8storagekit.local.yaml — накладка показувалась як ?? і
+        # застейджилась би першим же git add -A у публічному репозиторії. Рівно ОДНА
+        # знахідка на весь репозиторій (файл один на корінь) — тому перевірка стоїть ПОЗА
+        # циклом foreach ($src in $all) нижче: усередині нього дала б стільки самих помилок,
+        # скільки джерел. --no-index — питаємо про ПРАВИЛА .gitignore, а не про індекс
+        # (та сама причина, що й у решти check-ignore нижче).
+        git -C $root check-ignore --no-index -q -- 'v8storagekit.local.yaml' 2>$null | Out-Null
+        $overlayIgnoredCode = $LASTEXITCODE
+        if ($overlayIgnoredCode -eq 1) {
+            & $add error overlay-ignored (
+                'v8storagekit.local.yaml не гітігноровано в корені репозиторію — це накладка з рядками ' +
+                'підключення й користувачами сховищ, і перший же git add -A застейджить її в публічний ' +
+                "репозиторій. Додайте рядок 'v8storagekit.local.yaml' у .gitignore (зразок: templates/gitignore).")
+        } elseif ($overlayIgnoredCode -gt 1) {
+            & $add error overlay-ignored "git check-ignore для v8storagekit.local.yaml завершився з кодом $overlayIgnoredCode."
+        }
+
         foreach ($src in $all) {
             $tag = "$($src.Workspace)/$($src.Key)"
 
@@ -127,8 +147,24 @@ function Invoke-KitCheck {
                 }
                 'storage' {
                     if (-not (Test-Path -LiteralPath $src.StoragePath)) {
-                        & $add warn storage-path ("$tag`: каталог сховища недоступний на цій машині: $($src.StoragePath). " +
-                            "Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key).")
+                        # Правка 4 (живий прогін задачі 11) — рівень лишається warn: check не
+                        # відрізнить "немає доступу до диска" (законний сценарій рев'ю без
+                        # сховищ) від "помилка в маніфесті" (типо в шляху). Але текст мусить
+                        # показати людині обидві розвилки, а не тільки одну: живий приклад —
+                        # маніфест вказував …СМП_BankExchange_ACC, а реальне сховище лежало під
+                        # …СМП_BankExchange_BP, і попереднє формулювання радило б перевизначити
+                        # шлях, хоча насправді треба було виправити маніфест.
+                        $manifestWs  = @($Context.Manifest.Workspaces | Where-Object Path -eq $src.Workspace)[0]
+                        $manifestSrc = @($manifestWs.Sources | Where-Object Key -eq $src.Key)[0]
+                        $manifestPath = if ($manifestSrc) { $manifestSrc.StoragePath } else { $src.StoragePath }
+                        $pathNote = if ($manifestPath -ne $src.StoragePath) {
+                            "перевизначено в v8storagekit.local.yaml на '$($src.StoragePath)'; у самому v8storagekit.yaml записано: '$manifestPath'"
+                        } else {
+                            "'$manifestPath', як записано в v8storagekit.yaml"
+                        }
+                        & $add warn storage-path ("$tag`: каталог сховища недоступний на цій машині: $pathNote. " +
+                            "Якщо шлях правильний, а диска зараз немає — перевизначте його в v8storagekit.local.yaml під storages: $($src.Key); " +
+                            'якщо диск є, а шлях помилковий — виправте v8storagekit.yaml.')
                     }
                     if (Test-KitBranchExists -RepoRoot $root -Branch $src.Branch) {
                         foreach ($f in @(Test-KitStorageBranchInvariants -RepoRoot $root -Branch $src.Branch -SourceKey $src.Key -RepoPath $src.RepoPath)) {
@@ -169,6 +205,27 @@ function Invoke-KitCheck {
         # §2.5 — аудит v8project.local.yaml: підключення до бази ЛЮДИНИ під ключем Unica.
         foreach ($ws in $Context.Workspaces) {
             if ($Workspace -and $ws.Path -ne $Workspace) { continue }
+
+            # S1 (живий прогін задачі 11) — source-set існує у v8project.yaml, але маніфест
+            # його не оголошує: sync про таке джерело не знає й ніколи не дзеркалить його в
+            # git. Перевірка йде лише в напрямку "маніфест → v8project.yaml" (щойно вище і в
+            # Preflight.psm1); зворотної не було — прибрали з маніфесту блок розширення,
+            # лишили base, а check мовчав "Помилок немає". warn, не error: чи це справді
+            # незаявлене джерело, вирішує людина, і check не має права ні вигадати його, ні
+            # завалити роботу з решти джерел. Звіряємо з КЛЮЧАМИ, оголошеними в маніфесті
+            # ($Context.Manifest.Workspaces) — не з розв'язаними $ws.Sources: "оголошене" —
+            # це те, що написала людина, а не те, що встигло розв'язатись.
+            $manifestWs = @($Context.Manifest.Workspaces | Where-Object Path -eq $ws.Path)[0]
+            $declaredKeys = @($(if ($manifestWs) { $manifestWs.Sources.Key } else { @() }))
+            foreach ($set in $ws.Project.SourceSets) {
+                if ($declaredKeys -notcontains $set.Name) {
+                    & $add warn undeclared-source (
+                        "$($ws.Path): source-set '$($set.Name)' ($($set.Type)) оголошено у $($ws.Path)/v8project.yaml, " +
+                        'але його немає в маніфесті — kit про це джерело не знає, і sync його не дзеркалить. ' +
+                        'Додайте його в v8storagekit.yaml (зразок: templates/v8storagekit.yaml.example) або приберіть source-set.')
+                }
+            }
+
             $localPath = Join-Path $ws.FullPath 'v8project.local.yaml'
             $localConn = $null
             try { $localConn = Read-V8ProjectLocalInfobase -Path $localPath }

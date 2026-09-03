@@ -92,14 +92,30 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*core.hooksPath*' }).Count | Should -Be 1
             @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*pre-commit*' }).Count | Should -BeGreaterOrEqual 1
         }
-        It 'після встановлення — знахідок нуль' {
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-ok')
+        # S2 (живий прогін задачі 11): Install-KitGitHooks сам по собі кладе файли на диск,
+        # але НЕ чіпає індекс споживача (навмисно — див. коментар над Test-KitGitHooks).
+        # До задачі 11 це давало 0 знахідок — і саме так виглядав би репозиторій-споживач,
+        # де хуки скопійовано, але не закомічено: наступний клон їх не отримає. Тепер це
+        # `warn`, по одному на кожен файл — далі тест на «застейджено» і «закомічено»
+        # доводить, що межа не поїхала в інший бік.
+        It 'S2: після Install-KitGitHooks без git add — попередження, що хуки не закомічені' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-untracked')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
-            @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates).Count | Should -Be 0
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            $warns = @($f | Where-Object { $_.Level -eq 'warn' -and $_.Message -like '*не закомічений*' })
+            $warns.Count | Should -Be 2
+            ($warns.Message -join ' | ') | Should -BeLike '*pre-commit*'
+            ($warns.Message -join ' | ') | Should -BeLike '*pre-merge-commit*'
         }
         It 'змінений хук — попередження про розбіжність із шаблоном плагіна' {
+            # Закомічено (і з бітом виконання) — щоб S2 ("не закомічений") і перевірка біта
+            # тут мовчали, і єдиною знахідкою лишалась саме розбіжність із шаблоном.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-drift')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            git -C $repo add .githooks
+            git -C $repo update-index --chmod=+x .githooks/pre-commit
+            git -C $repo update-index --chmod=+x .githooks/pre-merge-commit
+            git -C $repo commit -q -m 'install hooks'
             Add-Content -LiteralPath (Join-Path $repo '.githooks/pre-commit') -Value '# локальна правка'
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
             $f.Count | Should -Be 1
@@ -130,6 +146,32 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
             @($f | Where-Object { $_.Message -like '*біта виконання*' }).Count | Should -Be 0
+        }
+
+        # Продовження S2: другий і третій стан з тих самих трьох (untracked — тест вище).
+        It 'S2: хук застейджений (git add), ще не закомічений — попередження про коміт немає' {
+            # git ls-files -s бачить ІНДЕКС, тож застейджений хук уже дає непорожній рядок —
+            # це та межа, яку задача 11 просила явно перевірити тестом, не лише проговорити.
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-staged')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            git -C $repo add .githooks
+            # Форсуємо біт виконання явно (як і в тесті вище про 100644) — інакше на цій
+            # Windows-машині git add дав би 100644 обом і додав би ЧУЖУ знахідку (про біт),
+            # яка тут ні до чого: цей тест перевіряє лише «не закомічено», не «без біта».
+            git -C $repo update-index --chmod=+x .githooks/pre-commit
+            git -C $repo update-index --chmod=+x .githooks/pre-merge-commit
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            @($f | Where-Object { $_.Message -like '*не закомічений*' }).Count | Should -Be 0
+        }
+
+        It 'S2: хук встановлений, застейджений і закомічений — знахідок нуль' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-committed')
+            Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+            git -C $repo add .githooks
+            git -C $repo update-index --chmod=+x .githooks/pre-commit
+            git -C $repo update-index --chmod=+x .githooks/pre-merge-commit
+            git -C $repo commit -q -m 'install hooks'
+            @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates).Count | Should -Be 0
         }
     }
 }

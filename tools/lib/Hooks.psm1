@@ -103,14 +103,24 @@ function Test-KitGitHooks {
         if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
         $trackedLine = (@($tracked) -join "`n").Trim()
         if ($trackedLine -match '^(?<mode>\d{6})\s') {
-            # Порожній вивід — хук ще не закомічено (онбординг не дійшов до git add), і це
-            # не знахідка тут: Install-KitGitHooks свідомо не чіпає індекс споживача.
             if ($Matches.mode -eq '100644') {
                 $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
                     "Хук $script:HooksDirName/$name закомічено без біта виконання (режим 100644) — " +
                     "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
                     "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
             }
+        } else {
+            # S2 (живий прогін задачі 11) — порожній вивід git ls-files -s означає, що файл
+            # не бачить ні ІНДЕКС, ні дерево: хук скопійовано на диск (Install-KitGitHooks
+            # свідомо не чіпає індекс споживача), але ще не застейджено і не закомічено.
+            # Наступний клон його не отримає, і storage/* лишиться без захисту — check про
+            # це мовчав. «Застейджено, але не закомічено» сюди НЕ потрапляє: git ls-files -s
+            # бачить індекс, і застейджений хук уже дає непорожній рядок вище (тест-доказ —
+            # Hooks.Tests.ps1, три стани хука).
+            $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
+                "Хук $script:HooksDirName/$name лежить на диску, але не закомічений у git — " +
+                'наступний клон його не отримає, і гілки storage/* лишаться без захисту. ' +
+                "Закомітьте: git add $script:HooksDirName/$name і git commit.")))
         }
     }
 
