@@ -33,6 +33,11 @@
 - **Ліцензія:** `Assert-NoLicenseProblem` на кожному виклику платформи.
 - **`ConfigDumpInfo.xml` і `DumpFilesIndex.txt`** виключаються з порівняння завжди.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Конвенція масивів (знахідка виконавця B1, F7):** кома-обгортка `, $array` у поверненні й `@(…)` у
+  викликача **несумісні** — `@(F)` над `, $a` бачить один елемент (перевірено на pwsh 7.5.4). На кожну функцію
+  одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
+  викликачі беруть результат присвоєнням чи `(F)`. Об'єкти-колекції, які pipeline розгортає (HashSet, List),
+  повертати лише з комою (або `Write-Output -NoEnumerate`). Кожна кома в коді планів має коментар «навмисно».
 
 ### Рішення, узгоджені з архітектором
 
@@ -172,6 +177,7 @@ $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
 function Get-KitRepositoryArguments {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Source)
+    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
@@ -610,12 +616,13 @@ function Get-KitRelativeFiles {
     <# Відносні шляхи файлів під Root з '/', без службових файлів платформи. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
-    if (-not (Test-Path -LiteralPath $Root)) { return , @() }
+    # Без коми: усі викликачі загортають результат у @(…) — див. F7.
+    if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
         Where-Object { $script:PlatformJunk -notcontains $_.Name } |
         ForEach-Object { $_.FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/' })
-    , $files
+    $files
 }
 
 function Get-KitBinaryPaths {
@@ -630,8 +637,10 @@ function Get-KitBinaryPaths {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$RelativePaths
     )
+    # HashSet — IEnumerable, pipeline розгорнув би його в рядки; кома тримає об'єкт цілим (F7).
+    # Викликачі беруть результат присвоєнням: $binary = Get-KitBinaryPaths …
     $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($RelativePaths.Count -eq 0) { return $set }
+    if ($RelativePaths.Count -eq 0) { return , $set }
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     $full = @($RelativePaths | ForEach-Object { "$prefix/$_" })
     $out = $full | git -C $RepoRoot check-attr -z binary --stdin 2>&1
@@ -641,7 +650,7 @@ function Get-KitBinaryPaths {
     for ($i = 0; $i + 2 -lt $fields.Count; $i += 3) {
         if ($fields[$i + 2] -eq 'set') { $set.Add($fields[$i].Substring($prefix.Length).TrimStart('/')) | Out-Null }
     }
-    $set
+    , $set
 }
 
 function Compare-KitTrees {
@@ -657,8 +666,8 @@ function Compare-KitTrees {
         [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$BinaryPaths
     )
 
-    $dump = [System.Collections.Generic.HashSet[string]]::new([string[]](Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::OrdinalIgnoreCase)
-    $tree = [System.Collections.Generic.HashSet[string]]::new([string[]](Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::OrdinalIgnoreCase)
+    $dump = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::OrdinalIgnoreCase)
+    $tree = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::OrdinalIgnoreCase)
     $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::OrdinalIgnoreCase)
     $all.UnionWith($tree)
 
@@ -989,7 +998,7 @@ function Invoke-KitVerify {
         $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
         Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
 
-        $allRel = @((Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + (Get-KitRelativeFiles -Root $treeDir) | Sort-Object -Unique)
+        $allRel = @(@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir) | Sort-Object -Unique)
         $binary = Get-KitBinaryPaths -RepoRoot $root -RepoPath $src.RepoPath -RelativePaths $allRel
         $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary
 

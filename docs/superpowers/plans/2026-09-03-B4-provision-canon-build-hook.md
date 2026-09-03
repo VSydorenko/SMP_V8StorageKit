@@ -40,6 +40,11 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
 - **Серверна база агента з `.dt`** — спайк, не робота (§13): `provision` на `Srvr=` зупиняється з
   поясненням.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Конвенція масивів (знахідка виконавця B1, F7):** кома-обгортка `, $array` у поверненні й `@(…)` у
+  викликача **несумісні** — `@(F)` над `, $a` бачить один елемент (перевірено на pwsh 7.5.4). На кожну функцію
+  одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
+  викликачі беруть результат присвоєнням чи `(F)`. Об'єкти-колекції, які pipeline розгортає (HashSet, List),
+  повертати лише з комою (або `Write-Output -NoEnumerate`). Кожна кома в коді планів має коментар «навмисно».
 
 ### Рішення, узгоджені з архітектором
 
@@ -794,6 +799,7 @@ function Get-KitEpfDescriptors {
     <# Кожна обробка — <Name>.xml поруч із текою <Name> у source-set EXTERNAL_DATA_PROCESSORS. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Source)
+    # Кома навмисно: викликач робить foreach ($d in (Get-KitEpfDescriptors …)) — (…), НЕ @(…) — див. F7.
     if (-not (Test-Path -LiteralPath $Source.FullPath)) { return , @() }
     , @(Get-ChildItem -LiteralPath $Source.FullPath -Filter '*.xml' -File | Sort-Object Name | ForEach-Object {
         [pscustomobject]@{ Name = $_.BaseName; Path = $_.FullName } })
@@ -816,6 +822,7 @@ function Copy-KitWorkspaceArtifacts {
             $copied.Add((Join-Path $Destination $f.Name))
         }
     }
+    # Кома навмисно: викликач робить foreach ($c in (Copy-KitWorkspaceArtifacts …)) — (…), НЕ @(…) — див. F7.
     , $copied.ToArray()
 }
 
@@ -1215,7 +1222,8 @@ function Install-KitSessionHook {
         Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
         $installed += $settingsDst
     }
-    , $installed
+    # Без коми: викликачі (install-hooks) загортають у @(…) — див. F7.
+    $installed
 }
 
 function Test-KitSessionHook {
@@ -1242,7 +1250,8 @@ function Test-KitSessionHook {
         } catch { $findings.Add((New-KitFinding -Level error -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message)")) }
         if (-not $hasHook) { $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "У $script:SettingsRel немає hooks.SessionStart з командою .claude/hooks/session-start.ps1 — шим не запускатиметься (зразок: templates/settings.json).")) }
     }
-    , $findings.ToArray()
+    # Без коми: check і тести загортають у @(…) — див. F7.
+    $findings.ToArray()
 }
 ```
 

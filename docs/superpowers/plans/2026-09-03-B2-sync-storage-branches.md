@@ -48,6 +48,11 @@
   і тексту зупинки, і того, що наступний крок не відбувся.
 - **Версію `plugin.json` не піднімати. `git push` — ні.**
 - **Головна гілка kit — `main`; робота в `feature/agent-contour`.**
+- **Конвенція масивів (знахідка виконавця B1, F7):** кома-обгортка `, $array` у поверненні й `@(…)` у
+  викликача **несумісні** — `@(F)` над `, $a` бачить один елемент (перевірено на pwsh 7.5.4). На кожну функцію
+  одна конвенція разом із її викликачами: або без коми й усі викликачі загортають у `@(…)`, або з комою й
+  викликачі беруть результат присвоєнням чи `(F)`. Об'єкти-колекції, які pipeline розгортає (HashSet, List),
+  повертати лише з комою (або `Write-Output -NoEnumerate`). Кожна кома в коді планів має коментар «навмисно».
 - **Відоме вікно між блоками:** Task 5 цього плану вилучає гілку `.cfe` зі старого `build.ps1`, а команда
   `kit build` з'являється лише в B4 Task 3. Між ними kit **не збирає `.cfe` взагалі** — це не дефект,
   а свідомий стан під локальним маркетплейсом без релізу (`.cfe` збирає `operation=make` Уніки); виконавцю
@@ -349,6 +354,7 @@ function Get-StorageReportArguments {
     )
     $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
     if ($ExtensionName) { $report += " -Extension $ExtensionName" }
+    # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $StorageUser
@@ -404,6 +410,7 @@ function Get-KitPendingVersions {
 
     $pending = @($AllVersions | Where-Object { $null -eq $LastVersion -or $_.Version -gt $LastVersion } | Sort-Object Version)
     if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+    # Кома навмисно: викликачі (sync, тести) беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
     , $pending
 }
 
@@ -1170,6 +1177,7 @@ function Get-UkrainianPluralForm {
 
 function Get-KitRepositoryArguments {
     param([Parameter(Mandatory)]$Source)
+    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
