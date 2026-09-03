@@ -66,6 +66,7 @@ function New-KitFakeRepo {
         [System.Collections.IDictionary]$Workspaces,
         [switch]$WithGitattributes,
         [switch]$WithGitignore,
+        [switch]$WithHooks,
         [switch]$NoCommit
     )
 
@@ -155,6 +156,10 @@ function New-KitFakeRepo {
 
     if ($WithGitattributes) { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes') }
     if ($WithGitignore)     { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore')     -Destination (Join-Path $Root '.gitignore') }
+    if ($WithHooks) {
+        Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
+        Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null
+    }
 
     if (-not $NoCommit) {
         Invoke-KitFakeGit -C $Root add -A | Out-Null

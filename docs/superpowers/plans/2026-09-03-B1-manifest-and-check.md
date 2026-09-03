@@ -2335,7 +2335,10 @@ $script:DefaultTemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScript
 function Get-KitHookNames {
     [CmdletBinding()]
     param()
-    , $script:HookNames
+    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
+    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
+    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    $script:HookNames
 }
 
 function Install-KitGitHooks {
@@ -2365,7 +2368,10 @@ function Install-KitGitHooks {
     }
     $out = git -C $RepoRoot config core.hooksPath $script:HooksDirName 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git config core.hooksPath завершився з кодом ${LASTEXITCODE}: $out" }
-    , $installed.ToArray()
+    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
+    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
+    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    $installed.ToArray()
 }
 
 function Test-KitGitHooks {
@@ -2407,7 +2413,10 @@ function Test-KitGitHooks {
         }
     }
 
-    , $findings.ToArray()
+    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
+    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
+    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    $findings.ToArray()
 }
 
 Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks

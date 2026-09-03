@@ -43,6 +43,28 @@ Describe 'templates/gitattributes — політика тексту' {
     }
 }
 
+Describe 'templates/githooks — хуки захисту storage/*' {
+    BeforeAll {
+        $script:HooksDir = (Resolve-Path "$PSScriptRoot/../../templates/githooks").Path
+    }
+
+    It 'обидва хуки на місці, з shebang sh і без CR' {
+        foreach ($name in 'pre-commit', 'pre-merge-commit') {
+            $p = Join-Path $script:HooksDir $name
+            $p | Should -Exist
+            $bytes = [System.IO.File]::ReadAllBytes($p)
+            $bytes | Should -Not -Contain ([byte]13) -Because "sh падає на CR у $name"
+            (Get-Content -LiteralPath $p -TotalCount 1) | Should -Be '#!/bin/sh'
+            (Get-Content -LiteralPath $p -Raw) | Should -Match 'V8KIT_SYNC'
+        }
+    }
+
+    It 'шаблон gitattributes споживача тримає .githooks/* у LF' {
+        $lines = @(Get-Content -LiteralPath (Resolve-Path "$PSScriptRoot/../../templates/gitattributes").Path -Encoding UTF8)
+        @($lines | Where-Object { $_ -match '^\.githooks/\*\s+text\s+eol=lf\s*$' }).Count | Should -Be 1
+    }
+}
+
 Describe 'product-onboarding — шаблон v8project.yaml' {
     BeforeAll {
         $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
