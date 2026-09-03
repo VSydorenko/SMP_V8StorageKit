@@ -1,0 +1,25 @@
+version: 1                          # версія схеми маніфесту
+product: BankExchange               # АБО client: <назва>. Метадані: імена артефактів, звіти.
+
+workspaces:
+  - path: SMP_BankExchange_SMB      # тека з v8project.yaml
+    sources:                        # ключ = name: source-set у v8project.yaml
+      base:
+        truth: vendor               # не наше, у git не потрапляє; локально — дамп
+        dump: { from: devUNF }      # ключ підключення в local overlay
+      SMP_BankExchange_SMB:
+        truth: storage
+        storage:
+          path: 'R:\СховищаРозширень_1С\СМП_BankExchange_SMB'
+          user: gitbot              # типово gitbot; пароль порожній за конвенцією
+
+  - path: SMP_BankExchange_SMBru
+    sources:
+      base: { truth: vendor, dump: { from: devUNFru } }
+      SMP_BankExchange_SMBru:
+        truth: storage
+        storage: { path: 'R:\СховищаРозширень_1С\СМП_BankExchange_SMBru' }
+
+  - path: epf
+    sources:
+      external-processors: { truth: git }
