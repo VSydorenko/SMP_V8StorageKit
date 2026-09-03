@@ -64,6 +64,11 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/storage.json') -Value '{}' -Encoding UTF8
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*kit migrate*'
+        # Правка (рев'ю, 2026-09-04) — migrate лишається правильним шляхом, але команди ще
+        # нема (з'явиться в B6): повідомлення мусить сказати, що робити ДОТИ, а не тільки
+        # заборонити ручне редагування. Якір унікальний саме для цього повідомлення — в
+        # сусідньому (без storage.json, H3) такого підпункту немає.
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*наступному блоці*'
     }
 
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {

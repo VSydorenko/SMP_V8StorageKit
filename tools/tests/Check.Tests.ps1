@@ -321,6 +321,29 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Аудит хуків впав*'
     }
 
+    # Той самий зразок, що вище для хуків, — тепер для другого захищеного виклику
+    # (check.psm1: try/catch навколо Test-KitStorageBranchInvariants). Дешевий, детермінований
+    # спосіб зламати саме git-виклики StorageBranch.psm1 (не крихке пошкодження бази об'єктів):
+    # `git update-ref` відмовляється писати НЕ-коміт у гілку ("trying to write non-commit
+    # object … to branch"), але ref-файл можна створити повз нього. Пишемо в
+    # refs/heads/storage/Alpha_SMB хеш звичайного blob-об'єкта: `git rev-parse --verify`
+    # бачить об'єкт → Test-KitBranchExists = $true → виконання доходить до захищеного виклику.
+    # Усередині `git log <blob>` (Get-KitBranchCommits) виходить кодом 0 і порожнім
+    # виводом — цим прийомом ламається не він. А `git ls-tree -r <blob>` падає з кодом 128
+    # ("fatal: not a tree object") — саме цей виклик і кидає виняток, який перетворюється
+    # на знахідку error, а не зносить решту звіту.
+    It 'збій git усередині аудиту інваріантів гілки storage/X не губить решти зібраних знахідок' {
+        $repo = New-GoodRepo 'branch-invariants-git-fails'
+        $blob = (git -C $repo hash-object -w -- (Join-Path $repo 'v8storagekit.yaml') | Out-String).Trim()
+        $refDir = Join-Path $repo '.git/refs/heads/storage'
+        New-Item -ItemType Directory -Force -Path $refDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $refDir 'Alpha_SMB') -Value "$blob`n" -Encoding ascii -NoNewline
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Маніфест:*'
+        $r.Output | Should -BeLike '*аудит інваріантів гілки*впав*'
+    }
+
     It 'check нічого не змінює: статус робочої копії й HEAD ті самі' {
         $repo = New-GoodRepo 'readonly'
         $head = git -C $repo rev-parse HEAD

@@ -59,19 +59,29 @@ function Invoke-KitPreflight {
     if (-not (Test-Path -LiteralPath $ctx.ManifestPath -PathType Leaf)) {
         # Правка H5 (фінальне рев'ю) — до 0.6.0 конвенція клала storage.json у кожну підтеку
         # продукту в корені репозиторію; такий репозиторій уже має все, що потрібно
-        # маніфесту (шляхи сховищ, імена розширень, дев-бази), просто не в тому файлі. Порада
-        # "пишіть v8storagekit.yaml руками" для нього хибна — правильний шлях інший, і check
+        # маніфесту (шляхи сховищ, імена розширень, дев-бази), просто не в тому файлі. check
         # мусить розрізняти два стани, не давати одну й ту саму пораду обом. Пошук навмисно
         # неглибокий (Get-ChildItem -Directory по самому кореню, тоді перевірка файлу) — не
         # рекурсія по всьому дереву, воно може бути великим.
+        #
+        # Правка (рев'ю, 2026-09-04) — та сама пастка, що вже виправлена нижче для гілки без
+        # storage.json (див. коментар "правка 5а"): маршрут на v8storagekit:migrate сам по собі
+        # вів у глухий кут, бо ні скіла, ні команди kit migrate ще нема — вони приходять у B6, а
+        # текст при цьому прямо забороняв єдиний нині доступний шлях ("не пишіть руками"). Пряма
+        # дія стоїть ПОРУЧ зі скілом, а не замість нього: migrate лишається правильним шляхом,
+        # але повідомлення тепер каже, що команда з'явиться пізніше, і що робити доти.
         $legacyDirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
             Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') -PathType Leaf })
         if ($legacyDirs.Count -gt 0) {
             & $fail 'manifest' (
                 "Маніфест $script:ManifestFileName не знайдено в $root, але в підтеках є storage.json " +
                 "($(($legacyDirs.Name | Sort-Object) -join ', ')) — це репозиторій старої конвенції 0.6.0. " +
-                "Не пишіть $script:ManifestFileName руками: скіл v8storagekit:migrate (команда kit migrate) сам " +
-                'прочитає шляхи сховищ, імена розширень і дев-бази з наявних storage.json.')
+                'Правильний шлях — скіл v8storagekit:migrate (команда kit migrate): він сам прочитає шляхи ' +
+                'сховищ, імена розширень і дев-бази з наявних storage.json. ' +
+                'Ця команда з''явиться в наступному блоці розробки kit; доти скопіюйте ' +
+                "templates/v8storagekit.yaml.example з теки плагіна (знайти теку: claude plugin list, або " +
+                "/plugin у сесії Claude Code) у корінь репозиторію як $script:ManifestFileName і заповніть " +
+                'вручну, узявши шляхи сховищ і імена розширень із наявних storage.json.')
             return $ctx
         }
         # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"
