@@ -51,6 +51,21 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
+    It '§2.5: той самий конекшн, інакше записаний (регістр, пробіл, без ";") — усе одно код 1' {
+        # Тест на саму нормалізацію (check.psm1: $norm), не на порівняння рядків: тут
+        # накладка й v8project.local.yaml НЕ побайтово однакові — інший регістр, зайвий
+        # пробіл після ";" і без завершальної ";". Якби $norm замінили на тотожність
+        # (видалили нормалізацію), цей тест мав би почервоніти — на відміну від
+        # попереднього (побайтово однакового), який пройшов би і без неї.
+        $overlay = "infobases:`n  dev:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'`n    user: 'Адмін'"
+        $repo = New-GoodRepo 'local-audit-normalized' @{ OverlayText = $overlay }
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "infobase:`n  connection: 'srvr=""vsdev""; ref=""smp_unf""'"
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
+    }
+
     It '§2.5: серверна база АГЕНТА у v8project.local.yaml, якої немає в накладці, — не помилка' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
         $repo = New-GoodRepo 'local-agent' @{ OverlayText = $overlay }
@@ -92,7 +107,11 @@ Describe 'kit check — інваріанти репозиторію-спожив
         git -C $repo commit -qm 'фікстура: vendor закомічено силою попри .gitignore'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*Alpha_SMB/cf/src*'
+        # '*Alpha_SMB/cf/src*' сам собою не діагностичний: цей шлях є і в повідомленні
+        # перевірки "правил" (не гітігноровано), і в повідомленні перевірки "факту"
+        # (відстежується). '*git rm -r --cached*' звужує саме до другої — тієї, яку цей
+        # тест і має перевіряти.
+        $r.Output | Should -BeLike '*git rm -r --cached*'
     }
 
     It '§3.2: немонотонна гілка storage/X — код 1; лінійна з кореневим комітом — 0' {
@@ -129,9 +148,15 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It 'dump.from без накладки на машині — попередження, не помилка' {
+        # Обидва рядки: 'no-overlay' — це ще й New-GoodRepo, а фікстура навмисно ставить
+        # неіснуючий шлях сховища, тож warn storage-path теж посилається на
+        # v8storagekit.local.yaml і теж проходить під '*[!]*v8storagekit.local.yaml*' —
+        # цей шаблон сам собою не діагностичний, ловить дві РІЗНІ знахідки. '*dump.from*'
+        # звужує саме до warn dump-from.
         $r = Invoke-Check -Repo (New-GoodRepo 'no-overlay')
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*[!]*v8storagekit.local.yaml*'
+        $r.Output | Should -BeLike '*dump.from*'
     }
 
     It '-Workspace звужує перевірку; невідомий — код 1 з переліком' {

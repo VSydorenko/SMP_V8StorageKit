@@ -101,7 +101,7 @@ function Invoke-KitCheck {
                     # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево. --no-index — та сама
                     # причина, що й у дзеркальній перевірці: питаємо про правила, а не про
                     # те, що вже випадково потрапило в індекс.
-                    git -C $root check-ignore -q --no-index -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                    git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: '$($src.RepoPath)' не гітігноровано (truth: vendor) — чужа конфігурація потрапила б у git. " +

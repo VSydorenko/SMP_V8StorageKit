@@ -3196,7 +3196,14 @@ function Invoke-KitCheck {
                 # Дзеркальна перевірка до gitignore для vendor: дерево, яке МАЄ бути в git,
                 # не повинно ловитись правилом .gitignore. Помилково широке правило викидає
                 # вихідники з git мовчки — ні sync, ні canon цього не бачать.
-                git -C $root check-ignore -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                #
+                # --no-index обов'язковий: без нього check-ignore звіряється з індексом і
+                # НІКОЛИ не покаже вже трекований файл ігнорованим, хай яке правило
+                # додай — це задокументована поведінка git (див. check-ignore -h), а не
+                # артефакт. Без --no-index цей інваріант не ловив жодного випадку, коли
+                # Configuration.xml уже закомічено (справжній репозиторій-споживач —
+                # завжди саме такий стан).
+                git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                 $ignoredCode = $LASTEXITCODE
                 if ($ignoredCode -eq 0) {
                     & $add error gitignore ("$tag`: дерево '$($src.RepoPath)' гітігноровано, хоч має потрапляти в git (truth: $($src.Truth)) — " +
@@ -3216,11 +3223,11 @@ function Invoke-KitCheck {
                     # цей побічний ефект випадково ловив правильну тривогу для vendor, поки
                     # не з'явився --no-index у дзеркальній перевірці вище (без нього не
                     # ловилось зовсім протилежне — F5: над-широке правило проти вже
-                    # закомі­ченого дерева, яке МАЄ бути в git). --no-index розвів ці два
+                    # закоміченого дерева, яке МАЄ бути в git). --no-index розвів ці два
                     # випадково злиті питання, тож тепер вони — дві окремі перевірки:
 
                     # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево.
-                    git -C $root check-ignore -q --no-index -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
+                    git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: '$($src.RepoPath)' не гітігноровано (truth: vendor) — чужа конфігурація потрапила б у git. " +
