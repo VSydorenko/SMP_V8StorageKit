@@ -303,9 +303,16 @@ Unica». Дублювати це підключення в накладці kit 
 
 ### 2.6 Політики git per source
 
-- `truth: vendor` → шлях у `.gitignore`. `check` перевіряє через `git check-ignore`.
-- усі дерева платформи (`cf/src`, `cfe/**/src`, `epf/src`) → `-text` у `.gitattributes`.
+- `truth: vendor` → шлях у `.gitignore`; `check` перевіряє через `git check-ignore`.
+  `-text` для нього **не** перевіряється — гітігнороване дерево в git не потрапляє, і
+  `check-attr` на ньому дає `text: auto`, що не є помилкою.
+- усі дерева платформи, **що потрапляють у git** (`truth ∈ {storage, dump, git}`:
+  `cf/src` у клієнтському випадку, `cfe/**/src`, `epf/src`) → `-text` у `.gitattributes`;
   `check` перевіряє через `git check-attr` (`Test-GitTextPolicy` уже є).
+- **зворотна перевірка:** дерево з `truth ∈ {storage, dump, git}` **не** має бути
+  гітігнорованим — надто широке правило `.gitignore` (наприклад `**/src/**`) тихо
+  викинуло б вихідники з git, і `git status` цього не показав би. `check` перевіряє через
+  `git check-ignore` з очікуванням «не ігнорується».
 - `onboarding` дописує рядки під фактичні шляхи з `v8project.yaml`, а не покладається на
   шаблонні `**/cfe/src/**`.
 
