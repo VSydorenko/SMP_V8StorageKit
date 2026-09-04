@@ -918,6 +918,15 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
 - [ ] **Step 5: `StorageBranch.psm1` — чотири функції** (додати `Import-Module "$PSScriptRoot/PathSafety.psm1"` угорі, без `-Force`)
 
 ```powershell
+function Get-KitCommitSha {
+    <# rev-parse з перевіркою коду виходу — правило Global Constraints без винятків, навіть одразу після успішного коміту. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Ref)
+    $out = git -C $RepoRoot rev-parse --verify "$Ref^{commit}" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git rev-parse $Ref у $RepoRoot завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+    (@($out) -join '').Trim()
+}
+
 function New-KitStorageWorktree {
     <#
     .SYNOPSIS
@@ -1023,28 +1032,32 @@ function Write-KitStorageVersion {
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
 
-    $msgFile = Join-Path (Split-Path -Parent $WorktreePath) 'commit-message.txt'
-    Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
-
     $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -- $RepoPath 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
 
     git -C $WorktreePath diff --cached --quiet -- $RepoPath
     $empty = ($LASTEXITCODE -eq 0)
 
+    # Файл повідомлення — поруч із worktree, не всередині (інакше git add -A забрав би його в дерево);
+    # прибирається у finally, інакше лишається сміттям у build/ після Remove-KitStorageWorktree.
+    $msgFile = Join-Path (Split-Path -Parent $WorktreePath) 'commit-message.txt'
     $stamp = $Timestamp.ToString('yyyy-MM-ddTHH:mm:ss')
     $env:GIT_AUTHOR_DATE = $stamp; $env:GIT_COMMITTER_DATE = $stamp; $env:V8KIT_SYNC = '1'
     try {
+        Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
         $out = git -C $WorktreePath -c core.autocrlf=false commit --author="$AuthorName <$AuthorEmail>" -F $msgFile --quiet --allow-empty 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git commit у worktree завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
     } finally {
         Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE, Env:V8KIT_SYNC -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
     }
-    [pscustomobject]@{ Sha = (git -C $WorktreePath rev-parse HEAD).Trim(); Empty = $empty }
+    [pscustomobject]@{ Sha = (Get-KitCommitSha -RepoRoot $WorktreePath -Ref HEAD); Empty = $empty }
 }
 ```
 
-Додати всі чотири до `Export-ModuleMember`.
+Додати всі п'ять (разом із `Get-KitCommitSha`) до `Export-ModuleMember`. Тест у `StorageBranch.Tests.ps1`:
+`{ Get-KitCommitSha -RepoRoot $repo -Ref 'no-such-ref' } | Should -Throw '*rev-parse*no-such-ref*'`;
+`Get-KitCommitSha -RepoRoot $repo -Ref main` збігається з `git -C $repo rev-parse main`.
 
 - [ ] **Step 6: `tools/lib/GitMerge.psm1`**
 
@@ -1091,7 +1104,7 @@ function Merge-KitBranchInto {
         throw "Гілки '$Into' немає — нема куди зливати $Branch. Створіть перший коміт у головній гілці (скіл onboarding робить це першим)."
     }
     if (Test-KitBranchMergedInto -RepoRoot $RepoRoot -Branch $Branch -Into $Into) {
-        return [pscustomobject]@{ Outcome = 'already'; Sha = (git -C $RepoRoot rev-parse $Into).Trim(); Via = 'none' }
+        return [pscustomobject]@{ Outcome = 'already'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'none' }
     }
 
     $mergeArgs = @('merge', '--no-ff', '--no-edit', '-m', $Message)
@@ -1112,7 +1125,7 @@ function Merge-KitBranchInto {
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
-        return [pscustomobject]@{ Outcome = 'merged'; Sha = (git -C $RepoRoot rev-parse $Into).Trim(); Via = 'in-place' }
+        return [pscustomobject]@{ Outcome = 'merged'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'in-place' }
     }
 
     Assert-SafeWorkPath -Path $WorkDir -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree головної гілки'
@@ -1131,7 +1144,7 @@ function Merge-KitBranchInto {
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
-        $sha = (git -C $WorkDir rev-parse HEAD).Trim()
+        $sha = Get-KitCommitSha -RepoRoot $WorkDir -Ref HEAD
     } finally {
         git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
         git -C $RepoRoot worktree prune 2>$null | Out-Null
