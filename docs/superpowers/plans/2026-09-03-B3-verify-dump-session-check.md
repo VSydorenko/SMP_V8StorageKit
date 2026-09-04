@@ -148,14 +148,15 @@ source-set>` (це і є ціль). `session-check` файлів не створ
 Describe 'StoragePlatform.psm1 — аргументи платформи для сховища' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StoragePlatform.psm1").Path -Force
-        $script:Ext = [pscustomobject]@{ Key = 'SMP_X'; Type = 'EXTENSION';     StoragePath = 'R:\S\X'; StorageUser = 'gitbot' }
-        $script:Cfg = [pscustomobject]@{ Key = 'base';  Type = 'CONFIGURATION'; StoragePath = 'R:\S\C'; StorageUser = 'Alpen' }
-        $script:Epf = [pscustomobject]@{ Key = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; StoragePath = ''; StorageUser = '' }
+        $script:Ext = [pscustomobject]@{ Key = 'SMP_X'; Type = 'EXTENSION';     StoragePath = 'R:\S\X'; StorageUser = 'gitbot'; StoragePassword = '' }
+        $script:Cfg = [pscustomobject]@{ Key = 'base';  Type = 'CONFIGURATION'; StoragePath = 'R:\S\C'; StorageUser = 'Alpen'; StoragePassword = 'secret' }
+        $script:Epf = [pscustomobject]@{ Key = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; StoragePath = ''; StorageUser = ''; StoragePassword = '' }
     }
 
-    It 'три аргументи підключення до сховища, користувач із джерела, пароль порожній' {
+    It 'три аргументи підключення до сховища; користувач і пароль — із джерела (пароль лише з накладки, B2 Task 2a)' {
         $a = Get-KitRepositoryArguments -Source $script:Cfg
-        $a | Should -Be @('/ConfigurationRepositoryF "R:\S\C"', '/ConfigurationRepositoryN "Alpen"', '/ConfigurationRepositoryP ""')
+        $a | Should -Be @('/ConfigurationRepositoryF "R:\S\C"', '/ConfigurationRepositoryN "Alpen"', '/ConfigurationRepositoryP "secret"')
+        (Get-KitRepositoryArguments -Source $script:Ext)[2] | Should -Be '/ConfigurationRepositoryP ""'
     }
 
     It '-Extension лише для EXTENSION, і з іменем джерела' {
@@ -200,7 +201,7 @@ function Get-KitRepositoryArguments {
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
-        '/ConfigurationRepositoryP ""'
+        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword   # пароль лише з накладки (B2 Task 2a); ніколи не друкувати
     )
 }
 

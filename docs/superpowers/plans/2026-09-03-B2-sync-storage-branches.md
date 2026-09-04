@@ -119,7 +119,7 @@
 
 ```
 StorageReport.psm1
-  Get-StorageVersions -IbSwitch -StoragePath -StorageUser -WorkDir [-ExtensionName]   (порожній → без -Extension)
+  Get-StorageVersions -IbSwitch -StoragePath -StorageUser -WorkDir [-StoragePassword] [-ExtensionName]   (порожній → без -Extension)
 
 StorageBranch.psm1 (додається до B1)
   Get-KitPendingVersions -AllVersions <@(report version)> -LastVersion <int|$null> [-MaxVersions <int>]
@@ -506,6 +506,171 @@ pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration
 git add tools/lib/StorageReport.psm1 tools/lib/StorageBranch.psm1 tools/tests/StorageReport.Tests.ps1 tools/tests/StorageBranch.Tests.ps1
 git commit -m "B2: звіт сховища без -Extension; план реплею й повідомлення коміту з трейлерами"
 ```
+
+---
+
+### Task 2a: накладка `storages.<ключ>` у повній формі — користувач і пароль сховища (спека §2.4–2.5, після спайку Task 1)
+
+Спайк Task 1 зупинився на автентифікації: `gitbot` з порожнім паролем — конвенція, доведена
+лише для сховищ розширень. Спека тепер каже: kit паролів не зберігає й не підбирає; для кожного
+сховища людина або заводить `gitbot` (читання, порожній пароль), або вказує наявного користувача
+через `storage.user` у маніфесті; **пароль, якщо він є, живе лише в накладці**
+`v8storagekit.local.yaml` під `storages.<ключ>: { path, user, password }` — у маніфесті паролів не
+буває ніколи. Відмова автентифікації — зупинка з назвою сховища й користувача.
+
+Це зміна в коді B1 (`Manifest.psm1`, `Preflight.psm1`, `V8.psm1`) — B1 закрито, тож робить B2.
+
+**Files:**
+- Modify: `tools/lib/Manifest.psm1` — `Read-KitLocalOverlay`: `storages.<ключ>` — рядок **або** мапа `{path, user, password}`
+- Modify: `tools/lib/Preflight.psm1` — resolved source отримує `StoragePassword`; накладка перекриває `StoragePath`, `StorageUser`, `StoragePassword`
+- Modify: `tools/lib/StorageReport.psm1` — `Get-StorageReportArguments -StoragePassword`; `Get-StorageVersions -StoragePassword`
+- Modify: `tools/commands/sync.psm1` — `Get-KitRepositoryArguments` бере `$Source.StoragePassword`; виклик `Get-StorageVersions` передає пароль; вивід ніколи не друкує пароль
+- Modify: `tools/lib/V8.psm1` — `Invoke-V8Designer`: у `Write-Verbose` маскувати значення `/P` і `/ConfigurationRepositoryP`
+- Modify: `templates/v8storagekit.local.yaml.example` — приклад повної форми
+- Tests: `Manifest.Tests.ps1`, `Preflight.Tests.ps1`, `StorageReport.Tests.ps1`, `V8.Tests.ps1`
+
+**Interfaces:**
+- `Read-KitLocalOverlay` → `Storages: hashtable key→{Path|$null; User|$null; Password|$null}` (**зміна контракту B1**: раніше рядок).
+- resolved source: + `StoragePassword` (`''` типово). `StorageUser` = маніфест → накладка (накладка виграє).
+- `Get-StorageReportArguments -ReportPath -StoragePath -StorageUser [-StoragePassword] [-ExtensionName]`; `Get-StorageVersions … [-StoragePassword]`.
+- `Get-KitRepositoryArguments -Source` → третій аргумент `'/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword`.
+
+- [ ] **Step 1: Тести, що падають**
+
+`Manifest.Tests.ps1`, у Describe накладки:
+
+```powershell
+    It 'storages.<ключ>: рядок — лише шлях; мапа — path/user/password; невідомий ключ мапи — зупинка' {
+        $p = Write-Yaml 'storages-forms.yaml' @(
+            'storages:'
+            "  A: 'D:\mirror\A'"
+            '  B:'
+            "    path: 'D:\mirror\B'"
+            "    user: 'Сидоренко'"
+            "    password: 'secret'"
+            '  C: { user: gitbot }')
+        $o = Read-KitLocalOverlay -Path $p
+        $o.Storages['A'].Path | Should -Be 'D:\mirror\A';  $o.Storages['A'].User | Should -BeNullOrEmpty
+        $o.Storages['B'].Path | Should -Be 'D:\mirror\B';  $o.Storages['B'].User | Should -Be 'Сидоренко'; $o.Storages['B'].Password | Should -Be 'secret'
+        $o.Storages['C'].Path | Should -BeNullOrEmpty;     $o.Storages['C'].User | Should -Be 'gitbot'
+        $bad = Write-Yaml 'storages-bad.yaml' @('storages:', '  A: { path: x, pwd: y }')
+        { Read-KitLocalOverlay -Path $bad } | Should -Throw "*'pwd'*path, user, password*"
+    }
+```
+
+`Preflight.Tests.ps1`:
+
+```powershell
+    It 'накладка перекриває користувача й пароль сховища, не чіпаючи шляху; пароль типово порожній' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-cred') -OverlayText "storages:`n  Alpha_SMB: { user: 'Сидоренко', password: 'secret' }"
+        $src = (Invoke-KitPreflight -RepoRoot $repo).Workspaces[0].Sources | Where-Object Key -eq 'Alpha_SMB'
+        $src.StoragePath | Should -BeLike '*no-such-storage-Alpha_SMB'
+        $src.StorageUser | Should -Be 'Сидоренко'
+        $src.StoragePassword | Should -Be 'secret'
+        $plain = (Invoke-KitPreflight -RepoRoot (New-KitFakeRepo -Root (Join-Path $TestDrive 'no-cred'))).Workspaces[0].Sources | Where-Object Key -eq 'Alpha_SMB'
+        $plain.StorageUser | Should -Be 'gitbot'; $plain.StoragePassword | Should -Be ''
+    }
+```
+
+`StorageReport.Tests.ps1` (у Describe `Get-StorageReportArguments`):
+
+```powershell
+    It 'пароль сховища йде в /ConfigurationRepositoryP; без нього — порожні лапки' {
+        (Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'u' -StoragePassword 'secret')[2] | Should -Be '/ConfigurationRepositoryP "secret"'
+        (Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'u')[2] | Should -Be '/ConfigurationRepositoryP ""'
+    }
+```
+
+`V8.Tests.ps1`:
+
+```powershell
+    It 'Hide-V8Secrets маскує /P і /ConfigurationRepositoryP, лишаючи решту аргументів' {
+        Hide-V8Secrets -ArgLine 'DESIGNER /F "x" /N "u" /P "secret" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "s2" /Out "l"' |
+            Should -Be 'DESIGNER /F "x" /N "u" /P "***" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "***" /Out "l"'
+    }
+```
+
+`Sync.Tests.ps1` (без платформи): репозиторій із накладкою `storages: { Alpha_SMB: { password: 'secret' } }`
+і неіснуючим шляхом → зупинка «Каталог сховища не знайдено»; вивід **не містить** `secret`.
+
+- [ ] **Step 2: `Manifest.psm1` — `Read-KitLocalOverlay`, блок `storages:`**
+
+```powershell
+    if ($o.Contains('storages')) {
+        if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях або { path, user, password }»." }
+        foreach ($key in @($o['storages'].Keys)) {
+            $v = $o['storages'][$key]
+            $entry = [pscustomobject]@{ Path = $null; User = $null; Password = $null }
+            if ($v -is [System.Collections.IDictionary]) {
+                Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$key"
+                if ($v.Count -eq 0) { throw "$where — storages.$key порожній: вкажіть path, user або password." }
+                foreach ($k in 'path', 'user', 'password') {
+                    if ($v.Contains($k) -and -not [string]::IsNullOrWhiteSpace([string]$v[$k])) { $entry.($k.Substring(0,1).ToUpper() + $k.Substring(1)) = [string]$v[$k] }
+                }
+            } else {
+                $p = [string]$v
+                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$key порожній." }
+                $entry.Path = $p
+            }
+            $result.Storages[[string]$key] = $entry
+        }
+    }
+```
+
+- [ ] **Step 3: `Preflight.psm1` — перекриття трьох полів**
+
+Замість `$storagePath = …; if (… ContainsKey) { $storagePath = $ctx.Overlay.Storages[$src.Key] }`:
+
+```powershell
+            $storagePath = $src.StoragePath; $storageUser = $src.StorageUser; $storagePassword = ''
+            if ($src.Truth -eq 'storage' -and $ctx.Overlay -and $ctx.Overlay.Storages.ContainsKey($src.Key)) {
+                $ov = $ctx.Overlay.Storages[$src.Key]
+                if ($ov.Path)     { $storagePath = $ov.Path }
+                if ($ov.User)     { $storageUser = $ov.User }
+                if ($ov.Password) { $storagePassword = $ov.Password }
+            }
+```
+
+і в об'єкті джерела `StorageUser = $storageUser; StoragePassword = $storagePassword`. Перевірка
+`check` про недоступний шлях (`storage-path`) пропонує тепер «перевизначте в накладці
+`storages: <ключ>: { path: … }`».
+
+- [ ] **Step 4: `StorageReport.psm1`, `sync.psm1`, `V8.psm1`**
+
+`Get-StorageReportArguments`: параметр `[string]$StoragePassword = ''`, третій рядок —
+`'/ConfigurationRepositoryP "{0}"' -f $StoragePassword`. `Get-StorageVersions` — той самий параметр,
+прокидається далі. `sync.psm1`: `Get-KitRepositoryArguments` — третій аргумент з
+`$Source.StoragePassword`; виклик `Get-StorageVersions … -StoragePassword $src.StoragePassword`; у
+`Write-Host "Сховище: … (користувач $($src.StorageUser))"` пароль **не друкується** — ніде.
+
+`V8.psm1`:
+
+```powershell
+function Hide-V8Secrets {
+    <# Маскує паролі в рядку аргументів платформи — для Write-Verbose і текстів зупинок. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$ArgLine)
+    $ArgLine -replace '(/P|/ConfigurationRepositoryP)\s+"[^"]*"', '$1 "***"'
+}
+```
+
+У `Invoke-V8Designer`: `Write-Verbose "1cv8 $(Hide-V8Secrets -ArgLine $argLine)"`. Експортувати.
+Відмова автентифікації (`Ошибка аутентификации в хранилище`) у `Get-StorageVersions` → зупинка з
+назвою сховища й користувача: «Сховище $StoragePath відхилило користувача '$StorageUser'.
+Заведіть у сховищі користувача gitbot (читання, порожній пароль) або вкажіть наявного через
+storage.user у маніфесті; пароль — лише в v8storagekit.local.yaml (storages.<ключ>.password)».
+
+- [ ] **Step 5: `templates/v8storagekit.local.yaml.example`** — блок `storages:` показує обидві форми:
+
+```yaml
+storages:                           # перевизначення для цієї машини (ключ = ключ джерела)
+  # <ІмʼяРозширення>: 'D:\mirror\<Сховище>'            # лише шлях
+  # base:                                                # користувач/пароль сховища, якого немає в маніфесті
+  #   user: '<користувач сховища>'
+  #   password: '<пароль>'                               # паролів у маніфесті не буває — лише тут
+```
+
+- [ ] **Step 6: Тести зелені; коміт** (`--only`, явний перелік). Потім `claude plugin install v8storagekit@smp-v8storagekit`.
 
 ---
 
