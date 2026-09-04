@@ -40,7 +40,7 @@ function Merge-KitBranchInto {
         throw "Гілки '$Into' немає — нема куди зливати $Branch. Створіть перший коміт у головній гілці (скіл onboarding робить це першим)."
     }
     if (Test-KitBranchMergedInto -RepoRoot $RepoRoot -Branch $Branch -Into $Into) {
-        return [pscustomobject]@{ Outcome = 'already'; Sha = (git -C $RepoRoot rev-parse $Into).Trim(); Via = 'none' }
+        return [pscustomobject]@{ Outcome = 'already'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'none' }
     }
 
     $mergeArgs = @('merge', '--no-ff', '--no-edit', '-m', $Message)
@@ -61,7 +61,7 @@ function Merge-KitBranchInto {
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
-        return [pscustomobject]@{ Outcome = 'merged'; Sha = (git -C $RepoRoot rev-parse $Into).Trim(); Via = 'in-place' }
+        return [pscustomobject]@{ Outcome = 'merged'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'in-place' }
     }
 
     Assert-SafeWorkPath -Path $WorkDir -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree головної гілки'
@@ -80,9 +80,19 @@ function Merge-KitBranchInto {
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
-        $sha = (git -C $WorkDir rev-parse HEAD).Trim()
+        $sha = Get-KitCommitSha -RepoRoot $WorkDir -Ref HEAD
     } finally {
+        # Симетрично до прибирання залишку перед створенням (вище і в New-KitStorageWorktree):
+        # --force теж може не впоратись (заблокований файл — антивірус, індексатор на Windows),
+        # тож перевіряємо Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо —
+        # без цього виклик повернув би Outcome='merged' без жодного сліду незібраного worktree.
         git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
+        if (Test-Path -LiteralPath $WorkDir) {
+            Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $WorkDir) {
+                Write-Warning "Не вдалося прибрати тимчасовий worktree '$WorkDir' — приберіть вручну (git worktree remove --force) перед наступним злиттям."
+            }
+        }
         git -C $RepoRoot worktree prune 2>$null | Out-Null
     }
     [pscustomobject]@{ Outcome = 'merged'; Sha = $sha; Via = 'worktree' }

@@ -246,4 +246,10 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unsafe')
         { New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'Alpha_SMB') } | Should -Throw '*build*sync*'
     }
+
+    It 'Get-KitCommitSha: неіснуючий ref — зупинка з кодом rev-parse; наявний ref — той самий SHA, що дає сирий git' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'commitsha')
+        { Get-KitCommitSha -RepoRoot $repo -Ref 'no-such-ref' } | Should -Throw '*rev-parse*no-such-ref*'
+        Get-KitCommitSha -RepoRoot $repo -Ref main | Should -Be (git -C $repo rev-parse main)
+    }
 }

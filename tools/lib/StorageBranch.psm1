@@ -344,7 +344,16 @@ function Write-KitStorageVersion {
     } finally {
         Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
     }
-    [pscustomobject]@{ Sha = (git -C $WorktreePath rev-parse HEAD).Trim(); Empty = $empty }
+    [pscustomobject]@{ Sha = (Get-KitCommitSha -RepoRoot $WorktreePath -Ref HEAD); Empty = $empty }
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion
+function Get-KitCommitSha {
+    <# rev-parse з перевіркою коду виходу — правило Global Constraints без винятків, навіть одразу після успішного коміту. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Ref)
+    $out = git -C $RepoRoot rev-parse --verify "$Ref^{commit}" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git rev-parse $Ref у $RepoRoot завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+    (@($out) -join '').Trim()
+}
+
+Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha
