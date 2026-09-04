@@ -92,7 +92,6 @@ Describe 'Скрипти відмовляють на не-git RepoRoot' {
     }
 
     It '<name> зупиняється до будь-якої роботи' -ForEach @(
-        @{ name = 'storage-sync.ps1'; extra = @('-Product', 'X') }
         @{ name = 'dump-config.ps1'; extra = @('-Product', 'X') }
         @{ name = 'load-ext.ps1';    extra = @('-Product', 'X') }
         @{ name = 'build.ps1';       extra = @() }

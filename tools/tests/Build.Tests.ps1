@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'build.ps1 — виявлення продуктів' {
+Describe 'build.ps1 — лише .epf (перехідний стан до kit build, B4)' {
     BeforeEach {
         $script:tmp = Join-Path ([IO.Path]::GetTempPath()) ("v8kit-build-" + [guid]::NewGuid())
         New-Item -ItemType Directory -Path (Join-Path $script:tmp '.git') -Force | Out-Null
@@ -9,41 +9,24 @@ Describe 'build.ps1 — виявлення продуктів' {
         Remove-Item -LiteralPath $script:tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    It 'знаходить теки зі storage.json і epf/src' {
-        foreach ($p in 'Alpha_SMB', 'Beta_ACC') {
-            New-Item -ItemType Directory -Path (Join-Path $script:tmp $p) | Out-Null
-            Set-Content -LiteralPath (Join-Path $script:tmp $p 'storage.json') -Value '{}'
-        }
-        New-Item -ItemType Directory -Path (Join-Path $script:tmp 'epf/src') -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $script:tmp 'NoStorage') | Out-Null
-
-        $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp 2>&1 | Out-String
-        $LASTEXITCODE | Should -Be 0
-        $out | Should -Match 'Alpha_SMB'
-        $out | Should -Match 'Beta_ACC'
-        $out | Should -Match 'epf'
-        $out | Should -Not -Match 'NoStorage'
-    }
-
-    It 'зупиняється, коли продуктів немає' {
+    It 'без epf/src — зупинка з epf/src у тексті' {
         $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp 2>&1 | Out-String
         $LASTEXITCODE | Should -Not -Be 0
-        $out | Should -Match 'жодного продукту'
+        $out | Should -Match 'epf/src'
     }
 
-    It 'явний -Product передається як є' {
-        $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp -Product 'Gamma_SMB' 2>&1 | Out-String
-        $LASTEXITCODE | Should -Be 0
-        $out | Should -Match 'Gamma_SMB'
-    }
-
-    It 'знаходить рівно один продукт без epf/src' {
-        New-Item -ItemType Directory -Path (Join-Path $script:tmp 'Solo_ACC') | Out-Null
-        Set-Content -LiteralPath (Join-Path $script:tmp 'Solo_ACC' 'storage.json') -Value '{}'
+    It 'з epf/src прев''ю показує epf і build/artifacts і завершується 0' {
+        New-Item -ItemType Directory -Path (Join-Path $script:tmp 'epf/src') -Force | Out-Null
 
         $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0
-        $out | Should -Match 'Solo_ACC'
-        $out | Should -Not -Match 'жодного продукту'
+        $out | Should -Match 'epf'
+        $out | Should -Match 'build[\\/]artifacts'
+    }
+
+    It '-Product Other — зупинка з operation=make' {
+        $out = & pwsh -NoProfile -File $script:build -RepoRoot $script:tmp -Product 'Other' 2>&1 | Out-String
+        $LASTEXITCODE | Should -Not -Be 0
+        $out | Should -Match 'operation=make'
     }
 }

@@ -3,6 +3,12 @@ name: storage-pipeline
 description: (Канон ДО 1.0 — читайте застереження в шапці; load-ext не запускати.) Щоденний цикл конвеєра «сховище 1С ↔ git» — перенести нові версії сховища в git, вивантажити базову конфігурацію, зібрати .cfe/.epf. Тригери — «сховище», «синхронізація», «перенеси версії», «вивантаж конфігурацію», «збери cfe/epf», «storage sync».
 ---
 
+> **Перехідний стан (B2, до переписування скілів у B5):** `storage-sync.ps1` вилучено. Нові
+> версії сховища переносить `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot .`
+> (прев'ю) і те саме з `-Apply`. Репозиторій має бути описаний маніфестом `v8storagekit.yaml`
+> (див. `${CLAUDE_PLUGIN_ROOT}/templates/v8storagekit.yaml.example`); `storage.json` більше
+> не читається. Розділи 1, 2, 4 і 5 нижче описують СТАРИЙ механізм і чинні лише для
+> `dump-config`, `load-ext` і `build`.
 
 > **ЗАСТЕРЕЖЕННЯ — перехід на 1.0 (2026-09-04).** Цей скіл описує канон **до 1.0**. Новий контур —
 > маніфест `v8storagekit.yaml` і `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .`.
