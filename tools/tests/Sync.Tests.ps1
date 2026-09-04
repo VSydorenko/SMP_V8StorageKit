@@ -67,6 +67,105 @@ Describe 'kit sync — штатні зупинки до звернення до 
     }
 }
 
+Describe 'kit sync — злиття в головну гілку: гейт -Apply і провал злиття (мок платформи)' {
+    # Рев'ю Task 4, Important #1 і #4: гілка "немає нових версій" (sync.psm1 ~140-146) і гілка
+    # ExitCode=2 (провал Invoke-KitMainMerge) не мали жодного тесту — саме тому дефект підказки
+    # ("Повторити злиття: kit sync -Source <key> -MergeMain" без -Apply, хоча без -Apply злиття
+    # не спрацює: umovoju `$MergeMain -and $Apply -and $null -ne $last`) не спіймався. Тут
+    # Invoke-KitSync викликається напряму (не через kit.ps1 підпроцесом), у ЦЬОМУ процесі: лише
+    # так Pester Mock -ModuleName sync може підмінити функції, що торкаються платформи
+    # (New-ExtensionInfobase, Get-StorageVersions, Invoke-V8Designer) чи git-злиття
+    # (Merge-KitBranchInto / Invoke-KitMainMerge), не запускаючи 1cv8.exe. Той самий прийом, що
+    # StorageReport.Tests.ps1 уже застосовує для Invoke-V8Designer (Mock -ModuleName StorageReport).
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+
+        # Той самий порядок, що читає kit.ps1 (module-order.txt) — sync.psm1 сам нічого не
+        # імпортує (лише оркеструє те, що вже видно з глобальної області), тож тут повторюємо
+        # завантажувач диспетчера один-в-один, а не гадаємо транзитивні залежності.
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+
+        function script:New-KitTestContext {
+            param([Parameter(Mandatory)][string]$Repo)
+            Invoke-KitPreflight -RepoRoot $Repo
+        }
+        function script:New-KitFakeStorageVersion {
+            param([int]$Version, [string]$User = 'gitbot', [string]$Comment = 'версія')
+            [pscustomobject]@{
+                Version = $Version; User = $User; Date = '01.01.2026'; Time = '09:00:00'
+                ConfigVersion = ''; Comment = $Comment; Added = @(); Modified = @(); Deleted = @()
+                Timestamp = [datetime]'2026-01-01T09:00:00'
+            }
+        }
+    }
+
+    It 'дзеркало вже синхронне, -MergeMain БЕЗ -Apply — злиття не викликається (лише -Apply дозволяє мутацію)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-preview') -WithHooks
+        $storageDir = Join-Path $TestDrive 'no-pending-preview-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
+        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+
+        $result = Invoke-KitSync -Context $ctx -MergeMain
+        $result.ExitCode | Should -Be 0
+        $result.Synced[0].MergedIntoMain | Should -Be $false
+        Should -Invoke -ModuleName sync Invoke-KitMainMerge -Times 0
+    }
+
+    It 'дзеркало вже синхронне, -MergeMain РАЗОМ з -Apply — злиття викликається' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-apply') -WithHooks
+        $storageDir = Join-Path $TestDrive 'no-pending-apply-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
+        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true -MergeMain
+        $result.ExitCode | Should -Be 0
+        $result.Synced[0].MergedIntoMain | Should -Be $true
+        Should -Invoke -ModuleName sync Invoke-KitMainMerge -Times 1
+    }
+
+    It 'провал злиття після успішного реплею — ExitCode 2, підказка на повтор із -Apply, дзеркало вже оновлене' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-fails') -WithHooks
+        $storageDir = Join-Path $TestDrive 'merge-fails-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
+        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
+        Mock -ModuleName sync Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Merge-KitBranchInto { throw 'симульований збій злиття' }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 2
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*Дзеркало оновлено. Повторити злиття: kit sync -Source Alpha_SMB -Apply -MergeMain*'
+        Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 7
+    }
+}
+
 Describe 'kit sync — реальне сховище (перший і повторний реплей)' -Tag Integration {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -130,7 +229,8 @@ Describe 'kit sync — реальне сховище (перший і повто
         $commits[1].Trailers['Storage-Source'] | Should -Be 'SMP_BankExchange_SMB'
         [int]$commits[1].Trailers['Storage-Version'] | Should -BeGreaterThan ([int]$commits[0].Trailers['Storage-Version'])
         @(git -C $script:Repo ls-tree -r --name-only storage/SMP_BankExchange_SMB | Where-Object { $_ -notlike 'SMP_BankExchange_SMB/cfe/src/*' }).Count | Should -Be 0
-        $(git -C $script:Repo merge-base --is-ancestor storage/SMP_BankExchange_SMB main; $LASTEXITCODE) | Should -Be 0
+        git -C $script:Repo merge-base --is-ancestor storage/SMP_BankExchange_SMB main
+        $LASTEXITCODE | Should -Be 0
         Join-Path $script:Repo 'SMP_BankExchange_SMB/cfe/src/Configuration.xml' | Should -Exist
         Join-Path $script:Repo 'build/sync/SMP_BankExchange_SMB/wt' | Should -Not -Exist
         (git -C $script:Repo status --porcelain) | Should -BeNullOrEmpty
@@ -156,8 +256,9 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         # Найменше живе сховище конфігурації — знайдене спайком Task 1 (progress.md, «Спайк раунд 1»):
-        # КормЦентр_DEV, 1cv8ddb.1CD = 1,27 МБ.
-        $script:CfgStorage = 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV'
+        # КормЦентр_DEV, 1cv8ddb.1CD = 1,27 МБ. Обхід змінною середовища — щоб підставити інше
+        # сховище без правки тесту (рішення архітектора).
+        $script:CfgStorage = if ($env:V8KIT_CFG_STORAGE) { $env:V8KIT_CFG_STORAGE } else { 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV' }
         $ws = [ordered]@{ 'Client_UNF' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
         $manifest = @('version: 1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',
             '      base:', '        truth: storage', "        storage: { path: '$script:CfgStorage' }") -join "`n"

@@ -9,13 +9,6 @@ Set-StrictMode -Version Latest
 # ConfigurationRepositoryUnbindCfg -force у finally — єдиний запис у сховище, який kit виконує.
 $script:ConfigurationStorageNeedsBind = $false
 
-function Get-UkrainianPluralForm {
-    param([Parameter(Mandatory)][int]$Count, [Parameter(Mandatory)][string]$One, [Parameter(Mandatory)][string]$Few, [Parameter(Mandatory)][string]$Many)
-    $mod100 = $Count % 100
-    if ($mod100 -ge 11 -and $mod100 -le 14) { return $Many }
-    switch ($Count % 10) { 1 { return $One } { $_ -ge 2 -and $_ -le 4 } { return $Few } default { return $Many } }
-}
-
 function Get-KitRepositoryArguments {
     param([Parameter(Mandatory)]$Source)
     # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
@@ -39,7 +32,7 @@ function Invoke-KitMainMerge {
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Source)
     $main = $Context.MainBranch
     if (-not (Test-KitBranchExists -RepoRoot $Context.RepoRoot -Branch $main)) {
-        Write-Host "  Головної гілки '$main' ще немає — злиття пропущено. Створіть перший коміт і повторіть: kit sync -Source $($Source.Key) -MergeMain" -ForegroundColor Yellow
+        Write-Host "  Головної гілки '$main' ще немає — злиття пропущено. Створіть перший коміт і повторіть: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
         return $false
     }
     try {
@@ -50,7 +43,7 @@ function Invoke-KitMainMerge {
         return $true
     } catch {
         Write-Host "  Злиття в $main не виконано: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Host "  Дзеркало оновлено. Повторити злиття: kit sync -Source $($Source.Key) -MergeMain" -ForegroundColor Yellow
+        Write-Host "  Дзеркало оновлено. Повторити злиття: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
         return $false
     }
 }
@@ -105,8 +98,24 @@ function Invoke-KitSync {
         # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
         $workDir = Join-Path $root 'build/sync' $src.Key
         Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -Description "робоча тека джерела $($src.Key)"
-        git -C $root worktree remove --force (Join-Path $workDir 'wt') 2>$null | Out-Null
+        $staleWt = Join-Path $workDir 'wt'
+        if (Test-Path -LiteralPath $staleWt) {
+            # Ґейт на Test-Path (як у New-KitStorageWorktree): є що знімати лише після
+            # перерваного прогону. На звичайному запуску 'wt' під ще не створеним $workDir не
+            # існує, і git worktree remove на незареєстрованій теці штатно завершується кодом
+            # 128 ("not a working tree") — перевірка коду тут БЕЗ цього ґейту попереджала б на
+            # кожному нормальному прогоні, а не на дійсній аномалії. Неуспішне зняття реєстрації
+            # не зупиняє sync (Remove-Item нижче однаково прибере теку з диска), але лишає
+            # осиротілий запис у git worktree list — про це варто попередити.
+            git -C $root worktree remove --force $staleWt 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  УВАГА: не вдалося зняти реєстрацію worktree '$staleWt' від перерваного прогону (код ${LASTEXITCODE}) — теку прибере наступний крок, але запис у git worktree list може лишитись осиротілим." -ForegroundColor Yellow
+            }
+        }
         git -C $root worktree prune 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  УВАГА: git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." -ForegroundColor Yellow
+        }
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
