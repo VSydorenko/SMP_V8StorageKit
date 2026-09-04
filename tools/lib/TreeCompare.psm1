@@ -62,7 +62,20 @@ function Invoke-KitGitProcess {
         $stdout = $outTask.GetAwaiter().GetResult()
         $proc.WaitForExit()
         [pscustomobject]@{ ExitCode = $proc.ExitCode; Stdout = $stdout; Stderr = $errTask.Result }
-    } finally { $proc.Dispose() }
+    } finally {
+        # Process.Dispose() НЕ закриває стандартні потоки, на які тримає посилання викликач
+        # (рев'ю B3, Important 4): якщо запис у stdin перервано (Ctrl+C посеред ~10 тис. шляхів)
+        # чи інакше не дійшов до Close() вище, git лишається заблокованим на читанні недописаного
+        # stdin НАЗАВЖДИ — осиротілий процес на кожне переривання. Close() тут ідемпотентний (на
+        # щасливому шляху stdin уже закрито рядком вище), таймаут і Kill($true) — про всяк випадок,
+        # якщо процес однаково завис.
+        try { $proc.StandardInput.Close() } catch {}
+        if (-not $proc.WaitForExit(5000)) {
+            try { $proc.Kill($true) } catch {}
+            $proc.WaitForExit()
+        }
+        $proc.Dispose()
+    }
 }
 
 function Export-KitTree {
@@ -91,10 +104,17 @@ function Export-KitTree {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
-    # -z: шляхи сирі, NUL-роздільник — незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
-    $raw = git -C $RepoRoot -c core.quotepath=false ls-tree -r -z $Ref -- $prefix 2>$null   # stderr не змішувати з даними
-    if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом ${LASTEXITCODE}." }
-    $entries = @((@($raw) -join '') -split "`0" | Where-Object { $_ })
+    # ls-tree йде через Invoke-KitGitProcess, а не голим нативним викликом (рев'ю B3, Important 3):
+    # голий `git ... | ...` PowerShell декодує за АМБІЄНТНИМ [Console]::OutputEncoding процесу —
+    # на cp866 кириличний шлях перетворюється на сміття (перевірено: "Forms/Форма/Ext/Form.xml" на
+    # виході стає непізнаваним, Test-Path очікуваного шляху -> False), і Compare-KitTrees зарахував
+    # би такий шлях і в OnlyInDump, і в OnlyInTree. Invoke-KitGitProcess читає stdout з явним UTF-8
+    # незалежно від консолі (той самий запобіжник, що вже рятує Get-KitBinaryPaths) і віддає Stderr
+    # окремо замість `2>$null`, який ковтав діагностику git. -z: шляхи сирі, NUL-роздільник —
+    # незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
+    $ls = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'ls-tree', '-r', '-z', $Ref, '--', $prefix)
+    if ($ls.ExitCode -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом $($ls.ExitCode): $($ls.Stderr)" }
+    $entries = @($ls.Stdout -split "`0" | Where-Object { $_ })
     if ($entries.Count -eq 0) { return 0 }
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -136,8 +156,22 @@ function Export-KitTree {
         }
     } finally {
         $stdin.Close()
-        $proc.WaitForExit()
-        $exit = $proc.ExitCode; $stderr = $errTask.Result
+        # Виняток усередині циклу (диск під build/ заповнився, антивірус тримає щойно створений
+        # файл, мережевий диск моргнув) лишає git cat-file --batch посеред запису вмісту блоба в
+        # stdout, який більше ніхто не читає — WaitForExit() без таймауту не повернеться НІКОЛИ
+        # (рев'ю B3, Important 1: виміряно на блобі 1 МБ, виняток одразу після заголовка ->
+        # WaitForExit(15000) дав False через 15352 мс; буфер каналу — 16 КБ, тобто зависає
+        # практично кожен реальний Form.xml). Тому — таймаут і примусове завершення.
+        if (-not $proc.WaitForExit(30000)) {
+            try { $proc.Kill($true) } catch {}
+            $proc.WaitForExit()
+        }
+        $exit = $proc.ExitCode
+        # $errTask.Result кидає AggregateException, якщо саме асинхронне читання stderr впало
+        # (рев'ю B3, Important 5) — це замінило б справжню причину збою (той виняток, що й привів
+        # нас у цей finally) чужою. Той самий клас дефекту, що вже правили в коміті c6743a8
+        # («finally без throw»). Тому читаємо безпечно, не даючи finally кинути власний виняток.
+        try { $stderr = $errTask.Result } catch { $stderr = '' }
         $proc.Dispose()
     }
     # .NET Process — теж нативний виклик: код виходу перевіряється, як і в кожного git.
@@ -202,8 +236,13 @@ function Compare-KitTrees {
         [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$BinaryPaths
     )
 
-    # Ordinal, не IgnoreCase: git регістрочутливий, і два файли, що різняться лише регістром, у дереві ref
-    # можуть співіснувати — злиття їх в один сховало б розбіжність (рев'ю B3).
+    # Ordinal, не IgnoreCase: git регістрочутливий, і Ordinal — саме та семантика порівняння шляхів,
+    # яку він використовує. УВАГА (рев'ю B3, пом'якшено): це НЕ універсальна гарантія проти колізії
+    # двох шляхів, що різняться лише регістром, — якщо Export-KitTree писав дерево на файлову
+    # систему, нечутливу до регістру (NTFS), такі два шляхи зіллються в один файл раніше, ще на
+    # етапі експорту, і жодне порівняння тут цього вже не побачить. Ordinal лишається правильним
+    # вибором незалежно: детермінований, не залежить від локалі машини (Sort-Object дав би
+    # 'content' < 'Ext' і кирилицю першою).
     $dump = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::Ordinal)
     $tree = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::Ordinal)
     $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::Ordinal)
@@ -215,8 +254,7 @@ function Compare-KitTrees {
     $onlyDump = [System.Collections.Generic.List[string]]::new()
     $onlyTree = [System.Collections.Generic.List[string]]::new()
 
-    # Sort-Object порівнює за культурою: 'content' < 'Ext', а кирилиця йде ПЕРШОЮ ('ЯФайл' < 'content') — тобто
-    # результат залежить від локалі машини. Ordinal — детермінований і збігається з git (проба рев'ю B3).
+    # Сортування — тим самим Ordinal, що й вище (детермінований порядок незалежно від локалі машини).
     $ordered = [System.Linq.Enumerable]::OrderBy([string[]]$all, [Func[string, string]] { param($x) $x }, [System.StringComparer]::Ordinal)
     foreach ($rel in $ordered) {
         $inDump = $dump.Contains($rel); $inTree = $tree.Contains($rel)

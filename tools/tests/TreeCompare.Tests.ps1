@@ -33,6 +33,80 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
         (git -C $repo hash-object --no-filters $exported).Trim() | Should -Be $rawId
     }
 
+    It 'великий блоб (≥200 КБ, повторні часткові читання Stream.Read) — байти й хеш збігаються (рев''ю B3, Important 2)' {
+        # Копіювання циклом Copy-KitStreamBytes на малих файлах (12 байт, кілька сотень) жоден тест не
+        # охороняє від вирізання циклу на єдиний Stream.Read: на такому розмірі Read завжди повертає
+        # все за один виклик. Рев'ю виміряв на блобі 1 МБ: один Read(buf, 0, 65536) повернув 16384
+        # байти з 65536 запитаних — часткові читання це норма, а не теорія. Файл нижче — 200000+ байт
+        # зі змішаними CRLF/LF, щоб цикл виконався десятки разів по 65536-байтному буферу.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'big-blob')
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/Ext'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $rnd = [System.Random]::new(42)
+        $sb = [System.Text.StringBuilder]::new()
+        while ($sb.Length -lt 200000) {
+            $eol = if ($rnd.Next(2) -eq 0) { "`r`n" } else { "`n" }
+            [void]$sb.Append(('x' * $rnd.Next(10, 80)) + $eol)
+        }
+        $bigBytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
+        [System.IO.File]::WriteAllBytes((Join-Path $dir 'big.bsl'), $bigBytes)
+        git -C $repo -c core.autocrlf=false add -A
+        git -C $repo commit -q -m 'великий файл зі змішаними кінцями рядків'
+        $rawId = (git -C $repo hash-object --no-filters (Join-Path $dir 'big.bsl')).Trim()
+
+        $dest = Join-Path $repo 'build/verify/x/tree-big'
+        Export-KitTree -RepoRoot $repo -Ref 'main' -RepoPath 'Alpha_SMB/cfe/src' -Destination $dest | Out-Null
+        $exported = Join-Path $dest 'Ext/big.bsl'
+        $exported | Should -Exist
+        (Get-Item -LiteralPath $exported).Length | Should -Be $bigBytes.Length
+        [System.IO.File]::ReadAllBytes($exported) | Should -Be $bigBytes
+        (git -C $repo hash-object --no-filters $exported).Trim() | Should -Be $rawId
+    }
+
+    It 'блоб нульового розміру — файл створюється порожнім (край протоколу cat-file --batch)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'zero-blob')
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/Ext'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $dir 'empty.txt'), [byte[]]@())
+        git -C $repo add -A
+        git -C $repo commit -q -m 'порожній файл'
+
+        $dest = Join-Path $repo 'build/verify/x/tree-zero'
+        Export-KitTree -RepoRoot $repo -Ref 'main' -RepoPath 'Alpha_SMB/cfe/src' -Destination $dest | Out-Null
+        $exported = Join-Path $dest 'Ext/empty.txt'
+        $exported | Should -Exist
+        (Get-Item -LiteralPath $exported).Length | Should -Be 0
+    }
+
+    It 'кириличні шляхи цілі незалежно від амбієнтного [Console]::OutputEncoding дочірнього процесу (рев''ю B3, Important 3)' {
+        # Дефект (рев'ю B3): ls-tree йшов голим нативним викликом git, а PowerShell декодує вивід
+        # такого виклику за амбієнтним [Console]::OutputEncoding процесу — на cp866 кириличний шлях
+        # перетворювався на сміття (рев'ю виміряв: 5 символів на 10 сміттєвих, Test-Path -> False).
+        # Run-Tests.ps1 сам виставляє UTF-8 на весь прогін, тож без ОКРЕМОГО дочірнього процесу з
+        # іншим кодуванням цей клас дефекту не побачити (той самий прийом, що в
+        # RepoRoot.Tests.ps1:65-91). Форсуємо cp866 явно в дочірньому процесі — не покладаємось на
+        # амбієнтну кодову сторінку цієї машини.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cyr-encoding')
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/Forms/Форма'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'Форма.xml') -Value 'x' -Encoding UTF8 -NoNewline
+        git -C $repo add -A
+        git -C $repo commit -q -m 'кириличний шлях'
+
+        $dest = Join-Path $repo 'build/verify/x/tree-cyr'
+        $modulePath = (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path
+        $script = Join-Path $TestDrive 'cp866-export.ps1'
+        Set-Content -LiteralPath $script -Encoding UTF8 -Value @(
+            'param($Repo, $ModulePath, $Dest)'
+            '[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(866)'
+            'Import-Module $ModulePath -Force'
+            'Export-KitTree -RepoRoot $Repo -Ref ''main'' -RepoPath ''Alpha_SMB/cfe/src'' -Destination $Dest | Out-Null'
+        )
+        & pwsh -NoProfile -File $script -Repo $repo -ModulePath $modulePath -Dest $dest 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Join-Path $dest 'Forms/Форма/Форма.xml') | Should -Exist
+    }
+
     It 'шлях, якого немає в ref — 0 файлів, порожня тека' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty')
         $dest = Join-Path $repo 'build/verify/x/tree'
