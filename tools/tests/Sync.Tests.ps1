@@ -73,20 +73,22 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
     # ("Повторити злиття: kit sync -Source <key> -MergeMain" без -Apply, хоча без -Apply злиття
     # не спрацює: umovoju `$MergeMain -and $Apply -and $null -ne $last`) не спіймався. Тут
     # Invoke-KitSync викликається напряму (не через kit.ps1 підпроцесом), у ЦЬОМУ процесі: лише
-    # так Pester Mock -ModuleName sync може підмінити функції, що торкаються платформи
-    # (New-ExtensionInfobase, Get-StorageVersions, Invoke-V8Designer) чи git-злиття
-    # (Merge-KitBranchInto / Invoke-KitMainMerge), не запускаючи 1cv8.exe. Той самий прийом, що
-    # StorageReport.Tests.ps1 уже застосовує для Invoke-V8Designer (Mock -ModuleName StorageReport).
+    # так Pester Mock -ModuleName може підмінити функції, що торкаються платформи
+    # (New-ExtensionInfobase, Invoke-V8Designer — нижче за -ModuleName StoragePlatform;
+    # Get-StorageVersions — за -ModuleName sync) чи git-злиття (Merge-KitBranchInto /
+    # Invoke-KitMainMerge, обидві -ModuleName sync), не запускаючи 1cv8.exe. Той самий прийом,
+    # що StorageReport.Tests.ps1 уже застосовує для Invoke-V8Designer (Mock -ModuleName StorageReport).
     #
     # B3 Task 1: New-KitStorageInfobase (кличе New-ExtensionInfobase) і Invoke-KitStorageCheckout
     # (кличе Invoke-V8Designer) переїхали в StoragePlatform.psm1 — Mock -ModuleName діє лише в
-    # приватному столі команд НАЗВАНОГО модуля, тож ці два виклики тепер мокаються ДРУГИЙ раз,
-    # -ModuleName StoragePlatform, поруч із наявним -ModuleName sync (який лишається для
-    # Get-StorageVersions/Invoke-KitMainMerge/Merge-KitBranchInto — вони й далі кличуться прямо
-    # з sync.psm1). Без другого моку тест і далі "зелений", але мовчки викликає 1cv8.exe (це й
-    # сталось на живому прогоні Task 1 — знайдено лише за аномально довгим часом виконання) —
-    # тому нижче ще й Should -Invoke -ModuleName StoragePlatform як доказ перехоплення, а не
-    # здогад із таймінгу.
+    # приватному столі команд НАЗВАНОГО модуля, тож ці два виклики тепер мокаються за
+    # -ModuleName StoragePlatform, не sync (мок -ModuleName sync на них нічого більше не
+    # перехопить — sync.psm1 їх узагалі не кличе, рев'ю Task 1 round 3 прибрало такі мокі як
+    # мертві). -ModuleName sync лишається для Get-StorageVersions/Invoke-KitMainMerge/
+    # Merge-KitBranchInto — вони й далі кличуться прямо з sync.psm1. Без правильного шару мока
+    # тест і далі "зелений", але мовчки викликає 1cv8.exe (це й сталось на живому прогоні Task 1
+    # — знайдено лише за аномально довгим часом виконання) — тому нижче ще й
+    # Should -Invoke -ModuleName StoragePlatform як доказ перехоплення, а не здогад із таймінгу.
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
 
@@ -124,9 +126,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
-        # B3 Task 1: New-KitStorageInfobase (кличе New-ExtensionInfobase) тепер живе в
-        # StoragePlatform.psm1 — мок за -ModuleName sync його звідти не бачить, дублюємо.
+        # B3 Task 1: New-KitStorageInfobase (кличе New-ExtensionInfobase) живе в
+        # StoragePlatform.psm1, не в sync — Mock -ModuleName діє лише в приватному столі
+        # команд названого модуля, тож саме StoragePlatform, а не sync (той нічого б не перехопив).
         Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
         # Кома навмисно: Get-StorageVersions (StorageReport.psm1:195) сама повертає
         # comma-wrapped масив, а не голий @(...) — мок мусить давати ту саму форму, щоб не
@@ -154,7 +156,6 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
         # B3 Task 1: те саме, що в попередньому тесті — New-KitStorageInfobase кличе
         # New-ExtensionInfobase зі StoragePlatform.psm1, а не з sync.
         Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
@@ -178,15 +179,13 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
         # B3 Task 1: New-KitStorageInfobase кличе New-ExtensionInfobase зі StoragePlatform.psm1.
         Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
         # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
-        Mock -ModuleName sync Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # B3 Task 1: реальний виклик /ConfigurationRepositoryUpdateCfg і /DumpConfigToFiles тепер
         # робить Invoke-KitStorageCheckout у StoragePlatform.psm1, не sync — Mock -ModuleName
-        # діє лише в приватному столі команд названого модуля, тож дублюємо мок і там.
+        # діє лише в приватному столі команд названого модуля, тож саме тут.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         Mock -ModuleName sync Merge-KitBranchInto { throw 'симульований збій злиття' }
 

@@ -147,8 +147,14 @@ function Invoke-KitSync {
 
         $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
         $done  = [System.Collections.Generic.List[int]]::new()
-        $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src
+        # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
+        # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
+        # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
+        # — ВСЕРЕДИНІ try (рев'ю Task 1, Important #1): якщо прив'язка впаде, worktree все одно
+        # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
+        $bound = $false
         try {
+            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src
             foreach ($v in $pending) {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
