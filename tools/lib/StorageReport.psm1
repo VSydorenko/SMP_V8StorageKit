@@ -240,6 +240,17 @@ function Get-StorageReportArguments {
         [Parameter(Mandatory)][string]$StorageUser,
         [string]$ExtensionName = ''
     )
+    # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport
+    # сам трактує "//" у тексті коментаря як межу рядкового коментаря — усе від "//" до
+    # кінця рядка зникає з MXL ще до того, як звіт узагалі потрапляє в цей інструмент (не
+    # дефект парсера тут — підтверджено побайтово на "живих" звітах, докладно в
+    # docs/storage-and-git.md, розділ "Обрізання коментарів на //"). Ключ
+    # знайдено не експериментом з прапорцями, а читанням джерела oscript-library/gitsync
+    # (через залежність oscript-library/v8storage,
+    # МенеджерХранилищаКонфигурации.os:596) — той самий інструмент, який відтворив повний
+    # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
+    # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
+    # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
     $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
     if ($ExtensionName) { $report += " -Extension $ExtensionName" }
     # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
@@ -265,17 +276,8 @@ function Get-StorageVersions {
     $reportPath = Join-Path $WorkDir 'storage-report.mxl'
     if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath -Force }
 
-    # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport
-    # сам трактує "//" у тексті коментаря як межу рядкового коментаря — усе від "//" до
-    # кінця рядка зникає з MXL ще до того, як звіт узагалі потрапляє в цей інструмент (не
-    # дефект парсера тут — підтверджено побайтово на "живих" звітах, докладно в
-    # docs/storage-and-git.md, розділ "Обрізання коментарів на //"). Ключ
-    # знайдено не експериментом з прапорцями, а читанням джерела oscript-library/gitsync
-    # (через залежність oscript-library/v8storage,
-    # МенеджерХранилищаКонфигурации.os:596) — той самий інструмент, який відтворив повний
-    # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
-    # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
-    # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
+    # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
+    # яка його й формує.
     $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments (Get-StorageReportArguments `
         -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser -ExtensionName $ExtensionName)
 
