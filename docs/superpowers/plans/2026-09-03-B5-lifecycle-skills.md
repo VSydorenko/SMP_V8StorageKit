@@ -41,12 +41,15 @@
 - **Скіли ітерують маніфест** (`kit.ps1 check` / `session-check` показують воркспейси й джерела) —
   розгалуження «клієнт/продукт» у логіці немає (принцип 5).
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
-- **Kit не покладається на git-конфіг машини споживача (знахідка живого прогону B2):** `core.quotepath`
-  типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`, `status`, `diff` —
-  на репозиторії 1С це 240+ хибних «файлів поза шляхом». Кожен виклик git, що читає або друкує шляхи, або
-  бере `-z` (NUL-роздільник, шляхи сирі), або виставляє `-c core.quotepath=false` по-викличну; те саме
-  вже діє для `-c core.autocrlf=false`. Фікстурам заборонено виставляти `core.quotepath` — це маскувало б
-  дефект (у SMP_BankExchange він був замаскований локальним `.git/config`).
+- **Kit не покладається на git-конфіг машини споживача (принцип 7 спеки; знахідка живого прогону B2):**
+  `core.quotepath` типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`,
+  `status`, `diff` — на репозиторії 1С це 240+ хибних «файлів поза шляхом». Правило (рев'ю B2):
+  `-c core.quotepath=false` — на **кожному** git-виклику, що читає або друкує шляхи, без винятків;
+  **`-z` додатково** — там, де викликач ділить вивід на записи **і** запис міг створити не kit (довільний ref,
+  довільна робоча копія): `Export-KitTree`, `Get-KitBinaryPaths`, `canon status`. Пояснення: `quotepath`
+  керує лише байтами ≥ 0x80, а `"`, `\` і перевід рядка git C-квотує завжди — `-z` прибирає саме це.
+  Фікстурам заборонено виставляти `core.quotepath` — це маскувало б дефект (у SMP_BankExchange він був
+  замаскований локальним `.git/config`).
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -1101,6 +1104,26 @@ git rm -rq skills/storage-pipeline skills/product-onboarding skills/repo-migrati
 (правила дозволів працюють за префіксом, і дозвіл на прев'ю дозволив би `-Apply`).
 ```
 
+- [ ] **Step 2а: `templates/gitignore` — без загального `**/cf/**`** (знахідка фінального рев'ю B2)
+
+Шаблон 0.6.0 ігнорує `**/cf/**` цілком, а в клієнтському репозиторії `cf/src` під `truth: storage` **мусить
+бути в git** (спека §2.3). Загальне правило прибрати разом із `!**/cf/README.md`; гітігнорованість
+вендорських дерев тепер дає лише **явний рядок під фактичний шлях**, який пише `onboarding` (§3.4) і
+`kit migrate` (B6): `<ws>/<path>/**`. Замість них у шаблоні — коментар:
+
+```
+# Вендорські конфігурації (truth: vendor) ігноруються ЯВНИМИ рядками під фактичні шляхи з v8project.yaml —
+# їх дописує v8storagekit:onboarding, наприклад:
+#   SMP_BankExchange_SMB/cf/src/**
+# Загального **/cf/** тут немає навмисно: у клієнтському репозиторії cf/src під truth: storage лежить у git.
+```
+
+Фікстура `New-KitFakeRepo -WithGitignore` (тести B1–B4 розраховують, що vendor-дерево гітігноровано) після
+копіювання шаблону дописує для кожного `CONFIGURATION`-set-у (у фікстурі вони `truth: vendor`) рядок
+`<ws>/<path>/**` — те саме, що зробив би onboarding. `Templates.Tests.ps1`: шаблон **не** містить `**/cf/**`.
+`check` на репозиторії зі старим шаблоном і сховищем конфігурації дає зрозумілу помилку `gitignore` (перевірка
+«не-vendor дерево не має бути гітігнорованим» з B1) — тобто тихо не ламається.
+
 - [ ] **Step 3: `templates/README.md`**
 
 ```markdown
@@ -1112,7 +1135,7 @@ git rm -rq skills/storage-pipeline skills/product-onboarding skills/repo-migrati
 | Файл тут | Стає в репо-споживачі |
 |---|---|
 | `gitattributes` | `.gitattributes` (onboarding дописує `<ws>/<path>/** -text` під фактичні шляхи) |
-| `gitignore` | `.gitignore` (onboarding дописує `<ws>/<path>/**` для `truth: vendor`) |
+| `gitignore` | `.gitignore` (без загального `**/cf/**`; onboarding дописує `<ws>/<path>/**` для кожного `truth: vendor`) |
 | `settings.json` | `.claude/settings.json` — дозволи + хук `SessionStart` |
 | `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` — шим хука (без логіки) |
 | `githooks/pre-commit`, `githooks/pre-merge-commit` | `.githooks/…` + `git config core.hooksPath .githooks` |

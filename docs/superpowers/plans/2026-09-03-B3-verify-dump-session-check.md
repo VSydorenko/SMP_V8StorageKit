@@ -33,12 +33,15 @@
 - **Ліцензія:** `Assert-NoLicenseProblem` на кожному виклику платформи.
 - **`ConfigDumpInfo.xml` і `DumpFilesIndex.txt`** виключаються з порівняння завжди.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
-- **Kit не покладається на git-конфіг машини споживача (знахідка живого прогону B2):** `core.quotepath`
-  типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`, `status`, `diff` —
-  на репозиторії 1С це 240+ хибних «файлів поза шляхом». Кожен виклик git, що читає або друкує шляхи, або
-  бере `-z` (NUL-роздільник, шляхи сирі), або виставляє `-c core.quotepath=false` по-викличну; те саме
-  вже діє для `-c core.autocrlf=false`. Фікстурам заборонено виставляти `core.quotepath` — це маскувало б
-  дефект (у SMP_BankExchange він був замаскований локальним `.git/config`).
+- **Kit не покладається на git-конфіг машини споживача (принцип 7 спеки; знахідка живого прогону B2):**
+  `core.quotepath` типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`,
+  `status`, `diff` — на репозиторії 1С це 240+ хибних «файлів поза шляхом». Правило (рев'ю B2):
+  `-c core.quotepath=false` — на **кожному** git-виклику, що читає або друкує шляхи, без винятків;
+  **`-z` додатково** — там, де викликач ділить вивід на записи **і** запис міг створити не kit (довільний ref,
+  довільна робоча копія): `Export-KitTree`, `Get-KitBinaryPaths`, `canon status`. Пояснення: `quotepath`
+  керує лише байтами ≥ 0x80, а `"`, `\` і перевід рядка git C-квотує завжди — `-z` прибирає саме це.
+  Фікстурам заборонено виставляти `core.quotepath` — це маскувало б дефект (у SMP_BankExchange він був
+  замаскований локальним `.git/config`).
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -124,6 +127,11 @@ commands
   Invoke-KitSessionCheck -Context [-Workspace] [-Source] [-Apply] [-AsJson]
       : → {ExitCode 0; Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
 ```
+
+**Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар у диспетчері має їй відповідати):
+`0` — виконано; `1` — зупинка (`throw`) або `check` з помилками; `2` — `sync`: дзеркало оновлено, злиття в
+головну гілку не виконано (команда відпрацювала, дія лишилась людині); `3` — `verify`: є що робити
+(`ref-ahead`/`storage-ahead`/`mixed`). Нові команди беруть із цієї таблиці, а не вигадують своє.
 
 Робочі теки: `build/verify/<ключ>/{ib,dump,tree}`; `dump` пише прямо в `<воркспейс>/<шлях
 source-set>` (це і є ціль). `session-check` файлів не створює.
@@ -597,7 +605,7 @@ function Export-KitTree {
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     # -z: шляхи сирі, NUL-роздільник — незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
-    $raw = git -C $RepoRoot ls-tree -r -z $Ref -- $prefix 2>&1
+    $raw = git -C $RepoRoot -c core.quotepath=false ls-tree -r -z $Ref -- $prefix 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом ${LASTEXITCODE}: $($raw -join "`n")" }
     $entries = @((@($raw) -join '') -split "`0" | Where-Object { $_ })
     if ($entries.Count -eq 0) { return 0 }
@@ -676,7 +684,7 @@ function Get-KitBinaryPaths {
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     $full = @($RelativePaths | ForEach-Object { "$prefix/$_" })
     # -z і тут: без нього шляхи у відповіді були б екрановані за core.quotepath.
-    $out = $full | git -C $RepoRoot check-attr -z binary --stdin 2>&1
+    $out = $full | git -C $RepoRoot -c core.quotepath=false check-attr -z binary --stdin 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git check-attr завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
     $fields = @((@($out) -join '') -split "`0")
     # трійки: <шлях> \0 binary \0 <значення> \0
