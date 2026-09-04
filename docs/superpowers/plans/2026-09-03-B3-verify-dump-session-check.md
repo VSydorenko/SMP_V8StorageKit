@@ -323,6 +323,22 @@ Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgume
 `module-order.txt`: додати `StoragePlatform` після `StorageReport`. У `ModuleImportOrder.Tests.ps1`
 до `RequiredCommands` додати `'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind'`.
 
+- [ ] **Step 4а: Два хвости B2 (фінальне рев'ю B2), закрити тут, бо цей Task і так чіпає sync і StorageBranch**
+
+1. `Remove-KitStorageWorktree` у B2 замінив `throw` на попередження, щоб виняток із `finally` не витісняв
+   дослівний текст помилки платформи; що первинний виняток справді доходить — живим прогоном **не доведено**.
+   Тест у `StorageBranch.Tests.ps1` без платформи: створити worktree, відкрити файл усередині нього з
+   `[System.IO.File]::Open($path, 'Open', 'Read', 'None')` (блокує видалення теки на Windows), потім
+   `{ try { throw 'ПЛАТФОРМА-ВПАЛА' } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt } } |
+   Should -Throw '*ПЛАТФОРМА-ВПАЛА*'` — саме первинний текст, не помилка worktree; після закриття дескриптора
+   `git worktree prune` + повторний `Remove-KitStorageWorktree` прибирають теку.
+2. `GitMerge.psm1` і `StorageBranch.psm1` беруть `git branch --show-current 2>&1` і використовують `$current`
+   і в порівнянні, і в тексті помилки: будь-який stderr при коді 0 (наприклад, `safe.directory`) зробить
+   порівняння хибним. Замінити на `$current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()`
+   з перевіркою `$LASTEXITCODE` (та сама правка, що B2 зробив для `$dirty`). Тест: репозиторій із
+   `-c advice.*`? — ні, stderr при коді 0 штучно не відтворюється надійно; достатньо, що обидва місця
+   перевіряють код і беруть лише stdout — рев'ю читанням.
+
 - [ ] **Step 5: Тести зелені** (без Integration); `Sync.Tests.ps1` без платформи має лишитись зеленим без змін.
 
 - [ ] **Step 6: Коміт**
