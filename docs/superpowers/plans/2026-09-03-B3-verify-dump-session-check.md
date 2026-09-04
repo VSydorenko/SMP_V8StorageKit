@@ -560,6 +560,16 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $files | Should -Not -Contain 'ConfigDumpInfo.xml'
     }
 
+    It 'Get-KitBinaryPaths не зависає на обсязі реального дампу (800 кириличних шляхів)' {
+        # Проба рев'ю B3: наївний «увесь stdin, потім ReadToEnd()» зависав назавжди від ~800 записів (буфер stdout).
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bulk') -WithGitattributes
+        $paths = @(1..800 | ForEach-Object { "Catalogs/ДовгеІмʼяОбʼєкта_$_.xml" }) + @('Ext/pic.png')
+        $set = Get-KitBinaryPaths -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' -RelativePaths $paths
+        $set.Contains('Ext/pic.png') | Should -BeTrue
+        $set.Count | Should -Be 1
+    }
+
     It 'Get-KitBinaryPaths питає git check-attr, а не читає .gitattributes' {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'attr') -WithGitattributes
@@ -611,6 +621,11 @@ function Invoke-KitGitProcess {
     .SYNOPSIS
         git як .NET Process: NUL-роздільники на вході (для -z --stdin), UTF-8 без перекодування PowerShell на
         виході, stderr окремо, код виходу — у результаті. Для потокових байтів (cat-file --batch) є Export-KitTree.
+    .DESCRIPTION
+        ОБИДВА вихідні потоки читаються асинхронно ДО запису stdin — це не стиль, а причина (проба рев'ю B3):
+        наївна форма «записати весь stdin, потім ReadToEnd()» на 800 шляхах зависає назавжди — буфер stdout
+        заповнюється, git блокується на записі й перестає читати stdin, а наш Write блокується назустріч.
+        На двох шляхах у юніт-тесті цього не видно; вилазить на живому verify. Не «спрощувати» назад.
     #>
     [CmdletBinding()]
     param(
@@ -629,9 +644,10 @@ function Invoke-KitGitProcess {
     $proc = [System.Diagnostics.Process]::Start($psi)
     try {
         $errTask = $proc.StandardError.ReadToEndAsync()
+        $outTask = $proc.StandardOutput.ReadToEndAsync()   # ДО запису stdin — інакше дедлок на великому виводі
         foreach ($rec in $StdinRecords) { $proc.StandardInput.Write($rec); $proc.StandardInput.Write([char]0) }
         $proc.StandardInput.Close()
-        $stdout = $proc.StandardOutput.ReadToEnd()
+        $stdout = $outTask.GetAwaiter().GetResult()
         $proc.WaitForExit()
         [pscustomobject]@{ ExitCode = $proc.ExitCode; Stdout = $stdout; Stderr = $errTask.Result }
     } finally { $proc.Dispose() }
@@ -646,6 +662,9 @@ function Export-KitTree {
         треба те, що ЛЕЖИТЬ у git: інакше «лише CR» діагностував би налаштування машини, а не
         стан репозиторію. Один процес cat-file --batch, запит-відповідь по блобу, stdout читаємо
         як байти через .NET Process — PowerShell-конвейєр перекодовував би вміст.
+        Дедлоку, який ловить Invoke-KitGitProcess, тут НЕМАЄ і переробляти на асинхронне читання не
+        треба: запис і читання чергуються по одному блобу — git не приймає наступного запиту, доки
+        попередню відповідь не вичитано (проба рев'ю B3). stderr — асинхронно, бо його обсяг невідомий.
     #>
     [CmdletBinding()]
     param(
@@ -784,7 +803,8 @@ function Compare-KitTrees {
     $onlyDump = [System.Collections.Generic.List[string]]::new()
     $onlyTree = [System.Collections.Generic.List[string]]::new()
 
-    # Sort-Object порівнює за культурою ('content' < 'Ext'); ordinal — детермінований і збігається з git.
+    # Sort-Object порівнює за культурою: 'content' < 'Ext', а кирилиця йде ПЕРШОЮ ('ЯФайл' < 'content') — тобто
+    # результат залежить від локалі машини. Ordinal — детермінований і збігається з git (проба рев'ю B3).
     $ordered = [System.Linq.Enumerable]::OrderBy([string[]]$all, [Func[string, string]] { param($x) $x }, [System.StringComparer]::Ordinal)
     foreach ($rel in $ordered) {
         $inDump = $dump.Contains($rel); $inTree = $tree.Contains($rel)
