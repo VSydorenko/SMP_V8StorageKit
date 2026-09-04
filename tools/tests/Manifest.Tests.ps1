@@ -164,6 +164,23 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         { Read-KitLocalOverlay -Path $bad } | Should -Throw "*'pwd'*path, user, password*"
     }
 
+    It 'storages.<ключ>: порожня мапа {} — зупинка, а не тихий порожній запис' {
+        $p = Write-Yaml 'storages-empty-map.yaml' @('storages:', '  A: {}')
+        { Read-KitLocalOverlay -Path $p } | Should -Throw '*storages.A порожній*path, user або password*'
+    }
+
+    It 'storages.<ключ>: мапа з полем-лише-з-пробілів — трактується як «не задано», без зупинки (те саме правило, що storage.user в маніфесті, Read-KitManifest)' {
+        # Не діра: whitespace-only значення для storage.user в маніфесті (Read-KitManifest,
+        # рядок з `-not [string]::IsNullOrWhiteSpace(...)`) так само мовчки трактується як
+        # "не задано", з fallback на типове значення. path/user/password тут — незалежні
+        # опційні перекриття, а не обов'язкові поля мапи (обов'язковість мапи як такої вже
+        # перевірена окремо — $v.Count -eq 0 вище), тож той самий запобіжник застосований
+        # до кожного з трьох свідомо, а не як побічний ефект.
+        $p = Write-Yaml 'storages-whitespace.yaml' @('storages:', "  A: { path: '   ' }")
+        $o = Read-KitLocalOverlay -Path $p
+        $o.Storages['A'].Path | Should -BeNullOrEmpty
+    }
+
     It 'порожня накладка — порожні таблиці, не помилка' {
         $p = Write-Yaml 'empty-overlay.yaml' @('# ще нічого')
         $o = Read-KitLocalOverlay -Path $p

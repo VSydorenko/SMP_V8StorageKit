@@ -241,8 +241,13 @@ Describe 'Get-StorageVersions — відмова автентифікації с
         }
         $workDir = Join-Path $TestDrive 'get-storage-versions-auth'
 
-        { Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'R:\S' -StorageUser 'someuser' `
+        $err = { Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'R:\S' -StorageUser 'someuser' `
             -StoragePassword 'secret' -WorkDir $workDir } |
-            Should -Throw "*R:\S*відхилило користувача 'someuser'*gitbot*storage.user*v8storagekit.local.yaml*storages.<ключ>.password*"
+            Should -Throw "*R:\S*відхилило користувача 'someuser'*gitbot*storage.user*v8storagekit.local.yaml*storages.<ключ>.password*" -PassThru
+        # Дисципліна секретів — не покладатись лише на те, що production-текст сьогодні
+        # жорсткий літерал без інтерполяції пароля: явне заперечення ловить майбутню
+        # правку, яка випадково почне вставляти пароль у текст зупинки, тестом, а не
+        # рев'ю коду.
+        $err.Exception.Message | Should -Not -Match 'secret'
     }
 }
