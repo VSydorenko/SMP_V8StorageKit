@@ -246,7 +246,7 @@ PowerShell-скрипти. Цей скіл каже, який скрипт за�
 
 ## 6. Межі — сховище лише для читання, ліцензія 1С і git push
 
-**Сховище — тільки читання.** Жоден скрипт цього циклу (`storage-sync.ps1` в тому
+**Сховище — тільки читання.** Жоден скрипт цього циклу (`kit.ps1 sync` в тому
 числі — саме він тут запускається щодня, з `-Apply`) ніколи не викликає
 `ConfigurationRepositoryCommit`, `ConfigurationRepositoryLock`,
 `ConfigurationRepositoryUnlockObjects` — сховище лише читається

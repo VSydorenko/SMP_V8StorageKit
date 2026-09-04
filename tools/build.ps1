@@ -5,8 +5,6 @@
 .DESCRIPTION
     Перехідний скрипт до появи kit build (B4); .cfe збирає operation=make Unica.
 .EXAMPLE
-    pwsh tools/build.ps1 -RepoRoot <шлях до репо-споживача> -Product <Продукт> -Apply
-.EXAMPLE
     pwsh tools/build.ps1 -RepoRoot . -Product epf -Apply
 #>
 [CmdletBinding()]

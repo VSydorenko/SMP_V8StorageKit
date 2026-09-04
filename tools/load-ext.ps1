@@ -24,6 +24,11 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/RepoRoot.psm1') -Force
 $repoRoot = Resolve-V8RepoRoot -Path $RepoRoot
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
+
+# Перехідна зупинка (B2 → B4): без неї скрипт падає незрозуміло на Import-Module
+# lib/SyncState.psm1 (вилучено в B2) замість чіткого повідомлення.
+throw "load-ext.ps1 непрацездатний з B2 (конвенцію storage.json вилучено) і не буде відновлений: розкатка в базу людини суперечить §1.3; вихідники в базу агента накочує operation=build Уніки. Вилучається в B4."
+
 Import-Module (Join-Path $PSScriptRoot 'lib/SyncState.psm1') -Force
 
 $productPath = Join-Path $repoRoot $Product
