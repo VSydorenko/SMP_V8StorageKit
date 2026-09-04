@@ -289,3 +289,47 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Get-KitCommitSha -RepoRoot $repo -Ref main | Should -Be (git -C $repo rev-parse main)
     }
 }
+
+Describe 'StorageBranch.psm1 — версія для verify з merge-base (§3.5, Q8)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/GitMerge.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vv') -WithHooks -WithGitattributes -WithGitignore
+        foreach ($v in 5, 7) {
+            Add-KitFakeStorageCommit -Repo $script:Repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName "v$v.xml" -Trailers @('Storage-Source: Alpha_SMB', "Storage-Version: $v")
+        }
+    }
+
+    It 'main ще не зливав дзеркало — зупинка «спершу sync»' {
+        { Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Alpha_SMB' } | Should -Throw '*sync*'
+    }
+
+    It 'verify storage/X — вершина гілки, новіших немає' {
+        $r = Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'storage/Alpha_SMB' -Branch 'storage/Alpha_SMB'
+        $r.Version | Should -Be 7
+        $r.NewerVersions.Count | Should -Be 0
+    }
+
+    It 'після злиття: версія = остання злита; нові версії на дзеркалі — окремим списком' {
+        Merge-KitBranchInto -RepoRoot $script:Repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated | Out-Null
+        (Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Alpha_SMB').Version | Should -Be 7
+
+        Add-KitFakeStorageCommit -Repo $script:Repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'v9.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 9')
+        Add-KitFakeStorageCommit -Repo $script:Repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'v12.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 12')
+        $r = Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Alpha_SMB'
+        $r.Version | Should -Be 7
+        $r.NewerVersions | Should -Be @(9, 12)
+    }
+
+    It 'гілка задачі від main успадковує merge-base' {
+        git -C $script:Repo checkout -q -b feature/x
+        (Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'feature/x' -Branch 'storage/Alpha_SMB').Version | Should -Be 7
+        git -C $script:Repo checkout -q main
+    }
+
+    It 'невідомий ref і відсутня гілка дзеркала — зупинки з іменами' {
+        { Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'nope' -Branch 'storage/Alpha_SMB' } | Should -Throw "*'nope'*"
+        { Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Beta' } | Should -Throw '*storage/Beta*sync*'
+    }
+}

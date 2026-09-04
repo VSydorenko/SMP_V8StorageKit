@@ -391,6 +391,42 @@ function Write-KitStorageVersion {
     [pscustomobject]@{ Sha = (Get-KitCommitSha -RepoRoot $WorktreePath -Ref HEAD); Empty = $empty }
 }
 
+function Get-KitVerifyVersion {
+    <#
+    .SYNOPSIS
+        Версія сховища, з якою порівнювати <Ref> (спека §3.5): трейлер коміту
+        git merge-base <Ref> storage/X. Для Ref = storage/X — вершина. Версії на дзеркалі
+        після merge-base — окремо, як інформація «сховище попереду».
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Ref,
+        [Parameter(Mandatory)][string]$Branch
+    )
+
+    if (-not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)) {
+        throw "Гілки $Branch ще немає — дзеркало не створене. Спершу: kit sync."
+    }
+    git -C $RepoRoot rev-parse --verify --quiet "$Ref^{commit}" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Ref '$Ref' не знайдено в репозиторії." }
+
+    $base = (git -C $RepoRoot merge-base $Ref $Branch 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $base) {
+        throw "'$Ref' ніколи не зливав $Branch — спільного предка немає. Спершу: kit sync (перше злиття в головну гілку), тоді verify."
+    }
+
+    $value = (git -C $RepoRoot log -1 --format='%(trailers:key=Storage-Version,valueonly)' $base 2>&1 | Out-String).Trim()
+    if ($value -notmatch '^\d+$') { throw "Коміт $($base.Substring(0,7)) (merge-base '$Ref' і $Branch) не має трейлера Storage-Version:. Розбір: kit check." }
+
+    $newerRaw = git -C $RepoRoot log --reverse --format='%(trailers:key=Storage-Version,valueonly)' "$base..$Branch" 2>$null
+    # Без перевірки збій git дав би порожній список → хибний equal, коли сховище насправді попереду (рев'ю B3).
+    if ($LASTEXITCODE -ne 0) { throw "git log $($base.Substring(0,7))..$Branch завершився з кодом ${LASTEXITCODE} — verify не може визначити, чи є нові версії." }
+    $newer = @(@($newerRaw) | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+
+    [pscustomobject]@{ Version = [int]$value; Commit = $base; NewerVersions = $newer }
+}
+
 function Get-KitCommitSha {
     <# rev-parse з перевіркою коду виходу — правило Global Constraints без винятків, навіть одразу після успішного коміту. #>
     [CmdletBinding()]
@@ -400,4 +436,4 @@ function Get-KitCommitSha {
     (@($out) -join '').Trim()
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha
+Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion
