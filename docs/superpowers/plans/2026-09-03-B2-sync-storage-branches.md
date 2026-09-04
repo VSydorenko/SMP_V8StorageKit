@@ -1309,7 +1309,8 @@ Describe 'kit sync — реальне сховище (перший і повто
         $commits[1].Trailers['Storage-Source'] | Should -Be 'SMP_BankExchange_SMB'
         [int]$commits[1].Trailers['Storage-Version'] | Should -BeGreaterThan ([int]$commits[0].Trailers['Storage-Version'])
         @(git -C $script:Repo ls-tree -r --name-only storage/SMP_BankExchange_SMB | Where-Object { $_ -notlike 'SMP_BankExchange_SMB/cfe/src/*' }).Count | Should -Be 0
-        (git -C $script:Repo merge-base --is-ancestor storage/SMP_BankExchange_SMB main; $LASTEXITCODE) | Should -Be 0
+        git -C $script:Repo merge-base --is-ancestor storage/SMP_BankExchange_SMB main
+        $LASTEXITCODE | Should -Be 0 -Because 'перше злиття мало зробити дзеркало предком main'
         Join-Path $script:Repo 'SMP_BankExchange_SMB/cfe/src/Configuration.xml' | Should -Exist
         Join-Path $script:Repo 'build/sync/SMP_BankExchange_SMB/wt' | Should -Not -Exist
         (git -C $script:Repo status --porcelain) | Should -BeNullOrEmpty
@@ -1335,7 +1336,8 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         # Найменше живе сховище конфігурації — те саме, що у спайку Task 1 (підставити ім'я).
-        $script:CfgStorage = 'R:\СховищаКонфігурацій_1С\<НАЙМЕНШЕ ЗІ СПАЙКУ>'
+        # Сховище спайку Task 1 (найменше); інше — через змінну середовища, без правки тесту.
+        $script:CfgStorage = if ($env:V8KIT_CFG_STORAGE) { $env:V8KIT_CFG_STORAGE } else { 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV' }
         $ws = [ordered]@{ 'Client_UNF' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
         $manifest = @('version: 1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',
             '      base:', '        truth: storage', "        storage: { path: '$script:CfgStorage' }") -join "`n"
@@ -1374,13 +1376,6 @@ Set-StrictMode -Version Latest
 # ConfigurationRepositoryBindCfg під користувачем сховища на час реплею й знімає її
 # ConfigurationRepositoryUnbindCfg -force у finally — єдиний запис у сховище, який kit виконує.
 $script:ConfigurationStorageNeedsBind = $false
-
-function Get-UkrainianPluralForm {
-    param([Parameter(Mandatory)][int]$Count, [Parameter(Mandatory)][string]$One, [Parameter(Mandatory)][string]$Few, [Parameter(Mandatory)][string]$Many)
-    $mod100 = $Count % 100
-    if ($mod100 -ge 11 -and $mod100 -le 14) { return $Many }
-    switch ($Count % 10) { 1 { return $One } { $_ -ge 2 -and $_ -le 4 } { return $Few } default { return $Many } }
-}
 
 function Get-KitRepositoryArguments {
     param([Parameter(Mandatory)]$Source)
