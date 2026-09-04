@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/Preflight.psm1"
+Import-Module "$PSScriptRoot/PathSafety.psm1"
 
 $script:BranchPrefix = 'storage/'
 
@@ -225,4 +226,125 @@ function New-KitStorageCommitMessage {
     $out -join "`n"
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage
+function New-KitStorageWorktree {
+    <#
+    .SYNOPSIS
+        Worktree гілки дзеркала під build/sync: orphan, якщо гілки ще немає (§3.3, шар 1).
+    .DESCRIPTION
+        Робоча копія й поточна гілка людини не торкаються взагалі — тому запобіжник «чиста
+        робоча копія перед -Apply» зі старого storage-sync.ps1 тут не потрібен. Залишок
+        перерваного прогону (тека є, worktree зареєстрований) прибирається: у ньому немає
+        нічого, чого не можна перевивантажити.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Branch,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree гілки дзеркала'
+
+    if (Test-Path -LiteralPath $Path) {
+        git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
+        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+    }
+    git -C $RepoRoot worktree prune 2>$null | Out-Null
+
+    $exists = Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch
+    if ($exists) {
+        $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+        if ($current -eq $Branch) {
+            throw "Гілка $Branch вибрана в основній робочій копії — kit пише в неї лише через worktree. Перейдіть на головну гілку чи гілку задачі й повторіть."
+        }
+        $out = git -C $RepoRoot worktree add -q $Path $Branch 2>&1
+    } else {
+        $out = git -C $RepoRoot worktree add -q --orphan -b $Branch $Path 2>&1
+    }
+    if ($LASTEXITCODE -ne 0) { throw "git worktree add для $Branch завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+
+    [pscustomobject]@{ Path = (Resolve-Path -LiteralPath $Path).Path; Branch = $Branch; Created = (-not $exists) }
+}
+
+function Remove-KitStorageWorktree {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Path)
+    $out = git -C $RepoRoot worktree remove --force $Path 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git worktree remove $Path завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+    git -C $RepoRoot worktree prune 2>$null | Out-Null
+}
+
+function Clear-KitWorktreeSource {
+    <#
+    .SYNOPSIS
+        Порожня тека <wt>/<RepoPath> під дамп версії: /DumpConfigToFiles не видаляє зниклих об'єктів.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath)
+    $target = Join-Path $WorktreePath $RepoPath
+    Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -Description 'тека джерела у worktree'
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    (Resolve-Path -LiteralPath $target).Path
+}
+
+function Write-KitStorageVersion {
+    <#
+    .SYNOPSIS
+        Коміт уже вивантаженого дерева <wt>/<RepoPath> як однієї версії сховища.
+    .DESCRIPTION
+        У worktree гілки дзеркала немає .gitattributes (дерево — лише шлях джерела), тож git
+        застосував би core.autocrlf машини. -c core.autocrlf=false тримає байти платформи як є —
+        та сама гарантія, яку в main дає -text. ConfigDumpInfo.xml і DumpFilesIndex.txt —
+        службові файли платформи, у дзеркалі їх немає (у споживача вони й так у .gitignore).
+        V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука B1), не механізм: в orphan-worktree дзеркала хука
+        немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
+        де хук є. Дати автора й
+        комітера — дата версії сховища. --allow-empty: сусідні версії можуть дати однаковий дамп,
+        а коміт — єдиний носій автора, дати й коментаря версії.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorktreePath,
+        [Parameter(Mandatory)][string]$RepoPath,
+        [Parameter(Mandatory)][string]$Message,
+        [Parameter(Mandatory)][string]$AuthorName,
+        [Parameter(Mandatory)][string]$AuthorEmail,
+        [Parameter(Mandatory)][datetime]$Timestamp
+    )
+
+    $target = Join-Path $WorktreePath $RepoPath
+    foreach ($junk in 'ConfigDumpInfo.xml', 'DumpFilesIndex.txt') {
+        $j = Join-Path $target $junk
+        if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
+    }
+
+    # commit-message.txt лежить поруч із worktree (Split-Path -Parent $WorktreePath), не
+    # всередині нього — `git worktree remove` чистить лише сам worktree, тож файл прибирає
+    # цей finally; інакше він лишається як сироту в основному дереві репозиторію ($repo/build/…)
+    # і git status --porcelain там бачить "?? build/".
+    $msgFile = Join-Path (Split-Path -Parent $WorktreePath) 'commit-message.txt'
+    Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
+
+    try {
+        $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -- $RepoPath 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
+
+        git -C $WorktreePath diff --cached --quiet -- $RepoPath
+        $empty = ($LASTEXITCODE -eq 0)
+
+        $stamp = $Timestamp.ToString('yyyy-MM-ddTHH:mm:ss')
+        $env:GIT_AUTHOR_DATE = $stamp; $env:GIT_COMMITTER_DATE = $stamp; $env:V8KIT_SYNC = '1'
+        try {
+            $out = git -C $WorktreePath -c core.autocrlf=false commit --author="$AuthorName <$AuthorEmail>" -F $msgFile --quiet --allow-empty 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "git commit у worktree завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+        } finally {
+            Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE, Env:V8KIT_SYNC -ErrorAction SilentlyContinue
+        }
+    } finally {
+        Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
+    }
+    [pscustomobject]@{ Sha = (git -C $WorktreePath rev-parse HEAD).Trim(); Empty = $empty }
+}
+
+Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion

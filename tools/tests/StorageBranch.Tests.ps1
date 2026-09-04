@@ -152,3 +152,98 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
         }
     }
 }
+
+Describe 'StorageBranch.psm1 — worktree гілки дзеркала й коміт версії (§3.3, шар 1)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Stamp = [datetime]'2026-01-22T17:51:21'
+    }
+
+    It 'перший sync: orphan-гілка через worktree; коміт не рухає HEAD і робочу копію основного дерева' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'first') -WithHooks
+        $headBefore = git -C $repo rev-parse HEAD
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        $wt.Created | Should -BeTrue
+        (git -C $wt.Path symbolic-ref -q HEAD) | Should -Be 'refs/heads/storage/Alpha_SMB'
+
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        $target | Should -Exist
+        Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
+        Set-Content -LiteralPath (Join-Path $target 'ConfigDumpInfo.xml') -Value '<junk/>' -NoNewline
+        Set-Content -LiteralPath (Join-Path $target 'DumpFilesIndex.txt') -Value 'junk' -NoNewline
+
+        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' `
+            -Message "v17`n`nStorage-Source: Alpha_SMB`nStorage-Version: 17`nStorage-User: Абдулов" `
+            -AuthorName 'PrudnikovV' -AuthorEmail 'p@example.invalid' -Timestamp $script:Stamp
+        $r.Empty | Should -BeFalse
+        Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
+
+        # Гілка є, трейлери й автор на місці, сміття платформи в дереві немає
+        Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 17
+        (git -C $repo log -1 --format='%an|%aI' storage/Alpha_SMB) | Should -BeLike 'PrudnikovV|2026-01-22T17:51:21*'
+        @(git -C $repo ls-tree -r --name-only storage/Alpha_SMB) | Should -Be @('Alpha_SMB/cfe/src/Configuration.xml')
+
+        # Основне дерево не зрушило
+        (git -C $repo rev-parse HEAD) | Should -Be $headBefore
+        (git -C $repo branch --show-current) | Should -Be 'main'
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        (Join-Path $repo 'build/sync/Alpha_SMB/wt') | Should -Not -Exist
+        @(git -C $repo worktree list).Count | Should -Be 1
+    }
+
+    It 'повторний sync: worktree на наявну гілку, Created=false; однаковий дамп дає Empty=true й порожній коміт' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'again') -WithHooks
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'Configuration.xml' -Content '<x/>' `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        $wt.Created | Should -BeFalse
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        @(Get-ChildItem $target).Count | Should -Be 0
+        Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
+        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' `
+            -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2`nStorage-User: gitbot" `
+            -AuthorName 'Test Bot' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp
+        $r.Empty | Should -BeTrue
+        Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
+        Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 2
+    }
+
+    It 'байти платформи лягають у git як є, навіть під core.autocrlf=true і без .gitattributes у worktree' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bytes') -WithHooks
+        git -C $repo config core.autocrlf true
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        # Змішані кінці рядків в одному файлі — саме так пише платформа (docs/text-policy.md)
+        $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
+        [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
+        $rawId = (git -C $repo hash-object --no-filters (Join-Path $target 'Form.xml')).Trim()
+        Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
+            -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
+        Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
+        (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $rawId
+    }
+
+    It 'залишок перерваного прогону (тека worktree є) — прибирається, новий worktree створюється' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'leftover') -WithHooks
+        $path = Join-Path $repo 'build/sync/Alpha_SMB/wt'
+        New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path $path | Out-Null
+        # «Перервано»: worktree лишився зареєстрованим і на диску
+        { New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path $path } | Should -Not -Throw
+        Remove-KitStorageWorktree -RepoRoot $repo -Path $path
+    }
+
+    It 'гілка дзеркала вибрана в основній робочій копії — зупинка з поясненням' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'checkedout') -WithHooks
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        git -C $repo checkout -q storage/Alpha_SMB
+        { New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt') } |
+            Should -Throw '*storage/Alpha_SMB*вибрана*'
+        git -C $repo checkout -q main
+    }
+
+    It 'шлях worktree поза build/sync — відмова (Assert-SafeWorkPath)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unsafe')
+        { New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'Alpha_SMB') } | Should -Throw '*build*sync*'
+    }
+}

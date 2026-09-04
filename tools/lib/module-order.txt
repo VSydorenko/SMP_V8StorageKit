@@ -1,7 +1,8 @@
 # Порядок імпорту lib-модулів. Читають tools/kit.ps1 і tools/tests/fixtures/module-visibility-probe.ps1 —
 # одне джерело для обох, щоб список не розходився (docs/follow-ups.md §5).
 # Порядок важливий: PathSafety раніше за V8; Yaml раніше за V8Project/Manifest; Preflight раніше за
-# StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport. Рядки з # ігноруються.
+# StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport; GitMerge — після
+# StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Yaml
@@ -9,6 +10,7 @@ V8Project
 Manifest
 Preflight
 StorageBranch
+GitMerge
 Hooks
 GitOutput
 Authors

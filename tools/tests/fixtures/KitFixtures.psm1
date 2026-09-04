@@ -190,7 +190,9 @@ function Add-KitFakeStorageCommit {
         [Parameter(Mandatory)][string]$Repo,
         [Parameter(Mandatory)][string]$Branch,
         [Parameter(Mandatory)][string]$RepoPath,
-        [Parameter(Mandatory)][string]$FileName,
+        [string]$FileName = '',
+        [string]$Content,
+        [string[]]$RemoveFiles = @(),
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Trailers,
         [string]$Subject = 'версія'
     )
@@ -204,7 +206,11 @@ function Add-KitFakeStorageCommit {
     else                     { Invoke-KitFakeGit -C $Repo worktree add -q --orphan -b $Branch $wt | Out-Null }
     $dir = Join-Path $wt $RepoPath
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $dir $FileName) -Value "вміст $FileName" -Encoding UTF8
+    if ($FileName) {
+        $body = if ($PSBoundParameters.ContainsKey('Content')) { $Content } else { "вміст $FileName" }
+        Set-Content -LiteralPath (Join-Path $dir $FileName) -Value $body -Encoding UTF8 -NoNewline
+    }
+    foreach ($rm in $RemoveFiles) { Remove-Item -LiteralPath (Join-Path $dir $rm) -Force -ErrorAction SilentlyContinue }
     Invoke-KitFakeGit -C $wt add -A | Out-Null
     $env:V8KIT_SYNC = '1'
     try { Invoke-KitFakeGit -C $wt commit -q -m ((@($Subject, '') + $Trailers) -join "`n") | Out-Null }
