@@ -88,3 +88,67 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         @($f | Where-Object Message -like '*Storage-Source*Beta*').Count | Should -Be 1
     }
 }
+
+Describe 'StorageBranch.psm1 — план реплею й повідомлення коміту' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+        $script:All = @(2, 23, 24, 47 | ForEach-Object { [pscustomobject]@{ Version = $_ } })
+        function script:New-Version {
+            param([int]$Version, [string]$Comment = 'Правка форми', [string]$ConfigVersion = '1.2.3', [string]$User = 'Абдулов')
+            [pscustomobject]@{ Version = $Version; User = $User; Date = '22.01.2026'; Time = '17:51:21'
+                ConfigVersion = $ConfigVersion; Comment = $Comment; Label = ''; LabelComment = ''
+                Added = @(); Modified = @(); Deleted = @(); Timestamp = [datetime]'2026-01-22T17:51:21' }
+        }
+    }
+
+    Context 'Get-KitPendingVersions' {
+        It 'порожня гілка ($null) — усі версії зі звіту за зростанням' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null).Version | Should -Be @(2, 23, 24, 47)
+        }
+        It 'після 23 — лише 24 і 47 (перелік, не діапазон: пропуски штатні)' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion 23).Version | Should -Be @(24, 47)
+        }
+        It 'усе залито — порожній масив, а не $null (StrictMode-безпечно)' {
+            Set-StrictMode -Version Latest
+            $p = Get-KitPendingVersions -AllVersions $script:All -LastVersion 47
+            { $p.Count } | Should -Not -Throw
+            $p.Count | Should -Be 0
+        }
+        It '-MaxVersions обрізає з голови' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -MaxVersions 2).Version | Should -Be @(2, 23)
+        }
+        It 'дзеркало попереду сховища — зупинка' {
+            { Get-KitPendingVersions -AllVersions $script:All -LastVersion 99 } | Should -Throw '*попереду*99*47*'
+        }
+        It 'порожній звіт при непорожньому дзеркалі — зупинка; при порожньому — порожньо' {
+            { Get-KitPendingVersions -AllVersions @() -LastVersion 5 } | Should -Throw '*порожній*'
+            (Get-KitPendingVersions -AllVersions @() -LastVersion $null).Count | Should -Be 0
+        }
+        It 'Get-KitVersionGapNote: мінімум у звіті > остання + 1 — інформаційний рядок; інакше $null' {
+            $p = Get-KitPendingVersions -AllVersions $script:All -LastVersion 2
+            Get-KitVersionGapNote -Pending $p -LastVersion 2 | Should -BeLike '*23*2*'
+            Get-KitVersionGapNote -Pending (Get-KitPendingVersions -AllVersions $script:All -LastVersion 23) -LastVersion 23 | Should -BeNullOrEmpty
+            Get-KitVersionGapNote -Pending $p -LastVersion $null | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'New-KitStorageCommitMessage' {
+        It 'розширення: тема, порожній рядок, чотири трейлери в цьому порядку' {
+            $m = New-KitStorageCommitMessage -Version (New-Version -Version 47) -SourceKey 'SMP_X' -SourceType EXTENSION
+            $m | Should -Be "Правка форми`n`nStorage-Source: SMP_X`nStorage-Version: 47`nExtension-Version: 1.2.3`nStorage-User: Абдулов"
+        }
+        It 'конфігурація: Config-Version замість Extension-Version' {
+            $m = New-KitStorageCommitMessage -Version (New-Version -Version 3) -SourceKey 'base' -SourceType CONFIGURATION
+            $m | Should -BeLike "*`nConfig-Version: 1.2.3`n*"
+            $m | Should -Not -BeLike '*Extension-Version*'
+        }
+        It 'без версії конфігурації — трейлера версії немає; без коментаря — тема «Версія сховища N»' {
+            $m = New-KitStorageCommitMessage -Version (New-Version -Version 8 -Comment '' -ConfigVersion '') -SourceKey 'SMP_X' -SourceType EXTENSION
+            $m | Should -Be "Версія сховища 8`n`nStorage-Source: SMP_X`nStorage-Version: 8`nStorage-User: Абдулов"
+        }
+        It 'багаторядковий коментар: перший непорожній рядок — тема, решта — тіло' {
+            $m = New-KitStorageCommitMessage -Version (New-Version -Version 9 -Comment "`nТема`nДругий рядок`n  третій  ") -SourceKey 'SMP_X' -SourceType EXTENSION
+            $m | Should -BeLike "Тема`n`nДругий рядок`n  третій`n`nStorage-Source: SMP_X*"
+        }
+    }
+}

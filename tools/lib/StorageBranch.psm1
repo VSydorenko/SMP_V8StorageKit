@@ -135,4 +135,94 @@ function Test-KitStorageBranchInvariants {
     $findings.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants
+function Get-KitPendingVersions {
+    <#
+    .SYNOPSIS
+        Версії зі звіту, які ще не в дзеркалі: перелік із версіями > LastVersion (§3.2), не діапазон.
+    .DESCRIPTION
+        $null у LastVersion — гілки ще немає: реплеїти все. Два запобіжники успадковані від
+        Get-PendingVersions (SyncState.psm1, вилучається): дзеркало попереду максимуму звіту, і
+        порожній звіт при непорожньому дзеркалі — обидва зупинка, розбір за людиною.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$AllVersions,
+        [Parameter(Mandatory)][AllowNull()][Nullable[int]]$LastVersion,
+        [int]$MaxVersions = 0
+    )
+
+    $max = $null
+    if ($AllVersions.Count -gt 0) { $max = ($AllVersions | Measure-Object -Property Version -Maximum).Maximum }
+
+    if ($null -ne $LastVersion) {
+        if ($AllVersions.Count -eq 0) {
+            throw ("Звіт сховища порожній (жодної версії), а дзеркало вже тримає версію $LastVersion. Порожній звіт не " +
+                   'підтверджує це — сховище могло стати недоступним чи звіт пошкодженим. Синхронізацію зупинено.')
+        }
+        if ($LastVersion -gt $max) {
+            throw ("Дзеркало попереду сховища: у storage/* версія $LastVersion, а у сховищі максимум $max. " +
+                   'Синхронізацію зупинено, розберіться з розбіжністю вручну.')
+        }
+    }
+
+    $pending = @($AllVersions | Where-Object { $null -eq $LastVersion -or $_.Version -gt $LastVersion } | Sort-Object Version)
+    if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+    # Кома навмисно: викликачі (sync, тести) беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
+    , $pending
+}
+
+function Get-KitVersionGapNote {
+    <#
+    .SYNOPSIS
+        Інформаційний рядок, коли мінімум серед нових версій > остання + 1 — сховище оптимізували
+        до того, як ми забрали проміжні (§3.2). Не помилка.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Pending,
+        [Parameter(Mandatory)][AllowNull()][Nullable[int]]$LastVersion
+    )
+    if ($null -eq $LastVersion -or $Pending.Count -eq 0) { return $null }
+    $min = ($Pending | Measure-Object -Property Version -Minimum).Minimum
+    if ($min -gt $LastVersion + 1) {
+        return "У звіті найменша нова версія $min, а дзеркало на $LastVersion — проміжних версій у сховищі вже немає (оптимізовано)."
+    }
+    $null
+}
+
+function New-KitStorageCommitMessage {
+    <#
+    .SYNOPSIS
+        Повідомлення коміту версії сховища: коментар версії + трейлери (§3.1).
+        Storage-User — сирий рядок зі звіту, окремо від git-автора (docs/storage-and-git.md, «Три трейлери»).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Version,
+        [Parameter(Mandatory)][string]$SourceKey,
+        [Parameter(Mandatory)][ValidateSet('CONFIGURATION', 'EXTENSION')][string]$SourceType
+    )
+
+    $lines   = @(([string]$Version.Comment) -split "`r?`n" | ForEach-Object { $_.TrimEnd() })
+    $subject = ($lines | Where-Object { $_.Trim() } | Select-Object -First 1)
+    if (-not $subject) { $subject = "Версія сховища $($Version.Version)" }
+    $body = @($lines | Select-Object -Skip ([array]::IndexOf($lines, $subject) + 1))
+
+    $out = [System.Collections.Generic.List[string]]::new()
+    $out.Add($subject)
+    if ($body.Count -gt 0 -and ($body -join '').Trim()) {
+        $out.Add('')
+        foreach ($b in $body) { $out.Add($b) }
+    }
+    $out.Add('')
+    $out.Add("Storage-Source: $SourceKey")
+    $out.Add("Storage-Version: $($Version.Version)")
+    if ($Version.ConfigVersion) {
+        $key = if ($SourceType -eq 'EXTENSION') { 'Extension-Version' } else { 'Config-Version' }
+        $out.Add("${key}: $($Version.ConfigVersion)")
+    }
+    $out.Add("Storage-User: $($Version.User)")
+    $out -join "`n"
+}
+
+Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage

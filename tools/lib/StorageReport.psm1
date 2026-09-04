@@ -226,12 +226,37 @@ function Read-StorageReport {
         Sort-Object Version)
 }
 
+function Get-StorageReportArguments {
+    <#
+    .SYNOPSIS
+        Аргументи Конфігуратора для звіту сховища. -Extension належить команді-дії
+        (ранбук, п. 1); для сховища КОНФІГУРАЦІЇ його немає взагалі — сховище одне й
+        те саме API, різниця лише в цьому ключі.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ReportPath,
+        [Parameter(Mandatory)][string]$StoragePath,
+        [Parameter(Mandatory)][string]$StorageUser,
+        [string]$ExtensionName = ''
+    )
+    $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
+    if ($ExtensionName) { $report += " -Extension $ExtensionName" }
+    # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
+    , @(
+        '/ConfigurationRepositoryF "{0}"' -f $StoragePath
+        '/ConfigurationRepositoryN "{0}"' -f $StorageUser
+        '/ConfigurationRepositoryP ""'
+        $report
+    )
+}
+
 function Get-StorageVersions {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$IbSwitch,
         [Parameter(Mandatory)][string]$StoragePath,
-        [Parameter(Mandatory)][string]$ExtensionName,
+        [string]$ExtensionName = '',
         [Parameter(Mandatory)][string]$StorageUser,
         [Parameter(Mandatory)][string]$WorkDir
     )
@@ -251,12 +276,8 @@ function Get-StorageVersions {
     # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
     # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
     # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
-    $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments @(
-        '/ConfigurationRepositoryF "{0}"' -f $StoragePath
-        '/ConfigurationRepositoryN "{0}"' -f $StorageUser
-        '/ConfigurationRepositoryP ""'
-        '/ConfigurationRepositoryReport "{0}" -NBegin 1 -Extension {1} -IncludeCommentLinesWithDoubleSlash' -f $reportPath, $ExtensionName
-    )
+    $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments (Get-StorageReportArguments `
+        -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser -ExtensionName $ExtensionName)
 
     if ($result.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $reportPath)) {
         throw "Не вдалося побудувати звіт сховища $StoragePath : $($result.Output)"
@@ -265,4 +286,4 @@ function Get-StorageVersions {
     Read-StorageReport -Path $reportPath
 }
 
-Export-ModuleMember -Function ConvertFrom-MxlText, Get-MxlStringCells, Read-StorageReport, Get-StorageVersions
+Export-ModuleMember -Function ConvertFrom-MxlText, Get-MxlStringCells, Read-StorageReport, Get-StorageReportArguments, Get-StorageVersions

@@ -206,3 +206,21 @@ Describe 'Get-StorageVersions (команда, побудована для пл�
         }
     }
 }
+
+Describe 'Get-StorageReportArguments — з розширенням і без' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageReport.psm1").Path -Force }
+
+    It 'для розширення додає -Extension до команди-дії, не до /ConfigurationRepositoryF' {
+        $a = Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'gitbot' -ExtensionName 'SMP_X'
+        $a[0] | Should -Be '/ConfigurationRepositoryF "R:\S"'
+        $a[1] | Should -Be '/ConfigurationRepositoryN "gitbot"'
+        $a[2] | Should -Be '/ConfigurationRepositoryP ""'
+        $a[3] | Should -Be '/ConfigurationRepositoryReport "C:\w\r.mxl" -NBegin 1 -IncludeCommentLinesWithDoubleSlash -Extension SMP_X'
+    }
+
+    It 'для сховища конфігурації -Extension немає взагалі' {
+        $a = Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'gitbot'
+        $a[3] | Should -Be '/ConfigurationRepositoryReport "C:\w\r.mxl" -NBegin 1 -IncludeCommentLinesWithDoubleSlash'
+        ($a -join ' ') | Should -Not -Match '-Extension'
+    }
+}
