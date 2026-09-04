@@ -121,13 +121,26 @@ function Test-KitStorageBranchInvariants {
         $prev = $v
     }
 
+    # -c core.quotepath=false: git ls-tree за замовчуванням (core.quotepath=true) друкує
+    # non-ASCII шляхи в лапках з октальним екрануванням — "\320\221...".xml замість
+    # Банки.xml, ЛАПКА на початку зламала б StartsWith($prefix) нижче й дала б хибну
+    # знахідку "поза шляхом джерела" на кожному кириличному імені (норма для 1С, не
+    # виняток). Форсуємо прапорець за виклик — репозиторій-споживач чи машина можуть
+    # мати будь-яке налаштування core.quotepath, kit на нього не покладається.
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/') + '/'
-    $tree = git -C $RepoRoot ls-tree -r --name-only $Branch 2>&1
+    $tree = git -c core.quotepath=false -C $RepoRoot ls-tree -r --name-only $Branch 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Branch завершився з кодом ${LASTEXITCODE}: $($tree -join "`n")" }
     $stray = @($tree | Where-Object { $_ -and -not $_.StartsWith($prefix) })
-    foreach ($s in $stray) {
+    if ($stray.Count -gt 0) {
+        # Один запис на весь перелік, а не на кожен файл (той самий прийом, що
+        # Merge-KitBranchInto для брудних шляхів, GitMerge.psm1) — на живому прогоні одна
+        # гілка з кириличними іменами дала 241 майже однакову знахідку й затопила в
+        # виводі check реальне, нічим не пов'язане попередження, яке стояло вище.
+        $shown = @($stray | Select-Object -First 5)
+        $more  = $stray.Count - $shown.Count
+        $detail = ($shown -join ', ') + $(if ($more -gt 0) { ", …і ще $more" } else { '' })
         $findings.Add((New-KitFinding -Level error -Check 'storage-branch' -Message (
-            "$Branch`: у дереві файл поза шляхом джерела '$RepoPath': $s.")))
+            "$Branch`: у дереві $($stray.Count) файл(ів) поза шляхом джерела '$RepoPath': $detail.")))
     }
 
     # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),

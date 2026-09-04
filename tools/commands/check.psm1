@@ -92,7 +92,10 @@ function Invoke-KitCheck {
         # напряму. Порада самого check ("додайте рядок у .gitignore") гасила б тривогу, не
         # прибираючи файл з історії, — це і є діра, яку рев'ю знайшло тут: правило Є, файл
         # закомічено, а check раніше давав код 0 і одне попередження.
-        $overlayTracked = @(git -C $root ls-files -- 'v8storagekit.local.yaml' 2>$null)
+        # -c core.quotepath=false — уніфіковано з усіма git-викликами, що читають чи
+        # друкують шляхи (StorageBranch.psm1, GitMerge.psm1, Hooks.psm1): kit форсує
+        # налаштування за виклик, а не покладається на repo/global-конфігурацію.
+        $overlayTracked = @(git -c core.quotepath=false -C $root ls-files -- 'v8storagekit.local.yaml' 2>$null)
         if ($LASTEXITCODE -ne 0) {
             & $add error overlay-ignored "git ls-files для v8storagekit.local.yaml завершився з кодом $LASTEXITCODE."
         } elseif ($overlayTracked.Count -gt 0) {
@@ -166,7 +169,8 @@ function Invoke-KitCheck {
                     # свідомо ігнорує індекс), тому запитуємо індекс напряму. Код виходу
                     # git ls-files — 0 в обох випадках (протеклого й здорового дерева),
                     # розрізняє лише порожність виводу.
-                    $tracked = @(git -C $root ls-files -- $src.RepoPath 2>$null)
+                    # -c core.quotepath=false — див. коментар біля overlayTracked вище.
+                    $tracked = @(git -c core.quotepath=false -C $root ls-files -- $src.RepoPath 2>$null)
                     if ($LASTEXITCODE -ne 0) {
                         & $add error gitignore "$tag`: git ls-files завершився з кодом $LASTEXITCODE."
                     } elseif ($tracked.Count -gt 0) {
@@ -286,7 +290,8 @@ function Invoke-KitCheck {
                 & $add error local-ignored "$relLocalPath`: git check-ignore завершився з кодом $localIgnoredCode."
             }
 
-            $localTracked = @(git -C $root ls-files -- $relLocalPath 2>$null)
+            # -c core.quotepath=false — див. коментар біля overlayTracked вище.
+            $localTracked = @(git -c core.quotepath=false -C $root ls-files -- $relLocalPath 2>$null)
             if ($LASTEXITCODE -ne 0) {
                 & $add error local-ignored "$relLocalPath`: git ls-files завершився з кодом $LASTEXITCODE."
             } elseif ($localTracked.Count -gt 0) {

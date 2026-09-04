@@ -228,7 +228,10 @@ Describe 'kit sync — реальне сховище (перший і повто
         $commits[0].Parents.Count | Should -Be 0
         $commits[1].Trailers['Storage-Source'] | Should -Be 'SMP_BankExchange_SMB'
         [int]$commits[1].Trailers['Storage-Version'] | Should -BeGreaterThan ([int]$commits[0].Trailers['Storage-Version'])
-        @(git -C $script:Repo ls-tree -r --name-only storage/SMP_BankExchange_SMB | Where-Object { $_ -notlike 'SMP_BankExchange_SMB/cfe/src/*' }).Count | Should -Be 0
+        # -c core.quotepath=false — той самий дефект, що в StorageBranch.psm1: без прапорця
+        # git ls-tree квотує кириличні імена (SMP_BankExchange_SMB тримає такі об'єкти), і
+        # -notlike вище хибно вважав би їх "поза шляхом".
+        @(git -c core.quotepath=false -C $script:Repo ls-tree -r --name-only storage/SMP_BankExchange_SMB | Where-Object { $_ -notlike 'SMP_BankExchange_SMB/cfe/src/*' }).Count | Should -Be 0
         git -C $script:Repo merge-base --is-ancestor storage/SMP_BankExchange_SMB main
         $LASTEXITCODE | Should -Be 0
         Join-Path $script:Repo 'SMP_BankExchange_SMB/cfe/src/Configuration.xml' | Should -Exist

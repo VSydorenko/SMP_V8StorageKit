@@ -49,7 +49,10 @@ function Merge-KitBranchInto {
 
     $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
     if ($current -eq $Into) {
-        $dirty = git -C $RepoRoot status --porcelain 2>&1
+        # -c core.quotepath=false: без цього git status квотує non-ASCII шляхи (\320\221...)
+        # у списку брудних файлів нижче — той самий дефект, що StorageBranch.psm1:
+        # kit форсує прапорець за виклик, а не покладається на налаштування репозиторію.
+        $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}: $dirty" }
         if ($dirty) {
             # Повідомлення зупинки має бути діагностовним само по собі (той самий принцип, що

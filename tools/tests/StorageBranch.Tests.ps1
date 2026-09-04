@@ -81,6 +81,18 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         @($f | Where-Object Message -like '*Other/place/stray.txt*').Count | Should -Be 1
     }
 
+    It 'кириличне ім''я файла під шляхом джерела — не хибний "поза шляхом" (git квотує non-ASCII, коли core.quotepath типово true)' {
+        # Фікстура НЕ виставляє core.quotepath — це навмисно: kit має форсувати прапорець
+        # у власному виклику git ls-tree, а не покладатись на налаштування репозиторію.
+        # Без -c core.quotepath=false git ls-tree повертає рядок `"...\320\221....xml`
+        # (з ЛАПКОЮ на початку через октальне екранування), StartsWith($prefix) хибний,
+        # і файл, що насправді лежить під RepoPath, репортується як сторонній.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cyrillic')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'Банки.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
+        @($f | Where-Object Message -like '*поза шляхом джерела*').Count | Should -Be 0
+    }
+
     It 'Storage-Source іншого джерела — помилка' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'wrongsource')
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Beta', 'Storage-Version: 1')

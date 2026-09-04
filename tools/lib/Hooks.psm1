@@ -107,7 +107,11 @@ function Test-KitGitHooks {
         # коміт у storage/* на такому клоні пройде повз захист. Питаємо саме git, а не
         # файлову систему: на Windows core.filemode = false, і те, що бачить ФС, не має
         # стосунку до режиму, який git запише в дерево майбутнього клону.
-        $tracked = git -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
+        # -c core.quotepath=false — уніфіковано з усіма git-викликами, що читають чи
+        # друкують шляхи. Цей шлях ASCII за побудовою (.githooks/pre-commit тощо), але
+        # правило — kit форсує конфігурацію git за виклик завжди, щоб ніхто надалі не
+        # мусив розбиратись по кожному виклику окремо, чи шлях бува не non-ASCII.
+        $tracked = git -c core.quotepath=false -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
         $trackedLine = (@($tracked) -join "`n").Trim()
         if ($trackedLine -match '^(?<mode>\d{6})\s') {
