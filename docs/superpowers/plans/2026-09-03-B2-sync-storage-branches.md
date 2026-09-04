@@ -30,7 +30,7 @@
 - **Мова всього, що бачить людина** — українська; ASCII-якір у кожному повідомленні зупинки
   (див. B1, «Спільні контракти»).
 - **Прогін тестів без платформи:** `pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration`.
-  **Повний прогін** (Task 1 спайк, Task 5 Integration) запускає `1cv8.exe` і читає **живі
+  **Повний прогін** (Task 1 спайк, Task 4 Step 5 Integration) запускає `1cv8.exe` і читає **живі
   сховища** — виконується лише з підтвердженням користувача в сесії виконання.
 - **Сховища конфігурацій — тільки читання.** `ConfigurationRepositoryReport`, `…UpdateCfg` —
   так. `…Commit`, `…Lock`, `…UnlockObjects` — ніколи. **Єдиний документований виняток**
@@ -136,7 +136,7 @@ StorageBranch.psm1 (додається до B1)
 GitMerge.psm1
   Test-KitBranchMergedInto -RepoRoot -Branch -Into : → bool  (git merge-base --is-ancestor)
   Merge-KitBranchInto -RepoRoot -Branch -Into -Message [-AllowUnrelated] [-WorkDir]
-      : → {Outcome:'merged'|'already'; Sha; Via:'in-place'|'worktree'}; зупинка на брудному Into або конфлікті
+      : → {Outcome:'merged'|'already'; Sha; Via:'in-place'|'worktree'|'none' ('none' лише при 'already')}; зупинка на брудному Into або конфлікті
 
 commands/sync.psm1
   Invoke-KitSync -Context [-Workspace] [-Source] [-Apply:bool] [-MaxVersions <int>] [-MergeMain]
@@ -153,7 +153,7 @@ commands/sync.psm1
 
 Мета: **факт**, а не гіпотеза — чи вміє порожня файлова ІБ узяти версію з сховища
 **основної конфігурації** через `ConfigurationRepositoryUpdateCfg -v N -force` без
-попередньої прив'язки. Результат визначає код Task 5.
+попередньої прив'язки. Результат визначає код Task 4 (`$script:ConfigurationStorageNeedsBind` у `sync.psm1`).
 
 Це читання живого сховища й запуск платформи — **лише з підтвердженням користувача**.
 Нічого в сховищі не змінюється, крім задокументованого винятку (прив'язка/відв'язка
