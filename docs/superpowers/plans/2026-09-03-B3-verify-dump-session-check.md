@@ -1101,8 +1101,10 @@ function Invoke-KitVerify {
 
     # Усі перевірки git — до першого звернення до платформи: зупинки дешеві, платформа — ні.
     $plan = @(foreach ($src in $sources) {
-        if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
+        # Порядок: спершу інваріанти git (дзеркало, merge-base, ref) — вони перевіряються без сховища й дають
+        # точнішу зупинку; шлях сховища — другим (P1 префлайту B3).
         $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $ref -Branch $src.Branch
+        if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
         [pscustomobject]@{ Source = $src; Info = $vv; Version = $(if ($Version) { [int]$Version } else { $vv.Version }) }
     })
 
@@ -1147,8 +1149,9 @@ function Invoke-KitVerify {
         Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
         Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
         if ($diff.OnlyInDump.Count -gt 0) {
-            Write-Host ("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
-                        "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch -ForegroundColor Yellow
+            # -f поза дужками PowerShell зв'язав би як -ForegroundColor (P4 префлайту B3) — оператор формату всередині.
+            Write-Host (("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
+                         "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch) -ForegroundColor Yellow
         }
 
         switch ($verdict) {
@@ -1205,7 +1208,7 @@ git commit -m "B3: kit verify — інваріант ref ≡ сховище з �
 - Create: `tools/commands/dump.psm1`
 - Create: `tools/tests/Dump.Tests.ps1`
 - Delete: `tools/dump-config.ps1`
-- Modify: `skills/storage-pipeline/SKILL.md` (перехідна позначка), `templates/CLAUDE.md`, `CLAUDE.md` (рядок `tools/`)
+- Modify: `skills/storage-pipeline/SKILL.md` (перехідна позначка), `templates/CLAUDE.md`, `CLAUDE.md` (рядок `tools/`), `README.md` (рядок про `tools/`: `dump-config` → `kit dump`; `docs/storage-and-git.md` і `docs/unica-contract.md` — B8, там переписуються цілком)
 
 **Interfaces:**
 - Consumes: `Select-KitSources -Truth @('dump','vendor')`, `Resolve-KitInfobase`, `ConvertTo-V8IbSwitch`, `Invoke-V8Designer`, `Assert-V8InfobaseNotBusy`, `Assert-SafeWorkPath`.
@@ -1375,13 +1378,15 @@ git rm -q tools/dump-config.ps1
 `CLAUDE.md` kit, рядок `tools/`: команди `check`, `sync`, `verify`, `dump`, `session-check`;
 перехідні — `load-ext`, `build` (до B4).
 
-`Templates.Tests.ps1`: якщо там є перевірка на `dump-config` — оновити на `kit.ps1 dump`.
+`Templates.Tests.ps1`: якщо там є перевірка на `dump-config` — оновити на `kit.ps1 dump`. `README.md` kit: у переліку
+`tools/` замінити `dump-config` на `kit dump` (мінімально, повне переписування — B8).
 
 - [ ] **Step 4: Тести зелені; коміт**
 
 ```bash
-git add -A tools skills/storage-pipeline/SKILL.md templates/CLAUDE.md CLAUDE.md
-git commit -m "B3: kit dump — вивантаження з живої бази за накладкою kit, «база зайнята» як порада; dump-config.ps1 вилучено"
+# dump-config.ps1 уже застейджено через git rm у Step 3; ніяких -A (урок B1 №2)
+git add tools/commands/dump.psm1 tools/tests/Dump.Tests.ps1 skills/storage-pipeline/SKILL.md templates/CLAUDE.md CLAUDE.md README.md
+git commit --only -m "B3: kit dump — вивантаження з живої бази за накладкою kit, «база зайнята» як порада; dump-config.ps1 вилучено" -- tools/dump-config.ps1 tools/commands/dump.psm1 tools/tests/Dump.Tests.ps1 skills/storage-pipeline/SKILL.md templates/CLAUDE.md CLAUDE.md README.md
 ```
 
 ---
@@ -1431,6 +1436,9 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
                 finally { Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE -ErrorAction SilentlyContinue }
                 if ($Merge) { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated | Out-Null }
             }
+            # Слід фікстури: worktree remove прибирає wt, а порожню build/sync лишає — щоб твердження
+            # «session-check не створює тек» перевіряло команду, а не фікстуру (P2 префлайту B3).
+            Remove-Item -LiteralPath (Join-Path $repo 'build') -Recurse -Force -ErrorAction SilentlyContinue
             $repo
         }
         function script:Invoke-SessionCheck {
