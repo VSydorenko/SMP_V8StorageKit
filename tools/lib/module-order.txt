@@ -11,6 +11,7 @@ Manifest
 Preflight
 StorageBranch
 GitMerge
+TreeCompare
 Hooks
 GitOutput
 Authors
