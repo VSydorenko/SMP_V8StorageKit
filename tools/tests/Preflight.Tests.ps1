@@ -41,6 +41,16 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         ($ctx.Workspaces[0].Sources | Where-Object Key -eq 'Alpha_SMB').StoragePath | Should -Be 'D:\mirror\alpha'
     }
 
+    It 'накладка перекриває користувача й пароль сховища, не чіпаючи шляху; пароль типово порожній' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-cred') -OverlayText "storages:`n  Alpha_SMB: { user: 'Сидоренко', password: 'secret' }"
+        $src = (Invoke-KitPreflight -RepoRoot $repo).Workspaces[0].Sources | Where-Object Key -eq 'Alpha_SMB'
+        $src.StoragePath | Should -BeLike '*no-such-storage-Alpha_SMB'
+        $src.StorageUser | Should -Be 'Сидоренко'
+        $src.StoragePassword | Should -Be 'secret'
+        $plain = (Invoke-KitPreflight -RepoRoot (New-KitFakeRepo -Root (Join-Path $TestDrive 'no-cred'))).Workspaces[0].Sources | Where-Object Key -eq 'Alpha_SMB'
+        $plain.StorageUser | Should -Be 'gitbot'; $plain.StoragePassword | Should -Be ''
+    }
+
     It 'без маніфесту — зупинка з підказкою на onboarding; у -Lenient — знахідка, а не виняток' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-manifest')
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')

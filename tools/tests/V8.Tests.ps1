@@ -143,6 +143,13 @@ Describe 'Assert-NoLicenseProblem' {
     }
 }
 
+Describe 'Hide-V8Secrets' {
+    It 'Hide-V8Secrets маскує /P і /ConfigurationRepositoryP, лишаючи решту аргументів' {
+        Hide-V8Secrets -ArgLine 'DESIGNER /F "x" /N "u" /P "secret" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "s2" /Out "l"' |
+            Should -Be 'DESIGNER /F "x" /N "u" /P "***" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "***" /Out "l"'
+    }
+}
+
 Describe 'New-V8FileInfobase (запобіжник шляху, без звернення до платформи)' {
     It 'кидає виняток на шляху поза -MustBeUnder — до Get-V8Path, незалежно від того, чи встановлена платформа' {
         $outside = Join-Path $TestDrive 'not-the-work-dir'

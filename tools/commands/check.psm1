@@ -193,7 +193,7 @@ function Invoke-KitCheck {
                             "'$manifestPath', як записано в v8storagekit.yaml"
                         }
                         & $add warn storage-path ("$tag`: каталог сховища недоступний на цій машині: $pathNote. " +
-                            "Якщо шлях правильний, а диска зараз немає — перевизначте його в v8storagekit.local.yaml під storages: $($src.Key); " +
+                            "Якщо шлях правильний, а диска зараз немає — перевизначте його в накладці storages: $($src.Key): { path: … }; " +
                             'якщо диск є, а шлях помилковий — виправте v8storagekit.yaml.')
                     }
                     if (Test-KitBranchExists -RepoRoot $root -Branch $src.Branch) {

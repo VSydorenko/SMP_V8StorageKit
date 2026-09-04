@@ -143,8 +143,25 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         $o.Infobases.Count | Should -Be 2
         $o.Infobases['devUNFru'].Connection | Should -Be 'Srvr="VSDEV";Ref="SMP_ruUNF_sydorenko";'
         $o.Infobases['devUNFru'].User | Should -Be 'Абдулов (директор)'
-        $o.Storages['SMP_BankExchange_SMB'] | Should -Be 'D:\mirror\СМП_BankExchange_SMB'
+        $o.Storages['SMP_BankExchange_SMB'].Path | Should -Be 'D:\mirror\СМП_BankExchange_SMB'
         $o.Workspaces['SMP_BankExchange_SMB'].AgentBaseTemplate | Should -Be 'D:\dumps\UNF_demo.dt'
+    }
+
+    It 'storages.<ключ>: рядок — лише шлях; мапа — path/user/password; невідомий ключ мапи — зупинка' {
+        $p = Write-Yaml 'storages-forms.yaml' @(
+            'storages:'
+            "  A: 'D:\mirror\A'"
+            '  B:'
+            "    path: 'D:\mirror\B'"
+            "    user: 'Сидоренко'"
+            "    password: 'secret'"
+            '  C: { user: gitbot }')
+        $o = Read-KitLocalOverlay -Path $p
+        $o.Storages['A'].Path | Should -Be 'D:\mirror\A';  $o.Storages['A'].User | Should -BeNullOrEmpty
+        $o.Storages['B'].Path | Should -Be 'D:\mirror\B';  $o.Storages['B'].User | Should -Be 'Сидоренко'; $o.Storages['B'].Password | Should -Be 'secret'
+        $o.Storages['C'].Path | Should -BeNullOrEmpty;     $o.Storages['C'].User | Should -Be 'gitbot'
+        $bad = Write-Yaml 'storages-bad.yaml' @('storages:', '  A: { path: x, pwd: y }')
+        { Read-KitLocalOverlay -Path $bad } | Should -Throw "*'pwd'*path, user, password*"
     }
 
     It 'порожня накладка — порожні таблиці, не помилка' {

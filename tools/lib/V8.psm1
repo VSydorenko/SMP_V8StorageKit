@@ -159,6 +159,16 @@ function Assert-NoLicenseProblem {
     }
 }
 
+function Hide-V8Secrets {
+    <#
+    .SYNOPSIS
+        Маскує паролі в рядку аргументів платформи — для Write-Verbose і текстів зупинок.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$ArgLine)
+    $ArgLine -replace '(/P|/ConfigurationRepositoryP)\s+"[^"]*"', '$1 "***"'
+}
+
 function Invoke-V8Designer {
     [CmdletBinding()]
     param(
@@ -183,7 +193,7 @@ function Invoke-V8Designer {
     $parts += '/Out "{0}"' -f $log
 
     $argLine = $parts -join ' '
-    Write-Verbose "1cv8 $argLine"
+    Write-Verbose "1cv8 $(Hide-V8Secrets -ArgLine $argLine)"
 
     $proc = Start-Process -FilePath $V8Path -ArgumentList $argLine `
         -Wait -NoNewWindow -PassThru
@@ -267,4 +277,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Read-V8LocalConnection, Read-V8LocalStoragePath, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase
+Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Read-V8LocalConnection, Read-V8LocalStoragePath, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase

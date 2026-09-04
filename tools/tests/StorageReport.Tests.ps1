@@ -223,4 +223,26 @@ Describe 'Get-StorageReportArguments — з розширенням і без' {
         $a[3] | Should -Be '/ConfigurationRepositoryReport "C:\w\r.mxl" -NBegin 1 -IncludeCommentLinesWithDoubleSlash'
         ($a -join ' ') | Should -Not -Match '-Extension'
     }
+
+    It 'пароль сховища йде в /ConfigurationRepositoryP; без нього — порожні лапки' {
+        (Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'u' -StoragePassword 'secret')[2] | Should -Be '/ConfigurationRepositoryP "secret"'
+        (Get-StorageReportArguments -ReportPath 'C:\w\r.mxl' -StoragePath 'R:\S' -StorageUser 'u')[2] | Should -Be '/ConfigurationRepositoryP ""'
+    }
+}
+
+Describe 'Get-StorageVersions — відмова автентифікації сховища' {
+    # Той самий прийом мокування, що в Describe I1 вище: Invoke-V8Designer мокається в
+    # приватній області модуля StorageReport, без звернення до платформи. Тут звіт
+    # НЕ копіюється (mock не пише reportPath) — саме так падає справжня автентифікація:
+    # /ConfigurationRepositoryReport не будує файл, платформа лишає повідомлення в log.
+    It 'платформа відповідає «Ошибка аутентификации» — зупинка називає сховище й користувача, БЕЗ пароля в тексті' {
+        Mock -ModuleName StorageReport Invoke-V8Designer {
+            [pscustomobject]@{ ExitCode = 1; Output = 'Ошибка аутентификации в хранилище конфигурации' }
+        }
+        $workDir = Join-Path $TestDrive 'get-storage-versions-auth'
+
+        { Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'R:\S' -StorageUser 'someuser' `
+            -StoragePassword 'secret' -WorkDir $workDir } |
+            Should -Throw "*R:\S*відхилило користувача 'someuser'*gitbot*storage.user*v8storagekit.local.yaml*storages.<ключ>.password*"
+    }
 }

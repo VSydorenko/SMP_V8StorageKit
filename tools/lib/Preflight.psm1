@@ -130,22 +130,26 @@ function Invoke-KitPreflight {
                                   "$($ws.Path)/v8project.yaml (є: $($project.SourceSets.Name -join ', ')).")
                 continue
             }
-            $storagePath = $src.StoragePath
+            $storagePath = $src.StoragePath; $storageUser = $src.StorageUser; $storagePassword = ''
             if ($src.Truth -eq 'storage' -and $ctx.Overlay -and $ctx.Overlay.Storages.ContainsKey($src.Key)) {
-                $storagePath = $ctx.Overlay.Storages[$src.Key]
+                $ov = $ctx.Overlay.Storages[$src.Key]
+                if ($ov.Path)     { $storagePath = $ov.Path }
+                if ($ov.User)     { $storageUser = $ov.User }
+                if ($ov.Password) { $storagePassword = $ov.Password }
             }
             $sources.Add([pscustomobject]@{
-                Key         = $src.Key
-                Truth       = $src.Truth
-                Type        = $set.Type
-                Workspace   = $ws.Path
-                Path        = $set.Path
-                RepoPath    = "$($ws.Path)/$($set.Path)"
-                FullPath    = $set.FullPath
-                StoragePath = $storagePath
-                StorageUser = $src.StorageUser
-                DumpFrom    = $src.DumpFrom
-                Branch      = $(if ($src.Truth -eq 'storage') { "storage/$($src.Key)" } else { $null })
+                Key             = $src.Key
+                Truth           = $src.Truth
+                Type            = $set.Type
+                Workspace       = $ws.Path
+                Path            = $set.Path
+                RepoPath        = "$($ws.Path)/$($set.Path)"
+                FullPath        = $set.FullPath
+                StoragePath     = $storagePath
+                StorageUser     = $storageUser
+                StoragePassword = $storagePassword
+                DumpFrom        = $src.DumpFrom
+                Branch          = $(if ($src.Truth -eq 'storage') { "storage/$($src.Key)" } else { $null })
             })
         }
         $workspaces.Add([pscustomobject]@{

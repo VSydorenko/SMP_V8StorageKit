@@ -238,6 +238,7 @@ function Get-StorageReportArguments {
         [Parameter(Mandatory)][string]$ReportPath,
         [Parameter(Mandatory)][string]$StoragePath,
         [Parameter(Mandatory)][string]$StorageUser,
+        [string]$StoragePassword = '',
         [string]$ExtensionName = ''
     )
     # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport
@@ -257,7 +258,7 @@ function Get-StorageReportArguments {
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $StorageUser
-        '/ConfigurationRepositoryP ""'
+        '/ConfigurationRepositoryP "{0}"' -f $StoragePassword
         $report
     )
 }
@@ -269,6 +270,7 @@ function Get-StorageVersions {
         [Parameter(Mandatory)][string]$StoragePath,
         [string]$ExtensionName = '',
         [Parameter(Mandatory)][string]$StorageUser,
+        [string]$StoragePassword = '',
         [Parameter(Mandatory)][string]$WorkDir
     )
 
@@ -279,9 +281,16 @@ function Get-StorageVersions {
     # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
     # яка його й формує.
     $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments (Get-StorageReportArguments `
-        -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser -ExtensionName $ExtensionName)
+        -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser `
+        -StoragePassword $StoragePassword -ExtensionName $ExtensionName)
 
     if ($result.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $reportPath)) {
+        if ($result.Output -match 'Ошибка аутентификации в хранилище') {
+            throw ("Сховище $StoragePath відхилило користувача '$StorageUser'. Заведіть у сховищі " +
+                   'користувача gitbot (читання, порожній пароль) або вкажіть наявного через ' +
+                   'storage.user у маніфесті; пароль — лише в v8storagekit.local.yaml ' +
+                   '(storages.<ключ>.password)')
+        }
         throw "Не вдалося побудувати звіт сховища $StoragePath : $($result.Output)"
     }
 

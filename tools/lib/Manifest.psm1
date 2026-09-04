@@ -188,11 +188,22 @@ function Read-KitLocalOverlay {
     }
 
     if ($o.Contains('storages')) {
-        if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях»." }
+        if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях або { path, user, password }»." }
         foreach ($key in @($o['storages'].Keys)) {
-            $p = [string]$o['storages'][$key]
-            if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$key порожній." }
-            $result.Storages[[string]$key] = $p
+            $v = $o['storages'][$key]
+            $entry = [pscustomobject]@{ Path = $null; User = $null; Password = $null }
+            if ($v -is [System.Collections.IDictionary]) {
+                Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$key"
+                if ($v.Count -eq 0) { throw "$where — storages.$key порожній: вкажіть path, user або password." }
+                foreach ($k in 'path', 'user', 'password') {
+                    if ($v.Contains($k) -and -not [string]::IsNullOrWhiteSpace([string]$v[$k])) { $entry.($k.Substring(0,1).ToUpper() + $k.Substring(1)) = [string]$v[$k] }
+                }
+            } else {
+                $p = [string]$v
+                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$key порожній." }
+                $entry.Path = $p
+            }
+            $result.Storages[[string]$key] = $entry
         }
     }
 
