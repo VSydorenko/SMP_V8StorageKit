@@ -40,6 +40,12 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
 - **Серверна база агента з `.dt`** — спайк, не робота (§13): `provision` на `Srvr=` зупиняється з
   поясненням.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Kit не покладається на git-конфіг машини споживача (знахідка живого прогону B2):** `core.quotepath`
+  типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`, `status`, `diff` —
+  на репозиторії 1С це 240+ хибних «файлів поза шляхом». Кожен виклик git, що читає або друкує шляхи, або
+  бере `-z` (NUL-роздільник, шляхи сирі), або виставляє `-c core.quotepath=false` по-викличну; те саме
+  вже діє для `-c core.autocrlf=false`. Фікстурам заборонено виставляти `core.quotepath` — це маскувало б
+  дефект (у SMP_BankExchange він був замаскований локальним `.git/config`).
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -702,7 +708,7 @@ function Invoke-KitCanon {
                 throw "Канонізація $($t.Key) не вдалася: $($r.Output)"
             }
             $files = (Get-ChildItem -LiteralPath $t.FullPath -Recurse -File).Count
-            $changed = @(git -C $root status --porcelain -- $t.RepoPath 2>$null).Count
+            $changed = @(git -C $root -c core.quotepath=false status --porcelain -z -- $t.RepoPath 2>$null | Where-Object { $_ }).Count
             Write-Host "  $($t.Key): файлів $files, змінено файлів: $changed" -ForegroundColor Green
             $done.Add([pscustomobject]@{ Key = $t.Key; Files = $files; Changed = $changed })
         }

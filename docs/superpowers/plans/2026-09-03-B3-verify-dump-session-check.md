@@ -33,6 +33,12 @@
 - **Ліцензія:** `Assert-NoLicenseProblem` на кожному виклику платформи.
 - **`ConfigDumpInfo.xml` і `DumpFilesIndex.txt`** виключаються з порівняння завжди.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Kit не покладається на git-конфіг машини споживача (знахідка живого прогону B2):** `core.quotepath`
+  типово `true`, і git екранує неASCII-шляхи вісімково в лапках у `ls-tree`, `ls-files`, `status`, `diff` —
+  на репозиторії 1С це 240+ хибних «файлів поза шляхом». Кожен виклик git, що читає або друкує шляхи, або
+  бере `-z` (NUL-роздільник, шляхи сирі), або виставляє `-c core.quotepath=false` по-викличну; те саме
+  вже діє для `-c core.autocrlf=false`. Фікстурам заборонено виставляти `core.quotepath` — це маскувало б
+  дефект (у SMP_BankExchange він був замаскований локальним `.git/config`).
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -585,6 +591,7 @@ function Export-KitTree {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
+    # -z: шляхи сирі, NUL-роздільник — незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
     $raw = git -C $RepoRoot ls-tree -r -z $Ref -- $prefix 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом ${LASTEXITCODE}: $($raw -join "`n")" }
     $entries = @((@($raw) -join '') -split "`0" | Where-Object { $_ })
@@ -663,6 +670,7 @@ function Get-KitBinaryPaths {
     if ($RelativePaths.Count -eq 0) { return , $set }   # кома навмисно (HashSet, F7)
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     $full = @($RelativePaths | ForEach-Object { "$prefix/$_" })
+    # -z і тут: без нього шляхи у відповіді були б екрановані за core.quotepath.
     $out = $full | git -C $RepoRoot check-attr -z binary --stdin 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git check-attr завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
     $fields = @((@($out) -join '') -split "`0")
