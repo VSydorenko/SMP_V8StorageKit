@@ -33,6 +33,14 @@
 - **Ліцензія:** `Assert-NoLicenseProblem` на кожному виклику платформи.
 - **`ConfigDumpInfo.xml` і `DumpFilesIndex.txt`** виключаються з порівняння завжди.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Уроки B1, обов'язкові для виконавця:**
+  1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
+     випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
+  2. *Дисципліна коміту в спільній робочій копії* — лише `git add <явний перелік>` +
+     `git commit --only -- <ті самі шляхи>`; ніяких `-a`/`-A`; після `git update-index` — комітити негайно.
+  3. *Кеш плагіна — знімок, не лінк:* після кожного блоку (і перед живою перевіркою скілів/хука) —
+     `claude plugin install v8storagekit@smp-v8storagekit` (або `update`) і **нова сесія**; без цього сесії
+     бачать попередню версію робочої копії.
 - **Контракт командного модуля — суворий (F12):** усе людське команда пише через `Write-Host`; у success
   stream повертається лише `$null` або `{ExitCode:int; …}`. Диспетчер `kit.ps1` забирає success stream у
   змінну й **не виводить** його — рядок, повернений командою (у т.ч. `Write-Output`), до stdout не дійде.
@@ -491,7 +499,7 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $script:Binary.Add('Ext/pic.png') | Out-Null
     }
 
-    It 'п’ять категорій, бінарник із різницею лише в CR — змістовна, службові файли не рахуються' {
+    It 'п''ять категорій, бінарник із різницею лише в CR — змістовна, службові файли не рахуються' {
         $r = Compare-KitTrees -DumpDir $script:Dump -TreeDir $script:Tree -BinaryPaths $script:Binary
         $r.Equal | Should -Be 1
         $r.CrOnly | Should -Be @('cr-only.xml')
@@ -651,7 +659,7 @@ function Get-KitBinaryPaths {
     # HashSet — IEnumerable, pipeline розгорнув би його в рядки; кома тримає об'єкт цілим (F7).
     # Викликачі беруть результат присвоєнням: $binary = Get-KitBinaryPaths …
     $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($RelativePaths.Count -eq 0) { return , $set }
+    if ($RelativePaths.Count -eq 0) { return , $set }   # кома навмисно (HashSet, F7)
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     $full = @($RelativePaths | ForEach-Object { "$prefix/$_" })
     $out = $full | git -C $RepoRoot check-attr -z binary --stdin 2>&1
@@ -661,7 +669,7 @@ function Get-KitBinaryPaths {
     for ($i = 0; $i + 2 -lt $fields.Count; $i += 3) {
         if ($fields[$i + 2] -eq 'set') { $set.Add($fields[$i].Substring($prefix.Length).TrimStart('/')) | Out-Null }
     }
-    , $set
+    , $set   # кома навмисно: HashSet не має розгортатись pipeline; викликач бере присвоєнням (F7)
 }
 
 function Compare-KitTrees {
@@ -869,7 +877,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r.Output | Should -BeLike '*truth: storage*'
     }
 
-    It '-Ref невідомий — зупинка з його ім’ям' {
+    It '-Ref невідомий — зупинка з його ім''ям' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-ref') -WithHooks
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         $r = Invoke-Verify -Repo $repo -More @('-Ref', 'nope')
@@ -1091,7 +1099,7 @@ git commit -m "B3: kit verify — інваріант ref ≡ сховище з �
 
 ```powershell
 #Requires -Version 7
-Describe 'kit dump — прев’ю і штатні зупинки без платформи' {
+Describe 'kit dump — прев''ю і штатні зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -1103,7 +1111,7 @@ Describe 'kit dump — прев’ю і штатні зупинки без пл�
         $script:Overlay = "infobases:`n  dev:`n    connection: 'File=""C:\bases\demo"";'`n    user: 'Адмін'"
     }
 
-    It 'прев’ю: база, ціль і попередження про 20–40 хвилин; нічого не змінено' {
+    It 'прев''ю: база, ціль і попередження про 20–40 хвилин; нічого не змінено' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'preview') -OverlayText $script:Overlay -WithHooks
         $r = Invoke-Dump -Repo $repo
         $r.ExitCode | Should -Be 0

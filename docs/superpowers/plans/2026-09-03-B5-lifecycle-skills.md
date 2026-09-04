@@ -41,6 +41,14 @@
 - **Скіли ітерують маніфест** (`kit.ps1 check` / `session-check` показують воркспейси й джерела) —
   розгалуження «клієнт/продукт» у логіці немає (принцип 5).
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Уроки B1, обов'язкові для виконавця:**
+  1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
+     випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
+  2. *Дисципліна коміту в спільній робочій копії* — лише `git add <явний перелік>` +
+     `git commit --only -- <ті самі шляхи>`; ніяких `-a`/`-A`; після `git update-index` — комітити негайно.
+  3. *Кеш плагіна — знімок, не лінк:* після кожного блоку (і перед живою перевіркою скілів/хука) —
+     `claude plugin install v8storagekit@smp-v8storagekit` (або `update`) і **нова сесія**; без цього сесії
+     бачать попередню версію робочої копії.
 
 ### Рішення, узгоджені з архітектором
 
@@ -125,7 +133,7 @@ Describe 'kit install-hooks — хуки захисту й хук старту �
             $out = & pwsh -NoProfile -File $script:Kit install-hooks -RepoRoot $Repo @More 2>&1 | Out-String
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
     }
-    It 'прев’ю перелічує, що буде покладено, і нічого не кладе' {
+    It 'прев''ю перелічує, що буде покладено, і нічого не кладе' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'preview')
         $r = Invoke-InstallHooks -Repo $repo
         $r.ExitCode | Should -Be 0
@@ -239,7 +247,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         function script:Skill([string]$Name) { ($script:Skills | Where-Object Name -eq $Name).Text }
     }
 
-    It 'frontmatter: name = ім’я теки, description з тригерами' {
+    It 'frontmatter: name = ім''я теки, description з тригерами' {
         foreach ($s in $script:Skills) {
             $s.Text | Should -Match "(?m)^name:\s*$([regex]::Escape($s.Name))\s*$"
             $s.Text | Should -Match '(?m)^description:.*Тригер'
@@ -278,7 +286,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'гітігноровано'
             $t | Should -Match 'мовчазного дефолту немає|Мовчазних дефолтів'
         }
-        It 'шаблон v8project.yaml: база агента File=build/ib, name EXTENSION = ім’я розширення' {
+        It 'шаблон v8project.yaml: база агента File=build/ib, name EXTENSION = ім''я розширення' {
             $t = Skill 'onboarding'
             $t | Should -Match "connection:\s*'File=build/ib'"
             $t | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
@@ -476,7 +484,7 @@ git commit -m "B5: скіл onboarding — маніфест з питанням 
 
 ```powershell
     Context 'sync' {
-        It 'session-check → прев’ю → -Apply лише на прохання; -MaxVersions; зупинки sync' {
+        It 'session-check → прев''ю → -Apply лише на прохання; -MaxVersions; зупинки sync' {
             $t = Skill 'sync'
             $t | Should -Match 'session-check'
             $t | Should -Match 'kit\.ps1" sync -RepoRoot \.'

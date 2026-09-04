@@ -40,6 +40,14 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
 - **Серверна база агента з `.dt`** — спайк, не робота (§13): `provision` на `Srvr=` зупиняється з
   поясненням.
 - **Версію не піднімати. `git push` — ні.** Робота в `feature/agent-contour`.
+- **Уроки B1, обов'язкові для виконавця:**
+  1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
+     випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
+  2. *Дисципліна коміту в спільній робочій копії* — лише `git add <явний перелік>` +
+     `git commit --only -- <ті самі шляхи>`; ніяких `-a`/`-A`; після `git update-index` — комітити негайно.
+  3. *Кеш плагіна — знімок, не лінк:* після кожного блоку (і перед живою перевіркою скілів/хука) —
+     `claude plugin install v8storagekit@smp-v8storagekit` (або `update`) і **нова сесія**; без цього сесії
+     бачать попередню версію робочої копії.
 - **Контракт командного модуля — суворий (F12):** усе людське команда пише через `Write-Host`; у success
   stream повертається лише `$null` або `{ExitCode:int; …}`. Диспетчер `kit.ps1` забирає success stream у
   змінну й **не виводить** його — рядок, повернений командою (у т.ч. `Write-Output`), до stdout не дійде.
@@ -149,7 +157,7 @@ Describe 'V8Project.psm1 — шлях і ключ бази агента' {
     }
     AfterEach { Remove-Item (Join-Path $script:Ws 'v8project.local.yaml') -ErrorAction SilentlyContinue }
 
-    It 'File=build/ib розв’язується від теки воркспейсу; ключ /F абсолютний' {
+    It 'File=build/ib розв''язується від теки воркспейсу; ключ /F абсолютний' {
         $r = Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'File=build/ib'
         $r.Kind | Should -Be 'file'
         $r.Path | Should -Be ([System.IO.Path]::GetFullPath((Join-Path $script:Ws 'build/ib')))
@@ -237,7 +245,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
 
 ```powershell
 #Requires -Version 7
-Describe 'kit provision — прев’ю і зупинки без платформи' {
+Describe 'kit provision — прев''ю і зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -246,13 +254,13 @@ Describe 'kit provision — прев’ю і зупинки без платфо�
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
     }
 
-    It 'прев’ю: порожня файлова база під воркспейсом, без шаблону' {
+    It 'прев''ю: порожня файлова база під воркспейсом, без шаблону' {
         $r = Invoke-Provision -Repo (New-KitFakeRepo -Root (Join-Path $TestDrive 'preview') -WithHooks)
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*Alpha_SMB*build*ib*порожн*-Apply*'
     }
 
-    It 'шаблон із накладки показується в прев’ю; -Template перекриває його' {
+    It 'шаблон із накладки показується в прев''ю; -Template перекриває його' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl') -OverlayText "workspaces:`n  Alpha_SMB:`n    agentBase:`n      template: 'D:\dumps\demo.dt'" -WithHooks
         (Invoke-Provision -Repo $repo).Output | Should -BeLike '*D:\dumps\demo.dt*'
         (Invoke-Provision -Repo $repo -More @('-Template', 'E:\other.dt')).Output | Should -BeLike '*E:\other.dt*'
@@ -266,7 +274,7 @@ Describe 'kit provision — прев’ю і зупинки без платфо�
         Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
     }
 
-    It 'база вже є, без -Force — зупинка з підказкою; з -Force без -Apply — лише прев’ю' {
+    It 'база вже є, без -Force — зупинка з підказкою; з -Force без -Apply — лише прев''ю' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'exists') -WithHooks
         New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
         Set-Content (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') -Value 'x'
@@ -284,7 +292,7 @@ Describe 'kit provision — прев’ю і зупинки без платфо�
         $r.Output | Should -BeLike '*Srvr*кластер*'
     }
 
-    It '-Remember без -Template — зупинка: нема що запам’ятовувати' {
+    It '-Remember без -Template — зупинка: нема що запам''ятовувати' {
         $r = Invoke-Provision -Repo (New-KitFakeRepo -Root (Join-Path $TestDrive 'remember') -WithHooks) -More @('-Remember')
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*-Template*'
@@ -564,7 +572,7 @@ git commit -m "B4: база агента за вказівником Уніки 
 
 ```powershell
 #Requires -Version 7
-Describe 'kit canon — прев’ю і зупинки без платформи' {
+Describe 'kit canon — прев''ю і зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -573,7 +581,7 @@ Describe 'kit canon — прев’ю і зупинки без платформ�
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
     }
 
-    It 'прев’ю: розширення канонізується, vendor пропускається з поясненням' {
+    It 'прев''ю: розширення канонізується, vendor пропускається з поясненням' {
         $r = Invoke-Canon -Repo (New-KitFakeRepo -Root (Join-Path $TestDrive 'preview') -WithHooks)
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*Alpha_SMB/cfe/src*'
@@ -750,7 +758,7 @@ Describe 'kit build — виявлення й збір артефактів бе
         }
     }
 
-    It 'знаходить обробки за типом source-set, а не за ім’ям теки epf' {
+    It 'знаходить обробки за типом source-set, а не за ім''ям теки epf' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'discover') -Workspaces $script:Ws -WithHooks
         foreach ($n in 'Обробка_А', 'Обробка_Б') {
             Set-Content -LiteralPath (Join-Path $repo "tools/src/$n.xml") -Value '<x/>' -Encoding UTF8
@@ -812,7 +820,7 @@ function Get-KitEpfDescriptors {
     param([Parameter(Mandatory)]$Source)
     # Кома навмисно: викликач робить foreach ($d in (Get-KitEpfDescriptors …)) — (…), НЕ @(…) — див. F7.
     if (-not (Test-Path -LiteralPath $Source.FullPath)) { return , @() }
-    , @(Get-ChildItem -LiteralPath $Source.FullPath -Filter '*.xml' -File | Sort-Object Name | ForEach-Object {
+    , @(Get-ChildItem -LiteralPath $Source.FullPath -Filter '*.xml' -File | Sort-Object Name | ForEach-Object {   # кома навмисно (F7)
         [pscustomobject]@{ Name = $_.BaseName; Path = $_.FullName } })
 }
 
@@ -1027,7 +1035,7 @@ Describe 'Hooks.psm1 — встановлення й аудит шима' {
 `Templates.Tests.ps1`, новий Describe:
 
 ```powershell
-Describe 'templates/settings.json і using-v8storagekit — хук прив’язаний до репозиторію, не до плагіна (§7)' {
+Describe 'templates/settings.json і using-v8storagekit — хук прив''язаний до репозиторію, не до плагіна (§7)' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
     It 'settings.json споживача має hooks.SessionStart на .claude/hooks/session-start.ps1 з matcher startup|clear|compact' {
