@@ -317,7 +317,9 @@ Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgume
   `$ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir`;
 - `$extName` для `Get-StorageVersions` → `-ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' })`;
 - прив'язка: `$bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src` після `New-KitStorageWorktree`, у `finally` — `Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound` перед `Remove-KitStorageWorktree`;
-- тіло циклу версій: рядки з `$upd`, `Clear-KitWorktreeSource`, `$dump` → один виклик
+- тіло циклу версій: рядки з `$upd`, `Clear-KitWorktreeSource`, `$dump` → один виклик (після цього `sync`
+  `Clear-KitWorktreeSource` не кличе; функція **лишається** експортованою й покритою тестами як сервісний
+  хелпер worktree — не мертвий код, а частина контракту StorageBranch.psm1)
   `$null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path`.
 
 `module-order.txt`: додати `StoragePlatform` після `StorageReport`. У `ModuleImportOrder.Tests.ps1`
@@ -344,7 +346,7 @@ Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgume
 - [ ] **Step 6: Коміт**
 
 ```bash
-git add tools/lib/StoragePlatform.psm1 tools/commands/sync.psm1 tools/lib/module-order.txt tools/tests/StoragePlatform.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1
+git add tools/lib/StoragePlatform.psm1 tools/commands/sync.psm1 tools/lib/module-order.txt tools/tests/StoragePlatform.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1 tools/lib/StorageBranch.psm1 tools/lib/GitMerge.psm1 tools/tests/StorageBranch.Tests.ps1
 git commit -m "B3: StoragePlatform.psm1 — спільний шар «версія сховища → дамп» для sync і verify"
 ```
 
@@ -478,9 +480,10 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
     }
 
     It 'байти дорівнюють блобу навіть під * text eol=crlf і core.autocrlf=true; кириличні шляхи й вкладені теки цілі' {
+        # ПОРЯДОК ВАЖЛИВИЙ (рев'ю B3, доведено пробою): явний атрибут `text` нормалізує блоб у LF на вході
+        # незалежно від core.autocrlf, тож .gitattributes кладеться ПІСЛЯ коміту змішаного файла. Переставляти
+        # кроки можна; послаблювати твердження нижче — ні: вони і є гарантія, заради якої існує Export-KitTree.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'raw')
-        git -C $repo config core.autocrlf true
-        Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Value '* text eol=crlf' -Encoding ascii
         $dir = Join-Path $repo 'Alpha_SMB/cfe/src/Forms/Форма/Ext'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
@@ -488,6 +491,12 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
         git -C $repo -c core.autocrlf=false add -A
         git -C $repo commit -q -m 'змішані кінці рядків як є'
         $rawId = (git -C $repo hash-object --no-filters (Join-Path $dir 'Form.xml')).Trim()
+        (git -C $repo rev-parse 'main:Alpha_SMB/cfe/src/Forms/Форма/Ext/Form.xml').Trim() | Should -Be $rawId -Because 'блоб мусить лишитись змішаним — інакше тест перевіряє не те'
+        # Тепер — умови, за яких checkout і archive конвертують, а Export-KitTree не має:
+        git -C $repo config core.autocrlf true
+        Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Value '* text eol=crlf' -Encoding ascii
+        git -C $repo add .gitattributes
+        git -C $repo commit -q -m 'політика eol=crlf після факту'
 
         $dest = Join-Path $repo 'build/verify/x/tree'
         $n = Export-KitTree -RepoRoot $repo -Ref 'main' -RepoPath 'Alpha_SMB/cfe/src' -Destination $dest
@@ -531,7 +540,7 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         W $script:Dump 'ConfigDumpInfo.xml' $lf                                          # завжди ігнорується
         W $script:Tree 'DumpFilesIndex.txt' $lf                                          # завжди ігнорується
 
-        $script:Binary = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $script:Binary = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         $script:Binary.Add('Ext/pic.png') | Out-Null
     }
 
@@ -539,7 +548,7 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $r = Compare-KitTrees -DumpDir $script:Dump -TreeDir $script:Tree -BinaryPaths $script:Binary
         $r.Equal | Should -Be 1
         $r.CrOnly | Should -Be @('cr-only.xml')
-        $r.Content | Should -Be @('Ext/pic.png', 'content.bsl')
+        $r.Content | Should -Be @('Ext/pic.png', 'content.bsl')   # ordinal: 'E' (0x45) < 'c' (0x63); Sort-Object дав би навпаки
         $r.OnlyInDump | Should -Be @('only-dump.xml')
         $r.OnlyInTree | Should -Be @('only-tree.xml')
         $r.Total | Should -Be 6
@@ -597,6 +606,37 @@ function Copy-KitStreamBytes {
     }
 }
 
+function Invoke-KitGitProcess {
+    <#
+    .SYNOPSIS
+        git як .NET Process: NUL-роздільники на вході (для -z --stdin), UTF-8 без перекодування PowerShell на
+        виході, stderr окремо, код виходу — у результаті. Для потокових байтів (cat-file --batch) є Export-KitTree.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [AllowEmptyCollection()][string[]]$StdinRecords = @()
+    )
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = 'git'
+    foreach ($a in (@('-C', $RepoRoot) + $Arguments)) { $psi.ArgumentList.Add($a) }
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $psi.StandardInputEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        foreach ($rec in $StdinRecords) { $proc.StandardInput.Write($rec); $proc.StandardInput.Write([char]0) }
+        $proc.StandardInput.Close()
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        $proc.WaitForExit()
+        [pscustomobject]@{ ExitCode = $proc.ExitCode; Stdout = $stdout; Stderr = $errTask.Result }
+    } finally { $proc.Dispose() }
+}
+
 function Export-KitTree {
     <#
     .SYNOPSIS
@@ -621,8 +661,8 @@ function Export-KitTree {
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     # -z: шляхи сирі, NUL-роздільник — незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
-    $raw = git -C $RepoRoot -c core.quotepath=false ls-tree -r -z $Ref -- $prefix 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом ${LASTEXITCODE}: $($raw -join "`n")" }
+    $raw = git -C $RepoRoot -c core.quotepath=false ls-tree -r -z $Ref -- $prefix 2>$null   # stderr не змішувати з даними
+    if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом ${LASTEXITCODE}." }
     $entries = @((@($raw) -join '') -split "`0" | Where-Object { $_ })
     if ($entries.Count -eq 0) { return 0 }
 
@@ -632,10 +672,13 @@ function Export-KitTree {
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
     $psi.StandardInputEncoding = [System.Text.Encoding]::ASCII
     $proc = [System.Diagnostics.Process]::Start($psi)
+    $errTask = $proc.StandardError.ReadToEndAsync()   # читати асинхронно, інакше повний буфер stderr заблокує git
     $stdin = $proc.StandardInput
     $out   = $proc.StandardOutput.BaseStream
+    $exit  = -1; $stderr = ''
 
     $count = 0
     try {
@@ -663,8 +706,11 @@ function Export-KitTree {
     } finally {
         $stdin.Close()
         $proc.WaitForExit()
+        $exit = $proc.ExitCode; $stderr = $errTask.Result
         $proc.Dispose()
     }
+    # .NET Process — теж нативний виклик: код виходу перевіряється, як і в кожного git.
+    if ($exit -ne 0) { throw "git cat-file --batch завершився з кодом ${exit}: $stderr" }
     $count
 }
 
@@ -695,14 +741,16 @@ function Get-KitBinaryPaths {
     )
     # HashSet — IEnumerable, pipeline розгорнув би його в рядки; кома тримає об'єкт цілим (F7).
     # Викликачі беруть результат присвоєнням: $binary = Get-KitBinaryPaths …
-    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     if ($RelativePaths.Count -eq 0) { return , $set }   # кома навмисно (HashSet, F7)
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
-    $full = @($RelativePaths | ForEach-Object { "$prefix/$_" })
-    # -z і тут: без нього шляхи у відповіді були б екрановані за core.quotepath.
-    $out = $full | git -C $RepoRoot -c core.quotepath=false check-attr -z binary --stdin 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git check-attr завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
-    $fields = @((@($out) -join '') -split "`0")
+    $records = @($RelativePaths | ForEach-Object { "$prefix/$_" })
+    # -z перемикає і ВХІД на NUL-роздільник: подані через конвеєр рядки з \n git читає як ОДИН шлях, і набір
+    # завжди порожній (рев'ю B3, доведено пробою). Тому stdin — через Process із NUL між записами; -z лишається,
+    # бо без нього відповідь була б екранована за core.quotepath.
+    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'check-attr', '-z', 'binary', '--stdin') -StdinRecords $records
+    if ($r.ExitCode -ne 0) { throw "git check-attr завершився з кодом $($r.ExitCode): $($r.Stderr)" }
+    $fields = @($r.Stdout -split "`0")
     # трійки: <шлях> \0 binary \0 <значення> \0
     for ($i = 0; $i + 2 -lt $fields.Count; $i += 3) {
         if ($fields[$i + 2] -eq 'set') { $set.Add($fields[$i].Substring($prefix.Length).TrimStart('/')) | Out-Null }
@@ -723,9 +771,11 @@ function Compare-KitTrees {
         [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$BinaryPaths
     )
 
-    $dump = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::OrdinalIgnoreCase)
-    $tree = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::OrdinalIgnoreCase)
-    $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::OrdinalIgnoreCase)
+    # Ordinal, не IgnoreCase: git регістрочутливий, і два файли, що різняться лише регістром, у дереві ref
+    # можуть співіснувати — злиття їх в один сховало б розбіжність (рев'ю B3).
+    $dump = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::Ordinal)
+    $tree = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::Ordinal)
+    $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::Ordinal)
     $all.UnionWith($tree)
 
     $equal = 0
@@ -734,7 +784,9 @@ function Compare-KitTrees {
     $onlyDump = [System.Collections.Generic.List[string]]::new()
     $onlyTree = [System.Collections.Generic.List[string]]::new()
 
-    foreach ($rel in ($all | Sort-Object)) {
+    # Sort-Object порівнює за культурою ('content' < 'Ext'); ordinal — детермінований і збігається з git.
+    $ordered = [System.Linq.Enumerable]::OrderBy([string[]]$all, [Func[string, string]] { param($x) $x }, [System.StringComparer]::Ordinal)
+    foreach ($rel in $ordered) {
         $inDump = $dump.Contains($rel); $inTree = $tree.Contains($rel)
         if ($inDump -and -not $inTree) { $onlyDump.Add($rel); continue }
         if ($inTree -and -not $inDump) { $onlyTree.Add($rel); continue }
@@ -757,7 +809,7 @@ function Compare-KitTrees {
     }
 }
 
-Export-ModuleMember -Function Export-KitTree, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
+Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
 ```
 
 > Фільтрація CR через `Where-Object` на великих файлах повільна; якщо дамп у 500 файлів
@@ -867,8 +919,10 @@ function Get-KitVerifyVersion {
     $value = (git -C $RepoRoot log -1 --format='%(trailers:key=Storage-Version,valueonly)' $base 2>&1 | Out-String).Trim()
     if ($value -notmatch '^\d+$') { throw "Коміт $($base.Substring(0,7)) (merge-base '$Ref' і $Branch) не має трейлера Storage-Version:. Розбір: kit check." }
 
-    $newer = @(git -C $RepoRoot log --reverse --format='%(trailers:key=Storage-Version,valueonly)' "$base..$Branch" 2>$null |
-        ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+    $newerRaw = git -C $RepoRoot log --reverse --format='%(trailers:key=Storage-Version,valueonly)' "$base..$Branch" 2>$null
+    # Без перевірки збій git дав би порожній список → хибний equal, коли сховище насправді попереду (рев'ю B3).
+    if ($LASTEXITCODE -ne 0) { throw "git log $($base.Substring(0,7))..$Branch завершився з кодом ${LASTEXITCODE} — verify не може визначити, чи є нові версії." }
+    $newer = @(@($newerRaw) | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
 
     [pscustomobject]@{ Version = [int]$value; Commit = $base; NewerVersions = $newer }
 }
@@ -1072,11 +1126,15 @@ function Invoke-KitVerify {
         Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
         Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
         Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
+        if ($diff.OnlyInDump.Count -gt 0) {
+            Write-Host ("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
+                        "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch -ForegroundColor Yellow
+        }
 
         switch ($verdict) {
             'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
             'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; $anyAction = $true }
-            'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' попереду сховища (версія $ver): частина роботи ще не у сховищі. Зберіть артефакт (kit build / operation=make) і застосуйте залишок у сховищі." -ForegroundColor Yellow; $anyAction = $true }
+            'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: kit build / operation=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
             'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
         }
 
@@ -1475,22 +1533,29 @@ function Invoke-KitSessionCheck {
 
     foreach ($src in @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)) {
         $mirror = Test-KitBranchExists -RepoRoot $root -Branch $src.Branch
-        $lastMirror = $null
+        # Хук старту сесії: збій git тут — деградація до рядка «стан не прочитано», НЕ виняток (рев'ю B3).
+        $lastMirror = $null; $gitProblem = $null
         if ($mirror) {
             $iso = (git -C $root log -1 --format=%aI $src.Branch 2>$null | Out-String).Trim()
-            if ($iso) { $lastMirror = ([datetimeoffset]$iso).UtcDateTime }
+            if ($LASTEXITCODE -ne 0 -or -not $iso) { $gitProblem = "git log $($src.Branch) не відповів" }
+            else { $lastMirror = ([datetimeoffset]$iso).UtcDateTime }
         }
         $activity = Get-KitStorageActivity -StoragePath $src.StoragePath
         $newInStorage = $false
-        if ($activity.Accessible -and $activity.LatestObjectWrite) {
-            $newInStorage = (-not $mirror) -or ($activity.LatestObjectWrite -gt $lastMirror)
+        if ($activity.Accessible -and $activity.LatestObjectWrite -and -not $gitProblem) {
+            # $null у $lastMirror дав би -gt → $true: сигнал на порожньому місці; тому лише за наявної дати.
+            $newInStorage = (-not $mirror) -or ($null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror)
         }
         $unmerged = 0
-        if ($mirror -and $mainExists) {
-            $unmerged = [int]((git -C $root rev-list --count "$main..$($src.Branch)" 2>$null | Out-String).Trim())
+        if ($mirror -and $mainExists -and -not $gitProblem) {
+            $countRaw = (git -C $root rev-list --count "$main..$($src.Branch)" 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $countRaw -notmatch '^\d+$') { $gitProblem = "git rev-list $main..$($src.Branch) не відповів" }
+            else { $unmerged = [int]$countRaw }
         }
 
-        $text = if (-not $activity.Accessible) {
+        $text = if ($gitProblem) {
+            "- $($src.Key): стан git не прочитано ($gitProblem) — сигнал недоступний; розбір: kit check."
+        } elseif (-not $activity.Accessible) {
             "- $($src.Key): сховище недоступне на цій машині ($($activity.Reason)) — перевизначте шлях у v8storagekit.local.yaml (storages:)."
         } elseif (-not $mirror) {
             "- $($src.Key): дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply."
@@ -1509,7 +1574,7 @@ function Invoke-KitSessionCheck {
         $signals.Add([pscustomobject]@{
             Key = $src.Key; Branch = $src.Branch; MirrorExists = $mirror; LastMirrorDate = $lastMirror
             StorageWrite = $activity.LatestObjectWrite; NewInStorage = $newInStorage; UnmergedCommits = $unmerged
-            Accessible = $activity.Accessible; Text = $text
+            Accessible = $activity.Accessible; GitProblem = $gitProblem; Text = $text
         })
     }
 
