@@ -263,6 +263,11 @@ function Invoke-KitStorageCheckout {
     .SYNOPSIS
         Версія сховища → порожня тека: UpdateCfg -v N [-Extension], DumpConfigToFiles, без службових файлів платформи.
         Повертає кількість файлів у дампі.
+    .DESCRIPTION
+        ПАСТКА ПЛАТФОРМИ (спайк B2, 8.3.27.1644): /ConfigurationRepositoryUpdateCfg -v НЕ валідує аргумент —
+        `-v 1 2 3 … 65` (список замість числа) платформа приймає, повертає 0 і «успешно завершено». Тому
+        -Version тут типізований [int] (скаляр, масив у нього не пролізе), а викликачі передають рівно
+        $v.Version з циклу. Інваріант «одна версія — один коміт» тримає verify, не sync.
     #>
     [CmdletBinding()]
     param(
