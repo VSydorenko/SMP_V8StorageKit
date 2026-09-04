@@ -201,3 +201,33 @@ Describe 'Read-V8LocalConnection: неоднозначність у v8project.lo
         { Read-V8LocalConnection -Path $f } | Should -Throw -ExpectedMessage '*devInfobase*'
     }
 }
+
+Describe 'V8.psm1 — розпізнавання «база зайнята» (спека §5)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+
+    It 'російський, український і англійський тексти платформи розпізнаються' -ForEach @(
+        @{ Text = 'Ошибка блокировки информационной базы для конфигурирования. Информационная база уже открыта Конфигуратором' }
+        @{ Text = 'Не удалось монопольно заблокировать информационную базу' }
+        @{ Text = 'Помилка блокування інформаційної бази для конфігурування' }
+        @{ Text = 'Не вдалося монопольно заблокувати інформаційну базу' }
+        @{ Text = 'Error locking infobase for configuration. The infobase is already opened by Designer' }
+        @{ Text = 'Failed to lock the infobase exclusively' }
+    ) {
+        Test-V8InfobaseBusy -Output $Text | Should -BeTrue
+    }
+
+    It 'інший текст і порожній вивід — не «зайнято»' {
+        Test-V8InfobaseBusy -Output 'Неверные или отсутствующие параметры соединения' | Should -BeFalse
+        Test-V8InfobaseBusy -Output '' | Should -BeFalse
+    }
+
+    It 'Assert-V8InfobaseNotBusy: порада «закрийте Конфігуратор» першою, сирий текст — у кінці; на іншому тексті мовчить' {
+        $raw = 'Информационная база уже открыта Конфигуратором'
+        $err = $null
+        try { Assert-V8InfobaseNotBusy -Output $raw -Infobase 'devUNF' } catch { $err = $_.Exception.Message }
+        $err | Should -Not -BeNullOrEmpty
+        $err.IndexOf('закрийте Конфігуратор', [System.StringComparison]::OrdinalIgnoreCase) | Should -BeLessThan $err.IndexOf($raw)
+        $err | Should -BeLike '*devUNF*.cfl*'
+        { Assert-V8InfobaseNotBusy -Output 'усе гаразд' -Infobase 'devUNF' } | Should -Not -Throw
+    }
+}

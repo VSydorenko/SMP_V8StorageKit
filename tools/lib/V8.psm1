@@ -127,6 +127,48 @@ function Assert-NoLicenseProblem {
     }
 }
 
+# Тексти з ресурсів платформи про монопольне захоплення ІБ (дослідження, п. 4 спеки). Список
+# розширюваний: якщо платформа відповіла іншим формулюванням — додайте його сюди, і тест
+# «база зайнята» отримає новий рядок. Файли .cfl індикатором не є — лишаються після закриття.
+$script:InfobaseBusyPatterns = @(
+    'Ошибка блокировки информационной базы для конфигурирования'
+    'уже открыта Конфигуратором'
+    'Не удалось монопольно заблокировать информационную базу'
+    'Помилка блокування інформаційної бази для конфігурування'
+    'вже відкрита Конфігуратором'
+    'Не вдалося монопольно заблокувати інформаційну базу'
+    'Error locking infobase for configuration'
+    'already opened by Designer'
+    'Failed to lock the infobase exclusively'
+    'Cannot lock the infobase exclusively'
+)
+
+function Test-V8InfobaseBusy {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
+    foreach ($p in $script:InfobaseBusyPatterns) {
+        if ($Output.IndexOf($p, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    }
+    $false
+}
+
+function Assert-V8InfobaseNotBusy {
+    <#
+    .SYNOPSIS
+        Зупинка з порадою, а не сирим повідомленням, коли базу тримає Конфігуратор чи інший
+        монопольний сеанс (спека §5).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Output,
+        [Parameter(Mandatory)][string]$Infobase
+    )
+    if (-not (Test-V8InfobaseBusy -Output $Output)) { return }
+    throw ("База '$Infobase' зайнята — її відкрито Конфігуратором або іншим монопольним сеансом. Закрийте Конфігуратор " +
+           "(для серверної бази — перевірте сеанси: rac session list, якщо піднято ras) і повторіть. Файли .cfl " +
+           "індикатором не є — вони лишаються після закриття.`nПлатформа відповіла: $Output")
+}
+
 function Hide-V8Secrets {
     <#
     .SYNOPSIS
@@ -245,4 +287,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Read-V8LocalConnection, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase
+Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Read-V8LocalConnection, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
