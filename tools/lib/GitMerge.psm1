@@ -47,8 +47,12 @@ function Merge-KitBranchInto {
     if ($AllowUnrelated) { $mergeArgs += '--allow-unrelated-histories' }
     $mergeArgs += $Branch
 
-    $current = (git -C $RepoRoot branch --show-current 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}: $current" }
+    # 2>$null, не 2>&1: $current нижче читається як ім'я гілки (і в булевій перевірці, і в
+    # тексті зупинки нижче) — попередження git на stderr при коді виходу 0 (наприклад
+    # safe.directory) інакше потрапило б у це ім'я. Той самий принцип, що й у $dirty нижче
+    # (уже 2>$null, B2) і в StorageBranch.psm1:270 (той самий рядок, той самий фікс).
+    $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}." }
     if ($current -eq $Into) {
         # -c core.quotepath=false: без цього git status квотує non-ASCII шляхи (\320\221...)
         # у списку брудних файлів нижче — той самий дефект, що StorageBranch.psm1:

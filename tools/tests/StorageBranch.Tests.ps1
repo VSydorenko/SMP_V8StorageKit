@@ -245,6 +245,30 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Remove-KitStorageWorktree -RepoRoot $repo -Path $path
     }
 
+    It 'виняток із finally (Remove-KitStorageWorktree) не витісняє первинний виняток, навіть якщо тека заблокована' {
+        # Рев'ю B2 (Blocker 1): Remove-KitStorageWorktree навмисно без throw, щоб не заступити
+        # собою виняток, який уже летить із finally навколо реплею sync. Живим прогоном це не
+        # доведено — тут заблокований на видалення файл (Windows-хендл, FileShare.None) змушує
+        # git worktree remove і Remove-Item усередині впасти, і перевіряємо, що назовні йде
+        # рівно первинний текст "ПЛАТФОРМА-ВПАЛА", а не будь-яка помилка прибирання worktree.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'lockedcleanup') -WithHooks
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        $locked = Join-Path $wt.Path 'locked.txt'
+        Set-Content -LiteralPath $locked -Value 'x' -NoNewline
+        $handle = [System.IO.File]::Open($locked, 'Open', 'Read', 'None')
+        try {
+            { try { throw 'ПЛАТФОРМА-ВПАЛА' } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path } } |
+                Should -Throw '*ПЛАТФОРМА-ВПАЛА*'
+        } finally {
+            $handle.Dispose()
+        }
+        # Прибирання за собою: дескриптор закрито, тепер тека дійсно видаляється — інакше
+        # осиротілий worktree й заблокована на той момент тека лишились би сміттям для інших тестів.
+        git -C $repo worktree prune 2>$null | Out-Null
+        Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
+        $wt.Path | Should -Not -Exist
+    }
+
     It 'гілка дзеркала вибрана в основній робочій копії — зупинка з поясненням' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'checkedout') -WithHooks
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')

@@ -16,3 +16,4 @@ GitOutput
 Authors
 V8
 StorageReport
+StoragePlatform

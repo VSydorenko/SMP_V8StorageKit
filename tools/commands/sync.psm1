@@ -2,26 +2,9 @@
 Set-StrictMode -Version Latest
 
 # Lib-модулі вже імпортував kit.ps1 (module-order.txt); тут — лише оркестрація.
-
-# Спайк Task 1 (спека §14, «Результат спайку»): чи потребує UpdateCfg для ОСНОВНОЇ конфігурації
-# прив'язки ІБ до сховища. $false — шлях (1) працює без прив'язки; $true — kit робить
-# ConfigurationRepositoryBindCfg під користувачем сховища на час реплею й знімає її
-# ConfigurationRepositoryUnbindCfg -force у finally — єдиний запис у сховище, який kit виконує.
-$script:ConfigurationStorageNeedsBind = $false
-
-function Get-KitRepositoryArguments {
-    param([Parameter(Mandatory)]$Source)
-    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
-    # Task 2a: третій аргумент бере пароль зі resolved source (маніфест + накладка, Preflight.psm1) —
-    # ніколи не порожній рядок-заглушку. Пароль ніде не друкується: Invoke-V8Designer формує з цього
-    # рядка командний рядок платформи і сам маскує /ConfigurationRepositoryP у Write-Verbose
-    # (Hide-V8Secrets, V8.psm1); текст жодної зупинки тут пароля не читає.
-    , @(
-        '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
-        '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
-        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword
-    )
-}
+# Спільний платформний шар «версія сховища → дамп» (New-KitStorageInfobase, Enter/Exit-KitStorageBind,
+# Invoke-KitStorageCheckout, Get-KitRepositoryArguments) — StoragePlatform.psm1 (B3 Task 1); ним же
+# користується verify.
 
 function Invoke-KitMainMerge {
     <#
@@ -76,7 +59,6 @@ function Invoke-KitSync {
     }
 
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
-    $stubPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../assets/empty-extension'))
     $results  = [System.Collections.Generic.List[object]]::new()
     $mergeFailed = $false
 
@@ -120,16 +102,11 @@ function Invoke-KitSync {
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
         Write-Host 'Створюю тимчасову ІБ і читаю історію сховища...'
-        $extName = ''
-        if ($src.Type -eq 'EXTENSION') {
-            $extName  = $src.Key
-            $ibSwitch = New-ExtensionInfobase -Path (Join-Path $workDir 'ib') -ExtensionName $extName -StubPath $stubPath -MustBeUnder $workDir
-        } else {
-            $ibSwitch = '/F "{0}"' -f (New-V8FileInfobase -Path (Join-Path $workDir 'ib') -MustBeUnder $workDir)
-        }
-        $extArg = if ($extName) { " -Extension $extName" } else { '' }
+        $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
 
-        $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $extName -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir
+        $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
+            -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
+            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
 
@@ -168,29 +145,16 @@ function Invoke-KitSync {
             continue
         }
 
-        $wt   = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
-        $done = [System.Collections.Generic.List[int]]::new()
-        $bound = $false
+        $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
+        $done  = [System.Collections.Generic.List[int]]::new()
+        $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src
         try {
-            if ($src.Type -eq 'CONFIGURATION' -and $script:ConfigurationStorageNeedsBind) {
-                # Документований виняток із «сховища — тільки читання» (спека §14): прив'язка під gitbot,
-                # знімається у finally нижче незалежно від результату реплею.
-                $bind = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments ((Get-KitRepositoryArguments -Source $src) + @('/ConfigurationRepositoryBindCfg -forceBindAlreadyBindedUser -forceReplaceCfg'))
-                if ($bind.ExitCode -ne 0) { throw "Прив'язка тимчасової ІБ до сховища конфігурації не вдалася: $($bind.Output)" }
-                $bound = $true
-            }
-
             foreach ($v in $pending) {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
-                $upd = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments ((Get-KitRepositoryArguments -Source $src) + @(
-                    ('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $v.Version, $extArg)))
-                if ($upd.ExitCode -ne 0) { throw "Оновлення до версії $($v.Version) не вдалося: $($upd.Output)" }
-
-                $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath $src.RepoPath
-                $dump = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $target, $extArg))
-                if ($dump.ExitCode -ne 0) { throw "Вивантаження версії $($v.Version) не вдалося: $($dump.Output)" }
+                $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
                 $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
@@ -199,10 +163,7 @@ function Invoke-KitSync {
                 $done.Add($v.Version)
             }
         } finally {
-            if ($bound) {
-                $unbind = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments ((Get-KitRepositoryArguments -Source $src) + @('/ConfigurationRepositoryUnbindCfg -force'))
-                if ($unbind.ExitCode -ne 0) { Write-Host "УВАГА: не вдалося зняти прив'язку тимчасової ІБ до сховища: $($unbind.Output)" -ForegroundColor Red }
-            }
+            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green

@@ -267,8 +267,11 @@ function New-KitStorageWorktree {
 
     $exists = Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch
     if ($exists) {
-        $current = (git -C $RepoRoot branch --show-current 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}: $current" }
+        # 2>$null, не 2>&1: $current нижче читається як ім'я гілки (і в булевій перевірці, і в
+        # тексті зупинки нижче) — попередження git на stderr при коді виходу 0 (наприклад
+        # safe.directory) інакше потрапило б у це ім'я. Той самий фікс, що GitMerge.psm1:50.
+        $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}." }
         if ($current -eq $Branch) {
             throw "Гілка $Branch вибрана в основній робочій копії — kit пише в неї лише через worktree. Перейдіть на головну гілку чи гілку задачі й повторіть."
         }
