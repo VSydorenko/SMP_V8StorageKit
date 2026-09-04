@@ -221,15 +221,20 @@ function Add-KitFakeStorageCommit {
 function Copy-KitTools {
     <#
     .SYNOPSIS
-        Копія kit.ps1, lib/, commands/ і templates/githooks у тимчасову теку зі збереженням
-        відносної розкладки — щоб тести запускали справжній диспетчер підпроцесом, не
-        чіпаючи робочої копії плагіна (той самий прийом, що в StorageSync.Tests.ps1).
+        Копія kit.ps1, lib/, commands/, assets/ і templates/githooks у тимчасову теку зі
+        збереженням відносної розкладки — щоб тести запускали справжній диспетчер
+        підпроцесом, не чіпаючи робочої копії плагіна (той самий прийом, що в
+        StorageSync.Tests.ps1).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
-    foreach ($rel in 'tools/lib', 'tools/commands', 'templates/githooks') {
+    # tools/assets: sync (Task 4) вантажить звідти стаб tools/assets/empty-extension у
+    # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
+    # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
+    # сховища (живий Integration-прогін це й спіймав).
+    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force

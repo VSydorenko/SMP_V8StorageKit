@@ -263,7 +263,19 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         $manifest = @('version: 1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',
             '      base:', '        truth: storage', "        storage: { path: '$script:CfgStorage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cfg') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes
-        # cf/src під truth: storage НЕ гітігнорований — шаблон gitignore для клієнтського репо B5 це врахує; тут .gitignore не кладемо.
+        # Шаблонний templates/gitignore тут не годиться: його правило **/cf/** ігнорувало б
+        # САМЕ дерево cf/src, яке цей тест перевіряє (тут truth: storage, не vendor). Але без
+        # ЖОДНОГО .gitignore build/sync/<key>/ (тимчасова ІБ і worktree, які sync створює на
+        # час реплею) лишається невідстеженим — робоча копія "брудна", і Merge-KitBranchInto
+        # штатно відмовляється зливати в брудний main (саме це спіймав перший живий
+        # Integration-прогін тут, а не CRLF-попередження git — core.autocrlf тут false,
+        # KitFixtures.psm1:83). Тому свій мінімальний .gitignore, без **/cf/**, і одразу
+        # закомічений — незакомічений .gitignore сам був би untracked-файлом і так само
+        # забруднив би git status --porcelain.
+        Set-Content -LiteralPath (Join-Path $script:Repo '.gitignore') -Encoding UTF8 -Value (
+            @('build/', '.build/', 'v8storagekit.local.yaml', 'v8project.local.yaml') -join "`n")
+        git -C $script:Repo add -A
+        git -C $script:Repo commit -q -m 'мінімальний .gitignore без **/cf/** — cf/src тут truth: storage'
     }
 
     It 'перша версія конфігурації лягає в storage/base з Config-Version і деревом під Client_UNF/cf/src' {

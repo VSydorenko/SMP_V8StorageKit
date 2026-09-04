@@ -52,8 +52,16 @@ function Merge-KitBranchInto {
         $dirty = git -C $RepoRoot status --porcelain 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}: $dirty" }
         if ($dirty) {
-            throw ("Гілка '$Into' вибрана, але робоча копія не чиста — у брудний '$Into' не зливаємо. Закомітьте або сховайте " +
-                   "зміни (git stash) і повторіть, або перейдіть на гілку задачі — тоді злиття піде через тимчасовий worktree.")
+            # Повідомлення зупинки має бути діагностовним само по собі (той самий принцип, що
+            # ASCII-якір у решті блоку) — раніше воно називало лише ФАКТ "не чиста", і розбір
+            # причини (яка саме тека забруднена) вимагав окремого git status руками. Перелік —
+            # до п'яти шляхів; решта — рахунком, не текстом.
+            $lines = @($dirty)
+            $shown = @($lines | Select-Object -First 5)
+            $more  = $lines.Count - $shown.Count
+            $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
+            throw ("Гілка '$Into' вибрана, але робоча копія не чиста — у брудний '$Into' не зливаємо. Незакомічені шляхи:`n$detail`n" +
+                   "Закомітьте або сховайте зміни (git stash) і повторіть, або перейдіть на гілку задачі — тоді злиття піде через тимчасовий worktree.")
         }
         $out = git -C $RepoRoot @mergeArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
