@@ -25,8 +25,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
         }
     }
 
-    It 'module-order.txt містить кожен lib/*.psm1, крім SyncState' {
-        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName | Where-Object { $_ -ne 'SyncState' -and $_ -ne 'Environment' })
+    It 'module-order.txt містить кожен lib/*.psm1, крім Environment' {
+        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName | Where-Object { $_ -ne 'Environment' })
         foreach ($m in $onDisk) { $script:Modules | Should -Contain $m -Because "модуль $m є в lib/, але не в module-order.txt" }
     }
 

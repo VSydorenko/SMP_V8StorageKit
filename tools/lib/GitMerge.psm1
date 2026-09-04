@@ -47,13 +47,18 @@ function Merge-KitBranchInto {
     if ($AllowUnrelated) { $mergeArgs += '--allow-unrelated-histories' }
     $mergeArgs += $Branch
 
-    $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+    $current = (git -C $RepoRoot branch --show-current 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}: $current" }
     if ($current -eq $Into) {
         # -c core.quotepath=false: без цього git status квотує non-ASCII шляхи (\320\221...)
         # у списку брудних файлів нижче — той самий дефект, що StorageBranch.psm1:
         # kit форсує прапорець за виклик, а не покладається на налаштування репозиторію.
-        $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}: $dirty" }
+        # 2>$null, не 2>&1: $dirty нижче читається як перелік брудних ШЛЯХІВ (і в булевій
+        # перевірці, і в тексті зупинки) — попередження git на stderr при коді виходу 0
+        # (наприклад про safe.directory чи локаль) інакше потрапило б у цей перелік як
+        # нібито незакомічений шлях.
+        $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}." }
         if ($dirty) {
             # Повідомлення зупинки має бути діагностовним само по собі (той самий принцип, що
             # ASCII-якір у решті блоку) — раніше воно називало лише ФАКТ "не чиста", і розбір
@@ -68,7 +73,15 @@ function Merge-KitBranchInto {
         }
         $out = git -C $RepoRoot @mergeArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
-            git -C $RepoRoot merge --abort 2>$null | Out-Null
+            # Аборт теж перевіряємо кодом виходу: без цього повідомлення нижче стверджувало б
+            # «стан відкочено», навіть якщо сам git merge --abort не впорався — а це вже
+            # твердження про стан репозиторію, якого код не перевірив.
+            $abortOut = git -C $RepoRoot merge --abort 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), і відкіт (git merge --abort) ТЕЖ не " +
+                       "вдався (код ${LASTEXITCODE}: $($abortOut -join "`n")) — репозиторій лишається в незавершеному " +
+                       "стані злиття, розберіться вручну: git status`n$($out -join "`n")")
+            }
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
@@ -78,16 +91,25 @@ function Merge-KitBranchInto {
     Assert-SafeWorkPath -Path $WorkDir -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree головної гілки'
     if (Test-Path -LiteralPath $WorkDir) {
         git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$WorkDir' (прибирання залишку) завершився кодом ${LASTEXITCODE} — прибираю теку напряму." }
         if (Test-Path -LiteralPath $WorkDir) { Remove-Item -LiteralPath $WorkDir -Recurse -Force }
     }
     git -C $RepoRoot worktree prune 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune (прибирання залишку) завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
     $add = git -C $RepoRoot worktree add -q $WorkDir $Into 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Не вдалося створити worktree для '$Into' (вибрана в іншому worktree?): $($add -join "`n")" }
 
     try {
         $out = git -C $WorkDir @mergeArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
-            git -C $WorkDir merge --abort 2>$null | Out-Null
+            # Той самий запобіжник, що у гілці in-place вище: аборт перевіряємо кодом виходу,
+            # інакше повідомлення стверджувало б відкіт, якого могло й не відбутись.
+            $abortOut = git -C $WorkDir merge --abort 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), і відкіт (git merge --abort) ТЕЖ не " +
+                       "вдався (код ${LASTEXITCODE}: $($abortOut -join "`n")) — worktree '$WorkDir' лишається в незавершеному " +
+                       "стані злиття, розберіться вручну: git -C $WorkDir status`n$($out -join "`n")")
+            }
             throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
                    "git merge $Branch`n$($out -join "`n")")
         }
@@ -97,7 +119,10 @@ function Merge-KitBranchInto {
         # --force теж може не впоратись (заблокований файл — антивірус, індексатор на Windows),
         # тож перевіряємо Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо —
         # без цього виклик повернув би Outcome='merged' без жодного сліду незібраного worktree.
+        # Обидва виклики нижче лишаються без throw навмисно (Blocker 1, StorageBranch.psm1
+        # Remove-KitStorageWorktree): виняток із finally замінив би собою той, що вже в польоті.
         git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$WorkDir' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
         if (Test-Path -LiteralPath $WorkDir) {
             Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $WorkDir) {
@@ -105,6 +130,7 @@ function Merge-KitBranchInto {
             }
         }
         git -C $RepoRoot worktree prune 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
     }
     [pscustomobject]@{ Outcome = 'merged'; Sha = $sha; Via = 'worktree' }
 }

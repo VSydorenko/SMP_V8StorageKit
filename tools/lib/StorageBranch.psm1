@@ -263,10 +263,12 @@ function New-KitStorageWorktree {
         if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
     }
     git -C $RepoRoot worktree prune 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
 
     $exists = Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch
     if ($exists) {
-        $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+        $current = (git -C $RepoRoot branch --show-current 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}: $current" }
         if ($current -eq $Branch) {
             throw "Гілка $Branch вибрана в основній робочій копії — kit пише в неї лише через worktree. Перейдіть на головну гілку чи гілку задачі й повторіть."
         }
@@ -280,11 +282,30 @@ function New-KitStorageWorktree {
 }
 
 function Remove-KitStorageWorktree {
+    <#
+    .SYNOPSIS
+        Прибирання worktree гілки дзеркала — cleanup-крок, який sync.psm1 викликає з finally
+        навколо всього циклу реплею.
+    .DESCRIPTION
+        Навмисно без throw: у PowerShell виняток, кинутий у finally, заміняє собою той, що вже
+        летить (наприклад — з падіння платформи на версії N), і причина, яку мав показати
+        Assert-NoLicenseProblem чи текст зупинки платформи, зникає безслідно. --force теж може
+        не впоратись (заблокований файл — антивірус, індексатор на Windows), тож перевіряємо
+        Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо. Той самий приклад —
+        Merge-KitBranchInto (GitMerge.psm1), написаний і рев'юєний у цьому ж блоці.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Path)
-    $out = git -C $RepoRoot worktree remove --force $Path 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git worktree remove $Path завершився з кодом ${LASTEXITCODE}: $($out -join "`n")" }
+    git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$Path' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Path) {
+            Write-Warning "Не вдалося прибрати worktree '$Path' — приберіть вручну (git worktree remove --force) перед наступним sync."
+        }
+    }
     git -C $RepoRoot worktree prune 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
 }
 
 function Clear-KitWorktreeSource {
@@ -343,8 +364,15 @@ function Write-KitStorageVersion {
         $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
 
-        git -C $WorktreePath diff --cached --quiet -- $RepoPath
-        $empty = ($LASTEXITCODE -eq 0)
+        # switch із default { throw } — той самий патерн, що Test-KitBranchMergedInto (GitMerge.psm1):
+        # код 1 у --quiet штатно означає "є різниця", а не збій, тож лише він поруч із 0 — не
+        # помилка; будь-який інший код (128 — реальний збій git) не можна тихо зарахувати в "є зміни".
+        $diffOut = git -C $WorktreePath diff --cached --quiet -- $RepoPath 2>&1
+        $empty = switch ($LASTEXITCODE) {
+            0       { $true }
+            1       { $false }
+            default { throw "git diff --cached --quiet у worktree завершився з кодом ${LASTEXITCODE}: $($diffOut -join "`n")" }
+        }
 
         $stamp = $Timestamp.ToString('yyyy-MM-ddTHH:mm:ss')
         $env:GIT_AUTHOR_DATE = $stamp; $env:GIT_COMMITTER_DATE = $stamp; $env:V8KIT_SYNC = '1'

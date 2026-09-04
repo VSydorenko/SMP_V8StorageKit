@@ -115,7 +115,10 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
 
         $ctx = New-KitTestContext -Repo $repo
         Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
-        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+        # Кома навмисно: Get-StorageVersions (StorageReport.psm1:195) сама повертає
+        # comma-wrapped масив, а не голий @(...) — мок мусить давати ту саму форму, щоб не
+        # проходити випадково лише тому, що в наборі один елемент (F7).
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
 
         $result = Invoke-KitSync -Context $ctx -MergeMain
@@ -136,7 +139,8 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
 
         $ctx = New-KitTestContext -Repo $repo
         Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
-        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
 
         $result = Invoke-KitSync -Context $ctx -Apply $true -MergeMain
@@ -154,7 +158,8 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
 
         $ctx = New-KitTestContext -Repo $repo
         Mock -ModuleName sync New-ExtensionInfobase { '/F "fake-ib"' }
-        Mock -ModuleName sync Get-StorageVersions { @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
         Mock -ModuleName sync Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         Mock -ModuleName sync Merge-KitBranchInto { throw 'симульований збій злиття' }
 

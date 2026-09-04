@@ -224,7 +224,7 @@ function Copy-KitTools {
         Копія kit.ps1, lib/, commands/, assets/ і templates/githooks у тимчасову теку зі
         збереженням відносної розкладки — щоб тести запускали справжній диспетчер
         підпроцесом, не чіпаючи робочої копії плагіна (той самий прийом, що в
-        StorageSync.Tests.ps1).
+        Check.Tests.ps1, Kit.Tests.ps1 і Sync.Tests.ps1).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)

@@ -10,9 +10,9 @@
 
 ## Що всередині
 
-- `tools/` — скрипти конвеєра (storage-sync, dump-config, load-ext, build) + модулі + Pester-тести
+- `tools/` — диспетчер `kit.ps1` з командами `check`, `sync` (`commands/`) + перехідні скрипти (dump-config, load-ext, build) + модулі + Pester-тести
 - `skills/` — storage-pipeline (щоденний цикл), product-onboarding (новий продукт), repo-migration (міграція старого репо)
-- `templates/` — шаблони файлів репо-споживача (CLAUDE.md, .gitattributes, .gitignore, settings.json, storage.json)
+- `templates/` — шаблони файлів репо-споживача (CLAUDE.md, .gitattributes, .gitignore, settings.json, v8storagekit.yaml.example)
 - `docs/` — архітектура контуру «сховище ↔ git»
   - `docs/follow-ups.md` — свідомо припарковані знахідки аудиту й фінального рев'ю (junction/symlink, RepoRoot, MXL-обрив, тести, модульний probe)
 

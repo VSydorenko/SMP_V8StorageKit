@@ -62,11 +62,14 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
     }
 
-    It 'HEAD = main, робоча копія брудна — зупинка, main не зрушив' {
+    It 'HEAD = main, робоча копія брудна — зупинка з переліком брудних шляхів, main не зрушив' {
         $repo = New-RepoWithMirror 'dirty'
         Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'незакомічена правка'
         $before = git -C $repo rev-parse main
-        { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw '*не чиста*'
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } |
+            Should -Throw '*не чиста*' -PassThru
+        # Перелік брудних шляхів (доданий у цьому блоці для діагностованості) — не лише факт "не чиста".
+        $err.Exception.Message | Should -BeLike '*README.md*'
         (git -C $repo rev-parse main) | Should -Be $before
     }
 
