@@ -47,14 +47,22 @@ function Invoke-KitCheck {
         # Правка 3 (фінальне рев'ю) — mainBranch друкується рядком вище, але досі не
         # перевірявся: маніфест міг називати гілку, якої в репозиторії ще немає (описка,
         # або репозиторій, де trunk ще не перейменували на main), а B2 зіллє storage/* саме
-        # в неї — внутрішня суперечність, видима з будь-якої машини (спека §5). warn, не
-        # error: свіжий репозиторій до першого коміту головної гілки — законний стан, і
-        # check не має права завалювати онбординг рівно за це.
+        # в неї — внутрішня суперечність, видима з будь-якої машини (спека §5). Два рівні
+        # (спека a7a5d45, Test-KitBranchUnborn — StorageBranch.psm1), не один: HEAD уже стоїть
+        # на цій самій гілці, лише самого ref ще немає (свіжий репозиторій до першого коміту) —
+        # законний стан, info, не warn; HEAD стоїть ДЕІНДЕ (сама гілка з маніфесту не існує,
+        # а поточна — інша) — найімовірніше описка в mainBranch:, warn.
         if (-not (Test-KitBranchExists -RepoRoot $root -Branch $Context.MainBranch)) {
-            & $add warn main-branch (
-                "Головної гілки '$($Context.MainBranch)' (mainBranch: у v8storagekit.yaml) немає в репозиторії. " +
-                'Якщо це описка — виправте mainBranch: у маніфесті; якщо репозиторій ще зовсім новий — зробіть ' +
-                'у неї перший коміт до першого kit sync.')
+            if (Test-KitBranchUnborn -RepoRoot $root -Branch $Context.MainBranch) {
+                & $add info main-branch (
+                    "Свіжий репозиторій: головної гілки '$($Context.MainBranch)' (mainBranch: у v8storagekit.yaml) " +
+                    'ще немає — її створить перший коміт до першого kit sync.')
+            } else {
+                & $add warn main-branch (
+                    "Головної гілки '$($Context.MainBranch)' (mainBranch: у v8storagekit.yaml) немає в репозиторії, " +
+                    'а HEAD указує на іншу гілку — перевірте mainBranch: (описка?), або виправте маніфест, якщо ' +
+                    'головну гілку перейменовано.')
+            }
         }
 
         # §2.3 — ключі truth: storage унікальні в межах репозиторію (гілка storage/<ключ> одна).

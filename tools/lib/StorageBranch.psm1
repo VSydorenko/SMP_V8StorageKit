@@ -19,6 +19,40 @@ function Test-KitBranchExists {
     $LASTEXITCODE -eq 0
 }
 
+function Test-KitBranchUnborn {
+    <#
+    .SYNOPSIS
+        Чи HEAD — ненароджена гілка з цим ім'ям (свіжий репозиторій до першого коміту): symbolic-ref HEAD
+        указує на refs/heads/<Branch>, а самого ref ще немає. Спільний розрізнювач для check і session-check
+        (спека a7a5d45): без нього порада «зробіть перший коміт» на описку в mainBranch створила б зайву гілку.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch)
+    $head = (git -C $RepoRoot symbolic-ref -q HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -ne "refs/heads/$Branch") { return $false }
+    -not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)
+}
+
+function Get-KitStorageActivity {
+    <#
+    .SYNOPSIS
+        Коли у сховище останнім разом писали об'єкти: максимальний mtime під data/objects/**.
+        1cv8ddb.1CD не використовується — він оновлюється при кожному інтерактивному підключенні
+        Конфігуратора (спека §5, дослідження п. 5).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$StoragePath)
+    $result = [pscustomobject]@{ Accessible = $false; LatestObjectWrite = $null; Reason = '' }
+    if (-not (Test-Path -LiteralPath $StoragePath -PathType Container)) { $result.Reason = "каталог недоступний: $StoragePath"; return $result }
+    $objects = Join-Path $StoragePath 'data/objects'
+    $result.Accessible = $true
+    if (-not (Test-Path -LiteralPath $objects -PathType Container)) { $result.Reason = 'у сховищі ще немає data/objects (жодної версії)'; return $result }
+    $latest = Get-ChildItem -LiteralPath $objects -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property LastWriteTimeUtc -Maximum
+    if ($latest.Count -gt 0) { $result.LatestObjectWrite = [datetime]$latest.Maximum }
+    $result
+}
+
 function Get-KitBranchCommits {
     <#
     .SYNOPSIS
@@ -441,4 +475,4 @@ function Get-KitCommitSha {
     (@($out) -join '').Trim()
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion
+Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Test-KitBranchUnborn, Get-KitStorageActivity, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion

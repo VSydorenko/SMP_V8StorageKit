@@ -73,8 +73,9 @@ if (-not (Get-Command -Name $functionName -ErrorAction SilentlyContinue)) {
 # диспетчерський розбір дає одну зупинку одним стилем на throw БУДЬ-ДЕ в цій частині — команда,
 # префлайт, розбір аргументів, невідомий параметр команди.
 try {
-    # check показує ВСЕ, що не так (Lenient); решта команд без чистого префлайту не має з чим працювати.
-    $context = Invoke-KitPreflight -RepoRoot $RepoRoot -Lenient:($Command -eq 'check')
+    # check і session-check — діагностика: вони мусять ДОПОВІСТИ про суперечливий репозиторій, а не впасти на
+    # ньому (Task 6, Step 3а). Решта команд без чистого префлайту не має з чим працювати.
+    $context = Invoke-KitPreflight -RepoRoot $RepoRoot -Lenient:($Command -in @('check', 'session-check'))
 
     # Решта аргументів → іменовані параметри команди.
     $splat = @{}

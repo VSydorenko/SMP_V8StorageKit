@@ -126,14 +126,33 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # без жодного натяку — внутрішня суперечність, видима з будь-якої машини, і саме в цю
     # гілку B2 зіллє storage/*. warn (не error): код усе одно 0, бо свіжий репозиторій до
     # першого коміту головної гілки — законний стан.
-    It 'правка 3: mainBranch указує на гілку, якої немає, — warn, а не error, код 0' {
+    # Задача 6 (спека a7a5d45): це половина дворівневого розрізнювача Test-KitBranchUnborn —
+    # HEAD тут стоїть на 'main' (яка Є в репозиторії), а маніфест називає 'trunk' (якої немає) —
+    # HEAD "деінде", не на самій відсутній гілці, тож це warn, не info. Другу половину
+    # (unborn: HEAD саме на відсутній гілці, свіжий репозиторій) перевіряє тест нижче.
+    It 'правка 3 / розрізнювач (HEAD деінде): mainBranch указує на гілку, якої немає, — warn, а не error, код 0' {
         $repo = New-GoodRepo 'main-branch-missing'
         $manifestPath = Join-Path $repo 'v8storagekit.yaml'
         $lines = @(Get-Content -LiteralPath $manifestPath -Encoding UTF8)
         Set-Content -LiteralPath $manifestPath -Encoding UTF8 -Value (@($lines[0], 'mainBranch: trunk') + $lines[1..($lines.Count - 1)])
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -BeLike "*'trunk'*немає в репозиторії*"
+        $r.Output | Should -Match '\[!\].*trunk'
+        $r.Output | Should -BeLike "*'trunk'*немає в репозиторії*перевірте mainBranch*"
+        $r.Output | Should -Not -BeLike '*Свіжий репозиторій*'
+    }
+
+    # Друга половина розрізнювача: HEAD ще symbolic-ref на саму (відсутню) головну гілку —
+    # свіжий репозиторій до першого коміту (Test-KitBranchUnborn = $true). info, не warn:
+    # це законний стан онбордингу, а не описка чи розбіжність.
+    It 'розрізнювач (unborn): HEAD ще на відсутній головній гілці — info, а не warn, код 0' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'main-branch-unborn') -WithHooks -WithGitattributes -WithGitignore -NoCommit
+        (git -C $repo symbolic-ref -q HEAD) | Should -Be 'refs/heads/main'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -Match '\[i\].*main'
+        $r.Output | Should -BeLike "*Свіжий репозиторій*'main'*ще немає*перший коміт*"
+        $r.Output | Should -Not -BeLike '*перевірте mainBranch*'
     }
 
     It '§2.2: <Name> у Configuration.xml не збігається з ключем джерела — код 1, названо обидва' {
