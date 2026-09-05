@@ -61,7 +61,13 @@ function Invoke-KitDump {
             Assert-V8InfobaseNotBusy -Output $r.Output -Infobase $item.Infobase.Name
             throw "Вивантаження $($src.Key) не вдалося: $($r.Output)"
         }
-        $count = (Get-ChildItem -LiteralPath $src.FullPath -Recurse -File).Count
+        # @(...) навколо Get-ChildItem обов'язковий (той самий дефект уже ловили в Task 1,
+        # Invoke-KitStorageCheckout): гола дужка без @() падає під Set-StrictMode -Version
+        # Latest не лише на порожній теці (Get-ChildItem повертає $null), а й на теці РІВНО
+        # з одним файлом (Get-ChildItem повертає скалярний FileInfo, а не масив) — в обох
+        # випадках .Count кидає "The property 'Count' cannot be found on this object"
+        # замість чесних "Файлів: 0"/"Файлів: 1". @(...) перед .Count завжди дає масив.
+        $count = @(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File).Count
         Write-Host "  Готово. Файлів: $count" -ForegroundColor Green
         $dumped.Add([pscustomobject]@{ Key = $src.Key; Target = $src.FullPath; Files = $count })
     }

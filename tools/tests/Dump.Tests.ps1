@@ -44,6 +44,90 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
     }
 }
 
+Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe (рев''ю Task 5, Important 2)' {
+    # dump лишалась єдиною командою блоку без покриття Apply-гілки платформним моком —
+    # Sync.Tests.ps1 і Verify.Tests.ps1 уже мають такий Describe для sync/verify (мок
+    # New-ExtensionInfobase/Invoke-V8Designer -ModuleName StoragePlatform чи verify). Тут той
+    # самий прийом: lib-модулі в порядку module-order.txt, потім САМЕ commands/dump.psm1 у
+    # ЦЬОМУ процесі (не підпроцесом kit.ps1) — лише так Mock -ModuleName бачить приватний
+    # стіл команд саме dump (Mock -ModuleName діє лише в межах названого модуля — урок Task 1,
+    # повторений і в Sync.Tests.ps1, і в Verify.Tests.ps1).
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/dump.psm1").Path -Force
+
+        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=""C:\bases\demo"";'`n    user: 'Адмін'"
+    }
+
+    It 'успіх із непорожньою текою — Dumped[0].Files рахує реально записані файли' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-happy') -OverlayText $script:Overlay -WithHooks
+        # Мок навмисно пише РІВНО один файл: не лише "порожня тека" ламає голий .Count під
+        # StrictMode (Important 2), а й тека РІВНО з одним елементом — Get-ChildItem тоді
+        # віддає скалярний FileInfo, а не масив, і .Count так само кидає
+        # PropertyNotFoundException (перевірено окремо, поза Pester). Цей тест ловить обидва
+        # варіанти дефекту, а не лише порожню теку.
+        Mock -ModuleName dump Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+            if (($Arguments -join ' ') -match '/DumpConfigToFiles "(?<p>[^"]+)"') {
+                Set-Content -LiteralPath (Join-Path $Matches.p 'Configuration.xml') -Value 'x' -Encoding UTF8
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $result = Invoke-KitDump -Context $ctx -Apply $true
+
+        $result.ExitCode | Should -Be 0
+        $result.Dumped.Count | Should -Be 1
+        $result.Dumped[0].Files | Should -Be 1
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 1
+    }
+
+    It 'успіх (ExitCode 0) з порожньою текою — Files = 0 без винятку на .Count (Important 2)' {
+        # Мок нічого не пише в ціль: платформа штатно повернула 0 файлів (наприклад,
+        # -Extension, якого фактично немає в цій ІБ). Get-ChildItem на щойно створеній
+        # порожній теці повертає $null, а не порожню колекцію — саме тут під
+        # Set-StrictMode -Version Latest ловили сирий "The property 'Count' cannot be
+        # found on this object" замість чесного "Готово. Файлів: 0". Цей тест — доказ
+        # дефекту до правки і регресія на майбутнє.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-empty') -OverlayText $script:Overlay -WithHooks
+        Mock -ModuleName dump Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+
+        $script:MockEmptyResult = $null
+        { $script:MockEmptyResult = Invoke-KitDump -Context $ctx -Apply $true } | Should -Not -Throw
+        $script:MockEmptyResult.ExitCode | Should -Be 0
+        $script:MockEmptyResult.Dumped[0].Files | Should -Be 0
+    }
+
+    It 'ExitCode ≠ 0, «база зайнята» у виводі платформи — порада Assert-V8InfobaseNotBusy, не сирий вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-busy') -OverlayText $script:Overlay -WithHooks
+        Mock -ModuleName dump Invoke-V8Designer {
+            [pscustomobject]@{ ExitCode = 1; Output = 'вже відкрита Конфігуратором' }
+        }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        { Invoke-KitDump -Context $ctx -Apply $true } | Should -Throw "*зайнята*Конфігуратором*"
+    }
+
+    It 'джерело типу EXTENSION — Arguments платформи несуть -Extension з ключем джерела' {
+        $manifest = @('version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            '      Alpha_SMB: { truth: vendor, dump: { from: dev } }') -join "`n"
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-ext') -Workspaces $ws -ManifestText $manifest -OverlayText $script:Overlay -WithHooks
+        Mock -ModuleName dump Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+
+        $null = Invoke-KitDump -Context $ctx -Apply $true
+
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 1 -ParameterFilter {
+            ($Arguments -join ' ') -match '-Extension Alpha_SMB'
+        }
+    }
+}
+
 Describe 'kit dump — жива дев-база (лише читання, 20–40 хв)' -Tag Integration {
     # Запускається лише з V8KIT_LIVE_DUMP=1: це дорого й потребує доступу до бази людини.
     BeforeAll {
