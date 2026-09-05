@@ -118,6 +118,7 @@ TreeCompare.psm1
 StorageBranch.psm1 (додається)
   Get-KitVerifyVersion -RepoRoot -Ref -Branch : → {Version:int; Commit:sha; NewerVersions:int[]}; зупинка, якщо merge-base порожній
   Get-KitStorageActivity -StoragePath : → {Accessible:bool; LatestObjectWrite:datetime|$null; Reason}
+  Test-KitBranchUnborn -RepoRoot -Branch : → bool (HEAD — ненароджена гілка з цим ім'ям: symbolic-ref HEAD = refs/heads/<Branch>, а ref не існує)
 
 commands
   Invoke-KitVerify -Context [-Workspace] [-Source] [-Apply] [-Ref <string>] [-Version <int>]
@@ -125,7 +126,7 @@ commands
   Invoke-KitDump -Context [-Workspace] [-Source] [-Apply]
       : → {ExitCode; Dumped: @({Key; Target; Files})}
   Invoke-KitSessionCheck -Context [-Workspace] [-Source] [-Apply] [-AsJson]
-      : → {ExitCode 0|1|3; CheckFindings; Signals} (спека §5, 72ccb2f: спершу Invoke-KitCheck -Quiet тим самим контекстом; error у check → 1, сигнали НЕ обчислюються; лише warn → [!]-рядки над сигналами, код від сигналів: 1 — хоч одне джерело «стан git не прочитано»; 3 — хоч один сигнал дії; 0 — тиша; «сховище недоступне» — 0 з рядком). Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
+      : → {ExitCode 0|1|3; CheckFindings; Signals} (спека §5, 72ccb2f, a7a5d45: «дзеркало є, головної гілки немає» — 3, не 1: незлиті = усі коміти дзеркала, дія відома; розрізнювач Test-KitBranchUnborn — свіжий репо (info, «зробіть перший коміт») чи описка в mainBranch (warn, «перевірте mainBranch:»); спершу Invoke-KitCheck -Quiet тим самим контекстом; error у check → 1, сигнали НЕ обчислюються; лише warn → [!]-рядки над сигналами, код від сигналів: 1 — хоч одне джерело «стан git не прочитано»; 3 — хоч один сигнал дії; 0 — тиша; «сховище недоступне» — 0 з рядком). Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
 ```
 
 **Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар і код диспетчера мають їй відповідати —
@@ -1523,17 +1524,29 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
         $r.Output | Should -BeLike '*storage/Alpha_SMB*'
     }
 
-    It 'головної гілки з маніфесту немає при наявному дзеркалі → [!] main-branch від check і «стан git не прочитано» від сигналу, код 1' {
-        # У check це навмисно warn (свіжий репо до першого коміту — законний стан), тож сигнали обчислюються;
-        # сам сигнал відповісти про незлиті коміти не може → gitProblem → 1.
-        $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:New -DbWrite $script:New
+    It 'гілки mainBranch немає, HEAD деінде (описка) → [!] від check, код 3, «перевірте mainBranch:»' {
+        $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-Repo -Name 'no-main' -StoragePath $s -MirrorDate $script:Old -Merge
         git -C $repo branch -m main trunk
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 3
         $r.Output | Should -Match '\[!\].*main'
-        $r.Output | Should -BeLike "*- Alpha_SMB:*стан git не прочитано*головної гілки 'main' немає*"
-        $r.Output | Should -Not -BeLike '*не обчислювались*'
+        $r.Output | Should -BeLike "*- Alpha_SMB:*коміт*гілки 'main'*немає*перевірте mainBranch*"
+        $r.Output | Should -Not -BeLike '*зробіть перший коміт*'
+    }
+
+    It 'свіжий репозиторій: unborn main і готове дзеркало → [i] від check, код 3, «зробіть перший коміт … -MergeMain»' {
+        $s = New-FakeStorage -Name 'unborn' -ObjectsWrite $script:Old -DbWrite $script:Old
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unborn') -OverlayText "storages:`n  Alpha_SMB: '$s'" -WithHooks -WithGitattributes -WithGitignore -NoCommit
+        # Дзеркало без жодного коміту в main: якщо `worktree add --orphan` відмовить на репо без комітів —
+        # створити через `git checkout --orphan storage/Alpha_SMB` у головній копії, закомітити з V8KIT_SYNC=1
+        # і повернутись на unborn main: `git checkout --orphan main; git rm -rq --cached .`.
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        (git -C $repo symbolic-ref -q HEAD) | Should -Be 'refs/heads/main'
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 3
+        $r.Output | Should -Match '\[i\].*main'
+        $r.Output | Should -BeLike '*- Alpha_SMB:*зробіть перший коміт*-MergeMain*'
     }
 
     It 'error у check (наприклад, накладка не гітігнорована) → код 1, [-]-рядок і «сигнали не обчислювались»; сигналів немає' {
@@ -1581,7 +1594,30 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
 }
 ```
 
-- [ ] **Step 2: `Get-KitStorageActivity` у `StorageBranch.psm1`**
+- [ ] **Step 2: `Get-KitStorageActivity` і `Test-KitBranchUnborn` у `StorageBranch.psm1`; розрізнювач у `check`**
+
+```powershell
+function Test-KitBranchUnborn {
+    <#
+    .SYNOPSIS
+        Чи HEAD — ненароджена гілка з цим ім'ям (свіжий репозиторій до першого коміту): symbolic-ref HEAD
+        указує на refs/heads/<Branch>, а самого ref ще немає. Спільний розрізнювач для check і session-check
+        (спека a7a5d45): без нього порада «зробіть перший коміт» на описку в mainBranch створила б зайву гілку.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch)
+    $head = (git -C $RepoRoot symbolic-ref -q HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -ne "refs/heads/$Branch") { return $false }
+    -not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)
+}
+```
+
+У `check.psm1` (знахідка `main-branch` з B1) — два рівні замість одного: гілки немає **і** `Test-KitBranchUnborn`
+→ `info` «свіжий репозиторій: головної гілки '<main>' ще немає — її створить перший коміт»; гілки немає, а HEAD
+деінде → `warn` «гілки '<main>' з маніфесту немає — перевірте mainBranch: (описка?)». Тест у `Check.Tests.ps1`
+на обидва.
+
+- [ ] **Step 2а (було Step 2): `Get-KitStorageActivity`**
 
 ```powershell
 function Get-KitStorageActivity {
@@ -1605,7 +1641,7 @@ function Get-KitStorageActivity {
 }
 ```
 
-Додати до `Export-ModuleMember`.
+Додати обидві до `Export-ModuleMember`.
 
 - [ ] **Step 3: `tools/commands/session-check.psm1`**
 
@@ -1677,14 +1713,14 @@ function Invoke-KitSessionCheck {
             # $null у $lastMirror дав би -gt → $true: сигнал на порожньому місці; тому лише за наявної дати.
             $newInStorage = (-not $mirror) -or ($null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror)
         }
-        # Головної гілки з маніфесту немає, а дзеркало є: на «чи є незлиті коміти» відповісти фізично неможливо —
-        # це «стан git не прочитано» (код 1), не мовчазний 0. У check це навмисно лише warn (main-branch): свіжий
-        # репозиторій до першого коміту — законний стан, але тоді й дзеркала ще немає, і сюди не заходимо.
-        if ($mirror -and -not $mainExists -and -not $gitProblem) { $gitProblem = "головної гілки '$main' немає" }
-        $unmerged = 0
-        if ($mirror -and $mainExists -and -not $gitProblem) {
-            $countRaw = (git -C $root rev-list --count "$main..$($src.Branch)" 2>$null | Out-String).Trim()
-            if ($LASTEXITCODE -ne 0 -or $countRaw -notmatch '^\d+$') { $gitProblem = "git rev-list $main..$($src.Branch) не відповів" }
+        # «Дзеркало є, головної гілки немає» — не «не знаю» (1), а 3: незлиті коміти — УСІ коміти дзеркала, і дія
+        # відома (спека a7a5d45). sync у B2 сам породжує цей стан на свіжому репозиторії (перше злиття пропущено).
+        # Розрізнювач: unborn main (свіжий репо) → «зробіть перший коміт»; HEAD деінде → «перевірте mainBranch:».
+        $unmerged = 0; $mainMissing = $false
+        if ($mirror -and -not $gitProblem) {
+            $range = if ($mainExists) { "$main..$($src.Branch)" } else { $mainMissing = $true; $src.Branch }
+            $countRaw = (git -C $root rev-list --count $range 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $countRaw -notmatch '^\d+$') { $gitProblem = "git rev-list $range не відповів" }
             else { $unmerged = [int]$countRaw }
         }
 
@@ -1700,7 +1736,13 @@ function Invoke-KitSessionCheck {
             if ($newInStorage) {
                 $parts.Add(("у сховищі ймовірно нові версії (запис {0:yyyy-MM-dd HH:mm} UTC після дзеркала {1:yyyy-MM-dd HH:mm} UTC) — оновити? kit sync -Source {2} -Apply" -f $activity.LatestObjectWrite, $lastMirror, $src.Key))
             }
-            if ($unmerged -gt 0) {
+            if ($unmerged -gt 0 -and $mainMissing) {
+                if (Test-KitBranchUnborn -RepoRoot $root -Branch $main) {
+                    $parts.Add("на $($src.Branch) є $unmerged коміт(и), а головної гілки '$main' ще немає — зробіть перший коміт у '$main', потім kit sync -Source $($src.Key) -Apply -MergeMain")
+                } else {
+                    $parts.Add("на $($src.Branch) є $unmerged коміт(и), а гілки '$main' з маніфесту немає — перевірте mainBranch: (описка?)")
+                }
+            } elseif ($unmerged -gt 0) {
                 $parts.Add("на $($src.Branch) є $unmerged коміт(и), не злиті в $main — звірочний коміт: kit verify -Apply")
             }
             if ($parts.Count -eq 0) { $parts.Add("дзеркало синхронне зі сховищем, $main містить усе.") }
