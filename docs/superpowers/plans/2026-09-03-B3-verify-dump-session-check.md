@@ -1285,10 +1285,13 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
     }
 }
 
-Describe 'kit dump — жива дев-база (лише читання, 20–40 хв)' -Tag Integration {
+Describe 'kit dump — жива дев-база (лише читання, 20–40 хв)' -Tag Integration -Skip:($env:V8KIT_LIVE_DUMP -ne '1') {
     # Запускається лише з V8KIT_LIVE_DUMP=1: це дорого й потребує доступу до бази людини.
+    # -Skip: на Describe, а НЕ Set-ItResult у BeforeAll: Set-ItResult легальний лише всередині It,
+    # а в BeforeAll кидає "a 'break' or 'continue' statement ... escaped from your code" і, без
+    # захисту Pester, тихо обірвав би ВЕСЬ прогін без результату (живий прогін B3, pester#2669).
+    # Виправлено в коді комітом 42eff34; тут — щоб текст плану не працював зразком для наступного.
     BeforeAll {
-        if ($env:V8KIT_LIVE_DUMP -ne '1') { Set-ItResult -Skipped -Because 'V8KIT_LIVE_DUMP не виставлено' }
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         $overlay = "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF_sydorenko"";'`n    user: 'Администратор'"
