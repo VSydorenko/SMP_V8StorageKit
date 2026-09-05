@@ -2,7 +2,9 @@
 # одне джерело для обох, щоб список не розходився (docs/follow-ups.md §5).
 # Порядок важливий: PathSafety раніше за V8; Yaml раніше за V8Project/Manifest; Preflight раніше за
 # StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport; GitMerge — після
-# StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath). Рядки з # ігноруються.
+# StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath); TreeCompare — після
+# PathSafety (Assert-SafeWorkPath); StoragePlatform — після PathSafety і V8 (New-ExtensionInfobase,
+# New-V8FileInfobase, Invoke-V8Designer). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Yaml
