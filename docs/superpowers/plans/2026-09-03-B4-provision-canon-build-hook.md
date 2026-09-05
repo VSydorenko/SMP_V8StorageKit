@@ -1006,7 +1006,21 @@ git commit -m "B4: kit build — .epf за типом source-set, збір ар�
 
 **Ризик:** `властивість безпеки` — шим виконується на старті **кожної** сесії споживача — дефект ламає не команду, а всі сесії
 репозиторію; плюс заборона `hooks/hooks.json` у плагіні. Друге рев'ю — вузьке: мовчазна
-поведінка шима без плагіна в реєстрі й відсутність `hooks.json`.
+поведінка шима без плагіна в реєстрі, відсутність `hooks.json` і стеля часу (нижче).
+
+**Умова приймання (не побажання):** шим **обмежений у часі за конструкцією**. `session-check`
+обходить `data/objects` сховищ (десятки тисяч блобів, часто на SMB) і додатково викликає повний
+`check` з `git log`, `ls-tree -r` і `check-attr` по всіх джерелах — і все це на старті кожної
+сесії. Скільки воно триває на живому репозиторії, на момент написання плану **не виміряно**
+(замір ставиться компаньйону в фінальній задачі B3). Шим не має права чекати на цю цифру: він
+ставить стелю сам (Step 3), а перевищення показує рядком, а не мовчанням.
+
+Якщо замір покаже, що штатний прогін впирається в стелю, рішення **не** в піднятті стелі, а в
+здешевленні `session-check`, і воно приймається окремо, як зміна B3-коду:
+1. максимальний `mtime` по шард-теках **першого рівня** `data/objects`, без рекурсії вглиб
+   (пропозиція рев'ю B3) — сховище пише в шард-теку, тож її `mtime` рухається разом із вмістом;
+2. кеш результату в `.git/v8storagekit/session-check.json` із перевіркою за `mtime` маніфесту.
+Обидва варіанти — знахідки з леджера B3; брати їх у роботу — рішення користувача, не автора плану.
 
 Плагін хуків **не оголошує**. Хук живе в `.claude/settings.json` репозиторію-споживача й
 викликає закомічений шим `.claude/hooks/session-start.ps1`, який сам знаходить плагін у
@@ -1214,13 +1228,35 @@ try {
     }
 
     $cwd = (Get-Location).Path
-    $status = if (Test-Path -LiteralPath (Join-Path $cwd 'v8storagekit.yaml') -PathType Leaf) {
-        $raw = (& pwsh -NoProfile -File (Join-Path $plugin 'tools/kit.ps1') session-check -RepoRoot $cwd 2>&1 | Out-String).Trim()
-        # Коди за змістом (спека §5): 0 — тиша, 3 — є сигнал — обидва друкуються як є; 1 — перевірка не відпрацювала,
-        # і мовчати не можна: мовчання читалось би як «нових версій немає».
-        if ($LASTEXITCODE -eq 1) { "УВАГА: kit session-check не відпрацював (код 1) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:`n$raw" } else { $raw }
+    $status = ''
+    if (-not (Test-Path -LiteralPath (Join-Path $cwd 'v8storagekit.yaml') -PathType Leaf)) {
+        $status = "У теці $cwd немає v8storagekit.yaml: репозиторій не підключено до kit (скіл v8storagekit:onboarding) або сесія відкрита не в корені репозиторію."
     } else {
-        "У теці $cwd немає v8storagekit.yaml: репозиторій не підключено до kit (скіл v8storagekit:onboarding) або сесія відкрита не в корені репозиторію."
+        # Стеля часу — обов'язкова: цей код виконується на старті КОЖНОЇ сесії, а session-check обходить
+        # data/objects (часто SMB) і викликає повний check. Перевищення показуємо рядком, не мовчанням:
+        # мовчання читалось би як «нових версій немає» — та сама логіка, що для коду 1.
+        $timeoutSec = 15
+        if ($env:V8KIT_SESSION_CHECK_TIMEOUT -match '^\d+$') { $timeoutSec = [int]$env:V8KIT_SESSION_CHECK_TIMEOUT }
+        $outFile = [System.IO.Path]::GetTempFileName()
+        $errFile = [System.IO.Path]::GetTempFileName()
+        try {
+            # Вивід — у ФАЙЛИ, не в пайп: пайп без асинхронного читання дає дедлок на великому виводі
+            # (знахідка B2 в Invoke-KitGitProcess). Список аргументів закритий: -Apply шим не передає
+            # ніколи — session-check нічого не змінює, і передавати його нема чого.
+            $proc = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
+                -ArgumentList @('-NoProfile', '-File', (Join-Path $plugin 'tools/kit.ps1'), 'session-check', '-RepoRoot', $cwd)
+            if ($proc.WaitForExit($timeoutSec * 1000)) {
+                $raw = (((Get-Content -LiteralPath $outFile -Raw -Encoding UTF8) + (Get-Content -LiteralPath $errFile -Raw -Encoding UTF8)) | Out-String).Trim()
+                # Коди за змістом (спека §5): 0 — тиша, 3 — є сигнал — обидва друкуються як є; 1 — перевірка
+                # не відпрацювала, і мовчати не можна.
+                $status = if ($proc.ExitCode -eq 1) { "УВАГА: kit session-check не відпрацював (код 1) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:`n$raw" } else { $raw }
+            } else {
+                try { $proc.Kill($true) } catch { }
+                $status = "УВАГА: kit session-check не вклався в $timeoutSec с — стан сховищ НЕВІДОМИЙ, не «без змін». Найчастіша причина — повільний доступ до сховища (SMB); перевірити вручну: kit.ps1 session-check -RepoRoot ."
+            }
+        } finally {
+            Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+        }
     }
 
     $context = "<v8storagekit>`n$intro`n`n## Стан сховищ (kit session-check)`n`n$status`n</v8storagekit>"
@@ -1233,6 +1269,35 @@ try {
 } | ConvertTo-Json -Depth 4 -Compress
 exit 0
 ```
+
+Два It до Describe зі Step 1 — обидва без платформи, з фейковим плагіном через `V8KIT_PLUGINS_REGISTRY`
+(`kit.ps1` у ньому — заглушка, яку кожен It підміняє під себе):
+
+```powershell
+It 'шим не чекає довше за стелю: повільний session-check дає рядок «не вклався», а не зависання' {
+    Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'Start-Sleep -Seconds 30'
+    $env:V8KIT_SESSION_CHECK_TIMEOUT = '1'
+    try {
+        $sw  = [System.Diagnostics.Stopwatch]::StartNew()
+        $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String
+        $sw.Stop()
+    } finally { Remove-Item Env:\V8KIT_SESSION_CHECK_TIMEOUT -ErrorAction SilentlyContinue }
+    $sw.Elapsed.TotalSeconds | Should -BeLessThan 20        # стеля 1 с + запас на старт pwsh
+    $out | Should -BeLike '*не вклався*'
+    ($out | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'   # JSON лишився валідним
+}
+
+It 'шим ніколи не передає -Apply' {
+    # Заглушка друкує власні аргументи — шим мусить дати рівно session-check -RepoRoot <шлях>.
+    Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'param([Parameter(ValueFromRemainingArguments)]$Rest) $Rest -join " "'
+    $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String
+    $out | Should -Not -BeLike '*-Apply*'
+    $out | Should -BeLike '*session-check*-RepoRoot*'
+}
+```
+
+Стелю прибирати у `finally`, а не після виклику: інакше падіння It лишає її в оточенні й
+наступні тести йдуть з однією секундою.
 
 - [ ] **Step 4: `templates/settings.json` — блок хука** (після `"permissions": {…}`, на тому ж рівні)
 
@@ -1310,7 +1375,13 @@ Unica не вміє: сховища, дамп із живої бази, база
 - «ймовірно нові версії … kit sync» — у сховищі писали після останнього дзеркала; спитайте людину, чи оновити;
 - «коміти, не злиті в main … kit verify -Apply» — дзеркало попереду головної гілки;
 - «дзеркала ще немає» — перший `sync` ще не робили;
-- «недоступне» — шлях сховища не існує на цій машині (накладка `v8storagekit.local.yaml`, `storages:`).
+- «недоступне» — шлях сховища не існує на цій машині. **Причини дві, протилежні, і вибір за людиною:**
+  або шлях у маніфесті правильний, а машина інша — тоді перевизначити в накладці
+  `v8storagekit.local.yaml`, `storages:`; або в маніфесті записане **не те сховище** — тоді правити
+  `v8storagekit.yaml`. Другий випадок не теоретичний: у живому репозиторії маніфест указував на
+  `…_ACC`, а джерелом було `…_BP` (`check.psm1`, знахідка `storage-path`). Не радьте накладку, не
+  спитавши: накладка, що маскує помилку маніфесту, розводить репозиторій по машинах — на кожній
+  він синхронізується зі свого сховища.
 
 Хук лише повідомляє. Рішення — людині, дія — скіл `v8storagekit:sync`.
 
