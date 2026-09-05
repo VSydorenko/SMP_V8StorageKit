@@ -138,3 +138,37 @@ Describe 'StorageImprint.psm1 — запис, читання і звірка в�
         Test-KitStorageImprintCurrent -Imprint $imprint -Activity $activityAgain | Should -BeTrue
     }
 }
+
+Describe 'StorageImprint.psm1 — ключ джерела не виводить відбиток за межі build/session-check' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageImprint.psm1").Path -Force
+    }
+
+    It 'ключ із сегментом ".." відхиляється ДО звернення до сховища, і нічого не створено' {
+        # Рев'ю Task 8: ключ джерела приходить із v8storagekit.yaml без перевірки на шляхоподібність
+        # (Manifest.psm1 звіряє лише шлях воркспейсу), а сусідній запис у sync.psm1 той самий ключ
+        # через Assert-SafeWorkPath проганяє. -StoragePath навмисно неіснуючий: якщо зупинка
+        # спрацювала до Get-KitStorageActivity, його відсутність ролі не грає — а якщо перевірку
+        # колись пересунуть після звернення до сховища, цей тест це й покаже.
+        $repo = Join-Path $TestDrive 'imprint-escape'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+
+        { Write-KitStorageImprint -RepoRoot $repo -Key '../../evil' -StoragePath (Join-Path $TestDrive 'nope') -Version 1 } |
+            Should -Throw '*build*session-check*'
+
+        Join-Path $repo 'build' | Should -Not -Exist
+        Join-Path (Split-Path -Parent $repo) 'evil.json' | Should -Not -Exist
+    }
+
+    It 'звичайний ключ пишеться туди, куди й обіцяно' {
+        $repo = Join-Path $TestDrive 'imprint-ok'
+        $storage = Join-Path $TestDrive 'imprint-ok-storage'
+        New-Item -ItemType Directory -Path (Join-Path $storage 'data/objects/ab') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $storage '1cv8ddb.1CD') -Value 'db'
+        Set-Content -LiteralPath (Join-Path $storage 'data/objects/ab/cd.bin') -Value 'obj'
+
+        Write-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB' -StoragePath $storage -Version 7
+        Join-Path $repo 'build/session-check/Alpha_SMB.json' | Should -Exist
+    }
+}

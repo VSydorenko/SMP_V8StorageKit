@@ -1,6 +1,8 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
+Import-Module "$PSScriptRoot/PathSafety.psm1"
+
 <#
 .SYNOPSIS
     Відбиток «стан сховища, побачений останнім sync» — build/session-check/<Key>.json.
@@ -56,8 +58,15 @@ function Write-KitStorageImprint {
         [Parameter(Mandatory)][int]$Version
     )
 
-    $activity = Get-KitStorageActivity -StoragePath $StoragePath
+    # Той самий запобіжник, що на сусідньому записі в sync.psm1 (робоча тека джерела), і з тієї ж
+    # причини: ключ джерела приходить із v8storagekit.yaml БЕЗ перевірки на шляхоподібність
+    # (Manifest.psm1 звіряє лише шлях воркспейсу), тож '..' у ключі вивів би відбиток за межі
+    # build/session-check — рев'ю Task 8. Перевірка стоїть ПЕРЕД зверненням до сховища: дешева
+    # зупинка не має чекати на обхід каталогів.
     $path = Get-KitStorageImprintPath -RepoRoot $RepoRoot -Key $Key
+    Assert-SafeWorkPath -Path $path -MustBeUnder (Join-Path $RepoRoot 'build/session-check') -Description "відбиток сховища $Key"
+
+    $activity = Get-KitStorageActivity -StoragePath $StoragePath
     New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
 
     $doc = [ordered]@{
