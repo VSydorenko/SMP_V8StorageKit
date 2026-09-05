@@ -5,10 +5,13 @@ description: (Канон ДО 1.0 — читайте застереження в
 
 > **Перехідний стан (B2, до переписування скілів у B5):** `storage-sync.ps1` вилучено. Нові
 > версії сховища переносить `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot .`
-> (прев'ю) і те саме з `-Apply`. Репозиторій має бути описаний маніфестом `v8storagekit.yaml`
+> (прев'ю) і те саме з `-Apply`. `dump-config.ps1` так само вилучено (B3) — `pwsh -NoProfile -File
+> "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . [-Source base] [-Apply]`; дев-база
+> береться з `v8storagekit.local.yaml` (`infobases:`), а не з `v8project.local.yaml`. Репозиторій
+> має бути описаний маніфестом `v8storagekit.yaml`
 > (див. `${CLAUDE_PLUGIN_ROOT}/templates/v8storagekit.yaml.example`); `storage.json` більше
 > не читається. Розділи 1, 2, 4 і 5 нижче описують СТАРИЙ механізм і чинні лише для
-> `dump-config`, `load-ext` і `build`.
+> `load-ext` і `build`.
 
 > **ЗАСТЕРЕЖЕННЯ — перехід на 1.0 (2026-09-04).** Цей скіл описує канон **до 1.0**. Новий контур —
 > маніфест `v8storagekit.yaml` і `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .`.
@@ -64,7 +67,7 @@ PowerShell-скрипти. Цей скіл каже, який скрипт за�
 |---|---|
 | «покажи нові версії сховища» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/storage-sync.ps1" -RepoRoot . -Product <Продукт>` |
 | «перенеси нові версії сховища в git» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/storage-sync.ps1" -RepoRoot . -Product <Продукт> -Apply` |
-| «вивантаж базову конфігурацію» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/dump-config.ps1" -RepoRoot . -Product <Продукт> -Apply` |
+| «вивантаж базову конфігурацію» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . -Apply` |
 | «розкоти розширення в дев-базу» | **не виконувати** — суперечить принципу «агент ніколи не пише в базу людини» (спека 1.0, §1.3); `load-ext.ps1` вилучається в B4. Розкатка в базу АГЕНТА — `operation=build` Уніки |
 | «збери cfe/epf» | `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/build.ps1" -RepoRoot . -Product <Продукт> -Apply` |
 

@@ -21,7 +21,7 @@
 
 | Тека | Що це |
 |---|---|
-| `tools/` | Диспетчер `kit.ps1` з командами в `commands/` (`check`, `sync`), модулі `lib/*.psm1`, Pester-тести `tests/`; перехідні скрипти `dump-config`, `load-ext`, `build` — до B3/B4 |
+| `tools/` | Диспетчер `kit.ps1` з командами в `commands/` (`check`, `sync`, `verify`, `dump`), модулі `lib/*.psm1`, Pester-тести `tests/`; перехідні скрипти `load-ext`, `build` — до B4 |
 | `skills/` | Три скіли плагіна — `storage-pipeline`, `product-onboarding`, `repo-migration` |
 | `templates/` | Файли, які плагін копіює в репозиторій-споживач |
 | `docs/` | `storage-and-git.md` — архітектура контуру; `follow-ups.md` — свідомо припаркована робота |

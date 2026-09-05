@@ -92,7 +92,8 @@ Describe 'Скрипти відмовляють на не-git RepoRoot' {
     }
 
     It '<name> зупиняється до будь-якої роботи' -ForEach @(
-        @{ name = 'dump-config.ps1'; extra = @('-Product', 'X') }
+        # dump-config.ps1 вилучено (B3, kit dump) — його маршрут "не git-репозиторій — зупинка"
+        # тепер спільний для всіх команд kit.ps1 і вже перевірений окремо в Kit.Tests.ps1.
         @{ name = 'load-ext.ps1';    extra = @('-Product', 'X') }
         @{ name = 'build.ps1';       extra = @() }
     ) {

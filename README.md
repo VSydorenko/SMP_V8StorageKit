@@ -10,7 +10,7 @@
 
 ## Що всередині
 
-- `tools/` — диспетчер `kit.ps1` з командами `check`, `sync` (`commands/`) + перехідні скрипти (dump-config, load-ext, build) + модулі + Pester-тести
+- `tools/` — диспетчер `kit.ps1` з командами `check`, `sync`, `verify`, `dump` (`commands/`) + перехідні скрипти (load-ext, build) + модулі + Pester-тести
 - `skills/` — storage-pipeline (щоденний цикл), product-onboarding (новий продукт), repo-migration (міграція старого репо)
 - `templates/` — шаблони файлів репо-споживача (CLAUDE.md, .gitattributes, .gitignore, settings.json, v8storagekit.yaml.example)
 - `docs/` — архітектура контуру «сховище ↔ git»
