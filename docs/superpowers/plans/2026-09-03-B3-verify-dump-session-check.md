@@ -42,6 +42,11 @@
   керує лише байтами ≥ 0x80, а `"`, `\` і перевід рядка git C-квотує завжди — `-z` прибирає саме це.
   Фікстурам заборонено виставляти `core.quotepath` — це маскувало б дефект (у SMP_BankExchange він був
   замаскований локальним `.git/config`).
+- **`@(Get-ChildItem …).Count`, без винятків (знахідка B3, тричі):** під `Set-StrictMode -Version Latest`
+  `(Get-ChildItem …).Count` кидає `PropertyNotFoundException` не лише на порожній теці, а й на теці **рівно з
+  одним файлом** — `Get-ChildItem` повертає скалярний `FileInfo` без `.Count` (перевірено на pwsh 7.5.4).
+  У продакшні це мовчить лише тому, що дамп конфігурації дає тисячі файлів. Те саме для будь-якого
+  конвеєра, що може дати один елемент.
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -305,7 +310,7 @@ function Invoke-KitStorageCheckout {
         $j = Join-Path $Target $junk
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
-    (Get-ChildItem -LiteralPath $Target -Recurse -File).Count
+    @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count   # @() обов'язкове: один файл дав би скаляр без .Count
 }
 
 Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, New-KitStorageInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout
@@ -1366,7 +1371,7 @@ function Invoke-KitDump {
             Assert-V8InfobaseNotBusy -Output $r.Output -Infobase $item.Infobase.Name
             throw "Вивантаження $($src.Key) не вдалося: $($r.Output)"
         }
-        $count = (Get-ChildItem -LiteralPath $src.FullPath -Recurse -File).Count
+        $count = @(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File).Count
         Write-Host "  Готово. Файлів: $count" -ForegroundColor Green
         $dumped.Add([pscustomobject]@{ Key = $src.Key; Target = $src.FullPath; Files = $count })
     }
@@ -1415,7 +1420,8 @@ git commit --only -m "B3: kit dump — вивантаження з живої б
 інтерактивному підключенні); (б) чи є на `storage/X` коміти, не злиті в головну гілку.
 
 **Files:**
-- Modify: `tools/lib/StorageBranch.psm1` — `Get-KitStorageActivity`
+- Modify: `tools/lib/StorageBranch.psm1` — `Get-KitStorageActivity`, `Test-KitBranchUnborn`
+- Modify: `tools/commands/check.psm1` — знахідка `main-branch` дворівнева (info/warn); `tools/tests/Check.Tests.ps1` — тест на обидва рівні
 - Create: `tools/commands/session-check.psm1`
 - Create: `tools/tests/SessionCheck.Tests.ps1`
 
@@ -1659,7 +1665,8 @@ function Invoke-KitSessionCheck {
         Дешевий сигнал для старту сесії (спека §5, §7): без платформи, без ліцензії, один обхід
         каталогу на джерело. Спершу — повний check (-Quiet) тим самим контекстом: error → код 1 і сигнали
         не обчислюються (на storage/* з чужим комітом дата дзеркала нічого не означає — одне правило замість
-        таблиці «які помилки ще дозволяють сигнали»); лише warn → [!]-рядки над сигналами. Нічого не змінює.
+        таблиці «які помилки ще дозволяють сигнали»); лише warn → [!]-рядки над сигналами, плюс [i] для знахідок
+        із білого списку (main-branch — info-половина дворівневої знахідки). Нічого не змінює.
     #>
     [CmdletBinding()]
     param(
@@ -1684,6 +1691,10 @@ function Invoke-KitSessionCheck {
     $checkErrors = @($checkFindings | Where-Object Level -eq 'error')
     # Недоступне сховище описує сигнал джерела (з порадою про накладку) — check-рядок про той самий шлях опускаємо.
     $checkWarns  = @($checkFindings | Where-Object { $_.Level -eq 'warn' -and $_.Check -ne 'storage-path' })
+    # info друкуємо лише з білого списку: check дає info на кожному прогоні (рядок-зведення «Маніфест: …»), і
+    # пускати всі означало б шум на кожному старті сесії. main-branch — інша річ: це info-половина дворівневої
+    # знахідки Step 2 («свіжий репозиторій: гілку створить перший коміт»), без неї розрізнювач мертвий.
+    $checkInfos  = @($checkFindings | Where-Object { $_.Level -eq 'info' -and $_.Check -in @('main-branch') })
 
     if ($checkErrors.Count -gt 0) {
         if ($AsJson) {
@@ -1761,7 +1772,8 @@ function Invoke-KitSessionCheck {
         Write-Host (ConvertTo-Json -InputObject $signals.ToArray() -Depth 4)
     } else {
         Write-Host "session-check — $($Context.Kind) $($Context.Label)"
-        foreach ($w in $checkWarns) { Write-Host "[!] $($w.Message)" -ForegroundColor Yellow }   # лише warn: код визначають сигнали
+        foreach ($i in $checkInfos) { Write-Host "[i] $($i.Message)" -ForegroundColor Gray }
+        foreach ($w in $checkWarns) { Write-Host "[!] $($w.Message)" -ForegroundColor Yellow }   # warn/info не міняють коду: його визначають сигнали
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
         foreach ($s in $signals) { Write-Host $s.Text }
     }
@@ -1803,8 +1815,8 @@ $context = Invoke-KitPreflight -RepoRoot $RepoRoot -Lenient:($Command -in @('che
 - [ ] **Step 4: Тести зелені; коміт**
 
 ```bash
-git add tools/kit.ps1 tools/lib/StorageBranch.psm1 tools/commands/session-check.psm1 tools/tests/SessionCheck.Tests.ps1
-git commit -m "B3: kit session-check — нові версії за mtime data/objects і незлиті коміти дзеркала, без платформи"
+git add tools/kit.ps1 tools/lib/StorageBranch.psm1 tools/commands/check.psm1 tools/commands/session-check.psm1 tools/tests/Check.Tests.ps1 tools/tests/SessionCheck.Tests.ps1
+git commit --only -- tools/kit.ps1 tools/lib/StorageBranch.psm1 tools/commands/check.psm1 tools/commands/session-check.psm1 tools/tests/Check.Tests.ps1 tools/tests/SessionCheck.Tests.ps1 -m "B3: kit session-check — нові версії за mtime data/objects і незлиті коміти дзеркала, без платформи"
 ```
 
 ---

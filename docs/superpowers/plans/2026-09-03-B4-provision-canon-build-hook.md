@@ -54,6 +54,11 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
   зеленими й тихо піднімають справжній `1cv8.exe`. Приймальна ознака тесту без платформи — не час виконання, а
   явне `Should -Invoke … -ModuleName <модуль, де ТЕПЕР живе виклик>`; при кожному перенесенні коду між модулями
   моки переадресовуються.
+- **`@(Get-ChildItem …).Count`, без винятків (знахідка B3, тричі):** під `Set-StrictMode -Version Latest`
+  `(Get-ChildItem …).Count` кидає `PropertyNotFoundException` не лише на порожній теці, а й на теці **рівно з
+  одним файлом** — `Get-ChildItem` повертає скалярний `FileInfo` без `.Count` (перевірено на pwsh 7.5.4).
+  У продакшні це мовчить лише тому, що дамп конфігурації дає тисячі файлів. Те саме для будь-якого
+  конвеєра, що може дати один елемент.
 - **Уроки B1, обов'язкові для виконавця:**
   1. *Приймальна ознака попереджень* — не рахунок рядків `warning:` (недетермінований, змішує навмисне з
      випадковим), а іменна: «жоден `warning:` не називає файлу з цього diff'у».
@@ -717,7 +722,7 @@ function Invoke-KitCanon {
                 Assert-V8InfobaseNotBusy -Output $r.Output -Infobase "агента ($($ws.Path))"
                 throw "Канонізація $($t.Key) не вдалася: $($r.Output)"
             }
-            $files = (Get-ChildItem -LiteralPath $t.FullPath -Recurse -File).Count
+            $files = @(Get-ChildItem -LiteralPath $t.FullPath -Recurse -File).Count
             $changed = @(git -C $root -c core.quotepath=false status --porcelain -z -- $t.RepoPath 2>$null | Where-Object { $_ }).Count
             Write-Host "  $($t.Key): файлів $files, змінено файлів: $changed" -ForegroundColor Green
             $done.Add([pscustomobject]@{ Key = $t.Key; Files = $files; Changed = $changed })
