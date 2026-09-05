@@ -128,8 +128,10 @@ commands
       : → {ExitCode 0; Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
 ```
 
-**Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар у диспетчері має їй відповідати):
-`0` — виконано; `1` — зупинка (`throw`) або `check` з помилками; `2` — `sync`: дзеркало оновлено, злиття в
+**Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар і код диспетчера мають їй відповідати —
+станом на B2 диспетчер віддавав `2` на будь-який `throw`, що злипалось із частковим успіхом `sync`; B3 Task 4
+Step 5а це виправляє):
+`0` — виконано; `1` — будь-яка зупинка: `throw` у команді, провал префлайту, невідома команда, `check` з помилками; `2` — `sync`: дзеркало оновлено, злиття в
 головну гілку не виконано (команда відпрацювала, дія лишилась людині); `3` — `verify`: є що робити
 (`ref-ahead`/`storage-ahead`/`mixed`). Нові команди беруть із цієї таблиці, а не вигадують своє.
 
@@ -1180,6 +1182,20 @@ function Invoke-KitVerify {
 Export-ModuleMember -Function Invoke-KitVerify
 ```
 
+- [ ] **Step 5а: диспетчер `kit.ps1` — коди виходу й прапорці без значення** (знахідки виконавця B3; `verify`
+  перший, кому це болить: у нього власний код 3)
+
+1. `throw` будь-де (команда, префлайт, невідома команда) → код **1**, не 2: у блоці `catch` диспетчера
+   `Write-Host` червоним тексту винятку і `exit 1`; `2` лишається лише за `sync` (частковий успіх), `3` — за
+   `verify`. Тести в `Kit.Tests.ps1`: невідома команда → 1; команда, що кидає (probe з `-Throw`), → 1; у
+   `Sync.Tests`/`Verify.Tests` уже є 2 і 3.
+2. `-Ім'я` без значення диспетчер кладе `$true`; для числового параметра PowerShell мовчки робить із нього `1`
+   (`kit verify -Version -Ref main` звіряв би проти версії 1 і радив «зберіть артефакт»). Правило диспетчера:
+   `$true` без значення — лише якщо параметр функції команди має тип `[switch]`
+   (`(Get-Command $functionName).Parameters[$n].ParameterType -eq [switch]`); інакше зупинка «параметр -$n
+   потребує значення». Тести: `probe -Force` → force=True; `probe -Ref` без значення → 1 і `-Ref` у тексті.
+   Локальний обхід у `verify` (`-Version` рядком) після цього не потрібен — прибрати, лишити `[Nullable[int]]`.
+
 - [ ] **Step 6: Тести без Integration зелені; Integration — за підтвердженням користувача**
 
 ```
@@ -1196,8 +1212,8 @@ pwsh -NoProfile -File tools/tests/Run-Tests.ps1
 - [ ] **Step 7: Коміт**
 
 ```bash
-git add tools/lib/StorageBranch.psm1 tools/commands/verify.psm1 tools/tests/Verify.Tests.ps1 tools/tests/StorageBranch.Tests.ps1
-git commit -m "B3: kit verify — інваріант ref ≡ сховище з версією з merge-base і звірочним комітом"
+git add tools/lib/StorageBranch.psm1 tools/commands/verify.psm1 tools/tests/Verify.Tests.ps1 tools/tests/StorageBranch.Tests.ps1 tools/kit.ps1 tools/tests/Kit.Tests.ps1
+git commit --only -- tools/lib/StorageBranch.psm1 tools/commands/verify.psm1 tools/tests/Verify.Tests.ps1 tools/tests/StorageBranch.Tests.ps1 tools/kit.ps1 tools/tests/Kit.Tests.ps1 -m "B3: kit verify — інваріант ref ≡ сховище з версією з merge-base і звірочним комітом"
 ```
 
 ---
