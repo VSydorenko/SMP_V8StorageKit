@@ -1839,6 +1839,191 @@ git commit -m "B3: follow-ups §14 закрито; список видимих �
 
 ---
 
+### Task 8: запаковане сховище і відбиток (хвіст після живого прогону)
+
+**Ризик:** `властивість безпеки` — задача тримає інваріант «`session-check` нічого не мутує»
+(§5, стовпець «Мутує: ні»), на якому стоїть стеля часу шима §7: убивати процес за стелею
+законно **лише** тому, що вбивати нема чого. Дозволити команді оновлювати кеш — і стеля з
+`kill` у B4 стають незаконними заднім числом. Друге рев'ю — вузьке, рівно про це: чи не з'явився
+в `session-check` жоден запис на диск, прямий або через спільну функцію.
+
+**Звідки задача.** Живий прогін B3 (компаньйон `smp-bankexchange-44`) знайшов `СМП_BankExchange_SMBru` —
+справжнє сховище з 16 версіями, у якого `data/objects` **порожня**: усе запаковано в `data/pack`
+(4 файли, 2,2 МБ). `session-check` відповів «шлях доступний, але не схожий на сховище 1С», і це
+хибний діагноз у найгіршому місці: правильна дія — жодна, а людину відправляють перевіряти
+маніфест і накладку, де все гаразд. Пакування не екзотика: у `СМП_BankExchange_SMB` видно обидва
+стани одночасно (запаковане до 2024-03-16, свіже в `objects`), конфігураційні сховища мають по
+60 pack-файлів. Рішення архітектора — спека `9f6ad5e` (§5, абзац «Запаковане сховище»; §12 (е))
+і `0379351` (§3.2, розрізнення відбитка й файлу стану).
+
+**Головне, що тут легко зіпсувати.** Тричі за блок ми ловили дефекти одного класу — **вічний
+рядок**: сигнал, який ніщо не гасить (`mtime` без допуску, хибний all-clear, «не визначається»
+для неактивного сховища). Кожну нову гілку сигналу перевіряйте питанням: **що її погасить і чи
+настане ця подія сама?** Якщо відповідь «людина має щось зробити, але робити нема чого» — гілка
+неправильна.
+
+**Files:**
+- Modify: `tools/lib/StorageBranch.psm1` — `Get-KitStorageActivity` (pack, розпізнавання сховища)
+- Create: `tools/lib/StorageImprint.psm1` — запис, читання і звірка відбитка
+- Modify: `tools/lib/module-order.txt` — `StorageImprint` **після** `StorageBranch` (бере `Get-KitStorageActivity`)
+- Modify: `tools/commands/sync.psm1` — запис відбитка після читання звіту
+- Modify: `tools/commands/session-check.psm1` — гілка відбитка перед евристиками
+- Modify: `templates/CLAUDE.md` — рядок про `build/session-check/` як локальний кеш
+- Tests: `StorageBranch.Tests.ps1`, `StorageImprint.Tests.ps1` (новий), `Sync.Tests.ps1`, `SessionCheck.Tests.ps1`
+
+**Interfaces:**
+
+Consumes: `Get-KitStorageActivity` (Task 6), `Get-StorageVersions` і `$src` з `Select-KitSources`
+(B2), дата дзеркала — та сама, що вже обчислює `Invoke-KitSessionCheck`.
+
+Produces:
+
+    Get-KitStorageActivity -StoragePath
+      : → {Accessible:bool; IsStorage:bool; LatestObjectWrite:datetime|$null;
+           LatestPackWrite:datetime|$null; PackFiles:object[]; Reason:string}
+        IsStorage = 1cv8ddb.1CD є І (objects непорожня АБО pack непорожня) — спека §5.
+        PackFiles — @({Name; Length; LastWriteTimeUtc}), відсортовані за Name (стабільний порядок
+        для порівняння з відбитком). Порожній масив, не $null.
+
+    Write-KitStorageImprint -RepoRoot -Key -StoragePath -Version
+      : → [string] шлях записаного файла. Пише build/session-check/<Key>.json.
+
+    Read-KitStorageImprint -RepoRoot -Key
+      : → об'єкт відбитка або $null (немає файла, нечитаний JSON, чужа схема — усе одно $null:
+        зіпсований кеш не має валити команду, він має зникнути з розгляду).
+
+    Test-KitStorageImprintCurrent -Imprint -Activity
+      : → bool. Диск (свіжий Get-KitStorageActivity) збігається з відбитком: LatestObjectWrite
+        рівний **точно** і перелік PackFiles рівний за (Name, Length, LastWriteTimeUtc).
+        Допуску тут НЕМАЄ і бути не повинно — обидві сторони порівняння знято одним годинником
+        (файлова система сервера сховища). Допуск потрібен лише там, де mtime звіряється з датою
+        автора коміту, тобто з годинником іншої машини (Task 6).
+
+**Формат відбитка** (`build/session-check/<Key>.json`, UTF-8 без BOM):
+
+    { "schema": 1, "key": "Alpha_SMB", "storagePath": "...", "version": 42,
+      "readAtUtc": "2026-09-05T10:11:12.3456789Z", "latestObjectWriteUtc": "..." | null,
+      "packFiles": [ { "name": "...", "length": 123, "lastWriteUtc": "..." } ] }
+
+`schema` — щоб наступна зміна формату не читалась як «диск розійшовся»: інша схема → `$null` із
+`Read-KitStorageImprint`, тобто повернення до евристик, а не хибна точна відповідь.
+
+- [ ] **Step 1: Тести `Get-KitStorageActivity` з pack — падають**
+
+У `StorageBranch.Tests.ps1`, до наявного Describe. Фікстура сховища має вміти три стани: лише
+`objects`, лише `pack`, обидві. Перевірити:
+- `1cv8ddb.1CD` + порожня `objects` + непорожня `pack` → `IsStorage = $true`, `LatestPackWrite`
+  заповнений, `LatestObjectWrite` = `$null`, `Reason` порожній (це **не** причина скарги);
+- `1cv8ddb.1CD` + обидві теки → обидві дати, `PackFiles` містить усі файли `pack`;
+- каталог без `1cv8ddb.1CD` → `IsStorage = $false` (ось тут скарга доречна);
+- `1cv8ddb.1CD` + обидві теки порожні → `IsStorage = $false`, `Reason` називає обидві теки, а не
+  саму лише `objects` (стара порада шукала помилку не там);
+- `pack` **рівно з одним файлом** → `PackFiles.Count` = 1 і виняток не кидається. Це не
+  формальність: `@(Get-ChildItem …)` тут обов'язковий, голий `.Count` на одному файлі падає під
+  `Set-StrictMode` — ловили тричі за блок.
+
+- [ ] **Step 2: `Get-KitStorageActivity` — pack і `IsStorage`**
+
+Розширити наявну функцію, не писати нову: її вже викликають `check` і `session-check`. Обидві
+теки читаються одним зразком (`@(Get-ChildItem … -ErrorAction SilentlyContinue)`, `Count` першим,
+`Measure-Object -Maximum` тільки на непорожньому — коментар C1 у поточному коді пояснює чому).
+`Reason` заповнюється лише коли `IsStorage = $false`.
+
+- [ ] **Step 3: Тести `StorageImprint.Tests.ps1` — падають**
+
+Чисті функції, платформа не потрібна. Мінімальний набір, і третій пункт тут найважливіший:
+- запис → читання: те саме значення, файл лежить у `build/session-check/<Key>.json`;
+- `Read-KitStorageImprint` на відсутньому файлі, на битому JSON і на `schema: 2` → `$null`
+  у всіх трьох випадках, **без винятку**;
+- `Test-KitStorageImprintCurrent`: збіг → `$true`; **зміна лише `Length` одного pack-файла** →
+  `$false`; **новий файл в `objects`** → `$false`; **зміна `mtime` pack-файла** → `$false`.
+  Це і є охорона гілки «повернення до евристик»: без неї зелений набір проходив би, ніколи не
+  виконавши жодного рядка цього шляху (у цьому блоці таке виявлялось чотири рази);
+- відбиток, знятий і звірений **без жодної зміни диску між викликами**, дає `$true` — це та
+  сама перевірка «один годинник», яку не можна оголошувати, її треба показати.
+
+- [ ] **Step 4: `tools/lib/StorageImprint.psm1` і `module-order.txt`**
+
+Три функції з контракту вище. `Write-KitStorageImprint` створює `build/session-check/` за
+потреби (`New-Item -Force`), пише через `ConvertTo-Json -Depth 4` і `Set-Content -Encoding UTF8`.
+Дати серіалізувати в UTF-строку формату `o` і читати назад явно — `ConvertFrom-Json` віддає їх
+рядками, і мовчазне порівняння рядка з `[datetime]` дало б вічний `$false`, тобто вічне
+повернення до евристик, яке ніхто б не помітив.
+
+- [ ] **Step 5: Тести `Sync.Tests.ps1` — падають**
+
+Найважливіший тест задачі, і він неочевидний:
+- **відбиток пишеться в гілці «Нових версій немає»** — саме заради неактивного запакованого
+  сховища вся конструкція й існує. Якщо запис поставити після розгалуження, фіча не працює рівно
+  в тому випадку, для якого зроблена;
+- відбиток пишеться **і без `-Apply` (прев'ю), і з `-Apply`** — два окремі It;
+- `version` у відбитку дорівнює максимальній версії зі звіту, не кількості версій.
+
+**Чому прев'ю пише файл — сказати в докстрінгу `sync`, а не лишати рев'юеру здогадуватись.**
+Правило «прев'ю нічого не змінює» стосується git, сховища й баз — тобто стану, який хтось
+побачить у комітах або в чужій системі. `build/` — робоча тека машини, гітігнорована цілком
+(`templates/gitignore`, рядок `build/`), і те саме прев'ю вже кладе туди тимчасову ІБ і дампи.
+Відбиток — знання, здобуте цим читанням звіту; викидати його, щоб дотриматись букви правила,
+означало б платити повним прогоном платформи за кожну відповідь про запаковане сховище.
+
+- [ ] **Step 6: `sync.psm1` — запис відбитка**
+
+Місце одне і воно точне: **одразу після `Get-StorageVersions`** і обчислення `$maxVersion`
+(поточні рядки 107–111), **до** `if ($pending.Count -eq 0) { … continue }`. Запис у `try/catch`:
+збій запису кешу не має валити синхронізацію — попередження й далі.
+
+- [ ] **Step 7: Тести `SessionCheck.Tests.ps1` — падають**
+
+Гілка відбитка (перша, перед евристиками):
+- відбиток є, диск не змінився, дзеркало на тій самій версії → код `0`, текст містить «версія N»
+  і момент читання, і **не** містить «ймовірно»;
+- те саме, але дзеркало на `M < N` → код `3`, текст називає обидві версії;
+- відбиток є, але диск змінився (додати файл в `objects`) → евристики, текст знову «ймовірно»;
+- відбитка немає (свіжий клон) → евристики.
+
+Евристики (спека §5, три результати):
+- `objects` новіші за дзеркало → «ймовірно нові версії», код `3`, **незалежно** від того, чи pack
+  новіший;
+- pack **не новіший** за дзеркало → звичайна логіка по `objects` (pack не згадується у виводі
+  взагалі — інакше рядок про нього з'являвся б у половині репозиторіїв без причини);
+- pack новіший за дзеркало, `objects` сигналу не дають → «усі об'єкти запаковані після останнього
+  дзеркала — чи є нові версії, дешева перевірка сказати не може; точну відповідь дає
+  `kit sync -Source <ключ>` без `-Apply`», код `3` (не `1`: команда дійшла до задуманого
+  результату й назвала дію; не `0`: тиша читається як «змін немає»).
+
+Інваріант задачі, окремим It:
+- **`session-check` не створює і не змінює жодного файла.** Знімок дерева репозиторію (включно з
+  `build/`) до і після прогону — байт у байт, включно з `mtime`. Це не стилістика: на цьому стоїть
+  законність `kill` за стелею в шимі B4.
+
+- [ ] **Step 8: `session-check.psm1` — гілка відбитка перед евристиками**
+
+Порядок: `Read-KitStorageImprint` → якщо не `$null` і `Test-KitStorageImprintCurrent` → точна
+відповідь; інакше евристики. Жодного запису, жодного «оновимо кеш, раз ми його вже прочитали» —
+див. інваріант вище.
+
+- [ ] **Step 9: Кеш — не стан. Тексти**
+
+Докстрінги `StorageImprint.psm1` і рядок у `templates/CLAUDE.md`: джерело істини про стан —
+трейлер `Storage-Version` на вершині `storage/<ключ>`; відбиток гітігнорований, локальний для
+машини, і **при видаленому відбитку все працює** — `session-check` просто повертається до
+евристик. Формулювати саме так: це не примітка, а перевірка, що кеш не став станом. Різниця зі
+`storage.json` — у ролі, не в місці файлу: той був єдиним джерелом, і його втрата ламала
+синхронізацію.
+
+- [ ] **Step 10: Прогін і коміт**
+
+```
+pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration
+```
+
+```bash
+git add tools/lib/StorageBranch.psm1 tools/lib/StorageImprint.psm1 tools/lib/module-order.txt tools/commands/sync.psm1 tools/commands/session-check.psm1 templates/CLAUDE.md tools/tests/StorageBranch.Tests.ps1 tools/tests/StorageImprint.Tests.ps1 tools/tests/Sync.Tests.ps1 tools/tests/SessionCheck.Tests.ps1
+git commit --only -- tools/lib/StorageBranch.psm1 tools/lib/StorageImprint.psm1 tools/lib/module-order.txt tools/commands/sync.psm1 tools/commands/session-check.psm1 templates/CLAUDE.md tools/tests/StorageBranch.Tests.ps1 tools/tests/StorageImprint.Tests.ps1 tools/tests/Sync.Tests.ps1 tools/tests/SessionCheck.Tests.ps1 -m "B3: запаковане сховище розпізнається за data/pack; відбиток sync робить відповідь точною замість вічного «не визначається»"
+```
+
+---
+
 ## Self-review
 
 | Вимога спеки | Задача |
@@ -1852,6 +2037,8 @@ git commit -m "B3: follow-ups §14 закрито; список видимих �
 | вилучення `dump-config.ps1` (§5) | 5 |
 | тести §12: «verify §3.5» (усі п'ять категорій, binary, ConfigDumpInfo, версія з трейлера при більшій у сховищі — через `-Version`/merge-base), «session-check» (а)(б), «dump» («зайнято» трьома мовами) | 2–6 |
 | Integration: `verify` на живому сховищі; `dump` із живої бази (за `V8KIT_LIVE_DUMP=1`) | 4, 5 |
+| запаковане сховище: розпізнавання за `1cv8ddb.1CD` і `objects` **або** `pack`; три результати сигналу; код `3` (спека 9f6ad5e §5) | 8 |
+| відбиток `build/session-check/<ключ>.json`: `sync` пише (прев'ю і `-Apply`), `session-check` лише читає; кеш ≠ стан (9f6ad5e, 0379351 §3.2) | 8 |
 
 **Свідомо не в B3:** `canon` (потребує бази агента) — B4; `hook-shim` у `check` — B4;
 `load-ext.ps1`, `build.ps1`, `Read-V8LocalConnection` — B4; скіли — B5.
@@ -1860,7 +2047,8 @@ git commit -m "B3: follow-ups §14 закрито; список видимих �
 `New-KitStorageInfobase`, `Enter-KitStorageBind`, `Exit-KitStorageBind`, `Invoke-KitStorageCheckout`,
 `Test-V8InfobaseBusy`, `Assert-V8InfobaseNotBusy`, `Export-KitTree`, `Get-KitRelativeFiles`,
 `Get-KitBinaryPaths`, `Compare-KitTrees`, `Get-KitVerifyVersion`, `Get-KitStorageActivity`,
-`Invoke-KitVerify`, `Invoke-KitDump`, `Invoke-KitSessionCheck` — однакові в контрактах, коді й
+`Invoke-KitVerify`, `Invoke-KitDump`, `Invoke-KitSessionCheck`, `Write-KitStorageImprint`,
+`Read-KitStorageImprint`, `Test-KitStorageImprintCurrent` — однакові в контрактах, коді й
 тестах; поля `Compare-KitTrees` (`Equal, CrOnly, Content, OnlyInDump, OnlyInTree, Total`) —
 однакові в Task 3 і Task 4; вердикти `equal|ref-ahead|storage-ahead|mixed` — у коді й в
 Integration-тесті.
