@@ -125,15 +125,15 @@ commands
   Invoke-KitDump -Context [-Workspace] [-Source] [-Apply]
       : → {ExitCode; Dumped: @({Key; Target; Files})}
   Invoke-KitSessionCheck -Context [-Workspace] [-Source] [-Apply] [-AsJson]
-      : → {ExitCode 0; Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
+      : → {ExitCode 0|3 (3 — є хоч один сигнал: нові версії або незлиті коміти; семантика та сама, що storage-ahead у verify); Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
 ```
 
 **Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар і код диспетчера мають їй відповідати —
 станом на B2 диспетчер віддавав `2` на будь-який `throw`, що злипалось із частковим успіхом `sync`; B3 Task 4
 Step 5а це виправляє):
-`0` — виконано; `1` — будь-яка зупинка: `throw` у команді, провал префлайту, невідома команда, `check` з помилками; `2` — `sync`: дзеркало оновлено, злиття в
+`0` — виконано (для `check` — і лише з warn: warn — стан машини, автоматику не блокує); `1` — будь-яка зупинка: `throw` у команді, провал префлайту, невідома команда, `check` з помилками; коди задані ЗА ЗМІСТОМ (спека §5, 93f2052): 2 — стан змінено частково, рішення за людиною; 3 — нічого не змінено, але є що робити; `2` — `sync`: дзеркало оновлено, злиття в
 головну гілку не виконано (команда відпрацювала, дія лишилась людині); `3` — `verify`: є що робити
-(`ref-ahead`/`storage-ahead`/`mixed`). Нові команди беруть із цієї таблиці, а не вигадують своє.
+(`ref-ahead`/`storage-ahead`/`mixed`) і `session-check`: є сигнал. Нові команди беруть із цієї таблиці, а не вигадують своє.
 
 Робочі теки: `build/verify/<ключ>/{ib,dump,tree}`; `dump` пише прямо в `<воркспейс>/<шлях
 source-set>` (це і є ціль). `session-check` файлів не створює.
@@ -1469,13 +1469,14 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
     It '(а) файли data/objects новіші за дзеркало → сигнал «нові версії»' {
         $s = New-FakeStorage -Name 'newer' -ObjectsWrite $script:New -DbWrite $script:New
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'a-newer' -StoragePath $s -MirrorDate $script:Old -Merge)
-        $r.ExitCode | Should -Be 0
+        $r.ExitCode | Should -Be 3     # є що робити (спека §5: коди за змістом)
         $r.Output | Should -BeLike '*- Alpha_SMB:*нові версії*kit sync*'
     }
 
     It '(а) файли data/objects старіші за дзеркало → тиша' {
         $s = New-FakeStorage -Name 'older' -ObjectsWrite $script:Old -DbWrite $script:Old
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'a-older' -StoragePath $s -MirrorDate $script:New -Merge)
+        $r.ExitCode | Should -Be 0     # тиша → 0
         $r.Output | Should -Not -BeLike '*нові версії*'
         $r.Output | Should -BeLike '*- Alpha_SMB:*синхронн*'
     }
@@ -1489,6 +1490,7 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
     It '(б) коміти на storage/X, не злиті в main → сигнал із кількістю і підказкою verify' {
         $s = New-FakeStorage -Name 'unmerged' -ObjectsWrite $script:Old -DbWrite $script:Old
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'b-unmerged' -StoragePath $s -MirrorDate $script:New)
+        $r.ExitCode | Should -Be 3
         $r.Output | Should -BeLike '*- Alpha_SMB:*1 *не злит*main*kit verify*'
     }
 
@@ -1630,7 +1632,9 @@ function Invoke-KitSessionCheck {
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
         foreach ($s in $signals) { Write-Host $s.Text }
     }
-    [pscustomobject]@{ ExitCode = 0; Signals = $signals.ToArray() }
+    # 3 — є що робити (той самий зміст, що storage-ahead у verify, лише дешево): сигнал нових версій або незлитих комітів.
+    $hasSignal = [bool](@($signals | Where-Object { $_.NewInStorage -or $_.UnmergedCommits -gt 0 }).Count)
+    [pscustomobject]@{ ExitCode = $(if ($hasSignal) { 3 } else { 0 }); Signals = $signals.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitSessionCheck

@@ -138,7 +138,9 @@ commands
 
 templates/hooks/session-start.ps1 (шим; самодостатній, без модулів kit)
   вхід: cwd = корінь репозиторію-споживача; реєстр $env:V8KIT_PLUGINS_REGISTRY або ~/.claude/plugins/installed_plugins.json
-  вихід: {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}} або нічого (код 0), якщо плагіна немає
+  вихід: {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}} або нічого, якщо плагіна немає;
+  шим ЗАВЖДИ виходить з 0 (спека §7). Код kit session-check формує лише текст: 0 і 3 — вивід як є; 1 — текст
+  зупинки з позначкою «перевірка не відпрацювала — стан сховищ невідомий» (мовчання читалось би як «нових версій немає»)
 ```
 
 ---
@@ -1006,6 +1008,15 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $r.Output.Trim() | Should -BeNullOrEmpty
     }
 
+    It 'kit session-check упав (код 1) — шим не мовчить: позначка «стан невідомий» і текст зупинки, код шима 0' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'broken') -WithHooks
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value 'version: 1' -Encoding UTF8   # маніфест без workspaces → префлайт кидає
+        $r = Invoke-Shim -Cwd $repo -Registry $script:Registry
+        $r.ExitCode | Should -Be 0
+        $json = $r.Output | ConvertFrom-Json
+        $json.hookSpecificOutput.additionalContext | Should -BeLike '*НЕВІДОМИЙ*workspaces*'
+    }
+
     It 'без маніфесту в cwd — лише вступ і підказка onboarding' {
         $dir = Join-Path $TestDrive 'plain'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -1134,7 +1145,10 @@ try {
 
     $cwd = (Get-Location).Path
     $status = if (Test-Path -LiteralPath (Join-Path $cwd 'v8storagekit.yaml') -PathType Leaf) {
-        (& pwsh -NoProfile -File (Join-Path $plugin 'tools/kit.ps1') session-check -RepoRoot $cwd 2>&1 | Out-String).Trim()
+        $raw = (& pwsh -NoProfile -File (Join-Path $plugin 'tools/kit.ps1') session-check -RepoRoot $cwd 2>&1 | Out-String).Trim()
+        # Коди за змістом (спека §5): 0 — тиша, 3 — є сигнал — обидва друкуються як є; 1 — перевірка не відпрацювала,
+        # і мовчати не можна: мовчання читалось би як «нових версій немає».
+        if ($LASTEXITCODE -eq 1) { "УВАГА: kit session-check не відпрацював (код 1) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:`n$raw" } else { $raw }
     } else {
         "У теці $cwd немає v8storagekit.yaml: репозиторій не підключено до kit (скіл v8storagekit:onboarding) або сесія відкрита не в корені репозиторію."
     }
