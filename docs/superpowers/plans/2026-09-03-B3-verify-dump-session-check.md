@@ -125,7 +125,7 @@ commands
   Invoke-KitDump -Context [-Workspace] [-Source] [-Apply]
       : → {ExitCode; Dumped: @({Key; Target; Files})}
   Invoke-KitSessionCheck -Context [-Workspace] [-Source] [-Apply] [-AsJson]
-      : → {ExitCode 0|1|3 (спека §5, f4307df: 1 — хоч одне джерело «стан git не прочитано» (наявна гілка, а log/rev-list не відповіли, або головної гілки немає); інакше 3 — хоч один сигнал: нові версії, дзеркала немає при доступному сховищі, незлиті коміти; інакше 0; «сховище недоступне» — 0 з рядком); Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
+      : → {ExitCode 0|1|3; CheckFindings; Signals} (спека §5, 72ccb2f: спершу Invoke-KitCheck -Quiet тим самим контекстом; error у check → 1, сигнали НЕ обчислюються; лише warn → [!]-рядки над сигналами, код від сигналів: 1 — хоч одне джерело «стан git не прочитано»; 3 — хоч один сигнал дії; 0 — тиша; «сховище недоступне» — 0 з рядком). Signals: @({Key; Branch; MirrorExists; LastMirrorDate; StorageWrite; NewInStorage:bool; UnmergedCommits:int; Accessible; Text})}
 ```
 
 **Коди виходу `kit.ps1`** (єдина таблиця для всіх команд; коментар і код диспетчера мають їй відповідати —
@@ -1510,24 +1510,42 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
         $r2.Output | Should -BeLike '*недоступн*Дзеркала*немає*'
     }
 
-    It 'git log на НАЯВНІЙ гілці не відповів → рядок «стан git не прочитано», код 1; решта джерел — повні рядки' {
+    It 'git log на НАЯВНІЙ гілці не відповів → код 1; рядок — або від check (інваріанти storage/*), або від сигналу' {
         # Гілка є (ref розв'язується), а об'єкт вершини видалено: rev-parse проходить, log/rev-list падають.
+        # check обходить лог storage/* першим і, найімовірніше, зупиниться раніше за сигнал — закріпити той рядок,
+        # який реально з'являється; обидва називають гілку.
         $s = New-FakeStorage -Name 'gitbroken' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-Repo -Name 'git-broken' -StoragePath $s -MirrorDate $script:Old -Merge
         $sha = (git -C $repo rev-parse storage/Alpha_SMB).Trim()
         Remove-Item -LiteralPath (Join-Path $repo ".git/objects/$($sha.Substring(0,2))/$($sha.Substring(2))") -Force
         $r = Invoke-SessionCheck -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*- Alpha_SMB:*стан git не прочитано*kit check*'
+        $r.Output | Should -BeLike '*storage/Alpha_SMB*'
     }
 
-    It 'головної гілки немає → «стан git не прочитано», код 1 (мовчазний 0 у незлитих комітах маскував би «не знаю»)' {
-        $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:Old -DbWrite $script:Old
+    It 'error у check (головної гілки немає) → код 1, [-]-рядок check і «сигнали не обчислювались»; сигналів у виводі немає' {
+        $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:New -DbWrite $script:New
         $repo = New-Repo -Name 'no-main' -StoragePath $s -MirrorDate $script:Old -Merge
         git -C $repo branch -m main trunk
         $r = Invoke-SessionCheck -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike "*- Alpha_SMB:*головної гілки 'main' немає*"
+        $r.Output | Should -Match '\[-\].*main'
+        $r.Output | Should -BeLike '*не обчислювались*kit check*'
+        $r.Output | Should -Not -BeLike '*нові версії*'     # хоч сховище й новіше — сигнал не рахувався
+    }
+
+    It 'error у check (хуки не встановлені) → код 1 без сигналів; лише warn (немає накладки) → [!] над сигналами, код від сигналів' {
+        $s = New-FakeStorage -Name 'hooks' -ObjectsWrite $script:New -DbWrite $script:New
+        $noHooks = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-hooks') -OverlayText "storages:`n  Alpha_SMB: '$s'" -WithGitattributes -WithGitignore
+        $r = Invoke-SessionCheck -Repo $noHooks
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[-]*core.hooksPath*не обчислювались*'
+
+        $warnOnly = New-Repo -Name 'warn-only' -StoragePath $s -MirrorDate $script:Old -Merge   # дев-бази base у накладці немає → warn dump-from
+        $r2 = Invoke-SessionCheck -Repo $warnOnly
+        $r2.ExitCode | Should -Be 3
+        $r2.Output | Should -Match '\[!\].*dump\.from|\[!\].*infobases'
+        $r2.Output | Should -BeLike '*- Alpha_SMB:*нові версії*'
     }
 
     It '-AsJson — валідний JSON з полями сигналу' {
@@ -1581,11 +1599,17 @@ function Get-KitStorageActivity {
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
+# Спека §5: «повний check викликається явно і в session-check». Диспетчер імпортує лише запитаний командний
+# модуль, тому check підключається тут (без -Force — не перезавантажувати вже наявний).
+Import-Module "$PSScriptRoot/check.psm1"
+
 function Invoke-KitSessionCheck {
     <#
     .SYNOPSIS
         Дешевий сигнал для старту сесії (спека §5, §7): без платформи, без ліцензії, один обхід
-        каталогу на джерело. Нічого не змінює; рішення — людині, дія — kit sync / kit verify.
+        каталогу на джерело. Спершу — повний check (-Quiet) тим самим контекстом: error → код 1 і сигнали
+        не обчислюються (на storage/* з чужим комітом дата дзеркала нічого не означає — одне правило замість
+        таблиці «які помилки ще дозволяють сигнали»); лише warn → [!]-рядки над сигналами. Нічого не змінює.
     #>
     [CmdletBinding()]
     param(
@@ -1598,8 +1622,31 @@ function Invoke-KitSessionCheck {
 
     $root = $Context.RepoRoot
     $main = $Context.MainBranch
-    $mainExists = Test-KitBranchExists -RepoRoot $root -Branch $main
     $signals = [System.Collections.Generic.List[object]]::new()
+
+    # --- Повний check першим (спека §5). Виняток із check — теж «репозиторій суперечливий», код 1.
+    $checkFindings = @()
+    try {
+        $checkFindings = @((Invoke-KitCheck -Context $Context -Workspace $Workspace -Source $Source -Quiet).Findings)
+    } catch {
+        $checkFindings = @(New-KitFinding -Level error -Check 'check' -Message "check не відпрацював: $($_.Exception.Message)")
+    }
+    $checkErrors = @($checkFindings | Where-Object Level -eq 'error')
+    # Недоступне сховище описує сигнал джерела (з порадою про накладку) — check-рядок про той самий шлях опускаємо.
+    $checkWarns  = @($checkFindings | Where-Object { $_.Level -eq 'warn' -and $_.Check -ne 'storage-path' })
+
+    if ($checkErrors.Count -gt 0) {
+        if ($AsJson) {
+            Write-Host (ConvertTo-Json -InputObject ([pscustomobject]@{ CheckErrors = @($checkErrors.Message); Signals = @() }) -Depth 4)
+        } else {
+            Write-Host "session-check — $($Context.Kind) $($Context.Label)"
+            foreach ($e in $checkErrors) { Write-Host "[-] $($e.Message)" -ForegroundColor Red }
+            Write-Host 'Сигнали не обчислювались: репозиторій суперечливий — спершу kit check.' -ForegroundColor Red
+        }
+        return [pscustomobject]@{ ExitCode = 1; CheckFindings = $checkFindings; Signals = @() }
+    }
+
+    $mainExists = Test-KitBranchExists -RepoRoot $root -Branch $main   # після check відсутність головної гілки — уже error там
 
     foreach ($src in @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)) {
         $mirror = Test-KitBranchExists -RepoRoot $root -Branch $src.Branch
@@ -1616,8 +1663,6 @@ function Invoke-KitSessionCheck {
             # $null у $lastMirror дав би -gt → $true: сигнал на порожньому місці; тому лише за наявної дати.
             $newInStorage = (-not $mirror) -or ($null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror)
         }
-        # Головної гілки немає — це «не знаю», а не «усе злито»: мовчазний 0 у UnmergedCommits маскував би це (§5).
-        if ($mirror -and -not $mainExists -and -not $gitProblem) { $gitProblem = "головної гілки '$main' немає" }
         $unmerged = 0
         if ($mirror -and $mainExists -and -not $gitProblem) {
             $countRaw = (git -C $root rev-list --count "$main..$($src.Branch)" 2>$null | Out-String).Trim()
@@ -1656,6 +1701,7 @@ function Invoke-KitSessionCheck {
         Write-Host (ConvertTo-Json -InputObject $signals.ToArray() -Depth 4)
     } else {
         Write-Host "session-check — $($Context.Kind) $($Context.Label)"
+        foreach ($w in $checkWarns) { Write-Host "[!] $($w.Message)" -ForegroundColor Yellow }   # лише warn: код визначають сигнали
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
         foreach ($s in $signals) { Write-Host $s.Text }
     }
@@ -1667,7 +1713,7 @@ function Invoke-KitSessionCheck {
     $exit = if (@($signals | Where-Object { $_.GitProblem }).Count) { 1 }
             elseif (@($signals | Where-Object { $_.NewInStorage -or $_.UnmergedCommits -gt 0 }).Count) { 3 }
             else { 0 }
-    [pscustomobject]@{ ExitCode = $exit; Signals = $signals.ToArray() }
+    [pscustomobject]@{ ExitCode = $exit; CheckFindings = $checkFindings; Signals = $signals.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitSessionCheck
