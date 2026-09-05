@@ -26,7 +26,7 @@ function Invoke-KitVerify {
         [string]$Source,
         [bool]$Apply,
         [string]$Ref,
-        [Nullable[int]]$Version
+        [ValidateRange(1, [int]::MaxValue)][Nullable[int]]$Version
     )
 
     $root = $Context.RepoRoot
@@ -46,7 +46,12 @@ function Invoke-KitVerify {
         # точнішу зупинку; шлях сховища — другим (P1 префлайту B3).
         $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $ref -Branch $src.Branch
         if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
-        [pscustomobject]@{ Source = $src; Info = $vv; Version = $(if ($Version) { [int]$Version } else { $vv.Version }) }
+        # $null -ne $Version, не голе if ($Version) (рев'ю B3 раунд 2, дрібна правка 6):
+        # диспетчер підставляє $true прапорцю без значення, а [Nullable[int]] зв'язує $true як
+        # 1 — "kit verify -Version -Ref main" (забули число) мовчки звіряв би проти версії 1
+        # сховища. -Version 0 теж тихо ігнорувався б голим if. ValidateRange(1, ...) у
+        # параметрі вище відкидає обидва випадки ще на прив'язці.
+        [pscustomobject]@{ Source = $src; Info = $vv; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 
     foreach ($item in $plan) {
@@ -64,8 +69,16 @@ function Invoke-KitVerify {
 
         Write-Host '  Тимчасова ІБ, версія зі сховища, дамп...'
         $ib = New-KitStorageInfobase -Source $src -WorkDir $workDir
-        $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src
+        # $bound = $false ПЕРЕД try обов'язковий (рев'ю B3 раунд 2, Important 4 — та сама
+        # асиметрія, що вже виправлена в sync.psm1:150-155): під Set-StrictMode -Version Latest
+        # звернення до неприсвоєної змінної у finally само кине й витіснить первинний виняток.
+        # Enter-KitStorageBind — УСЕРЕДИНІ try: якщо прив'язка впаде, Exit- покличеться з
+        # Bound=$false і нічого не спробує зняти — без цього невдала прив'язка лишила б
+        # ConfigurationRepositoryBindCfg без пари Unbind, а це єдиний запис kit у сховище
+        # конфігурації, і межа «сховище лише читання» тримається саме на симетрії цієї пари.
+        $bound = $false
         try {
+            $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src
             $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir
         } finally {
             Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound
@@ -74,7 +87,14 @@ function Invoke-KitVerify {
         $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
         Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
 
-        $allRel = @(@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir) | Sort-Object -Unique)
+        # Ordinal HashSet замість Sort-Object -Unique (рев'ю B3 раунд 2, дрібна правка 7):
+        # Sort-Object -Unique за замовчуванням культурозалежний і регістронечутливий — та
+        # сама політика порівняння шляхів, яку Compare-KitTrees (TreeCompare.psm1) явно
+        # відкидає на користь Ordinal. Тут порядок елементів не важливий (масив іде лише як
+        # вхід у Get-KitBinaryPaths), важлива тільки коректність дедуплікації.
+        $relSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($rel in (@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir))) { $relSet.Add($rel) | Out-Null }
+        $allRel = [string[]]$relSet
         $binary = Get-KitBinaryPaths -RepoRoot $root -RepoPath $src.RepoPath -RelativePaths $allRel
         $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary
 
@@ -104,10 +124,21 @@ function Invoke-KitVerify {
 
         $merged = $false
         if ($Apply -and $vv.NewerVersions.Count -gt 0) {
-            $m = Merge-KitBranchInto -RepoRoot $root -Branch $src.Branch -Into $ref `
-                -Message "verify: звірочний коміт $($src.Branch) → $ref (версія $($vv.NewerVersions[-1]))"
-            Write-Host "  Звірочний коміт: $($m.Outcome) ($($m.Via)) $($m.Sha.Substring(0, 7))" -ForegroundColor Green
-            $merged = ($m.Outcome -eq 'merged')
+            # try/catch навколо звірочного коміту (рев'ю B3 раунд 2, Important 3) — той самий
+            # принцип, що sync.psm1 документує для Invoke-KitMainMerge («невдача злиття не
+            # скасовує реплею»): конфлікт злиття одного джерела не має скасовувати verify
+            # решти джерел без try — виняток летів би назовні crash-ом усього прогону, ХОЧА
+            # платформна робота (тимчасова ІБ, дамп, дерево) для вже перевірених і для решти
+            # джерел лишається дорогою й корисною, а структурований Results — важливішим за
+            # один необроблений виняток.
+            try {
+                $m = Merge-KitBranchInto -RepoRoot $root -Branch $src.Branch -Into $ref `
+                    -Message "verify: звірочний коміт $($src.Branch) → $ref (версія $($vv.NewerVersions[-1]))"
+                Write-Host "  Звірочний коміт: $($m.Outcome) ($($m.Via)) $($m.Sha.Substring(0, 7))" -ForegroundColor Green
+                $merged = ($m.Outcome -eq 'merged')
+            } catch {
+                Write-Host "  Звірочний коміт не вдався: $($_.Exception.Message)" -ForegroundColor Red
+            }
         } elseif ($Apply) {
             Write-Host '  -Apply: нових версій на дзеркалі немає — зливати нічого.' -ForegroundColor DarkGray
         }

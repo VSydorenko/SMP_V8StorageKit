@@ -19,11 +19,16 @@ Describe 'kit verify — штатні зупинки до платформи' {
     }
 
     It 'дзеркало є, але main його не зливав — зупинка «sync» до платформи' {
+        # Дискримінуюча перевірка (рев'ю B3 раунд 2, Important 2): проба на видаленому
+        # commands/verify.psm1 показала, що '*sync*' збігається і з диспетчерською відмовою
+        # «Невідома команда 'verify'. Доступні: check, sync.» — тест лишався зеленим навіть
+        # коли команди в дереві не існувало взагалі. '*ніколи не зливав*storage/Alpha_SMB*' —
+        # точний підрядок штатної зупинки Get-KitVerifyVersion, диспетчерська відмова його не має.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unmerged') -WithHooks
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
-        $r.Output | Should -BeLike '*sync*'
+        $r.Output | Should -BeLike '*ніколи не зливав*storage/Alpha_SMB*'
         Join-Path $repo 'build/verify' | Should -Not -Exist
     }
 
@@ -40,6 +45,71 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r = Invoke-Verify -Repo $repo -More @('-Ref', 'nope')
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike "*'nope'*"
+    }
+}
+
+Describe 'kit verify — мок платформного шару: щасливий шлях без жодного binary-файла (рев''ю B3 раунд 2, Critical 1)' {
+    # Жоден з чотирьох тестів вище не виконує жодного рядка Invoke-KitVerify ПІСЛЯ
+    # Get-KitVerifyVersion — усі зупиняються до платформи. Саме в цій сліпій зоні сидів
+    # Critical 1: Compare-KitTrees приймав $BinaryPaths лише як Mandatory без
+    # AllowEmptyCollection, а Get-KitBinaryPaths штатно повертає порожній HashSet, коли
+    # жоден файл дерева не позначений binary в .gitattributes — саме так виглядає
+    # найтиповіше дерево 1С (лише XML/BSL). Мокається лише платформний шар —
+    # New-KitStorageInfobase, Enter-/Exit-KitStorageBind, Invoke-KitStorageCheckout — усі
+    # викликаються ПРЯМО з verify.psm1, тому -ModuleName verify (урок Task 1: Mock
+    # -ModuleName діє лише в приватному столі команд НАЗВАНОГО модуля). Export-KitTree,
+    # Get-KitBinaryPaths і Compare-KitTrees лишаються СПРАВЖНІМИ — саме в них сидів дефект.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/verify.psm1").Path -Force
+    }
+
+    It 'жоден файл не позначений binary — verify не падає на прив''язці параметра, доходить до вердикту equal' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-happy') -WithHooks -WithGitattributes -WithGitignore
+        # script:-scoped, не локальна $content: Mock -ModuleName виконує -MockWith у
+        # приватному столі НАЗВАНОГО модуля (verify), а не в лексичному оточенні It-блоку —
+        # той самий прийом, що Sync.Tests.ps1 уже застосовує через script:-функції
+        # (New-KitFakeStorageVersion), тут просто дані, а не команда.
+        $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+
+        # Storage-шлях фіктурного джерела навмисно неіснуючий (KitFixtures.psm1) — Test-Path
+        # у verify.psm1 упав би раніше, ніж дійшло б до мокованого платформного шару. Тому,
+        # як і в Sync.Tests.ps1 (мок платформи), підміняємо шлях накладкою на порожню, але
+        # реальну теку.
+        $storageDir = Join-Path $TestDrive 'mock-happy-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+
+        Mock -ModuleName verify New-KitStorageInfobase { '/F "fake-ib"' }
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+            1
+        }
+
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        # Ref = сама гілка дзеркала (SYNOPSIS Invoke-KitVerify: «storage/X — канонічність
+        # самого дзеркала») — merge-base гілки із собою є вершина, без потреби зливати в
+        # main і без ризику add/add-конфлікту фейкового Configuration.xml фікстури (F9).
+        $result = Invoke-KitVerify -Context $ctx -Ref 'storage/Alpha_SMB'
+
+        $result.ExitCode | Should -Be 0
+        $result.Results.Count | Should -Be 1
+        $result.Results[0].Verdict | Should -Be 'equal'
+        Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1
+        # Доказ перехоплення, а не здогад із часу виконання (той самий прийом, що
+        # Sync.Tests.ps1): без цього тест міг би мовчки піти в реальний 1cv8.exe.
+        Should -Invoke -ModuleName verify New-KitStorageInfobase -Times 1
     }
 }
 

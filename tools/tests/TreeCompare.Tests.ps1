@@ -178,4 +178,21 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $set.Contains('Ext/driver.bin') | Should -BeTrue
         $set.Contains('Forms/Форма.xml') | Should -BeFalse
     }
+
+    It 'BinaryPaths — порожній HashSet не падає на прив''язці параметра (рев''ю B3 раунд 2, Critical 1)' {
+        # Get-KitBinaryPaths штатно повертає порожній набір, коли жоден файл дерева не
+        # позначений binary в .gitattributes — саме так виглядає типове дерево 1С (лише
+        # XML/BSL, жодного .png/.bin/.zip). $BinaryPaths був Mandatory БЕЗ
+        # AllowEmptyCollection на колекційному типі — Mandatory на колекції неявно вимагає
+        # непорожню, і виклик падав з "Cannot bind argument to parameter 'BinaryPaths'
+        # because it is an empty collection" замість штатного вердикту.
+        $empty = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        { Compare-KitTrees -DumpDir $script:Dump -TreeDir $script:Tree -BinaryPaths $empty } | Should -Not -Throw
+        # З порожнім BinaryPaths колишній Ext/pic.png (лише побайтово раніше) тепер
+        # класифікується як звичайний текстовий файл — інакший розподіл рівно доводить, що
+        # параметр справді дійшов до класифікації, а не був підмінений заглушкою.
+        $r = Compare-KitTrees -DumpDir $script:Dump -TreeDir $script:Tree -BinaryPaths $empty
+        $r.Content | Should -Not -Contain 'Ext/pic.png'
+        $r.CrOnly | Should -Contain 'Ext/pic.png'
+    }
 }

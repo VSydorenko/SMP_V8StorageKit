@@ -416,7 +416,12 @@ function Get-KitVerifyVersion {
         throw "'$Ref' ніколи не зливав $Branch — спільного предка немає. Спершу: kit sync (перше злиття в головну гілку), тоді verify."
     }
 
-    $value = (git -C $RepoRoot log -1 --format='%(trailers:key=Storage-Version,valueonly)' $base 2>&1 | Out-String).Trim()
+    # 2>$null + перевірка $LASTEXITCODE — як і в сусіднього виклику нижче (git log --reverse):
+    # рев'ю B3 раунд 2 (дрібна правка 5) спіймало, що тут стояв 2>&1 без перевірки коду —
+    # збій git заганяв stderr у $value, і людина читала «коміт не має трейлера Storage-Version,
+    # розбір: kit check», хоча трейлер там насправді є, а впав сам git.
+    $value = (git -C $RepoRoot log -1 --format='%(trailers:key=Storage-Version,valueonly)' $base 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "git log -1 $($base.Substring(0,7)) завершився з кодом ${LASTEXITCODE} — verify не може прочитати трейлер Storage-Version." }
     if ($value -notmatch '^\d+$') { throw "Коміт $($base.Substring(0,7)) (merge-base '$Ref' і $Branch) не має трейлера Storage-Version:. Розбір: kit check." }
 
     $newerRaw = git -C $RepoRoot log --reverse --format='%(trailers:key=Storage-Version,valueonly)' "$base..$Branch" 2>$null

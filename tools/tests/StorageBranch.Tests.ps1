@@ -302,7 +302,11 @@ Describe 'StorageBranch.psm1 — версія для verify з merge-base (§3.5
     }
 
     It 'main ще не зливав дзеркало — зупинка «спершу sync»' {
-        { Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Alpha_SMB' } | Should -Throw '*sync*'
+        # '*ніколи не зливав*', не '*sync*' (рев'ю B3 раунд 2, Important 2): обидві зупинки
+        # Get-KitVerifyVersion («гілки немає» і «ніколи не зливав») згадують sync у тексті —
+        # '*sync*' не розрізнив би регресію, що плутає ці два стани, а «ніколи не зливав»
+        # унікальне саме для стану «гілка є, спільного предка з ref немає».
+        { Get-KitVerifyVersion -RepoRoot $script:Repo -Ref 'main' -Branch 'storage/Alpha_SMB' } | Should -Throw '*ніколи не зливав*'
     }
 
     It 'verify storage/X — вершина гілки, новіших немає' {

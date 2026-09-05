@@ -233,7 +233,13 @@ function Compare-KitTrees {
     param(
         [Parameter(Mandatory)][string]$DumpDir,
         [Parameter(Mandatory)][string]$TreeDir,
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$BinaryPaths
+        # AllowEmptyCollection обов'язковий (рев'ю B3 раунд 2, Critical 1): Mandatory на
+        # колекційному типі неявно вимагає НЕПОРОЖНЬОЇ колекції, а Get-KitBinaryPaths штатно
+        # повертає порожній HashSet, коли жоден файл дерева не позначений binary — саме так
+        # виглядає найтиповіше дерево 1С (лише XML/BSL, жодного .png/.bin/.zip з
+        # templates/gitattributes). Без цього атрибута verify падав на прив'язці параметра
+        # ПІСЛЯ підняття тимчасової ІБ, дампу й експорту дерева — після всієї дорогої роботи.
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$BinaryPaths
     )
 
     # Ordinal, не IgnoreCase: git регістрочутливий, і Ordinal — саме та семантика порівняння шляхів,
