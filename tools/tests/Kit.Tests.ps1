@@ -17,8 +17,10 @@ function Invoke-KitProbe {
         [string]$Source,
         [bool]$Apply,
         [string]$Ref = 'HEAD',
-        [switch]$Force
+        [switch]$Force,
+        [switch]$Throw
     )
+    if ($Throw) { throw 'PROBE-THROW: симульований збій команди' }
     Write-Host "PROBE workspaces=$($Context.Workspaces.Count) ws=$Workspace src=$Source apply=$Apply ref=$Ref force=$Force main=$($Context.MainBranch)"
 }
 Export-ModuleMember -Function Invoke-KitProbe
@@ -33,18 +35,21 @@ Export-ModuleMember -Function Invoke-KitProbe
     }
 
     # Правка 6б (живий прогін задачі 11): раніше — сирий throw і стек PowerShell; тепер —
-    # Write-Host червоним і exit 2. Код саме 2, не абиякий ненульовий: щоб "команда не
-    # запустилась узагалі" відрізнялось від коду, який повертає сама команда (check дає 1,
-    # коли знайшла помилки, — це геть інший сценарій).
-    It 'без команди — зупинка з переліком доступних, код 2' {
+    # Write-Host червоним і exit 1 (рев'ю B3 раунд 3, Step 5а: був код 2, конфліктував зі
+    # штатним частковим успіхом sync — sync теж повертає 2, коли дзеркало оновлено, а
+    # злиття не виконано, і один код означав три різні речі). Таблиця кодів тепер: 0 —
+    # виконано; 1 — зупинка (throw будь-де: невідома команда, префлайт, розбір аргументів,
+    # сама команда) або check із помилками; 2 — лише sync (частковий успіх); 3 — лише
+    # verify (є що робити).
+    It 'без команди — зупинка з переліком доступних, код 1' {
         $r = Invoke-Kit @('-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Be 2
+        $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*probe*'
     }
 
-    It 'невідома команда — зупинка з переліком доступних, код 2' {
+    It 'невідома команда — зупинка з переліком доступних, код 1' {
         $r = Invoke-Kit @('frobnicate', '-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Be 2
+        $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike "*'frobnicate'*probe*"
     }
 
@@ -57,6 +62,32 @@ Export-ModuleMember -Function Invoke-KitProbe
     It '-Apply передається як $true' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Apply')
         $r.Output | Should -BeLike '*apply=True*'
+    }
+
+    It '-Force без значення (кінець аргументів) — справжній [switch], диспетчер підставляє $true' {
+        # Регресійний доказ на саму механіку Step 5а: -Force — останній токен, наступного
+        # значення немає, і диспетчер має розпізнати, що параметр — [switch], а не вимагати
+        # значення (як він тепер вимагає для будь-якого іншого типу — тест нижче).
+        $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Force')
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*force=True*'
+    }
+
+    It '-Ref без значення — параметр НЕ [switch], диспетчер вимагає значення, код 1' {
+        # Ref — [string], не [switch]: -Ref останнім токеном (значення немає) мав би раніше
+        # мовчки зв'язатися як $true (перетворений на рядок 'True') — тепер диспетчер сам
+        # зупиняє виклик, ще до Invoke-KitProbe. Той самий механізм, що захищає -Version у
+        # verify (рев'ю B3 раунд 3, Step 5а) — тут перевірений на нейтральній probe-команді.
+        $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Ref')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-Ref*'
+        $r.Output | Should -Not -BeLike '*PROBE*'
+    }
+
+    It 'команда кидає виняток усередині — код 1, повідомлення показано, не сирий стек' {
+        $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Throw')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*PROBE-THROW*'
     }
 
     It 'невідомий власний параметр команди — зупинка, команда не виконана' {

@@ -293,14 +293,16 @@ Describe 'kit check — інваріанти репозиторію-спожив
 
     # Правка 8 (фінальне рев'ю) — раніше невідомий -Workspace давав сирий "Exception: ..."
     # і жоден зі стовпців [-]/[!]/[i] узагалі не друкувався (throw усередині Select-KitSources
-    # ще ДО того, як Invoke-KitCheck дійшов до Write-Host). Тепер kit.ps1 ловить це на
-    # диспетчерському рівні (той самий зразок, що вже стояв для невідомої команди) — код 2,
-    # охайний рядок, без слова "Exception".
-    It '-Workspace звужує перевірку; невідомий — код 2, охайний рядок без "Exception"' {
+    # ще ДО того, як Invoke-KitCheck дійшов до Write-Host). kit.ps1 ловить це на диспетчерському
+    # рівні (той самий зразок, що вже стояв для невідомої команди) — код 1 (рев'ю B3 раунд 3,
+    # Step 5а: був код 2, конфліктував зі штатним частковим успіхом sync — той самий код
+    # означав і "диспетчер відмовив", і "sync: злиття не виконано"), охайний рядок, без слова
+    # "Exception".
+    It '-Workspace звужує перевірку; невідомий — код 1, охайний рядок без "Exception"' {
         $repo = New-GoodRepo 'ws-filter'
         (Invoke-Check -Repo $repo -More @('-Workspace', 'Alpha_SMB')).ExitCode | Should -Be 0
         $r = Invoke-Check -Repo $repo -More @('-Workspace', 'Nope')
-        $r.ExitCode | Should -Be 2
+        $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike "*'Nope'*Alpha_SMB*"
         $r.Output | Should -Not -BeLike '*Exception*'
     }

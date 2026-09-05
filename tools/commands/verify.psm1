@@ -26,11 +26,20 @@ function Invoke-KitVerify {
         [string]$Source,
         [bool]$Apply,
         [string]$Ref,
+        # [ValidateRange(1, [int]::MaxValue)] ловить лише -Version 0 і від'ємні значення —
+        # реальний сценарій знахідки ("kit verify -Version -Ref main", забули число) він НЕ
+        # ловить: диспетчер підставляє прапорцю без значення $true, PowerShell мовчки конвертує
+        # bool → int (True → 1), і 1 проходить ValidateRange без жодної помилки (рев'ю B3 раунд
+        # 2, помилковий коментар тут стверджував протилежне — виправлено раундом 3, M6). Цей
+        # ширший сценарій закрито ЦЕНТРАЛЬНО в диспетчері (tools/kit.ps1, Step 5а): $true
+        # підставляється прапорцю лише тоді, коли параметр команди — справжній [switch]; для
+        # будь-якого іншого типу (як тут) диспетчер вимагає значення ще до виклику Invoke-KitVerify.
         [ValidateRange(1, [int]::MaxValue)][Nullable[int]]$Version
     )
 
     $root = $Context.RepoRoot
     $ref  = if ($Ref) { $Ref } else { $Context.MainBranch }
+
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
     if ($sources.Count -eq 0) {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — звіряти нічого.'
@@ -46,11 +55,9 @@ function Invoke-KitVerify {
         # точнішу зупинку; шлях сховища — другим (P1 префлайту B3).
         $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $ref -Branch $src.Branch
         if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
-        # $null -ne $Version, не голе if ($Version) (рев'ю B3 раунд 2, дрібна правка 6):
-        # диспетчер підставляє $true прапорцю без значення, а [Nullable[int]] зв'язує $true як
-        # 1 — "kit verify -Version -Ref main" (забули число) мовчки звіряв би проти версії 1
-        # сховища. -Version 0 теж тихо ігнорувався б голим if. ValidateRange(1, ...) у
-        # параметрі вище відкидає обидва випадки ще на прив'язці.
+        # $null -ne $Version, не голе if ($Version): "не передано" (Nullable[int] лишається
+        # $null) — це не те саме, що "передано конкретну версію", і різницю має відрізняти
+        # перевірка на $null, а не булеву усічення значення.
         [pscustomobject]@{ Source = $src; Info = $vv; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 

@@ -46,6 +46,21 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike "*'nope'*"
     }
+
+    It '-Version без числа — зупинка з поясненням, а не тиха звірка проти версії 1 (рев''ю B3 раунд 3, M6 → Step 5а)' {
+        # CommandArgs = @('-Version', '-Ref', 'main'): наступний токен після '-Version' — інший
+        # прапорець ('-Ref'), тож без захисту диспетчер підставив би $splat.Version = $true.
+        # [Nullable[int]]$Version у verify.psm1 зв'язав би $true як 1 (bool->int), і
+        # [ValidateRange(1, [int]::MaxValue)] пройшов би МОВЧКИ — це й був сценарій знахідки
+        # M6 ("kit verify -Version -Ref main", забули число, тихо звіряє проти версії 1).
+        # Правку зробили ЦЕНТРАЛЬНО в диспетчері (tools/kit.ps1, Step 5а), не в самому verify:
+        # $true підставляється лише справжньому [switch]-параметру команди; Version —
+        # [Nullable[int]], тож диспетчер сам зупиняє виклик, ще ДО Invoke-KitVerify.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-version') -WithHooks
+        $r = Invoke-Verify -Repo $repo -More @('-Version', '-Ref', 'main')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-Version*значення*'
+    }
 }
 
 Describe 'kit verify — мок платформного шару: щасливий шлях без жодного binary-файла (рев''ю B3 раунд 2, Critical 1)' {
