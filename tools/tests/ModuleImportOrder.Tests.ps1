@@ -15,7 +15,9 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Resolve-Author', 'Get-UnknownAuthors', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
             'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
-            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths'
+            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
+            'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
+            'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
