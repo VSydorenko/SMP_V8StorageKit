@@ -101,6 +101,76 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     }
 }
 
+Describe 'Get-KitStorageActivity — mtime сховища без платформи (§5)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+    }
+
+    # Рев'ю раунд 2, C1 — саме цей стан (data/objects Є, але в ній жодного файла) падав:
+    # Measure-Object -Maximum на справді порожньому вводі не дає Count=0, а не дає НІЧОГО, і
+    # .Maximum на $null під StrictMode кидає "The property 'Count' cannot be found on this
+    # object" замість дружнього Reason. Той самий зразок, що StorageReport.Tests.ps1:121.
+    It 'усі чотири стани не падають під StrictMode (явний Should -Not -Throw)' {
+        Set-StrictMode -Version Latest
+        $missingRoot = Join-Path $TestDrive 'nope'
+        $noObjects   = Join-Path $TestDrive 'no-objects'
+        $emptyObjects = Join-Path $TestDrive 'empty-objects'
+        $withFiles   = Join-Path $TestDrive 'with-files'
+        New-Item -ItemType Directory -Path $noObjects -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $emptyObjects 'data/objects') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $withFiles 'data/objects/ab') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $withFiles 'data/objects/ab/cdef.bin') -Value 'x'
+
+        { Get-KitStorageActivity -StoragePath $missingRoot } | Should -Not -Throw
+        { Get-KitStorageActivity -StoragePath $noObjects } | Should -Not -Throw
+        { Get-KitStorageActivity -StoragePath $emptyObjects } | Should -Not -Throw
+        { Get-KitStorageActivity -StoragePath $withFiles } | Should -Not -Throw
+    }
+
+    It 'теки сховища немає — Accessible=$false, Reason називає шлях, LatestObjectWrite=$null' {
+        $r = Get-KitStorageActivity -StoragePath (Join-Path $TestDrive 'truly-missing')
+        $r.Accessible | Should -BeFalse
+        $r.Reason | Should -BeLike '*недоступний*'
+        $r.LatestObjectWrite | Should -BeNullOrEmpty
+    }
+
+    It 'тека є, data/objects немає — Accessible=$true, Reason називає data/objects, LatestObjectWrite=$null' {
+        $s = Join-Path $TestDrive 'no-objects-2'
+        New-Item -ItemType Directory -Path $s -Force | Out-Null
+        $r = Get-KitStorageActivity -StoragePath $s
+        $r.Accessible | Should -BeTrue
+        $r.Reason | Should -BeLike '*data/objects*'
+        $r.LatestObjectWrite | Should -BeNullOrEmpty
+    }
+
+    It 'data/objects є, але порожня (жодного файла) — Accessible=$true, Reason називає порожність, LatestObjectWrite=$null' {
+        $s = Join-Path $TestDrive 'empty-objects-2'
+        New-Item -ItemType Directory -Path (Join-Path $s 'data/objects') -Force | Out-Null
+        $r = Get-KitStorageActivity -StoragePath $s
+        $r.Accessible | Should -BeTrue
+        $r.Reason | Should -BeLike '*немає жодного файла*'
+        $r.LatestObjectWrite | Should -BeNullOrEmpty
+    }
+
+    It 'у data/objects є файли — LatestObjectWrite = максимальний mtime, Reason порожній' {
+        $s = Join-Path $TestDrive 'with-files-2'
+        New-Item -ItemType Directory -Path (Join-Path $s 'data/objects/ab') -Force | Out-Null
+        $older = Join-Path $s 'data/objects/ab/older.bin'; Set-Content -LiteralPath $older -Value 'a'
+        $newer = Join-Path $s 'data/objects/ab/newer.bin'; Set-Content -LiteralPath $newer -Value 'b'
+        # ToUniversalTime() з невизначеним (не "Z") літералом — той самий зразок, що New-FakeStorage
+        # вище в цьому файлі: [datetime]'...Z' сам собою парситься в Kind=Local (конвертує стрілки
+        # годинника), і пряме порівняння з .LastWriteTimeUtc (Kind=Utc) хибно падає на розбіжності
+        # тиків, хоча мить та сама, — зловлено живим прогоном цього тесту.
+        $newerStamp = ([datetime]'2026-03-01T00:00:00').ToUniversalTime()
+        (Get-Item $older).LastWriteTimeUtc = ([datetime]'2026-01-01T00:00:00').ToUniversalTime()
+        (Get-Item $newer).LastWriteTimeUtc = $newerStamp
+        $r = Get-KitStorageActivity -StoragePath $s
+        $r.Accessible | Should -BeTrue
+        $r.Reason | Should -BeNullOrEmpty
+        $r.LatestObjectWrite | Should -Be $newerStamp
+    }
+}
+
 Describe 'StorageBranch.psm1 — план реплею й повідомлення коміту' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force

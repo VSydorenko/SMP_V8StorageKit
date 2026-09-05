@@ -47,9 +47,15 @@ function Get-KitStorageActivity {
     $objects = Join-Path $StoragePath 'data/objects'
     $result.Accessible = $true
     if (-not (Test-Path -LiteralPath $objects -PathType Container)) { $result.Reason = 'у сховищі ще немає data/objects (жодної версії)'; return $result }
-    $latest = Get-ChildItem -LiteralPath $objects -Recurse -File -ErrorAction SilentlyContinue |
-        Measure-Object -Property LastWriteTimeUtc -Maximum
-    if ($latest.Count -gt 0) { $result.LatestObjectWrite = [datetime]$latest.Maximum }
+    # Рев'ю раунд 2, C1 — Count ПЕРШИМ, той самий зразок, що StorageReport.Tests.ps1:121 і
+    # StorageBranch.psm1:203 (Test-KitStorageBranchInvariants) документують поруч: на справді
+    # порожньому вводі (жодного файла) конвеєр |Measure-Object -Maximum не повертає об'єкт із
+    # Count=0 — він не повертає НІЧОГО, і .Maximum на $null під StrictMode кидає
+    # "The property 'Count' cannot be found on this object", а не дає дружній [-]-рядок.
+    $files = @(Get-ChildItem -LiteralPath $objects -Recurse -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) { $result.Reason = 'у сховищі data/objects є, але в ній немає жодного файла'; return $result }
+    $latest = $files | Measure-Object -Property LastWriteTimeUtc -Maximum
+    $result.LatestObjectWrite = [datetime]$latest.Maximum
     $result
 }
 

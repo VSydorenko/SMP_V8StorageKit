@@ -169,6 +169,86 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
         @($json)[0].NewInStorage | Should -BeTrue
     }
 
+    # Рев'ю раунд 2, I1: недоступність сховища раніше "з'їдала" сигнал незлитих комітів — текст
+    # згадував ЛИШЕ недоступність, хоч $unmerged рахувався незалежно від Accessible і код виходу
+    # вже на нього дивився. Сценарій: ноутбук поза мережею, а на дзеркалі є незлитий коміт —
+    # звичайний стан після kit sync -Apply без -MergeMain.
+    It 'I1: сховище недоступне, а на дзеркалі є незлиті коміти — текст називає ОБИДВІ причини' {
+        $repo = New-Repo -Name 'i1-inaccessible-unmerged' -StoragePath (Join-Path $TestDrive 'nope-i1') -MirrorDate $script:Old
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 3
+        $r.Output | Should -BeLike '*- Alpha_SMB:*недоступн*'
+        $r.Output | Should -BeLike '*- Alpha_SMB:*не злит*main*kit verify*'
+    }
+
+    # Рев'ю раунд 2, I2 (сценарій A): шлях у storages: доступний (тека є), але не схожий на
+    # сховище 1С (немає data/objects) — і дзеркало вже є (шлях переплутано ПІСЛЯ першого sync,
+    # напр. на батьківську теку). Раніше це мовчки давало "синхронне", код 0 — хибний all-clear
+    # на завідомо неправильному шляху гірший за будь-який шум.
+    It 'I2 (сценарій A): шлях доступний, але без data/objects, дзеркало вже є — НЕ "синхронне", код 3' {
+        $wrong = Join-Path $TestDrive 'i2-wrong-a'
+        New-Item -ItemType Directory -Path $wrong -Force | Out-Null
+        $repo = New-Repo -Name 'i2-wrong-a' -StoragePath $wrong -MirrorDate $script:Old -Merge
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 3
+        $r.Output | Should -BeLike '*- Alpha_SMB:*не схож*сховищ*'
+        $r.Output | Should -Not -BeLike '*синхронне*'
+    }
+
+    # Рев'ю раунд 2, I2 (сценарій B): те саме, але дзеркала ще й немає — раніше текст казав
+    # "дзеркала ще немає — kit sync" (дієво), а код був 0 (тиша): контракт "дзеркала немає при
+    # доступному сховищі → 3" порушувався саме тут.
+    It 'I2 (сценарій B): дзеркала немає, шлях доступний, але без data/objects — код і текст узгоджені (3)' {
+        $wrong = Join-Path $TestDrive 'i2-wrong-b'
+        New-Item -ItemType Directory -Path $wrong -Force | Out-Null
+        $repo = New-Repo -Name 'i2-wrong-b' -StoragePath $wrong -MirrorDate $script:Old -NoMirror
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 3
+        $r.Output | Should -BeLike '*- Alpha_SMB:*не схож*сховищ*'
+        $r.Output | Should -BeLike '*- Alpha_SMB:*дзеркала*немає*kit sync*'
+    }
+
+    # Рев'ю раунд 2, I3: без допуску mtime сховища (частка секунди) проти дати коміту дзеркала
+    # (цілі секунди, GIT_AUTHOR_DATE) сигналило б вічно навіть на записі, зробленому тим самим
+    # sync. Межа: 2с у межах допуску (5с, StorageMirrorTolerance) — тихо; 10с — сигнал.
+    It 'I3: допуск на порівняння mtime з датою коміту — у межах 5с тихо, за межею — сигнал' {
+        $mirrorDate = [datetime]'2026-03-01T12:00:00'
+        $sNear = New-FakeStorage -Name 'tol-near' -ObjectsWrite $mirrorDate.AddSeconds(2) -DbWrite $mirrorDate.AddSeconds(2)
+        $rNear = Invoke-SessionCheck -Repo (New-Repo -Name 'tol-near' -StoragePath $sNear -MirrorDate $mirrorDate -Merge)
+        $rNear.Output | Should -Not -BeLike '*нові версії*'
+
+        $sFar = New-FakeStorage -Name 'tol-far' -ObjectsWrite $mirrorDate.AddSeconds(10) -DbWrite $mirrorDate.AddSeconds(10)
+        $rFar = Invoke-SessionCheck -Repo (New-Repo -Name 'tol-far' -StoragePath $sFar -MirrorDate $mirrorDate -Merge)
+        $rFar.Output | Should -BeLike '*нові версії*'
+    }
+
+    # Рев'ю раунд 2, I4: -AsJson мав дві несумісні форми верхнього рівня — масив на щасливому
+    # шляху, об'єкт {CheckErrors;Signals} на шляху помилки check. Тепер обидві — масив (порожній
+    # на шляху помилки): споживач завжди робить ConvertFrom-Json | ForEach-Object без розбору форми.
+    It 'I4: -AsJson дає ОДНУ форму верхнього рівня і на щасливому шляху, і при помилці check' {
+        $s = New-FakeStorage -Name 'i4-err' -ObjectsWrite $script:New -DbWrite $script:New
+        $repo = New-Repo -Name 'i4-err' -StoragePath $s -MirrorDate $script:Old -Merge
+        Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Value "build/`n" -Encoding UTF8   # без v8storagekit.local.yaml → error overlay-ignored
+        git -C $repo commit -qam 'gitignore без накладки'
+        $r = Invoke-SessionCheck -Repo $repo -More @('-AsJson')
+        $r.ExitCode | Should -Be 1
+        { $r.Output | ConvertFrom-Json } | Should -Not -Throw
+        @($r.Output | ConvertFrom-Json).Count | Should -Be 0
+    }
+
+    # Дрібна правка рев'ю раунд 2 (рядок 71 старої версії): NewInStorage=$true виставлявся й
+    # тоді, коли порівнювати нема з чим (дзеркала немає) — у JSON це читалось як "є нові версії",
+    # хоча споживач, що будує текст із полів, а не з Text, мав би сказати щось інше.
+    # NewInStorageReason розрізняє: 'no-mirror'/'unclear' — нема з чим порівняти; 'newer' —
+    # справжнє порівняння дат.
+    It 'NewInStorageReason у JSON розрізняє "нема з чим порівняти" від справжнього порівняння дат' {
+        $s = New-FakeStorage -Name 'reason-nomirror' -ObjectsWrite $script:Old -DbWrite $script:Old
+        $r = Invoke-SessionCheck -Repo (New-Repo -Name 'reason-nomirror' -StoragePath $s -MirrorDate $script:Old -NoMirror) -More @('-AsJson')
+        $json = $r.Output | ConvertFrom-Json
+        @($json)[0].NewInStorage | Should -BeTrue
+        @($json)[0].NewInStorageReason | Should -Be 'no-mirror'
+    }
+
     It 'session-check нічого не змінює й не створює тек' {
         $s = New-FakeStorage -Name 'ro' -ObjectsWrite $script:New -DbWrite $script:New
         $repo = New-Repo -Name 'ro' -StoragePath $s -MirrorDate $script:Old -Merge
