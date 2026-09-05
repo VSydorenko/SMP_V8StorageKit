@@ -1523,13 +1523,27 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
         $r.Output | Should -BeLike '*storage/Alpha_SMB*'
     }
 
-    It 'error у check (головної гілки немає) → код 1, [-]-рядок check і «сигнали не обчислювались»; сигналів у виводі немає' {
+    It 'головної гілки з маніфесту немає при наявному дзеркалі → [!] main-branch від check і «стан git не прочитано» від сигналу, код 1' {
+        # У check це навмисно warn (свіжий репо до першого коміту — законний стан), тож сигнали обчислюються;
+        # сам сигнал відповісти про незлиті коміти не може → gitProblem → 1.
         $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:New -DbWrite $script:New
         $repo = New-Repo -Name 'no-main' -StoragePath $s -MirrorDate $script:Old -Merge
         git -C $repo branch -m main trunk
         $r = Invoke-SessionCheck -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -Match '\[-\].*main'
+        $r.Output | Should -Match '\[!\].*main'
+        $r.Output | Should -BeLike "*- Alpha_SMB:*стан git не прочитано*головної гілки 'main' немає*"
+        $r.Output | Should -Not -BeLike '*не обчислювались*'
+    }
+
+    It 'error у check (наприклад, накладка не гітігнорована) → код 1, [-]-рядок і «сигнали не обчислювались»; сигналів немає' {
+        $s = New-FakeStorage -Name 'cherr' -ObjectsWrite $script:New -DbWrite $script:New
+        $repo = New-Repo -Name 'check-error' -StoragePath $s -MirrorDate $script:Old -Merge
+        Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Value "build/`n" -Encoding UTF8   # без v8storagekit.local.yaml → error overlay-ignored
+        git -C $repo commit -qam 'gitignore без накладки'
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -Match '\[-\].*v8storagekit\.local\.yaml'
         $r.Output | Should -BeLike '*не обчислювались*kit check*'
         $r.Output | Should -Not -BeLike '*нові версії*'     # хоч сховище й новіше — сигнал не рахувався
     }
@@ -1646,7 +1660,7 @@ function Invoke-KitSessionCheck {
         return [pscustomobject]@{ ExitCode = 1; CheckFindings = $checkFindings; Signals = @() }
     }
 
-    $mainExists = Test-KitBranchExists -RepoRoot $root -Branch $main   # після check відсутність головної гілки — уже error там
+    $mainExists = Test-KitBranchExists -RepoRoot $root -Branch $main
 
     foreach ($src in @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)) {
         $mirror = Test-KitBranchExists -RepoRoot $root -Branch $src.Branch
@@ -1663,6 +1677,10 @@ function Invoke-KitSessionCheck {
             # $null у $lastMirror дав би -gt → $true: сигнал на порожньому місці; тому лише за наявної дати.
             $newInStorage = (-not $mirror) -or ($null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror)
         }
+        # Головної гілки з маніфесту немає, а дзеркало є: на «чи є незлиті коміти» відповісти фізично неможливо —
+        # це «стан git не прочитано» (код 1), не мовчазний 0. У check це навмисно лише warn (main-branch): свіжий
+        # репозиторій до першого коміту — законний стан, але тоді й дзеркала ще немає, і сюди не заходимо.
+        if ($mirror -and -not $mainExists -and -not $gitProblem) { $gitProblem = "головної гілки '$main' немає" }
         $unmerged = 0
         if ($mirror -and $mainExists -and -not $gitProblem) {
             $countRaw = (git -C $root rev-list --count "$main..$($src.Branch)" 2>$null | Out-String).Trim()
