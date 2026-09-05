@@ -1723,10 +1723,27 @@ Export-ModuleMember -Function Invoke-KitSessionCheck
 > `$result` і не виводить — тому й `-AsJson` іде через `Write-Host`. Якщо в тесті `-AsJson` до JSON
 > домішується інший текст — перевірити, що в гілці `-AsJson` немає інших `Write-Host`.
 
+- [ ] **Step 3а: префлайт для `session-check` — поблажливий, як для `check`** (щілина, знайдена виконавцем B3)
+
+Диспетчер робить префлайт `-Lenient` лише для `check`; для `session-check` суворий префлайт кидав би на
+помилках свого рівня (немає маніфесту, нерозбірний YAML, немає теки воркспейсу чи `v8project.yaml`, ключ без
+source-set) ДО виклику `Invoke-KitCheck` — сирий текст замість `[-]`-рядків і «сигнали не обчислювались», тобто
+«одне правило» трималось би для помилок check, але не префлайту. У `kit.ps1`:
+
+```powershell
+# check і session-check — діагностика: вони мусять ДОПОВІСТИ про суперечливий репозиторій, а не впасти на ньому.
+$context = Invoke-KitPreflight -RepoRoot $RepoRoot -Lenient:($Command -in @('check', 'session-check'))
+```
+
+Дублювання немає: `Invoke-KitCheck` починає з `Context.Findings` (B1), тож помилки префлайту стають його
+`[-]`-рядками, і session-check друкує їх один раз через той самий шлях. Тест у `SessionCheck.Tests.ps1`: маніфест
+`version: 1` без `workspaces` → код 1, у виводі `[-]`, `workspaces` і «не обчислювались» (той самий сценарій, що й
+тест шима в B4). B6 додає до цього списку `migrate`.
+
 - [ ] **Step 4: Тести зелені; коміт**
 
 ```bash
-git add tools/lib/StorageBranch.psm1 tools/commands/session-check.psm1 tools/tests/SessionCheck.Tests.ps1
+git add tools/kit.ps1 tools/lib/StorageBranch.psm1 tools/commands/session-check.psm1 tools/tests/SessionCheck.Tests.ps1
 git commit -m "B3: kit session-check — нові версії за mtime data/objects і незлиті коміти дзеркала, без платформи"
 ```
 
