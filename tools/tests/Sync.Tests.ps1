@@ -200,6 +200,89 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
+
+    # Task 8 (task-8-brief.md) — відбиток сховища (StorageImprint.psm1). Найважливіший тест
+    # задачі: місце запису — ОДРАЗУ після Get-StorageVersions/$maxVersion, ДО розгалуження
+    # "Нових версій немає". Якщо запис стоїть ПІСЛЯ цього розгалуження, фіча не працює рівно в
+    # тому випадку, заради якого зроблена — неактивне (запаковане) сховище ніколи не отримає
+    # відбитка, і session-check лишається з вічним "не визначається".
+    It 'відбиток пишеться в гілці "Нових версій немає" — саме для неактивного сховища (Task 8)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-no-pending') -WithHooks
+        $storageDir = Join-Path $TestDrive 'imprint-no-pending-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+
+        $result = Invoke-KitSync -Context $ctx
+        $result.ExitCode | Should -Be 0
+        $result.Synced[0].Versions.Count | Should -Be 0   # довести, що це саме гілка "нових версій немає"
+
+        $imprintPath = Join-Path $repo 'build/session-check/Alpha_SMB.json'
+        $imprintPath | Should -Exist
+        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint | Should -Not -BeNullOrEmpty
+        $imprint.Version | Should -Be 5
+        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+    }
+
+    It 'відбиток пишеться БЕЗ -Apply (прев''ю); version у ньому — максимум зі звіту, НЕ кількість версій' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-preview') -WithHooks
+        $storageDir = Join-Path $TestDrive 'imprint-preview-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Дві версії з розривом (3, 9) — максимум 9, кількість 2: version у відбитку МАЄ бути 9.
+        Mock -ModuleName sync Get-StorageVersions {
+            , @(
+                (New-KitFakeStorageVersion -Version 3 -Comment 'перша')
+                (New-KitFakeStorageVersion -Version 9 -Comment 'друга')
+            )
+        }
+
+        $result = Invoke-KitSync -Context $ctx
+        $result.ExitCode | Should -Be 0
+        (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty   # прев'ю нічого не комітить — контракт "-Apply лише за проханням" не порушено
+
+        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint | Should -Not -BeNullOrEmpty
+        $imprint.Version | Should -Be 9
+        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+    }
+
+    It 'відбиток пишеться З -Apply' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-apply') -WithHooks
+        $storageDir = Join-Path $TestDrive 'imprint-apply-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true
+        $result.ExitCode | Should -Be 0
+        Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 7
+
+        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint | Should -Not -BeNullOrEmpty
+        $imprint.Version | Should -Be 7
+        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
+    }
 }
 
 Describe 'kit sync — реальне сховище (перший і повторний реплей)' -Tag Integration {

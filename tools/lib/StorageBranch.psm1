@@ -36,26 +36,74 @@ function Test-KitBranchUnborn {
 function Get-KitStorageActivity {
     <#
     .SYNOPSIS
-        Коли у сховище останнім разом писали об'єкти: максимальний mtime під data/objects/**.
-        1cv8ddb.1CD не використовується — він оновлюється при кожному інтерактивному підключенні
-        Конфігуратора (спека §5, дослідження п. 5).
+        Ознаки активності сховища й розпізнавання «це взагалі сховище 1С» без платформи (спека §5).
+    .DESCRIPTION
+        Коли у сховище останнім разом писали об'єкти — максимальний mtime під data/objects/**
+        (LatestObjectWrite) і під data/pack/** (LatestPackWrite) окремо: 1cv8ddb.1CD не
+        використовується як індикатор ЧАСУ — він оновлюється при кожному інтерактивному
+        підключенні Конфігуратора (спека §5, дослідження п. 5), лише як ознака «це взагалі
+        сховище» (IsStorage).
+
+        Пакування — норма, не аномалія (спека 9f6ad5e §5, «Запаковане сховище»): конфігураційні
+        сховища тримають по 60 pack-файлів, а розширення можуть мати data/objects порожньою
+        цілком, якщо всю історію вже запаковано, — IsStorage тоді все одно $true, і Reason
+        порожній (це не привід для скарги session-check). Reason заповнюється лише коли
+        IsStorage = $false: немає самого 1cv8ddb.1CD (шлях переплутано), або обидві теки —
+        data/objects і data/pack — порожні чи відсутні (жодної версії).
+
+        PackFiles — @({Name; Length; LastWriteTimeUtc}), відсортовані за Name: стабільний
+        порядок, потрібний лише для звірки з відбитком (Test-KitStorageImprintCurrent,
+        StorageImprint.psm1) — самій цій функції порядок байдужий. Порожній масив, не $null.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$StoragePath)
-    $result = [pscustomobject]@{ Accessible = $false; LatestObjectWrite = $null; Reason = '' }
+    $result = [pscustomobject]@{
+        Accessible = $false; IsStorage = $false
+        LatestObjectWrite = $null; LatestPackWrite = $null
+        PackFiles = @(); Reason = ''
+    }
     if (-not (Test-Path -LiteralPath $StoragePath -PathType Container)) { $result.Reason = "каталог недоступний: $StoragePath"; return $result }
-    $objects = Join-Path $StoragePath 'data/objects'
     $result.Accessible = $true
-    if (-not (Test-Path -LiteralPath $objects -PathType Container)) { $result.Reason = 'у сховищі ще немає data/objects (жодної версії)'; return $result }
-    # Рев'ю раунд 2, C1 — Count ПЕРШИМ, той самий зразок, що StorageReport.Tests.ps1:121 і
-    # StorageBranch.psm1:203 (Test-KitStorageBranchInvariants) документують поруч: на справді
-    # порожньому вводі (жодного файла) конвеєр |Measure-Object -Maximum не повертає об'єкт із
-    # Count=0 — він не повертає НІЧОГО, і .Maximum на $null під StrictMode кидає
-    # "The property 'Count' cannot be found on this object", а не дає дружній [-]-рядок.
-    $files = @(Get-ChildItem -LiteralPath $objects -Recurse -File -ErrorAction SilentlyContinue)
-    if ($files.Count -eq 0) { $result.Reason = 'у сховищі data/objects є, але в ній немає жодного файла'; return $result }
-    $latest = $files | Measure-Object -Property LastWriteTimeUtc -Maximum
-    $result.LatestObjectWrite = [datetime]$latest.Maximum
+
+    $db = Join-Path $StoragePath '1cv8ddb.1CD'
+    if (-not (Test-Path -LiteralPath $db -PathType Leaf)) {
+        $result.Reason = 'у каталозі немає 1cv8ddb.1CD — не схоже на сховище 1С'
+        return $result
+    }
+
+    # Рев'ю раунд 2, C1 (успадковано й тут для data/pack — ловили тричі за блок B3) — Count
+    # ПЕРШИМ, @() обов'язковий: на справді порожньому вводі (жодного файла) конвеєр
+    # |Measure-Object -Maximum не повертає об'єкт із Count=0 — він не повертає НІЧОГО, і
+    # .Maximum на $null під StrictMode кидає "The property 'Count' cannot be found on this
+    # object", а не дає дружній [-]-рядок; на рівно ОДНОМУ файлі голий .Count без @() так само
+    # падає (скалярний FileInfo, не масив).
+    $objectsDir  = Join-Path $StoragePath 'data/objects'
+    $objectFiles = @()
+    if (Test-Path -LiteralPath $objectsDir -PathType Container) {
+        $objectFiles = @(Get-ChildItem -LiteralPath $objectsDir -Recurse -File -ErrorAction SilentlyContinue)
+    }
+    if ($objectFiles.Count -gt 0) {
+        $result.LatestObjectWrite = [datetime]($objectFiles | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+    }
+
+    $packDir  = Join-Path $StoragePath 'data/pack'
+    $packFiles = @()
+    if (Test-Path -LiteralPath $packDir -PathType Container) {
+        $packFiles = @(Get-ChildItem -LiteralPath $packDir -Recurse -File -ErrorAction SilentlyContinue)
+    }
+    if ($packFiles.Count -gt 0) {
+        $result.LatestPackWrite = [datetime]($packFiles | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+        $result.PackFiles = @($packFiles | Sort-Object -Property Name | ForEach-Object {
+            [pscustomobject]@{ Name = $_.Name; Length = $_.Length; LastWriteTimeUtc = $_.LastWriteTimeUtc }
+        })
+    }
+
+    if ($objectFiles.Count -eq 0 -and $packFiles.Count -eq 0) {
+        $result.Reason = 'у сховищі немає жодного файла ні в data/objects, ні в data/pack (жодної версії)'
+        return $result
+    }
+
+    $result.IsStorage = $true
     $result
 }
 

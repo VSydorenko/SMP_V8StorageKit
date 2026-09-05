@@ -104,6 +104,34 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
 Describe 'Get-KitStorageActivity — mtime сховища без платформи (§5)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
+
+        # Фейкове сховище: 1cv8ddb.1CD (за замовчуванням) + опційно файли в data/objects і/або
+        # data/pack, з явним LastWriteTimeUtc — той самий приклад, що SessionCheck.Tests.ps1
+        # (New-FakeStorage), тут локально, бо цей файл StorageBranch.psm1 не імпортує GitMerge.
+        function script:New-FakeStorageDir {
+            param(
+                [Parameter(Mandatory)][string]$Path,
+                [switch]$NoDb,
+                [hashtable[]]$ObjectFiles = @(),
+                [hashtable[]]$PackFiles = @()
+            )
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+            if (-not $NoDb) { Set-Content -LiteralPath (Join-Path $Path '1cv8ddb.1CD') -Value 'db' }
+            foreach ($f in $ObjectFiles) {
+                $dir = Join-Path $Path 'data/objects/ab'
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                $p = Join-Path $dir $f.Name
+                Set-Content -LiteralPath $p -Value $f.Content
+                (Get-Item $p).LastWriteTimeUtc = $f.Stamp.ToUniversalTime()
+            }
+            foreach ($f in $PackFiles) {
+                $dir = Join-Path $Path 'data/pack'
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                $p = Join-Path $dir $f.Name
+                Set-Content -LiteralPath $p -Value $f.Content
+                (Get-Item $p).LastWriteTimeUtc = $f.Stamp.ToUniversalTime()
+            }
+        }
     }
 
     # Рев'ю раунд 2, C1 — саме цей стан (data/objects Є, але в ній жодного файла) падав:
@@ -130,44 +158,113 @@ Describe 'Get-KitStorageActivity — mtime сховища без платфор�
     It 'теки сховища немає — Accessible=$false, Reason називає шлях, LatestObjectWrite=$null' {
         $r = Get-KitStorageActivity -StoragePath (Join-Path $TestDrive 'truly-missing')
         $r.Accessible | Should -BeFalse
+        $r.IsStorage | Should -BeFalse
         $r.Reason | Should -BeLike '*недоступний*'
         $r.LatestObjectWrite | Should -BeNullOrEmpty
     }
 
-    It 'тека є, data/objects немає — Accessible=$true, Reason називає data/objects, LatestObjectWrite=$null' {
+    It 'тека є, data/objects немає, 1cv8ddb.1CD є — Accessible=$true, Reason називає обидві теки, LatestObjectWrite=$null' {
         $s = Join-Path $TestDrive 'no-objects-2'
-        New-Item -ItemType Directory -Path $s -Force | Out-Null
+        New-FakeStorageDir -Path $s
         $r = Get-KitStorageActivity -StoragePath $s
         $r.Accessible | Should -BeTrue
+        $r.IsStorage | Should -BeFalse
         $r.Reason | Should -BeLike '*data/objects*'
+        $r.Reason | Should -BeLike '*data/pack*'
         $r.LatestObjectWrite | Should -BeNullOrEmpty
     }
 
-    It 'data/objects є, але порожня (жодного файла) — Accessible=$true, Reason називає порожність, LatestObjectWrite=$null' {
+    It 'data/objects є, але порожня (жодного файла), pack теж немає — Accessible=$true, IsStorage=$false, Reason називає порожність, LatestObjectWrite=$null' {
         $s = Join-Path $TestDrive 'empty-objects-2'
+        New-FakeStorageDir -Path $s
         New-Item -ItemType Directory -Path (Join-Path $s 'data/objects') -Force | Out-Null
         $r = Get-KitStorageActivity -StoragePath $s
         $r.Accessible | Should -BeTrue
+        $r.IsStorage | Should -BeFalse
         $r.Reason | Should -BeLike '*немає жодного файла*'
         $r.LatestObjectWrite | Should -BeNullOrEmpty
     }
 
-    It 'у data/objects є файли — LatestObjectWrite = максимальний mtime, Reason порожній' {
+    It 'у data/objects є файли, pack немає — IsStorage=$true, LatestObjectWrite = максимальний mtime, Reason порожній' {
         $s = Join-Path $TestDrive 'with-files-2'
-        New-Item -ItemType Directory -Path (Join-Path $s 'data/objects/ab') -Force | Out-Null
-        $older = Join-Path $s 'data/objects/ab/older.bin'; Set-Content -LiteralPath $older -Value 'a'
-        $newer = Join-Path $s 'data/objects/ab/newer.bin'; Set-Content -LiteralPath $newer -Value 'b'
-        # ToUniversalTime() з невизначеним (не "Z") літералом — той самий зразок, що New-FakeStorage
-        # вище в цьому файлі: [datetime]'...Z' сам собою парситься в Kind=Local (конвертує стрілки
-        # годинника), і пряме порівняння з .LastWriteTimeUtc (Kind=Utc) хибно падає на розбіжності
-        # тиків, хоча мить та сама, — зловлено живим прогоном цього тесту.
-        $newerStamp = ([datetime]'2026-03-01T00:00:00').ToUniversalTime()
-        (Get-Item $older).LastWriteTimeUtc = ([datetime]'2026-01-01T00:00:00').ToUniversalTime()
-        (Get-Item $newer).LastWriteTimeUtc = $newerStamp
+        # ToUniversalTime() з невизначеним (не "Z") літералом — [datetime]'...' сам собою
+        # парситься в Kind=Local (конвертує стрілки годинника), і пряме порівняння з
+        # .LastWriteTimeUtc (Kind=Utc) хибно падає на розбіжності тиків, хоча мить та сама, —
+        # зловлено живим прогоном цього тесту.
+        $newerStamp = [datetime]'2026-03-01T00:00:00'
+        New-FakeStorageDir -Path $s -ObjectFiles @(
+            @{ Name = 'older.bin'; Content = 'a'; Stamp = [datetime]'2026-01-01T00:00:00' }
+            @{ Name = 'newer.bin'; Content = 'b'; Stamp = $newerStamp }
+        )
         $r = Get-KitStorageActivity -StoragePath $s
         $r.Accessible | Should -BeTrue
+        $r.IsStorage | Should -BeTrue
         $r.Reason | Should -BeNullOrEmpty
-        $r.LatestObjectWrite | Should -Be $newerStamp
+        $r.LatestObjectWrite | Should -Be $newerStamp.ToUniversalTime()
+        $r.LatestPackWrite | Should -BeNullOrEmpty
+        @($r.PackFiles).Count | Should -Be 0
+    }
+
+    # Задача 8 (task-8-brief.md): пакування — норма, не аномалія. Живий прогін B3 знайшов справжнє
+    # сховище з 16 версіями, чия data/objects порожня — уся історія в data/pack (4 файли, 2,2 МБ).
+    Context 'Пакування (data/pack) — спека 9f6ad5e §5' {
+        It 'порожня objects, непорожня pack — IsStorage=$true, LatestPackWrite заповнений, LatestObjectWrite=$null, Reason порожній' {
+            $s = Join-Path $TestDrive 'packed-only'
+            $stamp = [datetime]'2026-02-01T00:00:00'
+            New-FakeStorageDir -Path $s -PackFiles @(@{ Name = '1.pack'; Content = 'p'; Stamp = $stamp })
+            New-Item -ItemType Directory -Path (Join-Path $s 'data/objects') -Force | Out-Null   # objects є, порожня
+            $r = Get-KitStorageActivity -StoragePath $s
+            $r.IsStorage | Should -BeTrue
+            $r.LatestObjectWrite | Should -BeNullOrEmpty
+            $r.LatestPackWrite | Should -Be $stamp.ToUniversalTime()
+            $r.Reason | Should -BeNullOrEmpty
+        }
+
+        It 'обидві теки непорожні — обидві дати заповнені, PackFiles містить усі файли pack' {
+            $s = Join-Path $TestDrive 'packed-both'
+            New-FakeStorageDir -Path $s `
+                -ObjectFiles @(@{ Name = 'a.bin'; Content = 'x'; Stamp = [datetime]'2026-01-05T00:00:00' }) `
+                -PackFiles @(
+                    @{ Name = '1.pack'; Content = 'p1'; Stamp = [datetime]'2026-01-10T00:00:00' }
+                    @{ Name = '2.pack'; Content = 'p2'; Stamp = [datetime]'2026-01-15T00:00:00' }
+                )
+            $r = Get-KitStorageActivity -StoragePath $s
+            $r.IsStorage | Should -BeTrue
+            $r.LatestObjectWrite | Should -Not -BeNullOrEmpty
+            $r.LatestPackWrite | Should -Be ([datetime]'2026-01-15T00:00:00').ToUniversalTime()
+            @($r.PackFiles).Count | Should -Be 2
+            (@($r.PackFiles).Name | Sort-Object) | Should -Be @('1.pack', '2.pack')
+        }
+
+        It 'каталог без 1cv8ddb.1CD (навіть з файлами в pack) — IsStorage=$false, скарга доречна' {
+            $s = Join-Path $TestDrive 'no-db-with-pack'
+            New-FakeStorageDir -Path $s -NoDb -PackFiles @(@{ Name = '1.pack'; Content = 'p'; Stamp = [datetime]'2026-01-01T00:00:00' })
+            $r = Get-KitStorageActivity -StoragePath $s
+            $r.Accessible | Should -BeTrue
+            $r.IsStorage | Should -BeFalse
+            $r.Reason | Should -BeLike '*1cv8ddb.1CD*'
+        }
+
+        It 'обидві теки порожні (1cv8ddb.1CD є) — IsStorage=$false, Reason називає ОБИДВІ теки, а не саму лише objects' {
+            $s = Join-Path $TestDrive 'both-empty'
+            New-FakeStorageDir -Path $s
+            New-Item -ItemType Directory -Path (Join-Path $s 'data/objects') -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $s 'data/pack') -Force | Out-Null
+            $r = Get-KitStorageActivity -StoragePath $s
+            $r.IsStorage | Should -BeFalse
+            $r.Reason | Should -BeLike '*data/objects*'
+            $r.Reason | Should -BeLike '*data/pack*'
+        }
+
+        It 'pack рівно з одним файлом — PackFiles.Count=1, виняток не кидається (StrictMode: @(Get-ChildItem) обов''язковий)' {
+            Set-StrictMode -Version Latest
+            $s = Join-Path $TestDrive 'packed-single'
+            New-FakeStorageDir -Path $s -PackFiles @(@{ Name = 'only.pack'; Content = 'p'; Stamp = [datetime]'2026-01-01T00:00:00' })
+            { Get-KitStorageActivity -StoragePath $s } | Should -Not -Throw
+            $r = Get-KitStorageActivity -StoragePath $s
+            @($r.PackFiles).Count | Should -Be 1
+            $r.PackFiles[0].Name | Should -Be 'only.pack'
+        }
     }
 }
 

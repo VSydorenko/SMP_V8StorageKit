@@ -35,6 +35,17 @@ function Invoke-KitSync {
     <#
     .SYNOPSIS
         Реплей нових версій кожного джерела truth: storage у гілку storage/<ключ> (спека §3, §5).
+    .DESCRIPTION
+        Пише відбиток сховища (build/session-check/<ключ>.json, StorageImprint.psm1) одразу після
+        читання звіту — і в прев'ю (без -Apply), і з -Apply, обидва: прев'ю нічого не змінює в
+        git, у сховищі чи в дев-базі (це і є контракт "-Apply — лише коли попросили"), а
+        build/session-check/ — не один із трьох, це робоча тека МАШИНИ, гітігнорована цілком
+        (templates/gitignore, рядок build/) — те саме прев'ю вже кладе туди тимчасову ІБ і дампи.
+        Відбиток — знання, здобуте читанням звіту, яке щойно відбулося; викидати його, щоб
+        дотриматись букви правила "прев'ю нічого не змінює", означало б платити повним прогоном
+        платформи за кожну наступну відповідь session-check про це саме запаковане сховище —
+        рівно той вічний сигнал "не визначається", заради усунення якого відбиток і існує (спека
+        9f6ad5e §5, 0379351 §3.2).
     #>
     [CmdletBinding()]
     param(
@@ -109,6 +120,21 @@ function Invoke-KitSync {
             -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
+
+        # Відбиток — ОДРАЗУ після звіту, ДО розгалуження "нових версій немає" нижче (Task 8,
+        # task-8-brief.md, Важливе №1): саме в гілці "нема нових версій" уся конструкція й потрібна
+        # — для неактивного запакованого сховища pending завжди порожній, і якби запис стояв
+        # ПІСЛЯ цього continue, відбиток ніколи не оновився б рівно в тому випадку, заради якого
+        # його зробили. $all.Count -eq 0 (сховище зовсім без версій) — писати нема чого, $maxVersion
+        # тут рядок 'немає', не число. try/catch: збій запису кешу — робочої теки МАШИНИ, не стану
+        # git/сховища/бази — не має валити синхронізацію, лише попередження.
+        if ($all.Count -gt 0) {
+            try {
+                Write-KitStorageImprint -RepoRoot $root -Key $src.Key -StoragePath $src.StoragePath -Version ([int]$maxVersion) | Out-Null
+            } catch {
+                Write-Host "  УВАГА: не вдалося записати відбиток сховища (build/session-check/$($src.Key).json): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
 
         $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions
         $gap = Get-KitVersionGapNote -Pending $pending -LastVersion $last

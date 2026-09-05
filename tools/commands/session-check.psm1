@@ -22,7 +22,11 @@ function Invoke-KitSessionCheck {
         каталогу на джерело. Спершу — повний check (-Quiet) тим самим контекстом: error → код 1 і сигнали
         не обчислюються (на storage/* з чужим комітом дата дзеркала нічого не означає — одне правило замість
         таблиці «які помилки ще дозволяють сигнали»); лише warn → [!]-рядки над сигналами, плюс [i] для знахідок
-        із білого списку (main-branch — info-половина дворівневої знахідки). Нічого не змінює.
+        із білого списку (main-branch — info-половина дворівневої знахідки). Нічого не змінює: на кожне
+        джерело спершу Read-KitStorageImprint — якщо не $null і Test-KitStorageImprintCurrent, точна
+        відповідь замість евристик mtime; інакше евристики (StorageImprint.psm1, Task 8). Обидві функції
+        відбитка тут лише ЧИТАЮТЬ build/session-check/<ключ>.json — жодного запису, «оновимо кеш, раз ми
+        його вже прочитали» тут немає навмисно: пише відбиток виключно sync.psm1.
     #>
     [CmdletBinding()]
     param(
@@ -83,23 +87,56 @@ function Invoke-KitSessionCheck {
         }
         $activity = Get-KitStorageActivity -StoragePath $src.StoragePath
 
-        # Три причини «є що робити», а не одна (рев'ю раунд 2, I2/I3): 'unclear' — шлях
-        # доступний, але не схожий на сховище (немає data/objects або вона порожня) — не
-        # можемо підтвердити «синхронне», тиша тут гірша за шум (I2); 'no-mirror' —
-        # дзеркала ще немає при доступному сховищі, порівнювати нема з чим, але контракт
-        # («дзеркала немає при доступному сховищі → 3») однаковий незалежно від того, чи є
-        # вже версії; 'newer' — справжнє порівняння дат, із допуском StorageMirrorTolerance.
-        # NewInStorageReason у сигналі — щоб споживач JSON (не лише текст) бачив, ЧОМУ
-        # NewInStorage=$true, а не читав це завжди як «є нові версії» (рев'ю раунд 2, дрібна
-        # правка про рядок 71): для 'no-mirror'/'unclear' порівнювати справді нема з чим.
+        # Task 8 (запаковане сховище + відбиток, task-8-brief.md): відбиток — ЛИШЕ читання
+        # (Read-KitStorageImprint, Test-KitStorageImprintCurrent, StorageImprint.psm1). Пише його
+        # виключно sync — жодного «оновимо кеш, раз ми його вже прочитали»: на цьому інваріанті
+        # стоїть законність примусового вбивання процесу за стелею часу в шимі B4. Читаємо лише
+        # коли є з чим звірити версію (мирне дзеркало, стан git прочитано) — інакше зайвий git-виклик
+        # для файла, який однаково не вдасться використати.
+        $imprint = $null; $imprintCurrent = $false; $lastVersion = $null
+        if ($mirror -and -not $gitProblem) {
+            $imprint = Read-KitStorageImprint -RepoRoot $root -Key $src.Key
+            if ($null -ne $imprint) { $imprintCurrent = Test-KitStorageImprintCurrent -Imprint $imprint -Activity $activity }
+            if ($imprintCurrent) {
+                try { $lastVersion = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch }
+                catch {
+                    # Гілку вже пройшов повний check (checkErrors.Count -eq 0 вище) — трейлер
+                    # Storage-Version має бути валідним; лишається деградація до git-проблеми, як і
+                    # решта збоїв git у цій функції, а не throw (session-check нічого не кидає).
+                    $gitProblem = "Storage-Version на вершині $($src.Branch) не прочитано: $($_.Exception.Message)"
+                    $imprintCurrent = $false
+                }
+            }
+        }
+
+        # Три причини «є що робити» від евристик, а не одна (рев'ю раунд 2, I2/I3), плюс точна
+        # відповідь відбитка (Task 8): 'imprint-ahead' — диск не змінювався з моменту, коли sync
+        # його читав (Test-KitStorageImprintCurrent), і версія в тому звіті БІЛЬША за версію
+        # дзеркала — це не здогад, а факт із самого читання sync, тому текст нижче НЕ каже
+        # «ймовірно»; 'unclear' — шлях доступний, але не схожий на сховище 1С (немає 1cv8ddb.1CD,
+        # або в data/objects і data/pack разом немає жодного файла) — не можемо підтвердити
+        # «синхронне», тиша тут гірша за шум (I2); 'no-mirror' — дзеркала ще немає при доступному
+        # сховищі, порівнювати нема з чим, але контракт («дзеркала немає при доступному сховищі
+        # → 3») однаковий незалежно від того, чи є вже версії; 'newer' — mtime data/objects проти
+        # дзеркала, із допуском StorageMirrorTolerance; 'packed-newer' — data/objects сигналу не
+        # дає (запаковано), а data/pack новіший за дзеркало: чи є нові версії, дешева перевірка
+        # сказати не може (спека §5, «Запаковане сховище») — теж «є що робити» (3), не тиша й не
+        # «стан не прочитано» (1). NewInStorageReason у сигналі — щоб споживач JSON (не лише
+        # текст) бачив, ЧОМУ NewInStorage=$true, а не читав це завжди як «є нові версії» (рев'ю
+        # раунд 2, дрібна правка про рядок 71): для 'no-mirror'/'unclear' порівнювати справді
+        # нема з чим.
         $newInStorage = $false; $newInStorageReason = $null
-        if ($activity.Accessible -and -not $gitProblem) {
-            if (-not $activity.LatestObjectWrite) {
+        if ($imprintCurrent) {
+            if ($imprint.Version -gt $lastVersion) { $newInStorage = $true; $newInStorageReason = 'imprint-ahead' }
+        } elseif ($activity.Accessible -and -not $gitProblem) {
+            if (-not $activity.IsStorage) {
                 $newInStorage = $true; $newInStorageReason = 'unclear'
             } elseif (-not $mirror) {
                 $newInStorage = $true; $newInStorageReason = 'no-mirror'
-            } elseif ($null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror.Add($script:StorageMirrorTolerance)) {
+            } elseif ($null -ne $activity.LatestObjectWrite -and $null -ne $lastMirror -and $activity.LatestObjectWrite -gt $lastMirror.Add($script:StorageMirrorTolerance)) {
                 $newInStorage = $true; $newInStorageReason = 'newer'
+            } elseif ($null -ne $activity.LatestPackWrite -and $null -ne $lastMirror -and $activity.LatestPackWrite -gt $lastMirror.Add($script:StorageMirrorTolerance)) {
+                $newInStorage = $true; $newInStorageReason = 'packed-newer'
             }
         }
         # «Дзеркало є, головної гілки немає» — не «не знаю» (1), а 3: незлиті коміти — УСІ коміти дзеркала, і дія
@@ -114,28 +151,47 @@ function Invoke-KitSessionCheck {
         }
 
         # Текст будується з незалежних частин, не з ексклюзивних if/elseif-гілок (рев'ю раунд 2,
-        # I1/I2): «недоступне»/«не схоже на сховище», «дзеркала немає»/«нові версії» та «незлиті
-        # коміти» — три РІЗНІ питання, і кожне з них може бути правдою одночасно з іншими
-        # (наприклад, сховище недоступне, А на дзеркалі вже є незлитий коміт — I1). Єдиний
-        # виняток — gitProblem: коли стан git не прочитано, довіряти решті обчисленого не можна.
+        # I1/I2): «недоступне»/«не схоже на сховище»/«точна відповідь відбитка», «дзеркала
+        # немає»/«нові версії»/«запаковано» та «незлиті коміти» — три РІЗНІ питання, і кожне з них
+        # може бути правдою одночасно з іншими (наприклад, сховище недоступне, А на дзеркалі вже
+        # є незлитий коміт — I1). Єдиний виняток — gitProblem: коли стан git не прочитано,
+        # довіряти решті обчисленого не можна.
         $text = if ($gitProblem) {
             "- $($src.Key): стан git не прочитано ($gitProblem) — сигнал недоступний; розбір: kit check."
         } else {
             $parts = [System.Collections.Generic.List[string]]::new()
 
-            if (-not $activity.Accessible) {
-                $parts.Add("сховище недоступне на цій машині ($($activity.Reason)) — перевизначте шлях у v8storagekit.local.yaml (storages:)")
-            } elseif ($newInStorageReason -eq 'unclear') {
-                # I2, сценарій A/B: шлях доступний, але не схожий на сховище 1С. Мовчати тут
-                # (як робила стара «else»-гілка «синхронне») — хибний all-clear на завідомо
-                # неправильному шляху, гірший за будь-який шум: людина припиняє шукати причину.
-                $parts.Add("шлях сховища доступний, але не схожий на сховище 1С ($($activity.Reason)) — перевірте storages: $($src.Key) у v8storagekit.local.yaml (чи сам шлях у v8storagekit.yaml)")
-            }
+            if ($imprintCurrent) {
+                # Точна відповідь замість здогадки (Task 8): диск не змінювався з моменту, коли sync
+                # його читав, тож версія з того читання — факт, не оцінка mtime. Текст завжди називає
+                # версію й момент читання — і коли дзеркало вже на ній (код 0), і коли позаду (код 3) —
+                # і НІКОЛИ не каже «ймовірно»: це не той самий сигнал, що евристики нижче.
+                if ($newInStorageReason -eq 'imprint-ahead') {
+                    $parts.Add(("за відбитком сховище було на версії {0} станом на {1:yyyy-MM-dd HH:mm:ss} UTC, дзеркало на версії {2} — оновити: kit sync -Source {3} -Apply" -f $imprint.Version, $imprint.ReadAtUtc, $lastVersion, $src.Key))
+                } else {
+                    $parts.Add(("дзеркало синхронне зі сховищем на версії {0} (відбиток прочитано {1:yyyy-MM-dd HH:mm:ss} UTC)" -f $imprint.Version, $imprint.ReadAtUtc))
+                }
+            } else {
+                if (-not $activity.Accessible) {
+                    $parts.Add("сховище недоступне на цій машині ($($activity.Reason)) — перевизначте шлях у v8storagekit.local.yaml (storages:)")
+                } elseif ($newInStorageReason -eq 'unclear') {
+                    # I2, сценарій A/B: шлях доступний, але не схожий на сховище 1С. Мовчати тут
+                    # (як робила стара «else»-гілка «синхронне») — хибний all-clear на завідомо
+                    # неправильному шляху, гірший за будь-який шум: людина припиняє шукати причину.
+                    $parts.Add("шлях сховища доступний, але не схожий на сховище 1С ($($activity.Reason)) — перевірте storages: $($src.Key) у v8storagekit.local.yaml (чи сам шлях у v8storagekit.yaml)")
+                }
 
-            if (-not $mirror) {
-                $parts.Add("дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply")
-            } elseif ($newInStorageReason -eq 'newer') {
-                $parts.Add(("у сховищі ймовірно нові версії (запис {0:yyyy-MM-dd HH:mm:ss} UTC після дзеркала {1:yyyy-MM-dd HH:mm:ss} UTC) — оновити? kit sync -Source {2} -Apply" -f $activity.LatestObjectWrite, $lastMirror, $src.Key))
+                if (-not $mirror) {
+                    $parts.Add("дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply")
+                } elseif ($newInStorageReason -eq 'newer') {
+                    $parts.Add(("у сховищі ймовірно нові версії (запис {0:yyyy-MM-dd HH:mm:ss} UTC після дзеркала {1:yyyy-MM-dd HH:mm:ss} UTC) — оновити? kit sync -Source {2} -Apply" -f $activity.LatestObjectWrite, $lastMirror, $src.Key))
+                } elseif ($newInStorageReason -eq 'packed-newer') {
+                    # Спека §5, «Запаковане сховище», третій результат: усі об'єкти вже запаковано,
+                    # data/objects сигналу не дає, а data/pack новіший за дзеркало — дешева перевірка
+                    # чесно каже «не знаю», не мовчить (0) і не вдає точність (1); дія — kit sync
+                    # БЕЗ -Apply, він і прочитає звіт, і залишить точний відбиток на майбутнє.
+                    $parts.Add(("усі об'єкти запаковані після останнього дзеркала ({0:yyyy-MM-dd HH:mm:ss} UTC) — чи є нові версії, дешева перевірка сказати не може; точну відповідь дає kit sync -Source {1} без -Apply" -f $lastMirror, $src.Key))
+                }
             }
 
             # I1: незлиті коміти рахуються й відображаються НЕЗАЛЕЖНО від доступності сховища —

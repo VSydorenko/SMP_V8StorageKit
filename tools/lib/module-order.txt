@@ -4,7 +4,8 @@
 # StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport; GitMerge — після
 # StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath); TreeCompare — після
 # PathSafety (Assert-SafeWorkPath); StoragePlatform — після PathSafety і V8 (New-ExtensionInfobase,
-# New-V8FileInfobase, Invoke-V8Designer). Рядки з # ігноруються.
+# New-V8FileInfobase, Invoke-V8Designer); StorageImprint — після StorageBranch (бере
+# Get-KitStorageActivity, B3 Task 8). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Yaml
@@ -12,6 +13,7 @@ V8Project
 Manifest
 Preflight
 StorageBranch
+StorageImprint
 GitMerge
 TreeCompare
 Hooks
