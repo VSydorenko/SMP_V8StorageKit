@@ -162,7 +162,8 @@ B3 коштував ~3,3 млн токенів у субагентах і ~35 з
 | `templates/hooks/session-start.ps1` | **новий.** Шим: реєстр плагінів → `kit.ps1 session-check` → JSON | 4 |
 | `skills/using-v8storagekit/SKILL.md` | **новий.** Вступний скіл (§6) | 4 |
 | `tools/commands/check.psm1` | перевірка `hook-shim`: шим і `settings.json` споживача | 4 |
-| `tools/load-ext.ps1`, `tools/build.ps1`, `tools/tests/Build.Tests.ps1` (старий) | **вилучаються** | 5 |
+| `tools/load-ext.ps1`, `tools/build.ps1` | **вилучаються** | 5 |
+| `tools/tests/Build.Tests.ps1` | переписується цілком у Task 3 (**не** вилучається в Task 5 — знахідка P1 префлайту B4) | 3 |
 | `tools/lib/module-order.txt` | + `AgentBase` після `V8Project` | 1 |
 | тести: `AgentBase.Tests.ps1`, `Provision.Tests.ps1`, `Canon.Tests.ps1`, `Build.Tests.ps1` (новий), `SessionStartHook.Tests.ps1`, `Check.Tests.ps1`, `V8Project.Tests.ps1`, `Manifest.Tests.ps1`, `Templates.Tests.ps1` | | 1–5 |
 | `templates/README.md`, `templates/CLAUDE.md`, `skills/storage-pipeline/SKILL.md`, `CLAUDE.md`, `docs/follow-ups.md` §7 | перехідні позначки; §7 закрито | 5 |
@@ -184,7 +185,8 @@ V8.psm1 (зміна)
   New-V8FileInfobase -Path -MustBeUnder [-TemplatePath <.dt>] [-V8Path] : CREATEINFOBASE File="…"; [/UseTemplate "…"]
 
 Manifest.psm1 (додається)
-  Save-KitOverlayAgentBase -OverlayPath -WorkspacePath -Template : пише/оновлює workspaces.<ws>.agentBase.template (ConvertTo-Yaml)
+  ConvertTo-KitYaml -Data : → [string] (Yaml.psm1; єдина точка запису YAML, симетрична Read-KitYaml)
+  Save-KitOverlayAgentBase -OverlayPath -WorkspacePath -Template : пише/оновлює workspaces.<ws>.agentBase.template
 
 commands
   Invoke-KitProvision -Context [-Workspace] [-Source] [-Apply] [-Force] [-Template <.dt>] [-Remember]
@@ -211,6 +213,7 @@ templates/hooks/session-start.ps1 (шим; самодостатній, без м
 
 **Files:**
 - Modify: `tools/lib/V8Project.psm1` — `Resolve-V8AgentInfobase` + `User`; `Resolve-KitAgentInfobasePath`
+- Modify: `tools/lib/Yaml.psm1` — `ConvertTo-KitYaml` (Step 5а, знахідка P5); `tools/tests/Yaml.Tests.ps1`
 - Modify: `tools/lib/V8.psm1` — `New-V8FileInfobase -TemplatePath`
 - Modify: `tools/lib/Manifest.psm1` — `Save-KitOverlayAgentBase`
 - Create: `tools/lib/AgentBase.psm1`
@@ -308,7 +311,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
         Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'")
         $ctx = Invoke-KitPreflight -RepoRoot $repo
-        { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*devUNF*людини*'
+        { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*людини*devUNF*'   # порядок як у повідомленні: «…з дев-базою людини 'devUNF' із накладки kit» (P3)
     }
 
     It 'воркспейс без infobase: — $null' {
@@ -490,13 +493,44 @@ function Save-KitOverlayAgentBase {
     $ws = $doc['workspaces'][$WorkspacePath]
     if (-not $ws.Contains('agentBase') -or $ws['agentBase'] -isnot [System.Collections.IDictionary]) { $ws['agentBase'] = [ordered]@{} }
     $ws['agentBase']['template'] = $Template
-    $yaml = ConvertTo-Yaml -Data $doc
+    $yaml = ConvertTo-KitYaml -Data $doc   # НЕ голий ConvertTo-Yaml — див. Step 5а
     Set-Content -LiteralPath $OverlayPath -Value $yaml -Encoding UTF8 -NoNewline
     Read-KitLocalOverlay -Path $OverlayPath | Out-Null   # перечитати — файл мусить проходити власну схему
 }
 ```
 
 Експортувати.
+
+- [ ] **Step 5а: `ConvertTo-KitYaml` у `Yaml.psm1`** (знахідка P5 префлайту B4)
+
+`Import-KitYamlModule` робить `Import-Module powershell-yaml` **без `-Global`**, тож команди
+`powershell-yaml` осідають у session state `Yaml.psm1`. `Read-KitYaml` у тому ж модулі їх бачить,
+а `Manifest.psm1` — ні: голий `ConvertTo-Yaml` там резолвиться лише через автозавантаження з
+`PSModulePath`. Це працює на машині, де модуль встановлено штатно, і мовчки ламається там, де ні.
+Гірше — воно обходить fail-closed-контракт `Import-KitYamlModule`: замість команди встановлення
+користувач без модуля отримає «`ConvertTo-Yaml` не розпізнано як ім'я командлета».
+
+```powershell
+function ConvertTo-KitYaml {
+    <#
+    .SYNOPSIS
+        Серіалізує мапу в YAML. Єдина точка запису, симетрична Read-KitYaml: гарантує, що
+        powershell-yaml завантажений через Import-KitYamlModule (з його дружньою зупинкою), а не
+        через автозавантаження з PSModulePath, якого на чужій машині може не бути.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Data)
+    Import-KitYamlModule
+    ConvertTo-Yaml -Data $Data
+}
+```
+
+Додати до `Export-ModuleMember` у `Yaml.psm1`. `Import-Module -Global` як альтернативу **не
+брати**: глобальний імпорт із бібліотечного модуля забруднює простір імен викликача.
+
+Тест (`Yaml.Tests.ps1`): виклик `ConvertTo-KitYaml` у **чистому** дочірньому `pwsh`, де
+`powershell-yaml` ще не імпортовано, повертає рядок і не кидає. Так перевіряється саме те, що
+ламалось: доступність команди поза session state `Yaml.psm1`.
 
 - [ ] **Step 6: `tools/lib/AgentBase.psm1`**
 
@@ -578,9 +612,12 @@ function Invoke-KitProvision {
         $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
         if ($null -eq $ab) { Write-Host "- $($ws.Path): у v8project.yaml немає infobase: — бази агента тут не буває (зовнішні обробки)."; continue }
 
-        $template = $Template
-        if (-not $template -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
-            $template = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
+        # $wsTemplate, а НЕ $template: PowerShell реєстронечутливий до імен змінних, тож $template
+        # і параметр $Template — та сама змінна. Присвоєння в тілі циклу перезаписало б параметр, і
+        # шаблон, узятий з накладки воркспейсу 1, протік би у воркспейс 2 (знахідка P2 префлайту B4).
+        $wsTemplate = $Template
+        if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
+            $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
         }
 
         Write-Host ''
@@ -591,29 +628,32 @@ function Invoke-KitProvision {
                    'з .dt на сервері — окремий спайк (спека §13). Далі — operation=init/build Уніки.')
         }
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
-        Write-Host ('Шаблон:    ' + $(if ($template) { $template } else { 'порожня база (без .dt)' }))
+        Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
 
         if (-not $Apply) {
-            Write-Host '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' }) -ForegroundColor Cyan
+            # Рядок збирається ДО виклику: у списку аргументів команди '+' — не оператор, а окремий
+            # аргумент, і Write-Host надрукував би літеральний плюс (P4; той самий клас, що -f після дужок).
+            $hint = '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' })
+            Write-Host $hint -ForegroundColor Cyan
             continue
         }
         if ($ab.Exists -and -not $Force) {
             throw "База агента вже є: $($ab.Path). Перестворити з нуля — kit provision -Workspace $($ws.Path) -Apply -Force."
         }
-        if ($template -and -not (Test-Path -LiteralPath $template -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $template" }
+        if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
         # Межа для видалення — тека воркспейсу: база агента лежить у workPath Уніки під нею.
         Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $ws.FullPath -Description "база агента воркспейсу $($ws.Path)"
         Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $ws.FullPath -TemplatePath $template
+        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $ws.FullPath -TemplatePath $wsTemplate
         Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
         Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
 
         if ($Remember) {
-            Save-KitOverlayAgentBase -OverlayPath $overlayPath -WorkspacePath $ws.Path -Template $template
+            Save-KitOverlayAgentBase -OverlayPath $overlayPath -WorkspacePath $ws.Path -Template $wsTemplate
             Write-Host "  Шаблон записано в $overlayPath (workspaces.$($ws.Path).agentBase.template)." -ForegroundColor DarkGray
         }
-        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $template })
+        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $wsTemplate })
     }
     [pscustomobject]@{ ExitCode = 0; Provisioned = $done.ToArray() }
 }
@@ -623,7 +663,7 @@ Export-ModuleMember -Function Invoke-KitProvision
 
 `New-V8FileInfobase -TemplatePath ''` — порожній рядок означає «без шаблону» (перевірка `if ($TemplatePath)`).
 
-- [ ] **Step 8: Тести без Integration зелені; `ModuleImportOrder` — додати `Resolve-KitAgentBase`, `Save-KitOverlayAgentBase`, `Resolve-KitAgentInfobasePath`; коміт**
+- [ ] **Step 8: Тести без Integration зелені; `ModuleImportOrder` — додати `Resolve-KitAgentBase`, `Save-KitOverlayAgentBase`, `Resolve-KitAgentInfobasePath`, `ConvertTo-KitYaml`; коміт**
 
 ```bash
 git add tools/lib tools/commands/provision.psm1 tools/tests
@@ -782,7 +822,12 @@ function Invoke-KitCanon {
                 throw "Канонізація $($t.Key) не вдалася: $($r.Output)"
             }
             $files = @(Get-ChildItem -LiteralPath $t.FullPath -Recurse -File).Count
-            $changed = @(git -C $root -c core.quotepath=false status --porcelain -z -- $t.RepoPath 2>$null | Where-Object { $_ }).Count
+            # Розбиття по NUL, а не по рядках: pwsh ділить вивід нативної команди по \n, а -z дає
+            # NUL-роздільник — конвеєр віддав би ОДИН рядок, тобто Changed = 1 за будь-якої кількості
+            # змін. Integration-тест цього не ловить: нуль змін дає порожній вивід, і єдиний
+            # перевірений випадок — саме той, що працює (знахідка P6 префлайту B4).
+            $raw     = (git -C $root -c core.quotepath=false status --porcelain -z -- $t.RepoPath 2>$null | Out-String)
+            $changed = @($raw -split "`0" | Where-Object { $_ }).Count
             Write-Host "  $($t.Key): файлів $files, змінено файлів: $changed" -ForegroundColor Green
             $done.Add([pscustomobject]@{ Key = $t.Key; Files = $files; Changed = $changed })
         }
@@ -1103,7 +1148,7 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*using-v8storagekit*'
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*session-check*- Alpha_SMB:*'
         $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*<корінь плагіна>*'
-        $json.hookSpecificOutput.additionalContext | Should -BeLike "*$($script:KitRoot -replace '\\','\\')*"
+        $json.hookSpecificOutput.additionalContext | Should -BeLike "*$script:KitRoot*"   # без -replace: у -BeLike екран — бектик, не бекслеш (P8)
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
         Join-Path $repo 'build' | Should -Not -Exist
     }
@@ -1302,10 +1347,36 @@ try {
 exit 0
 ```
 
-Два It до Describe зі Step 1 — обидва без платформи, з фейковим плагіном через `V8KIT_PLUGINS_REGISTRY`
-(`kit.ps1` у ньому — заглушка, яку кожен It підміняє під себе):
+Три It **власним `Context`** із своєю фікстурою (знахідка P7 префлайту B4: без неї `$script:FakePlugin`
+не існує, а без `cwd` із маніфестом шим до підпроцесу взагалі не дійде — він раніше вийде на гілці
+«немає v8storagekit.yaml»). Плагін тут **окремий** від `$script:KitRoot`: кожен It підміняє в ньому
+`tools/kit.ps1` заглушкою, і робити це в копії справжнього kit не можна — зламало б сусідні It.
 
 ```powershell
+Context 'стеля часу' {
+    BeforeAll {
+        # Окремий фейковий плагін: kit.ps1 підміняється в кожному It, скіл потрібен шиму для вступу.
+        $script:FakePlugin = Join-Path $TestDrive 'fake-plugin'
+        New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'tools') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'skills/using-v8storagekit') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:FakePlugin 'skills/using-v8storagekit/SKILL.md') -Encoding UTF8 -Value '# вступ'
+        $script:FakeRegistry = Join-Path $TestDrive 'fake-registry.json'
+        @{ plugins = @{ 'v8storagekit@smp-v8storagekit' = @(@{ version = 'test'; installPath = $script:FakePlugin }) } } |
+            ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:FakeRegistry -Encoding UTF8
+        # Репо з маніфестом: без нього шим іде гілкою «немає v8storagekit.yaml» і session-check не кличе.
+        $script:FakeRepo = Join-Path $TestDrive 'fake-repo'
+        New-Item -ItemType Directory -Path $script:FakeRepo -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:FakeRepo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
+        $script:PrevRegistry = $env:V8KIT_PLUGINS_REGISTRY
+        $env:V8KIT_PLUGINS_REGISTRY = $script:FakeRegistry
+        Push-Location $script:FakeRepo
+    }
+    AfterAll {
+        Pop-Location
+        if ($null -eq $script:PrevRegistry) { Remove-Item Env:\V8KIT_PLUGINS_REGISTRY -ErrorAction SilentlyContinue }
+        else { $env:V8KIT_PLUGINS_REGISTRY = $script:PrevRegistry }
+    }
+
 It 'шим не чекає довше за стелю: повільний session-check дає рядок «не вклався», а не зависання' {
     Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'Start-Sleep -Seconds 30'
     $env:V8KIT_SESSION_CHECK_TIMEOUT = '1'
@@ -1337,6 +1408,7 @@ It 'шим ніколи не передає -Apply' {
     $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String
     $out | Should -Not -BeLike '*-Apply*'
     $out | Should -BeLike '*session-check*-RepoRoot*'
+}
 }
 ```
 
@@ -1514,6 +1586,8 @@ git commit -m "B4: хук старту сесії, прив'язаний до р
 - Delete: `tools/load-ext.ps1`, `tools/build.ps1`
 - Modify: `tools/lib/V8.psm1` — вилучити `Read-V8LocalConnection` (і з експорту); `tools/tests/V8.Tests.ps1` — її тести
 - Modify: `templates/CLAUDE.md`, `templates/README.md`, `skills/storage-pipeline/SKILL.md`, `CLAUDE.md`, `docs/follow-ups.md` §7
+- Modify (межа блоку, рішення автора планів за питанням префлайту B4): `docs/unica-contract.md`,
+  `skills/product-onboarding/SKILL.md`, `docs/storage-and-git.md` — див. Step 2а
 
 - [ ] **Step 1: Вилучити**
 
@@ -1553,6 +1627,27 @@ Unica» — рядок про `build.ps1` замінити на цю ж форм
 `docs/follow-ups.md` §7 — дописати: «**Закрито в B4:** `kit build` знаходить обробки за
 `type: EXTERNAL_DATA_PROCESSORS` у `v8project.yaml`, гілка `.cfe` вилучена (`operation=make`)».
 
+- [ ] **Step 2а: Згадки вилученого коду поза списком вище** (межа B4/B8)
+
+Правило, за яким це розділено: **застарілий опис чекає B8, застаріла інструкція — ні.** Опис дає
+читачеві незбіг із кодом; інструкція змушує його діяти, і якщо вона суперечить межі, яку блок щойно
+поставив, вона небезпечна саме зараз.
+
+- `docs/unica-contract.md` (рядок про `Read-V8LocalConnection`) і `skills/product-onboarding/SKILL.md`
+  (те саме) — по одному рядку кожен: функцію вилучено, дев-бази живуть у `v8storagekit.local.yaml`,
+  накладка Уніки тримає лише базу агента. Те, що `product-onboarding` вилучається в B5, не привід
+  лишати: між блоками плагін перевстановлюється, і скіл увесь цей час активний — та сама логіка, що
+  вже застосована до `skills/storage-pipeline/SKILL.md` вище.
+- `docs/storage-and-git.md` — **позначка плюс дві точкові правки**. Позначка на початку: «контур
+  переїхав на `kit provision`/`canon`/`build`; розділ переписується в B8» — нею покриваються теки
+  `build`, рядок «хто в kit її торкається» і згадка `build.ps1` у контракті: це опис.
+  **Але рядок таблиці «git → база» і приклад запуску `load-ext.ps1` виправити на місці**, бо це
+  інструкція: після Task 5 напрямок «git → база людини» перестає бути операцією kit узагалі
+  (принцип 3). Напрямок стає «git → **база агента**» (`kit.ps1 build`, `operation=build` Уніки) з
+  явним «у базу людини kit не пише ніколи»; рядок `load-ext.ps1` із блоку прикладів зникає.
+  Позначка на початку документа таку таблицю не рятує: таблиці й блоки команд читають вибірково,
+  часто `grep`-ом, не з початку файлу.
+
 - [ ] **Step 3: Прогін і перевірки**
 
 ```
@@ -1568,8 +1663,8 @@ test -e hooks/hooks.json && echo "ПОМИЛКА: hooks.json у плагіні" 
 - [ ] **Step 4: Коміт**
 
 ```bash
-git add -A -- tools templates skills CLAUDE.md docs/follow-ups.md
-git commit --only -- tools templates skills CLAUDE.md docs/follow-ups.md -m "B4: вилучено load-ext.ps1, build.ps1 і Read-V8LocalConnection; перехідні позначки під kit provision/canon/build"
+git add -A -- tools templates skills CLAUDE.md docs/follow-ups.md docs/unica-contract.md docs/storage-and-git.md
+git commit --only -- tools templates skills CLAUDE.md docs/follow-ups.md docs/unica-contract.md docs/storage-and-git.md -m "B4: вилучено load-ext.ps1, build.ps1 і Read-V8LocalConnection; перехідні позначки під kit provision/canon/build"
 ```
 
 ---
