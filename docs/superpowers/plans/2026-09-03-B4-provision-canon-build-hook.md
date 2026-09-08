@@ -639,7 +639,11 @@ Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase
   після виклику**. Перевіряти саме наявність файлів, а не лише текст винятку: інакше тест пройде й
   тоді, коли теку вже стерто. Це не вихід **за** воркспейс (його ловлять `..` і абсолютність), а
   сусідня тека **всередині** — саме вона й пропускалась;
-- `File=build/ib` → проходить.
+- `File=build/ib` → проходить;
+- `workPath: 'out'` у `v8project.yaml` і `File=out/ib` → **проходить** (межа конфігурована, не
+  літерал);
+- `workPath: '.'` → відмова з повідомленням про `workPath`, а не про базу: інакше межа тихо
+  дорівнювала б теці воркспейсу.
 
 **Заборона відносного `File=` у схемі накладки** (`Read-KitLocalOverlay`) — окреме питання до
 архітектора (§2.5, поставлено 2026-09-08): там помилка виявилась би раніше й зрозуміліше. Одне
@@ -728,18 +732,29 @@ function Invoke-KitProvision {
         }
         if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
-        # Межа для видалення — тека воркспейсу: база агента лежить у workPath Уніки під нею.
-        # Межа — <воркспейс>/build, НЕ тека воркспейсу. Це ДРУГИЙ, незалежний від аудиту запобіжник
+        # Межа — РОБОЧА тека воркспейсу, НЕ сам воркспейс. Це ДРУГИЙ, незалежний від аудиту запобіжник
         # (§4): аудит ідентичності ловить базу людини під чужим ім'ям, межа шляху — будь-яку теку поза
         # робочою, навіть якщо аудит помилився. З $ws.FullPath описка File=cfe/src у v8project.yaml
         # проходила б (це ВЛАСНЕ підтека воркспейсу, а Assert-SafeWorkPath відхиляє лише порожній шлях,
         # '..' і рівність із межею) — і New-V8FileInfobase стер би вихідники розширення через
-        # Remove-Item -Recurse -Force. Файлова база агента живе лише під build/ (§2.5: File=build/ib у
-        # закоміченому v8project.yaml; перевизначення в local — тільки на серверну).
-        $agentBuild = Join-Path $ws.FullPath 'build'
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentBuild -Description "база агента воркспейсу $($ws.Path)"
+        # Remove-Item -Recurse -Force.
+        #
+        # $ws.Project.WorkPath, а НЕ літерал 'build': workPath конфігурований у v8project.yaml
+        # (V8Project.psm1: типове 'build', береться з yaml, якщо непорожнє), і решта kit його шанує —
+        # Task 3 будує шлях артефактів так само. Літерал відкидав би законну базу агента в репозиторії
+        # з workPath: 'out', тобто був би тим самим класом помилки, що однобокий fail-closed: правило,
+        # яке зупиняє ШТАТНИЙ вхід.
+        #
+        # Перша перевірка закриває край самої межі: Read-V8Project не пускає порожній workPath, але
+        # workPath: '.' пропускає — і межа тихо повернулась би до теки воркспейсу, тобто до дефекту,
+        # який щойно закрито. Assert-SafeWorkPath тут доречніший за власну перевірку: він уже
+        # відхиляє і рівність із межею ('.'), і сегмент '..', і робить це тим самим повідомленням, що
+        # решта kit.
+        $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
+        Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
+        Assert-SafeWorkPath -Path $ab.Path   -MustBeUnder $agentWork   -Description "база агента воркспейсу $($ws.Path)"
         Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentBuild -TemplatePath $wsTemplate
+        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -TemplatePath $wsTemplate
         Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
         Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
 
@@ -905,6 +920,12 @@ function Invoke-KitCanon {
         }
 
         foreach ($t in $targets) {
+            # Тут $ws.FullPath доречний, на відміну від Task 1: джерела за задумом лежать під
+            # воркспейсом, і canon їх і має переписувати. Відома, свідомо не закрита в B4 межа: описка
+            # path: 'build' у source-set знесла б робочу теку разом із базою агента, яку canon щойно
+            # збирався читати. Втрати даних людини немає (робоча тека гітігнорована), самоушкодження є,
+            # і діагностика вийде заплутана — «бази агента немає» одразу після успішного provision.
+            # Рев'ю Task 2 на це час не витрачає: питання поставлене й відповідь відома.
             Assert-SafeWorkPath -Path $t.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($t.Key)"
             if (Test-Path -LiteralPath $t.FullPath) { Remove-Item -LiteralPath $t.FullPath -Recurse -Force }
             New-Item -ItemType Directory -Path $t.FullPath -Force | Out-Null
