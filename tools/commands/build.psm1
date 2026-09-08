@@ -40,6 +40,20 @@ function Copy-KitWorkspaceArtifacts {
         відфільтровані), і мовчки підмішує в артефакти те, чого користувач не просив. Викликач
         (Invoke-KitBuild) тепер сам звужує список воркспейсів до тих, чиї джерела реально
         потрапили у $selected, і передає сюди вже звужений перелік.
+
+        Фікс-раунд рев'ю, C1 — фільтр розширень тут ЛИШЕ '.cf'/'.cfe', не '.epf'/'.erf'.
+        Цю функцію Invoke-KitBuild кличе ПІСЛЯ циклу, що сам щойно збудував свіжі .epf у тому
+        самому $Destination (через платформу), з тим самим Copy-Item -Force. Коли сюди раніше
+        потрапляли й .epf/.erf, стара копія з <воркспейс>/build/artifacts (залишок минулого
+        build чи чужого operation=make під тією самою назвою) мовчки перезаписувала ЩОЙНО
+        зібраний файл — вивід при цьому казав "← зібрано з воркспейсу", що читалось як успіх, а
+        $Artifacts діставав той самий шлях удруге. Запасний шлях Q6 (SYNOPSIS вище) існує
+        рівно для того, чого build САМ не робить — .cf/.cfe, які кладе operation=make Уніки.
+        .epf/.erf build робить сам і зобов'язаний довіряти лише щойно зібраному, не тому, що
+        колись лежало у воркспейсі — тому вони прибрані з цього фільтра, не позначені як
+        "не перезаписувати той самий шлях": другий підхід тримав би зайву відповідальність
+        (пам'ятати, які шляхи вже зайняті цим прогоном), тоді як перший унеможливлює саму
+        колізію.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Workspaces, [Parameter(Mandatory)][string]$Destination)
@@ -47,7 +61,7 @@ function Copy-KitWorkspaceArtifacts {
     foreach ($ws in $Workspaces) {
         $dir = Join-Path $ws.FullPath $ws.Project.WorkPath 'artifacts'
         if (-not (Test-Path -LiteralPath $dir)) { continue }
-        foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Extension -in @('.cf', '.cfe', '.epf', '.erf') }) {
+        foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Extension -in @('.cf', '.cfe') }) {
             Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $Destination $f.Name) -Force
             $copied.Add((Join-Path $Destination $f.Name))
         }
@@ -78,7 +92,10 @@ function Invoke-KitBuild {
     $outDir = Join-Path $root 'build/artifacts'
     $selected = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
     $epfSources = @($selected | Where-Object Type -eq 'EXTERNAL_DATA_PROCESSORS')
-    $extSources = @($selected | Where-Object Type -eq 'EXTENSION')
+    # truth: vendor виключено (фікс-раунд рев'ю, C4) — той самий принцип, що canon.psm1 уже
+    # застосовує до своїх targets: чужу конфігурацію не збирають у власні артефакти, і радити
+    # для неї operation=make було б порадою зібрати те, що нам не належить.
+    $extSources = @($selected | Where-Object { $_.Type -eq 'EXTENSION' -and $_.Truth -ne 'vendor' })
 
     Write-Host "Артефакти: $outDir"
     $plan = @(foreach ($s in $epfSources) { foreach ($d in (Get-KitEpfDescriptors -Source $s)) { [pscustomobject]@{ Source = $s; Descriptor = $d } } })
