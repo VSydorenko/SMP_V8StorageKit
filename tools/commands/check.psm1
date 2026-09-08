@@ -340,6 +340,25 @@ function Invoke-KitCheck {
                     & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobase.connection проти дев-баз накладки впав: $($_.Exception.Message)"
                 }
             }
+            elseif (Test-Path -LiteralPath $localPath -PathType Leaf) {
+                # Знахідка живого прогону B4: у ЖИВИХ репозиторіях цей файл несе devInfobase:,
+                # а не infobase: — конвенція, яку kit тримав до 1.0 і яку Task 5А вилучила
+                # разом із Read-V8LocalConnection. Без цієї гілки Read-V8ProjectLocalInfobase
+                # повертає $null, аудит вище пропускається БЕЗ ЖОДНОГО РЯДКА, і на таких
+                # репозиторіях перевірка §2.5 не спрацює ніколи. Форма дефекту та сама, яку
+                # блок закривав уже двічі: «нічого не сказано» читається як «все гаразд»,
+                # тільки ціна тут не миттєва — дев-база не зникає, вона стає невидимою.
+                # warn, не error: репозиторій робочий, sync і canon працюють — не працює лише
+                # dump (немає звідки взяти базу) і аудит бази людини.
+                $localRaw = ''
+                try { $localRaw = Get-Content -LiteralPath $localPath -Raw -Encoding UTF8 }
+                catch { $localRaw = '' }
+                if ($localRaw -match '(?m)^\s*devInfobase\s*:') {
+                    & $add warn local-audit ("$($ws.Path)/v8project.local.yaml: ключ devInfobase: — стара конвенція, kit її більше не читає. " +
+                        'Дев-база має переїхати в v8storagekit.local.yaml, infobases: (перекладе kit migrate); ' +
+                        'доти dump для цього воркспейсу не має звідки взяти базу.')
+                }
+            }
         }
 
         # §3.3, шар 2 — хуки. Той самий захист, що вище для інваріантів гілки: Test-KitGitHooks

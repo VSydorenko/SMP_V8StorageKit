@@ -212,6 +212,36 @@ Describe 'kit check — інваріанти репозиторію-спожив
         (Invoke-Check -Repo $repo).ExitCode | Should -Be 0
     }
 
+    It 'devInfobase: (стара конвенція) не мовчить — warn із порадою про infobases:' {
+        # Знахідка живого прогону B4 на SMP_BankExchange: у живих репозиторіях цей файл несе
+        # devInfobase:, а не infobase:. Read-V8ProjectLocalInfobase на ньому повертає $null,
+        # тож ГІЛКА АУДИТУ ВИЩЕ ПРОПУСКАЄТЬСЯ БЕЗ ЖОДНОГО РЯДКА — саме це й треба зловити.
+        # Вирізати elseif із check.psm1 → вивід більше не містить 'devInfobase' і тест червоніє.
+        $repo = New-GoodRepo 'legacy-devinfobase' @{}
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "devInfobase:`n  connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'`n  user: 'Адмін'"
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*devInfobase*'
+        $r.Output | Should -BeLike '*infobases:*'
+        # Саме warn, не error: репозиторій робочий, sync і canon працюють. Якби рівень підняли
+        # до error, код став би 1 — а разом із ним session-check перестав би рахувати сигнали.
+        $r.Output | Should -BeLike '*[!]*devInfobase*'
+        $r.ExitCode | Should -Be 0
+    }
+
+    It 'штатний infobase: цієї знахідки НЕ дає — правило не спрацьовує там, де все правильно' {
+        # Другий бік того самого правила. Без цього тесту знахідка могла б з'являтись на
+        # кожному правильному репозиторії, і ніхто б не помітив: перший тест від цього
+        # лишається зеленим. Той самий урок, що двічі коштував блоку Critical — перевіряти
+        # треба не лише те, що правило забороняє, а й те, що воно мусить пропускати.
+        $repo = New-GoodRepo 'modern-infobase' @{}
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "infobase:`n  connection: 'Srvr=""VSDEV"";Ref=""agent_alpha"";'"
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -Not -BeLike '*devInfobase*'
+        $r.ExitCode | Should -Be 0
+    }
+
     It '§2.6: truth: vendor без правила в .gitignore — код 1 (git check-ignore)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-ignore') -WithHooks -WithGitattributes
         $r = Invoke-Check -Repo $repo
