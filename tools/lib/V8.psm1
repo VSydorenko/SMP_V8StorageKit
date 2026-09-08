@@ -225,6 +225,7 @@ function New-V8FileInfobase {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$TemplatePath,
         [string]$V8Path
     )
 
@@ -235,6 +236,14 @@ function New-V8FileInfobase {
     # впасти одразу, незалежно від того, чи знайдена платформа на цій машині.
     Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -Description 'Path інфобази'
 
+    # Той самий принцип — до Get-V8Path: неіснуючий шаблон має впасти одразу, незалежно
+    # від того, чи знайдена платформа на цій машині.
+    $template = ''
+    if ($TemplatePath) {
+        if (-not (Test-Path -LiteralPath $TemplatePath -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $TemplatePath" }
+        $template = ' /UseTemplate "{0}"' -f (Resolve-Path -LiteralPath $TemplatePath).Path
+    }
+
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
     if (Test-Path -LiteralPath $Path) {
@@ -243,7 +252,7 @@ function New-V8FileInfobase {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
 
     $log = Join-Path $Path 'create.log'
-    $argLine = 'CREATEINFOBASE File="{0}"; /DisableStartupDialogs /Out "{1}"' -f $Path, $log
+    $argLine = 'CREATEINFOBASE File="{0}";{1} /DisableStartupDialogs /Out "{2}"' -f $Path, $template, $log
     $proc = Start-Process -FilePath $V8Path -ArgumentList $argLine -Wait -NoNewWindow -PassThru
 
     $msg = ''

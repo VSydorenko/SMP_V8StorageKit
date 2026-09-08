@@ -135,6 +135,15 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
 
         { New-V8FileInfobase -Path '' -MustBeUnder $boundary } | Should -Throw
     }
+
+    It 'кидає виняток на неіснуючому -TemplatePath — до Get-V8Path, незалежно від того, чи встановлена платформа' {
+        $boundary = Join-Path $TestDrive 'work-dir-3'
+        New-Item -ItemType Directory -Path $boundary -Force | Out-Null
+        $missing = Join-Path $TestDrive 'no-such.dt'
+
+        { New-V8FileInfobase -Path (Join-Path $boundary 'ib') -MustBeUnder $boundary -TemplatePath $missing } |
+            Should -Throw "*$missing*"
+    }
 }
 
 Describe 'New-ExtensionInfobase' -Tag 'Integration' {
@@ -157,6 +166,22 @@ Describe 'New-ExtensionInfobase' -Tag 'Integration' {
         $resMissing = Invoke-V8Designer -IbSwitch $ibSwitch -Arguments @(
             '/DumpConfigToFiles "{0}" -Extension NEVER_CREATED' -f $dumpMissing)
         $resMissing.ExitCode | Should -Not -Be 0
+    }
+}
+
+Describe 'New-V8FileInfobase -TemplatePath: розгортання з .dt' -Tag Integration {
+    It 'створює базу з реального .dt (CREATEINFOBASE /UseTemplate) — і рахунок доходить до /UseTemplate у аргументах' {
+        # .dt робимо самі: порожня ІБ -> /DumpIB. Тест не залежить від чужих файлів (той
+        # самий прийом, що в Provision.Tests.ps1 Integration BeforeAll).
+        $srcIb = New-V8FileInfobase -Path (Join-Path $TestDrive 'dt-src/ib') -MustBeUnder (Join-Path $TestDrive 'dt-src')
+        $dt = Join-Path $TestDrive 'template.dt'
+        (Invoke-V8Designer -IbSwitch ('/F "{0}"' -f $srcIb) -Arguments @('/DumpIB "{0}"' -f $dt)).ExitCode | Should -Be 0
+        Test-Path -LiteralPath $dt -PathType Leaf | Should -BeTrue
+
+        $target = Join-Path $TestDrive 'from-template/ib'
+        $result = New-V8FileInfobase -Path $target -MustBeUnder (Join-Path $TestDrive 'from-template') -TemplatePath $dt
+        $result | Should -Be $target
+        Join-Path $target '1Cv8.1CD' | Should -Exist
     }
 }
 

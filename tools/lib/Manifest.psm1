@@ -224,6 +224,32 @@ function Read-KitLocalOverlay {
     $result
 }
 
+function Save-KitOverlayAgentBase {
+    <#
+    .SYNOPSIS
+        Записує workspaces.<ws>.agentBase.template у v8storagekit.local.yaml (створює файл, якщо його немає).
+    .DESCRIPTION
+        Коментарі накладки при перезаписі губляться — це файл машини, не спільний
+        (той самий компроміс, що й у решти запису YAML у kit). Серіалізує через
+        ConvertTo-KitYaml (Yaml.psm1), не голий ConvertTo-Yaml — див. коментар там:
+        останній не гарантовано видимий із чужого модуля.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$OverlayPath, [Parameter(Mandatory)][string]$WorkspacePath, [Parameter(Mandatory)][string]$Template)
+    Import-KitYamlModule
+    $doc = $null
+    if (Test-Path -LiteralPath $OverlayPath -PathType Leaf) { $doc = Read-KitYaml -Path $OverlayPath -AllowEmpty }
+    if ($null -eq $doc) { $doc = [ordered]@{} }
+    if (-not $doc.Contains('workspaces') -or $doc['workspaces'] -isnot [System.Collections.IDictionary]) { $doc['workspaces'] = [ordered]@{} }
+    if (-not $doc['workspaces'].Contains($WorkspacePath) -or $doc['workspaces'][$WorkspacePath] -isnot [System.Collections.IDictionary]) { $doc['workspaces'][$WorkspacePath] = [ordered]@{} }
+    $ws = $doc['workspaces'][$WorkspacePath]
+    if (-not $ws.Contains('agentBase') -or $ws['agentBase'] -isnot [System.Collections.IDictionary]) { $ws['agentBase'] = [ordered]@{} }
+    $ws['agentBase']['template'] = $Template
+    $yaml = ConvertTo-KitYaml -Data $doc
+    Set-Content -LiteralPath $OverlayPath -Value $yaml -Encoding UTF8 -NoNewline
+    Read-KitLocalOverlay -Path $OverlayPath | Out-Null   # перечитати — файл мусить проходити власну схему
+}
+
 function Resolve-KitInfobase {
     <#
     .SYNOPSIS
@@ -243,4 +269,4 @@ function Resolve-KitInfobase {
     $Overlay.Infobases[$Name]
 }
 
-Export-ModuleMember -Function Assert-KitMapKeys, Read-KitManifest, Read-KitLocalOverlay, Resolve-KitInfobase
+Export-ModuleMember -Function Assert-KitMapKeys, Read-KitManifest, Read-KitLocalOverlay, Resolve-KitInfobase, Save-KitOverlayAgentBase

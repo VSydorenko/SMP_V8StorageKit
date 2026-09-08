@@ -8,8 +8,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
 
         # Команди, які kit.ps1 і командні модулі кличуть напряму з глобальної області.
         $script:RequiredCommands = @(
-            'Resolve-V8RepoRoot', 'Assert-SafeWorkPath', 'Read-KitYaml', 'Read-V8Project', 'Read-V8ProjectLocalInfobase',
-            'Read-KitManifest', 'Read-KitLocalOverlay', 'Resolve-KitInfobase', 'New-KitFinding', 'Invoke-KitPreflight',
+            'Resolve-V8RepoRoot', 'Assert-SafeWorkPath', 'Read-KitYaml', 'ConvertTo-KitYaml', 'Read-V8Project', 'Read-V8ProjectLocalInfobase',
+            'Read-KitManifest', 'Read-KitLocalOverlay', 'Resolve-KitInfobase', 'Save-KitOverlayAgentBase', 'New-KitFinding', 'Invoke-KitPreflight',
             'Select-KitSources', 'Test-KitBranchExists', 'Get-KitStorageBranchLastVersion', 'Test-KitStorageBranchInvariants',
             'Install-KitGitHooks', 'Test-KitGitHooks', 'Test-GitTextPolicy', 'Split-GitEolNoise', 'Read-AuthorMap',
             'Resolve-Author', 'Get-UnknownAuthors', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
@@ -19,7 +19,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
             'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
-            'Remove-KitStorageWorktree'
+            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String

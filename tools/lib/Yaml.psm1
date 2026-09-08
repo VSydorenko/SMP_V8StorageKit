@@ -45,6 +45,25 @@ function Import-KitYamlModule {
     Import-Module $script:YamlModuleName -ErrorAction Stop
 }
 
+function ConvertTo-KitYaml {
+    <#
+    .SYNOPSIS
+        Серіалізує об'єкт у YAML через powershell-yaml — той самий fail-closed контракт, що й читання.
+    .DESCRIPTION
+        Голий ConvertTo-Yaml із чужого модуля (наприклад, Manifest.psm1) не гарантовано видно:
+        Import-KitYamlModule робить Import-Module powershell-yaml БЕЗ -Global, тож команди
+        осідають у приватній session state ЦЬОГО модуля (Yaml), а не глобально. У викликача це
+        працює лише через автозавантаження PowerShell з PSModulePath — побічний канал, який
+        мовчки ламається там, де автозавантаження вимкнене чи модуль лежить нестандартно, і
+        замість зрозумілої команди встановлення дає голе "ConvertTo-Yaml не розпізнано". Симетрія
+        з Read-KitYaml обов'язкова: і читання, і запис ідуть через цей модуль явно.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Data)
+    Import-KitYamlModule
+    ConvertTo-Yaml -Data $Data
+}
+
 function Read-KitYaml {
     <#
     .SYNOPSIS
@@ -85,4 +104,4 @@ function Read-KitYaml {
     $data
 }
 
-Export-ModuleMember -Function Test-KitYamlModule, Import-KitYamlModule, Read-KitYaml
+Export-ModuleMember -Function Test-KitYamlModule, Import-KitYamlModule, Read-KitYaml, ConvertTo-KitYaml

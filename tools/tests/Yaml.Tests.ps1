@@ -70,4 +70,28 @@ Describe 'Yaml.psm1 — читання YAML через powershell-yaml' {
         Set-Content -LiteralPath $f -Value "a: [1, 2`n" -Encoding UTF8
         { Read-KitYaml -Path $f } | Should -Throw '*broken.yaml*'
     }
+
+    It 'ConvertTo-KitYaml: серіалізує і читається назад тим самим Read-KitYaml (симетрія читання/запису)' {
+        $doc = [ordered]@{ workspaces = [ordered]@{ 'Alpha_SMB' = [ordered]@{ agentBase = [ordered]@{ template = 'D:\dumps\demo.dt' } } } }
+        $yaml = ConvertTo-KitYaml -Data $doc
+        $yaml | Should -Not -BeNullOrEmpty
+        $f = Join-Path $TestDrive 'roundtrip.yaml'
+        Set-Content -LiteralPath $f -Value $yaml -Encoding UTF8 -NoNewline
+        (Read-KitYaml -Path $f)['workspaces']['Alpha_SMB']['agentBase']['template'] | Should -Be 'D:\dumps\demo.dt'
+    }
+
+    It 'ConvertTo-KitYaml працює у свіжому дочірньому процесі, де powershell-yaml ще не завантажено' {
+        # У ЦЬОМУ процесі Pester powershell-yaml майже напевно вже завантажений (десятки
+        # It вище кличуть Read-KitYaml) — звичайний It тут перевірив би не ту властивість:
+        # видимість команди ConvertTo-Yaml з чужого модуля лишається неперевіреною, бо вона
+        # вже могла осісти глобально задовго до цього тесту. Дочірній pwsh імпортує лише
+        # Yaml.psm1 (не powershell-yaml напряму) і одразу кличе ConvertTo-KitYaml — так
+        # перевіряється саме те, що обгортка сама тягне за собою Import-KitYamlModule, а не
+        # покладається на те, що хтось інший це вже зробив.
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $out = & pwsh -NoProfile -Command "Import-Module '$libDir/Yaml.psm1' -Force; ConvertTo-KitYaml -Data ([ordered]@{ a = 1 })" 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0 -Because $out
+        $out.Trim() | Should -Not -BeNullOrEmpty
+        $out | Should -BeLike '*a*1*'
+    }
 }

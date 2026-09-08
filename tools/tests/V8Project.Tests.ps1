@@ -98,3 +98,34 @@ Describe 'V8Project.psm1 — читання v8project.yaml Уніки' {
         }
     }
 }
+
+Describe 'V8Project.psm1 — шлях і ключ бази агента' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8Project.psm1").Path -Force
+        $script:Ws = Join-Path $TestDrive 'Ws_SMB'
+        New-Item -ItemType Directory -Path $script:Ws -Force | Out-Null
+        Copy-Item (Resolve-Path "$PSScriptRoot/fixtures/v8project-extension.yaml").Path (Join-Path $script:Ws 'v8project.yaml')
+        $script:Project = Read-V8Project -Path (Join-Path $script:Ws 'v8project.yaml')
+    }
+    AfterEach { Remove-Item (Join-Path $script:Ws 'v8project.local.yaml') -ErrorAction SilentlyContinue }
+
+    It 'File=build/ib розв''язується від теки воркспейсу; ключ /F абсолютний' {
+        $r = Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'File=build/ib'
+        $r.Kind | Should -Be 'file'
+        $r.Path | Should -Be ([System.IO.Path]::GetFullPath((Join-Path $script:Ws 'build/ib')))
+        $r.IbSwitch | Should -Be ('/F "{0}"' -f $r.Path)
+    }
+    It 'абсолютний File= лишається як є' {
+        (Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'File="D:\ib\agent";').Path | Should -Be 'D:\ib\agent'
+    }
+    It 'Srvr= — server, ключ /S' {
+        $r = Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'Srvr="VSDEV";Ref="agent";'
+        $r.Kind | Should -Be 'server'
+        $r.IbSwitch | Should -Be '/S "VSDEV\agent"'
+    }
+    It 'Resolve-V8AgentInfobase повертає user із накладки Уніки, коли він є' {
+        Set-Content (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent"";'", "  user: 'Агент'")
+        $r = Resolve-V8AgentInfobase -Project $script:Project
+        $r.User | Should -Be 'Агент'
+    }
+}

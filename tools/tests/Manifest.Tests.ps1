@@ -204,4 +204,16 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         { Resolve-KitInfobase -Overlay $o -Name 'devBP' } | Should -Throw '*devBP*infobases:*connection:*'
         { Resolve-KitInfobase -Overlay $null -Name 'devBP' } | Should -Throw '*devBP*'
     }
+
+    It 'Save-KitOverlayAgentBase створює накладку або дописує agentBase.template, не ламаючи інше' {
+        $p = Join-Path $TestDrive 'save-overlay.yaml'
+        Save-KitOverlayAgentBase -OverlayPath $p -WorkspacePath 'Alpha_SMB' -Template 'D:\dumps\demo.dt'
+        (Read-KitLocalOverlay -Path $p).Workspaces['Alpha_SMB'].AgentBaseTemplate | Should -Be 'D:\dumps\demo.dt'
+
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value @('infobases:', '  dev:', "    connection: 'File=x'", 'workspaces:', '  Alpha_SMB:', '    agentBase:', "      template: 'old.dt'")
+        Save-KitOverlayAgentBase -OverlayPath $p -WorkspacePath 'Alpha_SMB' -Template 'new.dt'
+        $o = Read-KitLocalOverlay -Path $p
+        $o.Workspaces['Alpha_SMB'].AgentBaseTemplate | Should -Be 'new.dt'
+        $o.Infobases['dev'].Connection | Should -Be 'File=x'
+    }
 }
