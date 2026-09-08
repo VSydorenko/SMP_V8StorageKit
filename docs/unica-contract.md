@@ -45,8 +45,15 @@
 `format`/`builder`/`source-set`/`execution_timeout`, а `infobase` до них **не** належить.
 
 Наслідок, який коштував нам одного циклу: блок `infobase:` у закоміченому
-`v8project.yaml` **інертний** доти, доки в local overlay лежить свій. Саме тому
-`Read-V8LocalConnection` тепер зупиняється, побачивши там `infobase:`.
+`v8project.yaml` **інертний** доти, доки в local overlay лежить свій.
+
+**Змінилось у B4.** `Read-V8LocalConnection` вилучено разом із конвенцією `devInfobase:` —
+дев-бази людини живуть тепер тільки в `v8storagekit.local.yaml` під `infobases:`, і kit
+читає їх звідти. `v8project.local.yaml` лишається файлом Уніки, з якого kit бере рівно
+один ключ — `infobase.connection` **бази агента** (`Resolve-V8AgentInfobase`), і саме тому
+`infobase:` там більше не заборонений, а очікуваний. Запобіжник нікуди не подівся, він
+переїхав: `Resolve-KitAgentBase` зупиняється, якщо це підключення виявиться тією самою
+базою, що дев-база людини з накладки kit — принцип 3, «агент ніколи не пише в базу людини».
 
 **A7 джерело:** `references/tooling/v8project.md:61-63`.
 

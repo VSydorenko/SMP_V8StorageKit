@@ -8,7 +8,8 @@
 |---|---|
 | `gitattributes` | `.gitattributes` |
 | `gitignore` | `.gitignore` |
-| `settings.json` | `.claude/settings.json` |
+| `settings.json` | `.claude/settings.json` (містить хук `SessionStart`, який кличе шим нижче) |
+| `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` (шим: знаходить плагін у реєстрі, кличе `kit.ps1 session-check`) |
 | `CLAUDE.md` | `CLAUDE.md` |
 | `AUTHORS.example` | `AUTHORS` (у корені репо, не в теці продукту) |
 | `v8storagekit.yaml.example` | `v8storagekit.yaml` (корінь; заповнює `v8storagekit:onboarding`) |
