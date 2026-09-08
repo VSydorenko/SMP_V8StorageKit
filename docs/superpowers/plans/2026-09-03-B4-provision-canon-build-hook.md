@@ -218,6 +218,7 @@ templates/hooks/session-start.ps1 (шим; самодостатній, без м
 **Files:**
 - Modify: `tools/lib/V8Project.psm1` — `Resolve-V8AgentInfobase` + `User`; `Resolve-KitAgentInfobasePath`
 - Modify: `tools/lib/Yaml.psm1` — `ConvertTo-KitYaml` (Step 5а, знахідка P5); `tools/tests/Yaml.Tests.ps1`
+- Modify: `tools/commands/check.psm1` — `local-audit` на спільну `Test-KitSameInfobase`, у `try/catch` (Step 6б); `tools/tests/Check.Tests.ps1`
 - Modify: `tools/lib/V8.psm1` — `New-V8FileInfobase -TemplatePath`
 - Modify: `tools/lib/Manifest.psm1` — `Save-KitOverlayAgentBase`
 - Create: `tools/lib/AgentBase.psm1`
@@ -554,6 +555,11 @@ function Resolve-KitAgentBase {
     $ib = Resolve-V8AgentInfobase -Project $Workspace.Project
     if ($null -eq $ib) { return $null }
 
+    # Свій бік розв'язуємо ДО аудиту. Resolve-KitAgentInfobasePath чиста — нічого не створює й не
+    # стирає — тож правило «аудит до будь-якої дії» не порушено: дія тут це платформа й Remove-Item,
+    # а не обчислення шляху.
+    $resolved = Resolve-KitAgentInfobasePath -Project $Workspace.Project -Connection $ib.Connection
+
     if ($Context.Overlay) {
         # Порівняння РОЗІБРАНИХ підключень (Test-KitSameInfobase), а не нормалізованих рядків.
         # Косметична нормалізація (пробіли, лапки, регістр, TrimEnd ';') пропускала два випадки,
@@ -561,14 +567,18 @@ function Resolve-KitAgentBase {
         # тека) і Srvr="A";Ref="B"; проти Ref="B";Srvr="A"; (та сама база). Перший веде просто до
         # знищення дев-бази людини: аудит мовчить, Exists=$true, агент робить санкціоноване §4
         # provision -Apply -Force, а New-V8FileInfobase стирає теку через Remove-Item -Recurse -Force.
-        $hit = @($Context.Overlay.Infobases.Values | Where-Object { Test-KitSameInfobase -Left $_.Connection -Right $ib.Connection }) | Select-Object -First 1
+        # Left — СВІЙ бік, уже розв'язаний: File=build/ib у v8project.yaml штатний (§2.5, база відліку —
+        # тека воркспейсу), і кидати на ньому означало б ламати kit на кожному прогоні в кожному
+        # репозиторії, де в накладці є infobases:. Right — підключення з накладки ЯК Є: там відносний
+        # шлях бази відліку не має, і fail-closed правильний. Боки не симетричні, і це навмисно.
+        $left = if ($resolved.Kind -eq 'file') { 'File="{0}"' -f $resolved.Path } else { $ib.Connection }
+        $hit  = @($Context.Overlay.Infobases.Values | Where-Object { Test-KitSameInfobase -Left $left -Right $_.Connection }) | Select-Object -First 1
         if ($hit) {
             throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($hit.Name)' із накладки kit. " +
                    'Kit ніколи не пише в базу людини (принцип 3): приберіть infobase: з v8project.local.yaml або дайте агентові окрему базу.')
         }
     }
 
-    $resolved = Resolve-KitAgentInfobasePath -Project $Workspace.Project -Connection $ib.Connection
     [pscustomobject]@{
         Workspace = $Workspace.Path; Connection = $ib.Connection; User = $ib.User; Origin = $ib.Origin
         Kind = $resolved.Kind; Path = $resolved.Path; IbSwitch = $resolved.IbSwitch
@@ -592,10 +602,17 @@ Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase
 - `Kind` не розпізнано — ні `File=`, ні `Srvr=`/`Ref=`, або майбутній формат;
 - `Srvr=` без `Ref=` чи навпаки;
 - порожній рядок підключення;
-- **відносний `File=`** — для бази агента §2.5 дає базу відліку (тека воркспейсу, за Унікою), а для
-  дев-бази людини в `infobases:` такого правила немає. Резолвити «від кореня репозиторію» свідомо
-  відхилено: це дало б дві різні бази відліку в одному файлі накладки — пастка, якої ніхто не
-  запам'ятає. Дев-база людини живе поза репозиторієм, відносний шлях там майже напевно описка.
+- **відносний `File=`** — але тут уважно, **боки не симетричні**. Для дев-бази людини в `infobases:`
+  накладки бази відліку немає, і fail-closed правильний. Для бази агента відносний `File=build/ib`
+  — **штатний запис** (§2.5, база відліку — тека воркспейсу; саме для цього існує
+  `Resolve-KitAgentInfobasePath`, і саме так виглядає типовий воркспейс у
+  `KitFixtures.psm1`). Тому в `Resolve-KitAgentBase` свій бік **розв'язується до** виклику, і в
+  `Test-KitSameInfobase` іде вже абсолютним; кидає лише бік накладки.
+  **Правило, застосоване до обох боків, зупиняло б `provision`, `canon` і `check` на кожному прогоні
+  в кожному репозиторії, де людина описала свою дев-базу** — тобто виглядало б як «kit зламався на
+  всьому» рівно після фікса безпеки (знахідка рев'ю B4, звірка правила з фікстурою).
+  Резолвити відносний шлях накладки «від кореня репозиторію» свідомо відхилено: це дало б дві різні
+  бази відліку в одному файлі — пастка, якої ніхто не запам'ятає.
 
 Повертати `$false` можна лише тоді, коли обидва підключення **розібрані** й справді різні —
 зокрема при різних `Kind`: тоді ми знаємо, що бази різні, а не «не знаємо нічого».
@@ -609,14 +626,37 @@ Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase
 - `File=D:\X` vs `Srvr="A";Ref="B";` → `$false` (різні `Kind`, обидва розібрані);
 - `Srvr="A";` без `Ref=`, порожній рядок, `Что-то=1`, `File=..\bases\x` → **кидає** в усіх чотирьох.
 
-І окремий It на всю межу: накладка з `File="D:\Bases\SMP_UNF\"`, воркспейс із
-`File=D:\Bases\SMP_UNF` → `Resolve-KitAgentBase` кидає «…людини…». Це той самий сценарій, що
-відтворило рев'ю; без нього фікс не має охорони проти повернення.
+Два It на `Resolve-KitAgentBase`, і другий важливіший за перший:
+- накладка з `File="D:\Bases\SMP_UNF\"`, воркспейс із `File=D:\Bases\SMP_UNF` → **кидає**
+  «…людини…». Той самий сценарій, що відтворило рев'ю; без нього фікс не має охорони проти
+  повернення до порівняння рядків;
+- воркспейс зі **штатним** `File=build/ib` **плюс** накладка з непорожнім `infobases:` → **не
+  кидає**. Наявні кейси цю комбінацію не покривають: той, що з накладкою, має серверний воркспейс, а
+  файлові йдуть без `infobases:`, тож цикл аудиту в них порожній — регресія повернулася б тихо.
+
+Тест на межу шляху (другий запобіжник, §4), теж окремими It:
+- `infobase.connection = 'File=cfe/src'` → `provision -Apply` відмовляє, **і тека `cfe/src` на місці
+  після виклику**. Перевіряти саме наявність файлів, а не лише текст винятку: інакше тест пройде й
+  тоді, коли теку вже стерто. Це не вихід **за** воркспейс (його ловлять `..` і абсолютність), а
+  сусідня тека **всередині** — саме вона й пропускалась;
+- `File=build/ib` → проходить.
 
 **Заборона відносного `File=` у схемі накладки** (`Read-KitLocalOverlay`) — окреме питання до
 архітектора (§2.5, поставлено 2026-09-08): там помилка виявилась би раніше й зрозуміліше. Одне
 одному не суперечить: перевірка в схемі не скасовує цю гілку, лише робить так, щоб до неї рідше
 доходило. Поки відповіді немає — місце перевірки тут.
+
+- [ ] **Step 6б: `check.psm1` — на ту саму функцію, і не голим викликом**
+
+`check.psm1` має **власну копію** тієї самої дефектної нормалізації (`$norm` у гілці `local-audit`,
+поточні рядки 315–317), і §2.5 після `4e61f35` вимагає **однієї** функції порівняння для аудиту
+`check` і для `provision`/`canon`. Замінити на `Test-KitSameInfobase` з тим самим поділом боків:
+`Left` — підключення з `v8project.local.yaml` (свій бік), `Right` — з накладки kit.
+
+Виклик обгорнути в `try/catch` → `& $add error local-audit "…"`, **тим самим патерном, що вже стоїть
+поруч для `Test-KitGitHooks`** (рядки 329–333). Причина та сама: `Test-KitSameInfobase` тепер кидає,
+а `check` мусить **доповісти** про суперечливий репозиторій, а не впасти на ньому — він і працює в
+`-Lenient` для цього. Голий виклик поховав би всі знахідки, зібрані до того рядка.
 
 - [ ] **Step 7: `tools/commands/provision.psm1`**
 
@@ -689,9 +729,17 @@ function Invoke-KitProvision {
         if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
         # Межа для видалення — тека воркспейсу: база агента лежить у workPath Уніки під нею.
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $ws.FullPath -Description "база агента воркспейсу $($ws.Path)"
+        # Межа — <воркспейс>/build, НЕ тека воркспейсу. Це ДРУГИЙ, незалежний від аудиту запобіжник
+        # (§4): аудит ідентичності ловить базу людини під чужим ім'ям, межа шляху — будь-яку теку поза
+        # робочою, навіть якщо аудит помилився. З $ws.FullPath описка File=cfe/src у v8project.yaml
+        # проходила б (це ВЛАСНЕ підтека воркспейсу, а Assert-SafeWorkPath відхиляє лише порожній шлях,
+        # '..' і рівність із межею) — і New-V8FileInfobase стер би вихідники розширення через
+        # Remove-Item -Recurse -Force. Файлова база агента живе лише під build/ (§2.5: File=build/ib у
+        # закоміченому v8project.yaml; перевизначення в local — тільки на серверну).
+        $agentBuild = Join-Path $ws.FullPath 'build'
+        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentBuild -Description "база агента воркспейсу $($ws.Path)"
         Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $ws.FullPath -TemplatePath $wsTemplate
+        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentBuild -TemplatePath $wsTemplate
         Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
         Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
 
