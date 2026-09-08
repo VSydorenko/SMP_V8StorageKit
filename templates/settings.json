@@ -56,5 +56,20 @@
       "Bash(gitsync:*)",
       "Bash(oscript:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File .claude/hooks/session-start.ps1",
+            "async": false,
+            "timeout": 60
+          }
+        ]
+      }
+    ]
   }
 }

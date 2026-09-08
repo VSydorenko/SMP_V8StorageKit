@@ -67,6 +67,7 @@ function New-KitFakeRepo {
         [switch]$WithGitattributes,
         [switch]$WithGitignore,
         [switch]$WithHooks,
+        [switch]$WithSessionHook,
         [switch]$NoCommit
     )
 
@@ -160,6 +161,10 @@ function New-KitFakeRepo {
         Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
         Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null
     }
+    if ($WithSessionHook) {
+        Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
+        Install-KitSessionHook -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates') | Out-Null
+    }
 
     if (-not $NoCommit) {
         Invoke-KitFakeGit -C $Root add -A | Out-Null
@@ -234,12 +239,19 @@ function Copy-KitTools {
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
-    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks') {
+    # templates/hooks, templates/settings.json, skills/using-v8storagekit: хук старту сесії
+    # (B4 Task 4) — Test-KitSessionHook у скопійованому Hooks.psm1 звіряє встановлений шим саме
+    # з templates/hooks/session-start.ps1 ЦІЄЇ копії (TemplatesDir типово відносний від
+    # $PSScriptRoot), а сам шим шукає skills/using-v8storagekit/SKILL.md у корені плагіна.
+    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'templates/hooks', 'skills/using-v8storagekit') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
+    $templatesDst = Join-Path $Root 'templates'
+    New-Item -ItemType Directory -Path $templatesDst -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $templatesDst 'settings.json') -Force
     Join-Path $Root 'tools/kit.ps1'
 }
 

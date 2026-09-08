@@ -88,6 +88,33 @@ Describe 'product-onboarding — шаблон v8project.yaml' {
     }
 }
 
+Describe 'templates/settings.json і using-v8storagekit — хук прив''язаний до репозиторію, не до плагіна (§7)' {
+    BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
+
+    It 'settings.json споживача має hooks.SessionStart на .claude/hooks/session-start.ps1 з matcher startup|clear|compact' {
+        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+        $hook = $s.hooks.SessionStart[0]
+        $hook.matcher | Should -Be 'startup|clear|compact'
+        $hook.hooks[0].command | Should -BeLike '*pwsh -NoProfile -File .claude/hooks/session-start.ps1*'
+        $hook.hooks[0].async | Should -BeFalse
+    }
+    It 'плагін не оголошує власних хуків' {
+        Join-Path $script:Root 'hooks/hooks.json' | Should -Not -Exist
+    }
+    It 'шим не містить CLAUDE_PLUGIN_ROOT і не імпортує модулів kit' {
+        $shim = Get-Content -LiteralPath (Join-Path $script:Root 'templates/hooks/session-start.ps1') -Raw
+        $shim | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
+        $shim | Should -Not -Match 'Import-Module'
+        $shim | Should -Match 'installed_plugins\.json'
+    }
+    It 'using-v8storagekit без токена CLAUDE_PLUGIN_ROOT, з префіксованими іменами скілів' {
+        $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/using-v8storagekit/SKILL.md') -Raw
+        $skill | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
+        foreach ($n in 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
+        $skill | Should -Match '<корінь плагіна>'
+    }
+}
+
 Describe 'templates/v8storagekit*.example — зразки проходять власну схему' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Manifest.psm1").Path -Force

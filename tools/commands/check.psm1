@@ -350,6 +350,12 @@ function Invoke-KitCheck {
         } catch {
             & $add error hooks "Аудит хуків впав: $($_.Exception.Message)"
         }
+
+        # §7 — хук старту сесії (Claude Code), відповідальність окрема від git-хуків вище:
+        # .claude/settings.json + .claude/hooks/session-start.ps1 у самому репозиторії-споживачі,
+        # не в плагіні (hooks/hooks.json плагін навмисно не оголошує). Test-KitSessionHook лише
+        # читає файли й JSON — зовнішніх команд не викликає, тож захисний try/catch тут не потрібен.
+        foreach ($f in @(Test-KitSessionHook -RepoRoot $root)) { $findings.Add($f) }
     }
 
     $errors = @($findings | Where-Object Level -eq 'error')

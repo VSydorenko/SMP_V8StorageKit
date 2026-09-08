@@ -274,6 +274,20 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*core.hooksPath*'
     }
 
+    It 'хук старту сесії: без шима — [i] із session-start.ps1, код 0; зі зміненим шимом — [!] із session-start.ps1' {
+        $repo = New-GoodRepo 'session-hook'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*[i]*session-start.ps1*'
+
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force
+        Install-KitSessionHook -RepoRoot $repo -TemplatesDir (Resolve-Path "$PSScriptRoot/../../templates").Path | Out-Null
+        Add-Content -LiteralPath (Join-Path $repo '.claude/hooks/session-start.ps1') -Value '# локальна правка'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*[!]*session-start.ps1*'
+    }
+
     It '§2.3: той самий ключ truth: storage у двох воркспейсах — код 1' {
         $two = [ordered]@{
             'A' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'Shared'; Type = 'EXTENSION'; Path = 'cfe/src' }) }

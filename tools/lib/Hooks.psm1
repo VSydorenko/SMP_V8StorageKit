@@ -142,4 +142,65 @@ function Test-KitGitHooks {
     $findings.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks
+$script:SessionHookRel = '.claude/hooks/session-start.ps1'
+$script:SettingsRel    = '.claude/settings.json'
+
+function Install-KitSessionHook {
+    <#
+    .SYNOPSIS
+        Кладе шим і, якщо settings.json немає, — шаблон settings.json (з хуком). Наявний settings.json не чіпає.
+    .DESCRIPTION
+        На відміну від Install-KitGitHooks (git-хуки, core.hooksPath), це хук Claude Code
+        (спека §7): живе в .claude/settings.json репозиторію-споживача, а не в плагіні —
+        hooks/hooks.json плагін навмисно не оголошує (інакше шим спрацьовував би в кожній
+        сесії, де встановлено плагін, — і в не-1С проєктах теж).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
+    $shimDst = Join-Path $RepoRoot $script:SessionHookRel
+    New-Item -ItemType Directory -Path (Split-Path -Parent $shimDst) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'hooks/session-start.ps1') -Destination $shimDst -Force
+    $installed = @($shimDst)
+    $settingsDst = Join-Path $RepoRoot $script:SettingsRel
+    if (-not (Test-Path -LiteralPath $settingsDst -PathType Leaf)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
+        $installed += $settingsDst
+    }
+    # Без коми: викликачі (install-hooks) загортають у @(…) — див. F7.
+    $installed
+}
+
+function Test-KitSessionHook {
+    <#
+    .SYNOPSIS
+        Аудит для check (спека §7): шим на місці й = шаблон плагіна; settings.json оголошує hooks.SessionStart.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
+    $findings = [System.Collections.Generic.List[object]]::new()
+    $shim = Join-Path $RepoRoot $script:SessionHookRel
+    $template = Join-Path $TemplatesDir 'hooks/session-start.ps1'
+    if (-not (Test-Path -LiteralPath $shim -PathType Leaf)) {
+        $findings.Add((New-KitFinding -Level info -Check 'hook-shim' -Message "Хук старту сесії не встановлено ($script:SessionHookRel) — сесія не отримає стан сховищ; onboarding кладе його з templates/hooks/."))
+    } elseif (Test-Path -LiteralPath $template -PathType Leaf) {
+        $a = (Get-Content -LiteralPath $shim -Raw) -replace "`r`n", "`n"
+        $b = (Get-Content -LiteralPath $template -Raw) -replace "`r`n", "`n"
+        if ($a -ne $b) { $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "Шим $script:SessionHookRel відрізняється від шаблону плагіна (templates/hooks/session-start.ps1) — оновіть копію.")) }
+    }
+    $settings = Join-Path $RepoRoot $script:SettingsRel
+    if (Test-Path -LiteralPath $settings -PathType Leaf) {
+        $hasHook = $false
+        try {
+            $json = Get-Content -LiteralPath $settings -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($json.PSObject.Properties.Name -contains 'hooks' -and $json.hooks.PSObject.Properties.Name -contains 'SessionStart') {
+                $hasHook = [bool](@($json.hooks.SessionStart | ForEach-Object { $_.hooks } | Where-Object { $_.command -like '*session-start.ps1*' }).Count)
+            }
+        } catch { $findings.Add((New-KitFinding -Level error -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message)")) }
+        if (-not $hasHook) { $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "У $script:SettingsRel немає hooks.SessionStart з командою .claude/hooks/session-start.ps1 — шим не запускатиметься (зразок: templates/settings.json).")) }
+    }
+    # Без коми: check і тести загортають у @(…) — див. F7.
+    $findings.ToArray()
+}
+
+Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSessionHook, Test-KitSessionHook
