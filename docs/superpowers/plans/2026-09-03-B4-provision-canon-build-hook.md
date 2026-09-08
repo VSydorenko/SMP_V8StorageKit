@@ -154,7 +154,7 @@ B3 коштував ~3,3 млн токенів у субагентах і ~35 з
 | `tools/lib/V8Project.psm1` | `Resolve-V8AgentInfobase` повертає ще `User`; `Resolve-KitAgentInfobasePath` (File → абсолютний шлях, Srvr → як є) | 1 |
 | `tools/lib/V8.psm1` | `New-V8FileInfobase -TemplatePath` (`/UseTemplate`); вилучення `Read-V8LocalConnection` | 1, 5 |
 | `tools/lib/Manifest.psm1` | `Save-KitOverlayAgentBase` — записати `workspaces.<ws>.agentBase.template` у накладку | 1 |
-| `tools/lib/AgentBase.psm1` | **новий.** `Resolve-KitAgentBase -Context -Workspace` — підключення, тип, шлях, аудит проти накладки | 1 |
+| `tools/lib/AgentBase.psm1` | **новий.** `Resolve-KitAgentBase -Context -Workspace` — підключення, тип, шлях, аудит проти накладки; `Test-KitSameInfobase` — порівняння розібраних підключень, fail-closed | 1 |
 | `tools/commands/provision.psm1` | **новий.** `Invoke-KitProvision` | 1 |
 | `tools/commands/canon.psm1` | **новий.** `Invoke-KitCanon` | 2 |
 | `tools/commands/build.psm1` | **новий.** `Invoke-KitBuild`; `tools/build.ps1` вилучається | 3 |
@@ -178,6 +178,10 @@ V8Project.psm1 (зміна)
   Resolve-KitAgentInfobasePath -Project -Connection : → {Kind:'file'|'server'; Path (абс., лише file); IbSwitch}
 
 AgentBase.psm1
+  Test-KitSameInfobase -Left -Right : → bool. Порівнює РОЗІБРАНІ підключення, не рядки:
+      file — GetFullPath обох, зрізаний кінцевий роздільник, OrdinalIgnoreCase;
+      server — пара (Srvr, Ref) покомпонентно, незалежно від порядку ключів;
+      різні Kind — $false. Не канонізується — КИДАЄ, а не повертає $false (див. Task 1 Step 6).
   Resolve-KitAgentBase -Context -Workspace <ws object> : → {Workspace; Connection; User; Origin; Kind; Path; IbSwitch; Exists:bool}|$null
       зупинка, якщо Connection збігається з будь-яким Context.Overlay.Infobases[*].Connection (база людини)
 
@@ -551,8 +555,13 @@ function Resolve-KitAgentBase {
     if ($null -eq $ib) { return $null }
 
     if ($Context.Overlay) {
-        $norm = { param([string]$s) (($s -replace '\s', '') -replace '"', '').TrimEnd(';').ToLowerInvariant() }
-        $hit = @($Context.Overlay.Infobases.Values | Where-Object { (& $norm $_.Connection) -eq (& $norm $ib.Connection) }) | Select-Object -First 1
+        # Порівняння РОЗІБРАНИХ підключень (Test-KitSameInfobase), а не нормалізованих рядків.
+        # Косметична нормалізація (пробіли, лапки, регістр, TrimEnd ';') пропускала два випадки,
+        # відтворені прогоном у рев'ю безпеки B4: File="D:\Bases\X\" проти File=D:\Bases\X (та сама
+        # тека) і Srvr="A";Ref="B"; проти Ref="B";Srvr="A"; (та сама база). Перший веде просто до
+        # знищення дев-бази людини: аудит мовчить, Exists=$true, агент робить санкціоноване §4
+        # provision -Apply -Force, а New-V8FileInfobase стирає теку через Remove-Item -Recurse -Force.
+        $hit = @($Context.Overlay.Infobases.Values | Where-Object { Test-KitSameInfobase -Left $_.Connection -Right $ib.Connection }) | Select-Object -First 1
         if ($hit) {
             throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($hit.Name)' із накладки kit. " +
                    'Kit ніколи не пише в базу людини (принцип 3): приберіть infobase: з v8project.local.yaml або дайте агентові окрему базу.')
@@ -567,10 +576,47 @@ function Resolve-KitAgentBase {
     }
 }
 
-Export-ModuleMember -Function Resolve-KitAgentBase
+Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase
 ```
 
 `module-order.txt`: `AgentBase` після `V8Project`.
+
+- [ ] **Step 6а: `Test-KitSameInfobase` — і чому вона кидає, а не повертає `$false`**
+
+**Аудит безпеки не має права на відповідь «не знаю».** Порівняння підключень стоїть перед
+`Remove-Item -Recurse -Force`, тож будь-яка невизначеність мусить вести до зупинки, а не до
+`$false`: `$false` тут означає «це не база людини, працюй далі». Ціна зайвої зупинки — одне
+уточнення в накладці; ціна мовчазного «немає збігу» — дев-база людини.
+
+Кидати (з назвою обох підключень дослівно й вказівкою, що саме не розібралось):
+- `Kind` не розпізнано — ні `File=`, ні `Srvr=`/`Ref=`, або майбутній формат;
+- `Srvr=` без `Ref=` чи навпаки;
+- порожній рядок підключення;
+- **відносний `File=`** — для бази агента §2.5 дає базу відліку (тека воркспейсу, за Унікою), а для
+  дев-бази людини в `infobases:` такого правила немає. Резолвити «від кореня репозиторію» свідомо
+  відхилено: це дало б дві різні бази відліку в одному файлі накладки — пастка, якої ніхто не
+  запам'ятає. Дев-база людини живе поза репозиторієм, відносний шлях там майже напевно описка.
+
+Повертати `$false` можна лише тоді, коли обидва підключення **розібрані** й справді різні —
+зокрема при різних `Kind`: тоді ми знаємо, що бази різні, а не «не знаємо нічого».
+
+Тести (`AgentBase.Tests.ps1`), кожен рядок — окремий It, бо це межа безпеки:
+- `File="D:\Bases\X\"` vs `File=D:\Bases\X` → `$true` (кінцевий роздільник);
+- `File=D:\Bases\X` vs `File=d:\bases\x` → `$true` (регістр);
+- `File=D:\Bases\X` vs `File=D:\Bases\Y` → `$false`;
+- `Srvr="A";Ref="B";` vs `Ref="B";Srvr="A";` → `$true` (порядок ключів);
+- `Srvr="A";Ref="B";` vs `Srvr="A";Ref="C";` → `$false`;
+- `File=D:\X` vs `Srvr="A";Ref="B";` → `$false` (різні `Kind`, обидва розібрані);
+- `Srvr="A";` без `Ref=`, порожній рядок, `Что-то=1`, `File=..\bases\x` → **кидає** в усіх чотирьох.
+
+І окремий It на всю межу: накладка з `File="D:\Bases\SMP_UNF\"`, воркспейс із
+`File=D:\Bases\SMP_UNF` → `Resolve-KitAgentBase` кидає «…людини…». Це той самий сценарій, що
+відтворило рев'ю; без нього фікс не має охорони проти повернення.
+
+**Заборона відносного `File=` у схемі накладки** (`Read-KitLocalOverlay`) — окреме питання до
+архітектора (§2.5, поставлено 2026-09-08): там помилка виявилась би раніше й зрозуміліше. Одне
+одному не суперечить: перевірка в схемі не скасовує цю гілку, лише робить так, щоб до неї рідше
+доходило. Поки відповіді немає — місце перевірки тут.
 
 - [ ] **Step 7: `tools/commands/provision.psm1`**
 
@@ -663,7 +709,7 @@ Export-ModuleMember -Function Invoke-KitProvision
 
 `New-V8FileInfobase -TemplatePath ''` — порожній рядок означає «без шаблону» (перевірка `if ($TemplatePath)`).
 
-- [ ] **Step 8: Тести без Integration зелені; `ModuleImportOrder` — додати `Resolve-KitAgentBase`, `Save-KitOverlayAgentBase`, `Resolve-KitAgentInfobasePath`, `ConvertTo-KitYaml`; коміт**
+- [ ] **Step 8: Тести без Integration зелені; `ModuleImportOrder` — додати `Resolve-KitAgentBase`, `Test-KitSameInfobase`, `Save-KitOverlayAgentBase`, `Resolve-KitAgentInfobasePath`, `ConvertTo-KitYaml`; коміт**
 
 ```bash
 git add tools/lib tools/commands/provision.psm1 tools/tests
