@@ -95,6 +95,11 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
 
 ---
 
+- **Фікс в одному місці одразу шукати в сусідніх.** `$LASTEXITCODE` після `git status` з'явився в
+  `session-check.psm1` як фікс рев'ю B3 — і не доїхав до `canon`, де та сама пара `git status` +
+  підрахунок стоїть у гіршому місці (вже після перезапису дерева). Знайшовши дефект, обійдіть
+  `grep`-ом усі інші виклики тієї самої форми: у цьому конвеєрі однакові пари повторюються, і
+  виправлена одна з них створює хибне відчуття, що клас закрито.
 - **Пастки, доведені в B1–B3 (кожна була Critical у рев'ю, і кожна прийшла з тексту плану):**
   - `WaitForExit()` **завжди з таймаутом** — без нього дефект дає зависання назавжди, а не помилку.
   - **Кодування задавати явно** там, де читається вивід git з іменами файлів: амбієнтне
@@ -927,6 +932,37 @@ function Invoke-KitCanon {
             # і діагностика вийде заплутана — «бази агента немає» одразу після успішного provision.
             # Рев'ю Task 2 на це час не витрачає: питання поставлене й відповідь відома.
             Assert-SafeWorkPath -Path $t.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($t.Key)"
+
+            # СТРАХОВКА перед перезаписом дерева (той самий патерн, що git bundle перед migrate у B6:
+            # необоротну операцію не забороняємо — робимо оборотною). Сценарій, який вона закриває:
+            # агент правив cfe/src через Уніку, забув operation=build (або воно впало), кличе canon —
+            # Remove-Item знищує правку, платформа кладе СТАРІШИЙ дамп, а вивід каже «змінено файлів: 1»,
+            # тобто виглядає як успіх. git checkout повертає лише закомічене; незакомічене й невідстежуване
+            # зникає без сліду. Заборона тут не годиться: дерево на момент canon брудне ШТАТНО — скіл
+            # reconcile комітить ПІСЛЯ canon, не до (правки йдуть у базу через operation=build, canon
+            # повертає їх канонічними). Гард, що спрацьовує на кожному прогоні, вимикають першим.
+            #
+            # Копіюємо лише те, що git назвав зміненим чи невідстежуваним — зазвичай кілька файлів проти
+            # тисяч у дампі. -uall обов'язковий (без нього git згортає невідстежувану теку в один запис),
+            # -z теж (записи створює не kit). $LASTEXITCODE перевіряти: впалий git невідрізнимий від
+            # «нуль змін», а тут ця різниця означає «страховки немає».
+            $dirtyRaw = (git -C $root -c core.quotepath=false status --porcelain -uall -z -- $t.RepoPath 2>$null | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "git status для $($t.RepoPath) не відповів (код $LASTEXITCODE) — canon не може перевірити, чи є в дереві незбережена робота." }
+            $dirty = @($dirtyRaw -split "`0" | Where-Object { $_ } | ForEach-Object { $_.Substring(3) })
+            if ($dirty.Count -gt 0) {
+                # $agentWork тут свій — змінна Invoke-KitProvision у цю функцію не заходить.
+                $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
+                $backup    = Join-Path $agentWork ('canon-backup/{0}-{1}' -f $t.Key, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+                foreach ($rel in $dirty) {
+                    $src = Join-Path $root $rel
+                    if (-not (Test-Path -LiteralPath $src)) { continue }   # видалений у робочій копії — копіювати нічого
+                    $dst = Join-Path $backup $rel
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+                    Copy-Item -LiteralPath $src -Destination $dst -Force
+                }
+                Write-Host "  Незбережених змін у дереві: $($dirty.Count). Копію збережено: $backup" -ForegroundColor Yellow
+            }
+
             if (Test-Path -LiteralPath $t.FullPath) { Remove-Item -LiteralPath $t.FullPath -Recurse -Force }
             New-Item -ItemType Directory -Path $t.FullPath -Force | Out-Null
 
@@ -955,6 +991,13 @@ Export-ModuleMember -Function Invoke-KitCanon
 
 > `git status --porcelain` рахує лише невідстежені/змінені файли відносно індексу — це «що
 > змінила канонізація відносно того, що агент мав у git», і саме цей diff далі читає агент.
+
+Тест страховки (`Canon.Tests.ps1`, без платформи — `Invoke-V8Designer` мокається):
+- дерево з **незакоміченою** правкою у відстежуваному файлі **і** з невідстежуваним новим файлом →
+  після `canon -Apply` обидва лежать під `<workPath>/canon-backup/<ключ>-*/` з тим самим вмістом.
+  Перевіряти саме **вміст**, не наявність: копія порожнього файла нічого не рятує;
+- чисте дерево → теки `canon-backup` **не створено** (страховка не смітить на кожному прогоні);
+- `git status` повертає ненульовий код → `canon` кидає **до** `Remove-Item`, і дерево на місці.
 
 - [ ] **Step 3: Тести без Integration зелені; Integration — з підтвердженням; коміт**
 
