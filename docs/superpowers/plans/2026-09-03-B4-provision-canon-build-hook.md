@@ -95,6 +95,12 @@ Claude Code hooks (`SessionStart`, `hookSpecificOutput.additionalContext`).
 
 ---
 
+- **Код у плані, що розбирає вивід або будує шляхи, супроводжується прогоном.** Не «виглядає
+  правильно», а рядок «прогнано ось так, вивід такий» поруч із кодом — той самий стандарт, який ми
+  вже застосовуємо до змін контракту. Причина емпірична: страховка `canon` (Task 2) містила рівно ті
+  дві пастки, які автор плану щойно вписав у ці Global Constraints, і жодна не була помітна при
+  вичитуванні. Написання коду в плані й перевірка коду в плані — різні кроки: той самий читач, який
+  щойно сформулював пастку, не бачить її у власному свіжому тексті.
 - **Фікс в одному місці одразу шукати в сусідніх.** `$LASTEXITCODE` після `git status` з'явився в
   `session-check.psm1` як фікс рев'ю B3 — і не доїхав до `canon`, де та сама пара `git status` +
   підрахунок стоїть у гіршому місці (вже після перезапису дерева). Знайшовши дефект, обійдіть
@@ -946,9 +952,28 @@ function Invoke-KitCanon {
             # тисяч у дампі. -uall обов'язковий (без нього git згортає невідстежувану теку в один запис),
             # -z теж (записи створює не kit). $LASTEXITCODE перевіряти: впалий git невідрізнимий від
             # «нуль змін», а тут ця різниця означає «страховки немає».
-            $dirtyRaw = (git -C $root -c core.quotepath=false status --porcelain -uall -z -- $t.RepoPath 2>$null | Out-String)
+            # -join '' замість Out-String: Out-String дописує 
+, і хвостовий елемент після split
+            # стає НЕПОРОЖНІМ (довжина 2) — наївний фільтр Where-Object { $_ } його пропускає, а
+            # Substring(3) кидає. З -z переводів рядків у виводі немає взагалі, тож -join '' безпечний.
+            $raw = ((git -C $root -c core.quotepath=false status --porcelain -uall -z -- $t.RepoPath 2>$null) -join '')
             if ($LASTEXITCODE -ne 0) { throw "git status для $($t.RepoPath) не відповів (код $LASTEXITCODE) — canon не може перевірити, чи є в дереві незбережена робота." }
-            $dirty = @($dirtyRaw -split "`0" | Where-Object { $_ } | ForEach-Object { $_.Substring(3) })
+
+            # Довжина < 4 відсіює і порожні, і будь-який хвіст: запис це XY<пробіл><шлях>.
+            # R/C несуть ДВА шляхи в одному записі: новий (з префіксом) і старий — НАСТУПНИМ елементом,
+            # БЕЗ префікса. Без цієї гілки старий шлях розібрався б як звичайний запис, і Substring(3)
+            # зрізав би з нього три символи: Copy-Item за такою назвою або впаде, або мовчки не скопіює.
+            $items = @($raw -split "`0")
+            $dirty = [System.Collections.Generic.List[string]]::new()
+            for ($i = 0; $i -lt $items.Count; $i++) {
+                $rec = $items[$i]
+                if ($rec.Length -lt 4) { continue }
+                $dirty.Add($rec.Substring(3))
+                if ($rec[0] -in 'R','C' -or $rec[1] -in 'R','C') {
+                    if ($i + 1 -lt $items.Count) { $dirty.Add($items[$i + 1]) }
+                    $i++
+                }
+            }
             if ($dirty.Count -gt 0) {
                 # $agentWork тут свій — змінна Invoke-KitProvision у цю функцію не заходить.
                 $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
@@ -992,12 +1017,32 @@ Export-ModuleMember -Function Invoke-KitCanon
 > `git status --porcelain` рахує лише невідстежені/змінені файли відносно індексу — це «що
 > змінила канонізація відносно того, що агент мав у git», і саме цей diff далі читає агент.
 
+**Прогін розбору** (pwsh 7.5.4, синтетичний вивід ` M …NUL?? …NULR  <новий>NUL<старий>NUL`):
+
+```
+=== старий варіант (Out-String + Where-Object { $_ } + Substring(3)) ===
+  [ M cfe/src/Form.xml]   len=19
+  [?? cfe/src/New.xml]    len=18
+  [R  cfe/src/New2.xml]   len=19
+  [cfe/src/Old.xml]       len=15
+  [
+]                  len=2      ← хвіст Out-String, НЕпорожній
+  ВИНЯТОК: "startIndex cannot be larger than length of string"
+
+=== код вище ===
+  cfe/src/Form.xml | cfe/src/New.xml | cfe/src/New2.xml | cfe/src/Old.xml   (4)
+  той самий результат і на вході з хвостом Out-String — виняток не стається
+```
+
 Тест страховки (`Canon.Tests.ps1`, без платформи — `Invoke-V8Designer` мокається):
 - дерево з **незакоміченою** правкою у відстежуваному файлі **і** з невідстежуваним новим файлом →
   після `canon -Apply` обидва лежать під `<workPath>/canon-backup/<ключ>-*/` з тим самим вмістом.
   Перевіряти саме **вміст**, не наявність: копія порожнього файла нічого не рятує;
 - чисте дерево → теки `canon-backup` **не створено** (страховка не смітить на кожному прогоні);
-- `git status` повертає ненульовий код → `canon` кидає **до** `Remove-Item`, і дерево на місці.
+- `git status` повертає ненульовий код → `canon` кидає **до** `Remove-Item`, і дерево на місці;
+- **перейменований, не закомічений файл** (`git mv`) → у копії обидві назви, і жодна не обрізана.
+  Саме цей випадок ловить дефект розбору `R`/`C`: без гілки на другий шлях назва втрачає три символи,
+  і `Copy-Item` мовчки не копіює.
 
 - [ ] **Step 3: Тести без Integration зелені; Integration — з підтвердженням; коміт**
 
