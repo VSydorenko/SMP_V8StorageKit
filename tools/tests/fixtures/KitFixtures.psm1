@@ -249,9 +249,10 @@ function Copy-KitTools {
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
-    $templatesDst = Join-Path $Root 'templates'
-    New-Item -ItemType Directory -Path $templatesDst -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $templatesDst 'settings.json') -Force
+    # templates/settings.json НЕ копіюємо (рев'ю B4 Task 4, Minor): Test-KitSessionHook звіряє
+    # лише templates/hooks/session-start.ps1 (уже в циклі вище) — settings.json ніде в цій
+    # копії не читається (Install-KitSessionHook у тестах завжди береться з реального $kitRoot,
+    # не з копії). Мертва копія нікому не сигналізує про поломку — краще її не мати.
     Join-Path $Root 'tools/kit.ps1'
 }
 

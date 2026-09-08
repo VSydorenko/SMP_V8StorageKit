@@ -370,6 +370,27 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Аудит хуків впав*'
     }
 
+    # I3 (рев'ю B4 Task 4, Important) — той самий зразок, що вище для git-хуків, тепер для
+    # Test-KitSessionHook: попереднє обґрунтування «не викликає зовнішніх команд, тож
+    # try/catch не потрібен» було хибним — Get-Content усередині кидає на БУДЬ-ЯКІЙ
+    # IO-помилці, не лише на збої зовнішньої команди. Блокуємо файл шима на читання з ЦЬОГО
+    # процесу (FileShare.None) — дочірній `pwsh check`, як окремий процес, зіткнеться з тим
+    # самим збоєм, що й гонка з `claude plugin update`, яка перезаписує кеш плагіна
+    # під час прогону.
+    It 'I3: заблокований шим (IO-збій усередині аудиту хука сесії) не губить решти зібраних знахідок' {
+        $repo = New-GoodRepo 'session-hook-locked'
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force
+        Install-KitSessionHook -RepoRoot $repo -TemplatesDir (Resolve-Path "$PSScriptRoot/../../templates").Path | Out-Null
+        $shimPath = Join-Path $repo '.claude/hooks/session-start.ps1'
+        $fs = [System.IO.File]::Open($shimPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        try {
+            $r = Invoke-Check -Repo $repo
+            $r.ExitCode | Should -Be 1
+            $r.Output | Should -BeLike '*Маніфест:*'
+            $r.Output | Should -BeLike '*Аудит хука старту сесії впав*'
+        } finally { $fs.Close() }
+    }
+
     # Той самий зразок, що вище для хуків, — тепер для другого захищеного виклику
     # (check.psm1: try/catch навколо Test-KitStorageBranchInvariants). Дешевий, детермінований
     # спосіб зламати саме git-виклики StorageBranch.psm1 (не крихке пошкодження бази об'єктів):

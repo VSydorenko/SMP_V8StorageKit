@@ -353,9 +353,18 @@ function Invoke-KitCheck {
 
         # §7 — хук старту сесії (Claude Code), відповідальність окрема від git-хуків вище:
         # .claude/settings.json + .claude/hooks/session-start.ps1 у самому репозиторії-споживачі,
-        # не в плагіні (hooks/hooks.json плагін навмисно не оголошує). Test-KitSessionHook лише
-        # читає файли й JSON — зовнішніх команд не викликає, тож захисний try/catch тут не потрібен.
-        foreach ($f in @(Test-KitSessionHook -RepoRoot $root)) { $findings.Add($f) }
+        # не в плагіні (hooks/hooks.json плагін навмисно не оголошує). Той самий захист, що вище
+        # для Test-KitGitHooks (рев'ю B4 Task 4, Important I3): попереднє обґрунтування «не
+        # викликає зовнішніх команд» було хибним — Get-Content усередині Test-KitSessionHook
+        # кидає на будь-якій IO-помилці (заблокований файл, гонка з claude plugin update, що
+        # перезаписує кеш плагіна під час прогону), а не лише на збої зовнішньої команди;
+        # перевірено відтворенням (заблокований шим). Без try/catch тут виняток зносив би усі
+        # findings, зібрані до цього рядка.
+        try {
+            foreach ($f in @(Test-KitSessionHook -RepoRoot $root)) { $findings.Add($f) }
+        } catch {
+            & $add error hook-shim "Аудит хука старту сесії впав: $($_.Exception.Message)"
+        }
     }
 
     $errors = @($findings | Where-Object Level -eq 'error')

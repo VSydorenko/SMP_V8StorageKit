@@ -349,7 +349,12 @@ git rm -rf .
 | `gitattributes` | `.gitattributes` |
 | `gitignore` | `.gitignore` |
 | `settings.json` | `.claude/settings.json` |
+| `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` |
 | `CLAUDE.md` | `CLAUDE.md` |
+
+`settings.json` оголошує хук `SessionStart` на `.claude/hooks/session-start.ps1` — без цього
+рядка таблиці кожен старт сесії в мігрованому репозиторії падає на `pwsh -File` неіснуючого
+шляху (код 64). Обидва файли кладуться разом, одним комітом.
 
 `.gitattributes` копіюється з чинною політикою kit (`-text` на деревах, які пише
 платформа — `${CLAUDE_PLUGIN_ROOT}/docs/text-policy.md`). Ручна процедура міграції
@@ -414,7 +419,7 @@ tail -c1 AUTHORS | xxd
 Закомітьте каркас одним комітом:
 
 ```bash
-git add .gitattributes .gitignore .claude/settings.json CLAUDE.md AUTHORS
+git add .gitattributes .gitignore .claude/settings.json .claude/hooks/session-start.ps1 CLAUDE.md AUTHORS
 git commit -m "restructure: каркас v8storagekit"
 ```
 

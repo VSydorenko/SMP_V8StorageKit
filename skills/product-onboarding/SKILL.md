@@ -48,12 +48,17 @@ description: (Канон ДО 1.0 — створює storage.json, який 1.0 
    | `gitattributes` | `.gitattributes` |
    | `gitignore` | `.gitignore` |
    | `settings.json` | `.claude/settings.json` |
+   | `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` |
    | `CLAUDE.md` | `CLAUDE.md` (заповніть плейсхолдери — назва репо, абзац призначення) |
+
+   `settings.json` оголошує хук `SessionStart` на `.claude/hooks/session-start.ps1` — без
+   цього рядка таблиці кожен старт сесії в підключеному репозиторії падає на `pwsh -File`
+   неіснуючого шляху (код 64). Обидва файли кладуться разом, одним комітом.
 
    Закомітьте це окремим комітом, **до** будь-якого кроку нижче:
 
    ```bash
-   git add .gitattributes .gitignore .claude/settings.json CLAUDE.md
+   git add .gitattributes .gitignore .claude/settings.json .claude/hooks/session-start.ps1 CLAUDE.md
    git commit -m "restructure: каркас v8storagekit"
    ```
 

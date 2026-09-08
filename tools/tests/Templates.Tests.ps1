@@ -86,6 +86,26 @@ Describe 'product-onboarding — шаблон v8project.yaml' {
         $script:Skill | Should -Not -Match "(?m)^\s*-\s*name:\s*<Продукт>\s*$"
         $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<extensionName зі storage\.json>\s*$"
     }
+
+    It 'C2 (рев''ю B4 Task 4): каркас несе хук старту сесії — таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
+        # До фіксу settings.json оголошував hooks.SessionStart, а сам файл шима цей скіл не
+        # клав — щойно підключений репозиторій падав на pwsh -File неіснуючого шляху (код 64)
+        # на КОЖНОМУ старті сесії.
+        $script:Skill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
+        $script:Skill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
+    }
+}
+
+Describe 'repo-migration — каркас несе хук старту сесії (C2, рев''ю B4 Task 4)' {
+    BeforeAll {
+        $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
+            Resolve-Path "$PSScriptRoot/../../skills/repo-migration/SKILL.md").Path
+    }
+
+    It 'таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
+        $script:MigrationSkill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
+        $script:MigrationSkill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
+    }
 }
 
 Describe 'templates/settings.json і using-v8storagekit — хук прив''язаний до репозиторію, не до плагіна (§7)' {

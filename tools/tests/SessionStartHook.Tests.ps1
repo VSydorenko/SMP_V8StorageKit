@@ -45,6 +45,52 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $r.Output.Trim() | Should -BeNullOrEmpty
     }
 
+    # C1 (рев'ю B4 Task 4, Critical, відтворено запуском п'ятьма формами): гарантія «плагіна
+    # немає — код 0, мовчки» мусить бути СТРУКТУРНОЮ, а не переліком того, що може впасти під
+    # Set-StrictMode. Кожен рядок нижче до фіксу давав код 1 і PropertyNotFoundException
+    # у stderr замість тиші — репозиторій-споживач бачив би це на КОЖНОМУ старті сесії, якщо
+    # реєстр плагінів обірваний (падіння Claude Code, брак місця, синхронізація профілю).
+    It 'C1: порожній файл реєстру (0 байт) — код 0, порожній вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'c1-empty') -WithHooks
+        $reg = Join-Path $TestDrive 'c1-empty.json'
+        Set-Content -LiteralPath $reg -Value '' -Encoding UTF8 -NoNewline
+        $r = Invoke-Shim -Cwd $repo -Registry $reg
+        $r.ExitCode | Should -Be 0
+        $r.Output.Trim() | Should -BeNullOrEmpty
+    }
+    It 'C1: реєстр — порожній JSON-масив [] — код 0, порожній вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'c1-arr') -WithHooks
+        $reg = Join-Path $TestDrive 'c1-arr.json'
+        Set-Content -LiteralPath $reg -Value '[]' -Encoding UTF8 -NoNewline
+        $r = Invoke-Shim -Cwd $repo -Registry $reg
+        $r.ExitCode | Should -Be 0
+        $r.Output.Trim() | Should -BeNullOrEmpty
+    }
+    It 'C1: реєстр — null — код 0, порожній вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'c1-null') -WithHooks
+        $reg = Join-Path $TestDrive 'c1-null.json'
+        Set-Content -LiteralPath $reg -Value 'null' -Encoding UTF8 -NoNewline
+        $r = Invoke-Shim -Cwd $repo -Registry $reg
+        $r.ExitCode | Should -Be 0
+        $r.Output.Trim() | Should -BeNullOrEmpty
+    }
+    It 'C1: реєстр — {"plugins": null} — код 0, порожній вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'c1-pluginsnull') -WithHooks
+        $reg = Join-Path $TestDrive 'c1-pluginsnull.json'
+        Set-Content -LiteralPath $reg -Value '{"plugins": null}' -Encoding UTF8 -NoNewline
+        $r = Invoke-Shim -Cwd $repo -Registry $reg
+        $r.ExitCode | Should -Be 0
+        $r.Output.Trim() | Should -BeNullOrEmpty
+    }
+    It 'C1: запис плагіна без installPath — код 0, порожній вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'c1-noinstallpath') -WithHooks
+        $reg = Join-Path $TestDrive 'c1-noinstallpath.json'
+        Set-Content -LiteralPath $reg -Value '{"plugins": {"v8storagekit@x": {}}}' -Encoding UTF8 -NoNewline
+        $r = Invoke-Shim -Cwd $repo -Registry $reg
+        $r.ExitCode | Should -Be 0
+        $r.Output.Trim() | Should -BeNullOrEmpty
+    }
+
     It 'kit session-check упав (код 1) — шим не мовчить: позначка «стан невідомий» і текст зупинки, код шима 0' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'broken') -WithHooks
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value 'version: 1' -Encoding UTF8   # маніфест без workspaces → префлайт кидає
@@ -54,14 +100,21 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*НЕВІДОМИЙ*workspaces*'
     }
 
-    It 'без маніфесту в cwd — лише вступ і підказка onboarding' {
+    It 'без маніфесту в cwd — лише вступ і підказка onboarding, без сигналів джерел і без «НЕВІДОМИЙ»' {
+        # I6 (рев'ю B4 Task 4): попередня версія цього It проходила навіть БЕЗ перевірки
+        # Test-Path … 'v8storagekit.yaml' у шимі — '*onboarding*' приходить із вступу
+        # (using-v8storagekit/SKILL.md згадує v8storagekit:onboarding в БУДЬ-ЯКІЙ гілці),
+        # а '*- Alpha_SMB:*' не з'явиться однаково, якщо kit просто впаде префлайтом.
+        # Пінимо дослівний текст саме гілки «немає маніфесту» — вона й перевіряється.
         $dir = Join-Path $TestDrive 'plain'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         git -C $dir init -q
         $r = Invoke-Shim -Cwd $dir -Registry $script:Registry
         $r.ExitCode | Should -Be 0
         $json = $r.Output | ConvertFrom-Json
+        $json.hookSpecificOutput.additionalContext | Should -BeLike '*немає v8storagekit.yaml*'
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*onboarding*'
+        $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*НЕВІДОМИЙ*'
         $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*- Alpha_SMB:*'
     }
 
@@ -121,6 +174,20 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
             $out | Should -Not -BeLike '*-Apply*'
             $out | Should -BeLike '*session-check*-RepoRoot*'
         }
+
+        It 'I5: session-check завершується неочікуваним кодом (не 0, не 3, не 1) — «НЕВІДОМИЙ», не порожній сигнал' {
+            # Не про стелю часу саме собою — перевикористовує той самий фейковий плагін, бо
+            # інфраструктура (FakePlugin/FakeRegistry/FakeRepo, cwd із маніфестом) та сама.
+            # До фіксу шим розрізняв лише "код 1" проти "решта" — процес, що завершився
+            # нормально з якимось ІНШИМ кодом (2, чи будь-який непередбачений — антивірус,
+            # OOM, неповний запуск pwsh), потрапляв у "решта" й друкувався як є: порожній
+            # $raw читався б рівно як «нових версій немає» — та сама заборонена тиша.
+            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 2'
+            $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String
+            $out | Should -BeLike '*НЕВІДОМИЙ*'
+            $out | Should -BeLike '*кодом 2*'
+            ($out | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
+        }
     }
 }
 
@@ -148,5 +215,44 @@ Describe 'Hooks.psm1 — встановлення й аудит шима' {
         $f = @(Test-KitSessionHook -RepoRoot $repo -TemplatesDir $script:Templates)
         @($f | Where-Object { $_.Level -eq 'warn' -and $_.Message -like '*session-start.ps1*шаблон*' }).Count | Should -Be 1
         @($f | Where-Object { $_.Level -eq 'warn' -and $_.Message -like '*settings.json*SessionStart*' }).Count | Should -Be 1
+    }
+
+    It 'C2: settings.json оголошує hooks.SessionStart, а шима немає — error, не info (кожен старт сесії впаде)' {
+        # До фіксу C2 (рев'ю B4 Task 4) це давало info з текстом «onboarding кладе його з
+        # templates/hooks/» — неправда для щойно підключеного репозиторію, доки Task 5/скіли
+        # онбордингу не закладуть файл разом із settings.json. Тим часом pwsh -NoProfile -File
+        # на неіснуючий .claude/hooks/session-start.ps1 падає кодом 64 — перевірено запуском.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'declared-no-shim')
+        New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:Templates 'settings.json') -Destination (Join-Path $repo '.claude/settings.json')
+        $f = @(Test-KitSessionHook -RepoRoot $repo -TemplatesDir $script:Templates)
+        @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*session-start.ps1*' }).Count | Should -Be 1
+        @($f | Where-Object { $_.Level -eq 'info' }).Count | Should -Be 0
+    }
+
+    It 'I4: settings.json — битий JSON — warn, не error; рівно ОДНА знахідка про причину, без дублю' {
+        # До фіксу I4: error тут зупиняв би session-check ПО СХОВИЩАХ (код 1, «Сигнали не
+        # обчислювались») через випадкову кому в чужому файлі — а $hasHook лишався $false і
+        # додавав ЩЕ одну знахідку («немає hooks.SessionStart») на ту саму причину.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'broken-settings')
+        New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Value '{ broken' -Encoding UTF8
+        $f = @(Test-KitSessionHook -RepoRoot $repo -TemplatesDir $script:Templates)
+        @($f | Where-Object { $_.Level -eq 'error' }).Count | Should -Be 0
+        @($f | Where-Object { $_.Check -eq 'hook-shim' -and $_.Message -like '*не читається як JSON*' }).Count | Should -Be 1
+        # Разом з info «шима немає» (окрема причина, шим на диску справді відсутній) —
+        # рівно ДВІ знахідки всього, не три: дубля про «немає hooks.SessionStart» немає.
+        $f.Count | Should -Be 2
+    }
+
+    It '-WithSessionHook (фікстура) дає повністю встановлений, синхронний стан — Test-KitSessionHook мовчить' {
+        # Мінімальний фікс (рев'ю Minor 3): -WithSessionHook лишається — task-5-brief.md,
+        # Step 6, планує його для живого прогону блоку. Тут — перший автоматизований
+        # споживач: перевіряє повний цикл через саму фікстуру, а не лише через
+        # Install-KitSessionHook напряму (тест вище).
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fixture-session-hook') -WithSessionHook
+        Join-Path $repo '.claude/hooks/session-start.ps1' | Should -Exist
+        Join-Path $repo '.claude/settings.json' | Should -Exist
+        @(Test-KitSessionHook -RepoRoot $repo -TemplatesDir $script:Templates).Count | Should -Be 0
     }
 }
