@@ -939,7 +939,7 @@ function Invoke-KitCanon {
             # Рев'ю Task 2 на це час не витрачає: питання поставлене й відповідь відома.
             Assert-SafeWorkPath -Path $t.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($t.Key)"
 
-            # СТРАХОВКА перед перезаписом дерева (той самий патерн, що git bundle перед migrate у B6:
+            # СТРАХОВКА перед перезаписом дерева (той самий патерн, що git bundle у B6:
             # необоротну операцію не забороняємо — робимо оборотною). Сценарій, який вона закриває:
             # агент правив cfe/src через Уніку, забув operation=build (або воно впало), кличе canon —
             # Remove-Item знищує правку, платформа кладе СТАРІШИЙ дамп, а вивід каже «змінено файлів: 1»,
@@ -1674,7 +1674,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 | «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply] [-Force]` |
 | «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
 | «підключи репозиторій / воркспейс / джерело» | `v8storagekit:onboarding` | `kit.ps1 check` |
-| «переведи репозиторій на маніфест» | `v8storagekit:migrate` | разово |
+| «переведи репозиторій на маніфест», «тут ще storage.json» | `v8storagekit:onboarding` | `kit.ps1 check` |
 
 Команди запускаються з кореня репозиторію:
 `pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" <команда> -RepoRoot .`
@@ -1877,7 +1877,7 @@ Task 5А вилучає `Read-V8LocalConnection` разом із конвенц�
 У `check.psm1`, у тій самій гілці, що читає `v8project.local.yaml` (Step 6б Task 1), додати `elseif`:
 ключ `devInfobase:` присутній → `warn local-audit` «`<ws>/v8project.local.yaml`: `devInfobase:` — стара
 конвенція, kit її більше не читає. Дев-база має переїхати в `v8storagekit.local.yaml`, `infobases:`
-(перекладе `kit migrate`)». Рівень `warn`, не `error`: репозиторій робочий, синхронізація й `canon`
+(перенесе скіл `v8storagekit:onboarding`)». Рівень `warn`, не `error`: репозиторій робочий, синхронізація й `canon`
 працюють — не працює лише `dump` і аудит бази людини.
 
 Тест у `Check.Tests.ps1`: репо з `devInfobase:` у `v8project.local.yaml` → рівно одна знахідка

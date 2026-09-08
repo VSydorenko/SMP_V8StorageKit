@@ -94,7 +94,7 @@
   install`), механізм `${CLAUDE_PLUGIN_ROOT}` і кеш, команди `kit.ps1` таблицею (§5), скіли (§6),
   хук (§7 — «плагін хуків не оголошує»), залежність `powershell-yaml`, посилання на `docs/`.
 - [ ] `CLAUDE.md` kit — переписати «Структура» (`tools/commands/`, `lib/`, `templates/hooks|githooks`,
-  вісім скілів + `migrate`), «Середовище» (+ `powershell-yaml`), «Тести» (зразок форми — `Check.Tests`,
+  вісім скілів), «Середовище» (+ `powershell-yaml`), «Тести» (зразок форми — `Check.Tests`,
   `Sync.Tests`, `New-KitFakeRepo`), «Зв'язок з Unica» (`kit dump`/`kit build`/`operation=make`),
   «Правила, які легко порушити» (п. 5 про хуки з B4; п. 6: `storage/*` пише лише `sync` з
   `V8KIT_SYNC`), «Дозволи» (`kit.ps1 check` дозволено), «Межі» (база людини — лише читання), «Де що шукати».

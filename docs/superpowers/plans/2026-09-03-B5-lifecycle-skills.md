@@ -334,7 +334,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $script:SkillsDir = (Resolve-Path "$PSScriptRoot/../../skills").Path
         $script:Skills = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory | ForEach-Object {
             [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
-        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'migrate')
+        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')   # migrate немає: спека 2f2da62, §9
         function script:Skill([string]$Name) { ($script:Skills | Where-Object Name -eq $Name).Text }
     }
 
@@ -359,8 +359,10 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             }
         }
     }
-    It 'жодних згадок вилучених скриптів і storage.json (крім using-v8storagekit і migrate, що пояснюють міграцію)' {
-        foreach ($s in ($script:Skills | Where-Object { $_.Name -notin @('migrate') })) {
+    It 'жодних згадок вилучених скриптів і storage.json (крім onboarding, який читає спадок 0.6.0)' {
+        # onboarding — єдиний, кому storage.json дозволено згадувати: він бере звідти підказки для
+        # двох перехідних репозиторіїв (B6). Після їх переходу розділ і цей виняток вилучаються.
+        foreach ($s in ($script:Skills | Where-Object { $_.Name -notin @('onboarding') })) {
             $s.Text | Should -Not -Match 'storage-sync\.ps1|dump-config\.ps1|load-ext\.ps1|build\.ps1' -Because "у $($s.Name)"
         }
     }
@@ -387,7 +389,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'install-hooks'
             $t | Should -Match '<ws>/<path>/\*\* -text'
             $t | Should -Match 'перший коміт|Перший коміт'
-            $t | Should -Match 'v8storagekit:migrate'
+            $t | Should -Not -Match 'v8storagekit:migrate'   # команди й скіла migrate немає (спека 2f2da62)
         }
     }
 }
@@ -409,9 +411,10 @@ description: Підключити до конвеєра «сховище ↔ git
 
 Скіл робить репозиторій видимим для kit: маніфест, воркспейси Уніки, політики git, хуки.
 Він **питає** там, де kit не вгадує: `truth` кожного джерела, шлях і користувача сховища,
-дев-базу для дампу. Мовчазних дефолтів для цих рішень немає. Скіл не мігрує старих
-репозиторіїв (`storage.json`, gitsync/EDT) — це `v8storagekit:migrate`; не реплеїть сховище —
-це `v8storagekit:sync`; не розгортає базу агента — це `v8storagekit:provision`.
+дев-базу для дампу. Мовчазних дефолтів для цих рішень немає. Скіл не реплеїть сховище — це
+`v8storagekit:sync`; не розгортає базу агента — це `v8storagekit:provision`; не конвертує
+вихідники з EDT — репозиторії в EDT **поза контуром** kit, доки не ухвалено рішення про формат
+(§13). А от репозиторій конвенції 0.6.0 (`storage.json`) підключає **сам** — розділ 6.
 
 Ланцюжок задачі: **onboarding** → sync → provision → (робота в Unica) → reconcile → finish → verify.
 Усе — з кореня репозиторію-споживача.
@@ -424,8 +427,13 @@ description: Підключити до конвеєра «сховище ↔ git
 3. Стан: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .`
    - «Маніфест v8storagekit.yaml не знайдено» → **новий репозиторій** (розділ 2).
    - маніфест є → **додати воркспейс або джерело** (розділ 3); перший `[i]`-рядок показує, що вже підключено.
-   - у підтеках лежить `storage.json`, або квартет `AUTHORS` + `VERSION` + `DT-INF/` + `ConfigDumpInfo.xml`
-     разом — це старий репозиторій: зупинитись і запропонувати `v8storagekit:migrate`. Нічого не створювати.
+   - у підтеках лежить `storage.json` — це репозиторій конвенції 0.6.0: маніфест пишемо тут же, але
+     з **підказками зі спадку** (розділ 6), а не з порожнього аркуша;
+   - квартет `AUTHORS` + `VERSION` + `DT-INF/` + `ConfigDumpInfo.xml` разом, без `storage.json` —
+     дамп конфігурації, викладений у git іншим інструментом: зупинитись, показати знайдене й
+     спитати людину, що це. Нічого не створювати;
+   - `*.mdo` у деревах джерел — вихідники **EDT**. Kit працює лише з Designer platform XML і не
+     конвертує (§13): сказати про це прямо й зупинитись. Це межа контуру, а не поломка.
 
 ## 2. Новий репозиторій
 
@@ -541,6 +549,31 @@ git commit -m "onboarding: <ws> — маніфест, воркспейс Уні�
   людина доповнює `AUTHORS`.
 - `v8storagekit:provision` — база агента (питає тип: порожня / з `.dt` / серверна).
 - Хук старту сесії почне показувати «Стан сховищ» з наступної сесії.
+
+## 6. Спадок 0.6.0 — підказки, а не автоматика
+
+**Тимчасовий розділ.** Він потрібен рівно двом репозиторіям (`SMP_SimplyConnect`,
+`SMP_BankExchange`) і вилучається після їх переходу (B6 Task 3). Не розширювати його на інші
+форми: команди `migrate` немає навмисно (§9) — усе, що вона робила б, роблять `onboarding` і `sync`.
+
+Якщо в підтеках є `storage.json`, прочитати його й `v8project.local.yaml` і **запропонувати
+знайдене як відповіді** на питання розділів 2–3. Людина підтверджує кожну — мовчазного
+перенесення немає (§2.5: питаємо, не виводимо).
+
+| Звідки | Що | Куди в маніфесті |
+|---|---|---|
+| `<Продукт>/storage.json` | `storagePath` | `storages.<ключ>.path` у **накладці** (шлях локальний) |
+| `<Продукт>/storage.json` | `extensionName` | ключ джерела й `name:` source-set (§2.2) |
+| `<Продукт>/storage.json` | `sourcePath` | `path` source-set у `v8project.yaml` |
+| `<ws>/v8project.local.yaml` | `devInfobase:` | `infobases.<ключ>` у накладці (для `dump.from`) |
+
+`lastSyncedVersion` **не переносити**: стан у моделі 1.0 живе в трейлері `Storage-Version` вершини
+гілки, і перший `sync` реплеїть усі версії наново. Файл стану не відтворюємо — саме від нього пішли.
+
+Після того, як маніфест і накладка записані й `check` зелений, **спадок видалити**: `storage.json`,
+файли стану `SyncState`, ключ `devInfobase:` з `v8project.local.yaml` (сам файл лишається, якщо в
+ньому є серверна база агента — §2.5). Доки спадок лежить поруч із маніфестом, незрозуміло, що з них
+істина, і `check` не дає про це помилки — лише `warn` про `devInfobase:`.
 
 ## 5. Штатні зупинки
 
@@ -1122,7 +1155,7 @@ git commit -m "B5: скіли reconcile і finish — життєвий цикл 
 > Не скіл. Текст колишнього `repo-migration` (0.6.0) збережено як довідку: процедура розвідки,
 > проби доступності сховища, страхувального bundle, конвертації EDT → Designer XML і чистої
 > гілки чинна, але **кінцевий стан тепер інший** — маніфест `v8storagekit.yaml` і гілки
-> `storage/*` (спека 2026-09-03, `v8storagekit:migrate`), а не `storage.json`. Розділи 7–8 про
+> `storage/*` (спека 2026-09-03, скіл `v8storagekit:onboarding`), а не `storage.json`. Розділи 7–8 про
 > каркас і `storage.json` читати як історію. Потрібна для рішення по `SMP_OnlineExchange`
 > (кирилична тека, EDT-вихідники) — спека §13.
 ```
@@ -1212,7 +1245,7 @@ git rm -rq skills/storage-pipeline skills/product-onboarding skills/repo-migrati
 Шаблон 0.6.0 ігнорує `**/cf/**` цілком, а в клієнтському репозиторії `cf/src` під `truth: storage` **мусить
 бути в git** (спека §2.3). Загальне правило прибрати разом із `!**/cf/README.md`; гітігнорованість
 вендорських дерев тепер дає лише **явний рядок під фактичний шлях**, який пише `onboarding` (§3.4) і
-`kit migrate` (B6): `<ws>/<path>/**`. Замість них у шаблоні — коментар:
+`onboarding` (B5, розділ 3): `<ws>/<path>/**`. Замість них у шаблоні — коментар:
 
 ```
 # Вендорські конфігурації (truth: vendor) ігноруються ЯВНИМИ рядками під фактичні шляхи з v8project.yaml —
@@ -1289,7 +1322,7 @@ git commit --only -- skills templates docs/migration tools/tests/Templates.Tests
 
 - [ ] **Step 7:** `CLAUDE.md` kit, таблиця «Структура», рядок `skills/`: «Вісім скілів — вступний
   `using-v8storagekit` (вантажить хук споживача) і по одному на намір: `onboarding`, `sync`, `dump`,
-  `reconcile`, `finish`, `provision`, `verify` (`migrate` — B6)». Рядок `templates/`: «+ `hooks/`,
+  `reconcile`, `finish`, `provision`, `verify`». Рядок `templates/`: «+ `hooks/`,
   `githooks/`, зразки маніфесту й накладки».
 
 - [ ] **Step 8: Живий прогін блоку** — єдина точка B5, де відкривається сесія
@@ -1323,7 +1356,8 @@ git commit -m "B5: unica-contract A8–A11; структура скілів у C
 | `unica-contract.md` A8–A11 (§11) | 7 |
 | правила `${CLAUDE_PLUGIN_ROOT}` і префіксів — guard-тести на кожен скіл | 2 |
 
-**Свідомо не в B5:** `migrate` — B6; `README.md`, `CLAUDE.md` kit цілком, `plugin.json` — B8.
+**Свідомо не в B5:** прогони переходу двох репозиторіїв 0.6.0 — B6 (сам скіл `onboarding` з
+розділом «спадок» пишеться тут); `README.md`, `CLAUDE.md` kit цілком, `plugin.json` — B8.
 
 **Узгодженість імен:** усі скіли посилаються на команди `kit.ps1 check|session-check|sync|dump|verify|canon|provision|build|install-hooks`
 рівно з тими параметрами, що визначені в B1–B5 (`-Source`, `-Workspace`, `-Apply`, `-MaxVersions`, `-MergeMain`,
