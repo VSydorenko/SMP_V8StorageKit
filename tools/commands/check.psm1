@@ -313,12 +313,31 @@ function Invoke-KitCheck {
             try { $localConn = Read-V8ProjectLocalInfobase -Path $localPath }
             catch { & $add error local-audit "$($ws.Path)/v8project.local.yaml не читається: $($_.Exception.Message)" }
             if ($localConn -and $Context.Overlay) {
-                $norm = { param([string]$s) (($s -replace '\s', '') -replace '"', '').TrimEnd(';').ToLowerInvariant() }
-                $hit = @($Context.Overlay.Infobases.Values | Where-Object { (& $norm $_.Connection) -eq (& $norm $localConn) }) | Select-Object -First 1
-                if ($hit) {
-                    & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobase.connection збігається з дев-базою '$($hit.Name)' із накладки kit — " +
-                        'це база людини під ключем Unica, і operation=build писав би в неї. Приберіть infobase: звідти; ' +
-                        'у цьому файлі може бути лише серверна база АГЕНТА (§2.5).')
+                # F1 (рев'ю B4 Task 1): та сама формула ідентичності бази, що в
+                # Resolve-KitAgentBase (AgentBase.psm1) — текстова нормалізація (стара форма
+                # $norm) не бачила, що 'File="D:\x\"' і 'File=D:\x' та сама тека, і що
+                # 'Srvr="A";Ref="B";' та 'Ref="B";Srvr="A";' та сама база. Test-KitSameInfobase
+                # кидає, коли підключення не розбирається однозначно (fail-closed) — тут це
+                # ЗАБОРОНЕНО дати впасти check: перетворюємо на знахідку error, як і решта
+                # аудитів git нижче (Test-KitGitHooks).
+                #
+                # Бік воркспейсу розв'язується до звірки (Resolve-KitAgentInfobasePath, чиста
+                # функція), тим самим прийомом, що в Resolve-KitAgentBase: відносний File=
+                # бази агента законний (тека воркспейсу, §2.5) і Test-KitSameInfobase на ньому
+                # б кидав — без цього check давав би error на кожному штатному File=build/ib.
+                try {
+                    $localResolved = Resolve-KitAgentInfobasePath -Project $ws.Project -Connection $localConn
+                    $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File="{0}"' -f $localResolved.Path } else { $localConn }
+                    foreach ($human in $Context.Overlay.Infobases.Values) {
+                        if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection) {
+                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobase.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
+                                'це база людини під ключем Unica, і operation=build писав би в неї. Приберіть infobase: звідти; ' +
+                                'у цьому файлі може бути лише серверна база АГЕНТА (§2.5).')
+                            break
+                        }
+                    }
+                } catch {
+                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobase.connection проти дев-баз накладки впав: $($_.Exception.Message)"
                 }
             }
         }

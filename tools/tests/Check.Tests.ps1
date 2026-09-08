@@ -190,6 +190,20 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
+    It '§2.5/F1: infobase.connection у v8project.local.yaml нерозбірне (Srvr= без Ref=) — error, а не тиша' {
+        # F1 (рев'ю B4 Task 1): fail-closed. Test-KitSameInfobase кидає на нерозбірному
+        # підключенні (тут — навіть раніше, на Resolve-KitAgentInfobasePath: ConvertTo-V8IbSwitch
+        # вимагає Ref= для Srvr=), а check МАЄ перетворити цей throw на знахідку error, не
+        # впасти й не мовчати — суперечливий репозиторій має бути видимий у звіті check.
+        $overlay = "infobases:`n  dev:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
+        $repo = New-GoodRepo 'local-audit-unparseable' @{ OverlayText = $overlay }
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "infobase:`n  connection: 'Srvr=""VSDEV"";'"
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*v8project.local.yaml*'
+    }
+
     It '§2.5: серверна база АГЕНТА у v8project.local.yaml, якої немає в накладці, — не помилка' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
         $repo = New-GoodRepo 'local-agent' @{ OverlayText = $overlay }

@@ -56,6 +56,29 @@ function Invoke-KitProvision {
             throw ("База агента воркспейсу '$($ws.Path)' серверна (Srvr=). Kit її не створює: серверну базу створює людина в кластері, а розгортання " +
                    'з .dt на сервері — окремий спайк (спека §13). Далі — operation=init/build Уніки.')
         }
+
+        # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу
+        # (workPath, §2.5/§4), НЕ вся тека воркспейсу. Другий, незалежний від аудиту
+        # принципу 3 (Resolve-KitAgentBase) запобіжник: аудит ловить базу людини під
+        # чужим ім'ям, ця межа ловить БУДЬ-ЯКУ теку поза робочою — навіть якщо аудит
+        # помилився (наприклад, описку infobase.connection: 'File=cfe/src' — законну
+        # підтеку воркспейсу, яку аудит не ловить, бо це не база жодної людини з
+        # накладки). Без неї межа -MustBeUnder $ws.FullPath пропускає будь-яку підтеку
+        # воркспейсу, і New-V8FileInfobase стирає вихідники розширення
+        # (Remove-Item -Recurse -Force, V8.psm1) чи всю робочу теку з артефактами.
+        #
+        # Той самий Assert-SafeWorkPath, застосований до самої межі — не власна
+        # перевірка "рівність/поза межею" третьою копією: Assert-SafeWorkPath уже
+        # відхиляє рівність із межею (це і закриває край workPath: '.' — Read-V8Project
+        # не пускає порожній workPath, але не боронить '.'), сегмент ".." і роботу на
+        # ненормалізованому шляху. $ws.Project.WorkPath, не літерал 'build': workPath
+        # конфігурований у v8project.yaml (типове значення 'build', Read-V8Project), і
+        # решта kit його шанує (Task 3 будує build/artifacts саме від WorkPath) —
+        # жорсткий 'build' відкидав би законну базу агента в репозиторії з workPath: 'out'.
+        $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
+        Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
+        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -Description "база агента воркспейсу $($ws.Path)"
+
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
         Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
 
@@ -66,6 +89,11 @@ function Invoke-KitProvision {
             # $(if...) надрукувались би літерально). Рядок збирається в змінну ДО виклику.
             $previewNote = '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' })
             Write-Host $previewNote -ForegroundColor Cyan
+            # F6 (рев'ю B4 Task 1) — раніше -Remember без -Apply мовчав: continue стояв
+            # до блоку -Remember, шаблон не запам'ятовувався, і про це ніде не було сказано.
+            if ($Remember) {
+                Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray
+            }
             continue
         }
         if ($ab.Exists -and -not $Force) {
@@ -73,10 +101,12 @@ function Invoke-KitProvision {
         }
         if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
-        # Межа для видалення — тека воркспейсу: база агента лежить у workPath Уніки під нею.
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $ws.FullPath -Description "база агента воркспейсу $($ws.Path)"
+        # Межу вже перевірено вище (Assert-SafeWorkPath, безумовно, до -Apply) — тут
+        # $ab.Path не змінювався, повторна перевірка була б третьою копією тієї самої
+        # логіки. New-V8FileInfobase все одно робить власну (V8.psm1) як останній
+        # запобіжник безпосередньо перед Remove-Item.
         Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $ws.FullPath -TemplatePath $wsTemplate
+        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -TemplatePath $wsTemplate
         Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
         Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
 
