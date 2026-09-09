@@ -332,9 +332,15 @@ git commit -m "B5: kit install-hooks — хуки захисту й хук ст�
 Describe 'skills/*/SKILL.md — правила, які легко порушити' {
     BeforeAll {
         $script:SkillsDir = (Resolve-Path "$PSScriptRoot/../../skills").Path
-        $script:Skills = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory | ForEach-Object {
-            [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
         $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')   # migrate немає: спека 2f2da62, §9
+        # Лише скіли 1.0. Три старі (storage-pipeline, product-onboarding, repo-migration) живуть у
+        # дереві до Task 6 і НЕ мусять проходити ці правила: у них є storage-sync.ps1, dump-config.ps1
+        # і перехресні посилання на імена поза $Allowed. Без фільтра весь файл був би червоний із
+        # Task 2 по Task 5, і «запускати лише цей файл» не рятувало б (знахідка префлайту B5).
+        # Те, що старих тек більше немає, перевіряє окремий It у Task 6 — саме там це стає правдою.
+        $script:Skills = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory |
+            Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
+            [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
         function script:Skill([string]$Name) { ($script:Skills | Where-Object Name -eq $Name).Text }
     }
 
@@ -532,7 +538,7 @@ Linux/macOS дістав би їх без біта виконання, і git м
 ### 3.6 Перший коміт — окремо, до будь-якого `-Apply`
 
 ```bash
-git add v8storagekit.yaml <ws>/v8project.yaml <ws>/cf/README.md .gitattributes .gitignore .claude AUTHORS CLAUDE.md
+git add v8storagekit.yaml <ws>/v8project.yaml <ws>/cf/README.md .gitattributes .gitignore \n        .claude/settings.json .claude/hooks/session-start.ps1 AUTHORS CLAUDE.md
 git commit -m "onboarding: <ws> — маніфест, воркспейс Уніки, політики git, хуки"
 # .githooks уже застейджено install-hooks з режимом 100755 — не перестейджувати через `git add -A` без потреби:
 # сам `git add` режим не змінює, але `git ls-files -s .githooks/` після коміту має показати 100755.
@@ -1021,7 +1027,12 @@ git commit -m "B5: скіл provision — тип бази агента пита�
             $t | Should -Match 'kit\.ps1" canon'
             $t | Should -Match 'git merge --no-ff storage/'
             $t | Should -Match 'git diff'
-            $t | Should -Not -Match 'rebase'
+            # Позитивно, а не Should -Not -Match 'rebase': сам скіл ЗАБОРОНЯЄ rebase словами
+            # «не rebase, не re-derive — merge», тож негативна перевірка на слово падала б на
+            # власному тексті скіла (знахідка префлайту B5). Guard має тримати властивість, а не
+            # відсутність підрядка.
+            $t | Should -Match 'не rebase'
+            $t | Should -Not -Match 'git rebase'   # наказу rebase немає — лише заборона словами
         }
     }
     Context 'finish' {
@@ -1192,7 +1203,11 @@ git commit -m "B5: скіли reconcile і finish — життєвий цикл 
 
 ### Task 6: завершення блоку — вилучення старих скілів, довідка про legacy-міграцію, `templates/*`, `unica-contract`, `CLAUDE.md` kit
 
-**Ризик:** `механічна` — вилучення й документація. Одне рев'ю на дешевій моделі — guard-`grep`-и Step 5 і Step 8.
+**Ризик:** `спільний код` (підвищено за префлайтом B5, було `механічна`) — **одне рев'ю на сильній
+моделі**. Причина: Step 2а міняє `templates/gitignore` — роздаваний артефакт, семантику якого
+перевіряє `check` з B1, — і фікстуру `New-KitFakeRepo -WithGitignore` у `KitFixtures.psm1`, тобто
+спільний код усіх тестів B1–B4. Помилка тут ламає не цю задачу, а чужі тести й репозиторії
+споживачів. Решта задачі справді механічна, але рівень задають не пропорції, а найдорожчий крок.
 **Виконується одним циклом:** частина А (Steps 1–5) і частина Б (Steps 6–9) — один виконавець,
 одне рев'ю, один звіт; коміти окремі.
 
@@ -1343,10 +1358,29 @@ git rm -rq skills/storage-pipeline skills/product-onboarding skills/repo-migrati
 
 - [ ] **Step 4: `Templates.Tests.ps1`**
 
-Describe «product-onboarding — шаблон v8project.yaml» → переписати на `skills/onboarding/SKILL.md`
+**Два** Describe у `Templates.Tests.ps1` читають вилучені скіли, а не один (знахідка префлайту B5):
+
+- «product-onboarding — шаблон v8project.yaml» (рядок 68) → переписати на `skills/onboarding/SKILL.md`;
+- **«repo-migration — каркас несе хук старту сесії (C2, рев'ю B4 Task 4)» (рядок 99)** → **перенацілити
+  на `onboarding`, не вилучати.** Це регресійний захист знахідки C2 рев'ю B4: каркас мусить класти
+  `.claude/hooks/session-start.ps1` **разом** із `settings.json`. Знахідка не зникає від того, що скіл
+  перейменували, і втратити її через `git rm` було б найдешевшим способом повернути дефект.
+
+Щоб перенацілений Describe збігався, **Task 2 має назвати шим поіменно** в команді першого коміту:
+зараз там `.claude` цілком, і регекс `git add .*\.claude/hooks/session-start\.ps1` не збіжиться.
+Поіменний перелік тут не примха тесту, а та сама дисципліна коміту, що в Global Constraints:
+`git add <явний перелік>`. Замінити `.claude` на
+`.claude/settings.json .claude/hooks/session-start.ps1`.
+
+Далі — решта перевірок того Describe:
 (перевірки ті самі: `infobase:`, `connection: 'File=build/ib'`, `name: <ІмʼяРозширення>`, не
 `name: <Продукт>`). Додати It: `templates/CLAUDE.md` згадує `v8storagekit.yaml`, `storage/`,
 усі сім скілів із префіксом і не згадує `storage.json`, `storage-sync`, `load-ext`.
+
+Плюс `It` у `Skills.Tests.ps1` — **саме тут, бо саме тут це стає правдою**: тек
+`skills/storage-pipeline`, `skills/product-onboarding`, `skills/repo-migration` більше немає.
+Він замикає фільтр із Task 2: доти загальні `It` їх свідомо пропускали, і без цього `It` вилучення
+не має жодної перевірки.
 
 - [ ] **Step 5: Повний прогін, перевірки; коміт**
 
