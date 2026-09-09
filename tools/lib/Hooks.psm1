@@ -89,7 +89,7 @@ function Test-KitGitHooks {
                 "Хука $script:HooksDirName/$name немає — гілки storage/* не захищені від ручного коміту. " +
                 "Скопіюйте його з templates/githooks/ у теці плагіна (знайти теку: claude plugin list, або " +
                 "/plugin у сесії Claude Code) у $script:HooksDirName/$name і виконайте: " +
-                "git config core.hooksPath $script:HooksDirName.")))
+                "git config core.hooksPath $script:HooksDirName. Або одним кроком: kit install-hooks -RepoRoot . -Apply.")))
             continue
         }
         $templatePath = Join-Path $TemplatesDir $name
@@ -132,7 +132,8 @@ function Test-KitGitHooks {
             $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
                 "Хук $script:HooksDirName/$name лежить на диску, але не закомічений у git — " +
                 'наступний клон його не отримає, і гілки storage/* лишаться без захисту. ' +
-                "Закомітьте: git add $script:HooksDirName/$name і git commit.")))
+                "Закомітьте: git add $script:HooksDirName/$name і git commit. Або одним кроком (стейджить із " +
+                'бітом виконання самостійно): kit install-hooks -RepoRoot . -Apply.')))
         }
     }
 
@@ -219,9 +220,10 @@ function Test-KitSessionHook {
             $findings.Add((New-KitFinding -Level error -Check 'hook-shim' -Message (
                 "$script:SettingsRel оголошує hooks.SessionStart на $script:SessionHookRel, а файла немає — " +
                 'кожен старт сесії в цьому репозиторії падає на pwsh -File неіснуючого шляху (код 64). ' +
-                "Покладіть шим із templates/hooks/session-start.ps1 плагіна в $script:SessionHookRel.")))
+                "Покладіть шим із templates/hooks/session-start.ps1 плагіна в $script:SessionHookRel. " +
+                'Або одним кроком: kit install-hooks -RepoRoot . -Apply.')))
         } else {
-            $findings.Add((New-KitFinding -Level info -Check 'hook-shim' -Message "Хук старту сесії не встановлено ($script:SessionHookRel) — сесія не отримає стан сховищ; onboarding кладе його з templates/hooks/."))
+            $findings.Add((New-KitFinding -Level info -Check 'hook-shim' -Message ("Хук старту сесії не встановлено ($script:SessionHookRel) — сесія не отримає стан сховищ; onboarding кладе його з templates/hooks/, або одним кроком: kit install-hooks -RepoRoot . -Apply.")))
         }
     } elseif (Test-Path -LiteralPath $template -PathType Leaf) {
         $a = (Get-Content -LiteralPath $shim -Raw) -replace "`r`n", "`n"

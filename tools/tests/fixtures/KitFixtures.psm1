@@ -249,10 +249,15 @@ function Copy-KitTools {
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
-    # templates/settings.json НЕ копіюємо (рев'ю B4 Task 4, Minor): Test-KitSessionHook звіряє
-    # лише templates/hooks/session-start.ps1 (уже в циклі вище) — settings.json ніде в цій
-    # копії не читається (Install-KitSessionHook у тестах завжди береться з реального $kitRoot,
-    # не з копії). Мертва копія нікому не сигналізує про поломку — краще її не мати.
+    # templates/settings.json — раніше НЕ копіювали (рев'ю B4 Task 4, Minor): тоді
+    # Install-KitSessionHook у тестах завжди викликали напряму з явним -TemplatesDir на
+    # справжній $kitRoot, і копія була мертва. B5 Task 1 (kit install-hooks) це зламало:
+    # команда викликає Install-KitSessionHook БЕЗ -TemplatesDir (типове значення відносне
+    # від $PSScriptRoot Hooks.psm1), а InstallHooks.Tests.ps1 запускає install-hooks
+    # ПІДПРОЦЕСОМ проти саме цієї копії kit.ps1 — типове значення тоді резолвиться в
+    # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі
+    # спіймав: "Cannot find path ...\templates\settings.json").
+    Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $Root 'templates/settings.json') -Force
     Join-Path $Root 'tools/kit.ps1'
 }
 
