@@ -339,4 +339,34 @@ Describe 'EdtPaths.psm1 — Get-KitEdtRenamePlan: обхід дерева, чо�
         ($plan.Moves | Where-Object From -Like '*ru.html').To | Should -Be 'Продукт/cfe/src/CommonTemplates/Печать/Ext/Template/ru.html'
         ($plan.Moves | Where-Object From -Like '*uk.html').To | Should -Be 'Продукт/cfe/src/CommonTemplates/Печать/Ext/Template/uk.html'
     }
+
+    It 'інваріант обліку (знахідка 5, рев''ю раунду 3): Moves+Unmapped+Unresolved+файли-в-Collisions = усі обійдені файли, включно з колізією з ТРЬОХ файлів' {
+        # "Рахувати файли, не записи" — колізія тут навмисно з ТРЬОХ джерел на одну ціль
+        # (не двох, як в іншому тесті): якби реалізація рахувала Collisions.Count (кількість
+        # ГРУП) замість суми From (кількість ФАЙЛІВ), інваріант помилково впав би тут (3 файли
+        # облічені як 1 запис), хоча дерево цілком легітимне.
+        $root = Join-Path $TestDrive 'invariant'
+        $colDir = Join-Path $root 'src/CommonTemplates/Мак1'
+        New-Item -ItemType Directory -Force -Path $colDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $colDir 'Template.mxlx') -Value 'a'
+        Set-Content -LiteralPath (Join-Path $colDir 'Template.dcs') -Value 'b'
+        Set-Content -LiteralPath (Join-Path $colDir 'Template.htmldoc') -Value 'c'
+        $mappedDir = Join-Path $root 'src/Catalogs/Об1'
+        New-Item -ItemType Directory -Force -Path $mappedDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $mappedDir 'Об1.mdo') -Value 'd'
+        Set-Content -LiteralPath (Join-Path $root 'src/ConfigDumpInfo.xml') -Value 'e'
+        $unresolvedDir = Join-Path $root 'src/Reports/Об2/Templates/Мак2'
+        New-Item -ItemType Directory -Force -Path $unresolvedDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $unresolvedDir 'Template.scheme') -Value 'f'
+
+        { Get-KitEdtRenamePlan -RepoRoot $root -SourceRelPath 'src' -TargetRoot 'Продукт/cfe/src' } | Should -Not -Throw
+        $plan = Get-KitEdtRenamePlan -RepoRoot $root -SourceRelPath 'src' -TargetRoot 'Продукт/cfe/src'
+        $plan.Collisions.Count | Should -Be 1
+        @($plan.Collisions[0].From).Count | Should -Be 3
+        $plan.Moves.Count | Should -Be 1
+        $plan.Unmapped.Count | Should -Be 1
+        $plan.Unresolved.Count | Should -Be 1
+        # 1 (Moves) + 1 (Unmapped) + 1 (Unresolved) + 3 (файли колізії) = 6 обійдених файлів.
+        (@(Get-ChildItem -LiteralPath (Join-Path $root 'src') -Recurse -File)).Count | Should -Be 6
+    }
 }

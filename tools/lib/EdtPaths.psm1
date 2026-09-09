@@ -505,6 +505,26 @@ function Get-KitEdtRenamePlan {
         }
     }
 
+    # Інваріант обліку (знахідка 5, рев'ю раунду 3; вписаний архітектором у "Спільні контракти"
+    # плану ПІСЛЯ коміту раунду 1 — у коді його не було). Сума ФАЙЛІВ (не записів!) у чотирьох
+    # списках мусить дорівнювати кількості обійдених файлів — інакше ЗУПИНКА, не попередження.
+    # "Рахувати файли, не записи" — Collisions тримає кілька From на один To, і кожен цей From
+    # це ОКРЕМИЙ файл дерева; рахувати самі групи Collisions.Count обдурило б інваріант на
+    # першому ж конфлікті. Стенд знайшов живий випадок, де стара таблиця макетів мовчки губила
+    # 5 файлів з обліку (18 726 на диску проти 18 721 у плані) — жодне з двох рев'ю це не
+    # побачило, знайшов лише перерахунок балансу. Побічно закрита дірка так само побічно
+    # відкриється при наступному рефакторингу без цієї асерції.
+    $collisionFileCount = 0
+    foreach ($c in $collisions) { $collisionFileCount += @($c.From).Count }
+    $accountedFiles = $moves.Count + $unmapped.Count + $unresolved.Count + $collisionFileCount
+    if ($accountedFiles -ne $files.Count) {
+        throw ("Інваріант обліку rename-edt порушено: обійдено $($files.Count) файл(ів) під " +
+               "'$SourceRelPath', а в Moves+Unmapped+Unresolved+Collisions — $accountedFiles " +
+               "(Moves=$($moves.Count), Unmapped=$($unmapped.Count), Unresolved=$($unresolved.Count), " +
+               "файлів у Collisions=$collisionFileCount). Це означає втрату файлів з обліку — " +
+               'зупинка, а не мовчазна розбіжність (docs/superpowers/plans/2026-09-03-B6-migrate.md, "Спільні контракти").')
+    }
+
     [pscustomobject]@{
         Moves      = @($moves | Sort-Object -Property From -Culture ([System.Globalization.CultureInfo]::InvariantCulture))
         Unmapped   = @($unmapped | Sort-Object -Property From -Culture ([System.Globalization.CultureInfo]::InvariantCulture))

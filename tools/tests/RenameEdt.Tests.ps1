@@ -74,6 +74,12 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         (Join-Path $repo $oldPath) | Should -Not -Exist
         (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения.xml') | Should -Exist
 
+        # Знахідка 4 (рев'ю раунду 3): мутант "вирізати виклик Remove-KitEmptyDirectory"
+        # виживав на базовому наборі — обидва файли переїхали з
+        # 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/', тека мала стати ПОРОЖНЬОЮ і бути
+        # прибраною; без цієї перевірки жоден тест не бачив різниці.
+        (Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения') | Should -Not -Exist -Because 'Remove-KitEmptyDirectory мала прибрати тепер-порожню теку після успішного коміту'
+
         # I-H.1: перевірка статусу — R на КОЖНОМУ рядку (?m), не лише в першому рядку
         # багаторядкового виводу. Раніше `-Not -Match '^[AD]\t'` без (?m) перевіряв фактично
         # тільки перший рядок склеєного багаторядкового $diffTree.
@@ -97,7 +103,12 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         (Invoke-TestGit -Repo $repo -GitArgs @('tag', '--list', 'legacy/gitsync-*')) | Should -BeNullOrEmpty
 
         # S-J: файл повідомлення коміту йде через System.IO.Path]::GetTempFileName(), а не
-        # build/... усередині репозиторію — і не лишається по собі.
+        # build/... усередині репозиторію. Знахідка 4 (рев'ю раунду 3): ЦЯ асерція нижче НЕ
+        # може впасти в принципі — `finally` прибирає файл незалежно від того, де його
+        # створено, тож перевірка "чи лишився файл із такою назвою" зелена і при старій, і
+        # при новій поведінці. Лишаю її як зручний smoke-check (файлу справді нема), а
+        # властивість "створюється ПОЗА репозиторієм" (а не просто "прибирається після")
+        # доводить окремий мутаційно-чутливий мок-тест нижче ("S-J: шлях файла повідомлення").
         @(Get-ChildItem -LiteralPath $repo -Recurse -File -Filter 'rename-edt-commit-message.txt' -ErrorAction SilentlyContinue).Count | Should -Be 0
     }
 
@@ -176,6 +187,44 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         (Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl') | Should -Exist
     }
 
+    It 'знахідка 3 (рев''ю раунду 3): -SourceRelPath ''.'' — Assert-SafeWorkPath зупиняє ДО будь-якого git-виклику' {
+        # PathSafety.psm1 — "спільний запобіжник перед КОЖНИМ рекурсивним видаленням у tools/",
+        # і його кличуть усі інші такі місця (GitMerge, StorageBranch, StorageImprint,
+        # StoragePlatform, TreeCompare, V8, canon, dump, provision, sync, verify).
+        # Remove-KitEmptyDirectory теж рекурсивно видаляє в ЧУЖОМУ репозиторії — без цього
+        # запобіжника -SourceRelPath '.' вивів би обхід у корінь репозиторію.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unsafe-path') -WithGitattributes
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', '.', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*підтекою*'
+
+        # Перевірка стану, не лише тексту помилки: зупинка мала статись ДО першого git-виклику
+        # запобіжників — HEAD і статус репозиторію лишились точно такими, як були.
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        (Invoke-TestGit -Repo $repo -GitArgs @('status', '--porcelain')) | Should -BeNullOrEmpty
+    }
+
+    It 'M-9 (рев''ю раунду 3, мутаційно): прихований файл усередині дерева джерела не випадає з переліку мовчки' {
+        # Мутант "вирізати -Force з обходу" виживав на базовому наборі — жоден тест не мав
+        # прихованого файлу. Мета -Force саме в тому, щоб перелік Unmapped/Unresolved/Moves
+        # лишався ПОВНИМ описом дерева (властивість "показане = видалене" спирається на повноту
+        # переліку так само, як на сам факт непоказаного видалення).
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'hidden-file') -WithGitattributes
+        Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src' | Out-Null
+        $hiddenDir = Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения'
+        $hiddenFile = Join-Path $hiddenDir 'Прихований.невідоме'
+        Set-Content -LiteralPath $hiddenFile -Value 'x' -Encoding UTF8
+        (Get-Item -LiteralPath $hiddenFile -Force).Attributes = [System.IO.FileAttributes]::Hidden
+        Invoke-TestGit -Repo $repo -GitArgs @('add', '-A') | Out-Null
+        Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'gitsync: доданий прихований файл') | Out-Null
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*Прихований.невідоме*' -Because 'прихований файл мав з''явитись у переліку (Unresolved — невідоме розширення), а не випасти мовчки'
+    }
+
     It 'C-B: ігнорований файл усередині дерева джерела — зупинка ДО git rm/mv, а не збій посеред циклу' {
         # Живий сценарій (task-3-findings-round1.md, C-B): SMB_ukr_vendor і сам templates/gitignore
         # kit ігнорують саме ConfigDumpInfo.xml/DumpFilesIndex.txt всередині src/. git status
@@ -202,7 +251,7 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         (Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl') | Should -Exist -Because 'жоден git mv не мав відбутись'
     }
 
-    It 'I-E: git mv на наявний файл посеред циклу — автоматичний відкіт (git reset --hard), а не напівстан' {
+    It 'I-E: git mv на наявний файл посеред циклу — автоматичний адресний відкіт, а не напівстан' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'rollback') -WithGitattributes
         # Два звичайні об'єкти, що сортуються як A1 (раніше) < A2 (пізніше) — цикл git mv
         # обробляє їх у такому порядку. Ціль A2 навмисно вже існує ЗАЗДАЛЕГІДЬ як інший
@@ -224,12 +273,23 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*відкочено*'
 
-        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before -Because 'коміту не було — reset --hard повертає рівно стартовий стан'
-        (Invoke-TestGit -Repo $repo -GitArgs @('status', '--porcelain')) | Should -BeNullOrEmpty -Because 'git reset --hard мав прибрати навіть УЖЕ виконаний git mv A1'
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before -Because 'коміту не було — відкіт повертає рівно стартовий стан'
+        (Invoke-TestGit -Repo $repo -GitArgs @('status', '--porcelain')) | Should -BeNullOrEmpty -Because 'адресний відкіт мав прибрати навіть УЖЕ виконаний git mv A1'
         (Join-Path $dir 'A1/A1.mdo') | Should -Exist -Because 'A1 переїхав першим, а відкіт мав повернути його назад'
         (Join-Path $conflictDir 'A1.xml') | Should -Not -Exist
         (Join-Path $conflictDir 'A2.xml') | Should -Exist -Because 'початковий (конфліктний) вміст A2.xml має лишитись як був'
     }
+
+    # Знахідка 1 (рев'ю раунду 3) — окрема перевірка ОБСЯГУ відновлення, доповнена нижче в
+    # окремому Describe (мок git-шару): наскрізний тест вище (I-E) доводить, що в межах
+    # -SourceRelPath/-TargetRoot реальний git відновлює все правильно; те, що САМЕ ЖОДЕН
+    # git-виклик команди не є "reset --hard" на весь репозиторій і що виклики відновлення
+    # адресовані лише двом цим шляхам — доводить мок-тест "жоден git-виклик не чіпає нічого
+    # поза -SourceRelPath/-TargetRoot" (нижче, бо потребує перехоплення АРГУМЕНТІВ git-викликів,
+    # а не лише стану диску: наскрізний прогін через підпроцес kit.ps1 не дає це перехопити,
+    # і спроба відтворити "правку під час проходу" через окремий файл у робочій копії
+    # ЗАВЖДИ впирається в запобіжник 1/4 (брудна копія) ще до старту мутації — це НЕ
+    # властивість, яку тест мав довести, тому такий підхід свідомо відкинуто).
 
     Context 'Step 3а — запобіжник політики тексту (Test-GitTextPolicy на -TargetRoot)' {
         It 'застаріла gitsync .gitattributes (лише *.bin/*.axdt/*.addin binary) — зупинка ДО git mv, жоден файл не переміщено' {
@@ -288,6 +348,9 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
         Mock -ModuleName rename-edt Invoke-KitGitProcess {
             param($RepoRoot, $Arguments, [string[]]$StdinRecords = @())
             if ($Arguments -contains 'rm') { $script:CaRmArgs = $Arguments }
+            # rev-parse HEAD мусить повернути щось (знахідка 6, рев'ю раунду 3: команда тепер
+            # перевіряє, що SHA непорожній, ДО будь-якої мутації) — фальшивий, але непорожній SHA.
+            if ($Arguments -contains 'rev-parse') { return [pscustomobject]@{ ExitCode = 0; Stdout = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; Stderr = '' } }
             [pscustomobject]@{ ExitCode = 0; Stdout = ''; Stderr = '' }
         }
 
@@ -298,6 +361,88 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
         $literalArg = @($script:CaRmArgs | Where-Object { $_ -like ':(literal)*' })
         $literalArg.Count | Should -Be 1
         $literalArg[0] | Should -Be ':(literal)Alpha_SMB/src/Catalogs/Об1/Forms/Ф1/Attributes/a[bc].dcss'
+    }
+
+    It 'знахідка 1 (рев''ю раунду 3): жоден git-виклик відновлення не є "reset --hard" на весь репозиторій, і всі адресовані ЛИШЕ -SourceRelPath/-TargetRoot' {
+        # Перехоплює АРГУМЕНТИ кожного git-виклику під час форсованого падіння — властивість,
+        # яку не перевірити наскрізним прогоном через підпроцес (там видно лише stdout/файли,
+        # не самі команди), і яку не можна відтворити "живою" гонитвою всередині одного
+        # синхронного виклику команди без флакі-конкуренції (спроба через окремий файл поза
+        # деревами щоразу впирається в запобіжник 1/4 "брудна копія" ще до старту мутації —
+        # це вже перевірено окремо і свідомо відкинуто, коментар вище). Разом із наскрізним
+        # I-E-тестом (реальний git, реальний стан диска в межах піддерев) це покриває
+        # властивість: тут — що КОМАНДА НІКОЛИ НЕ ПРОСИТЬ git зробити щось поза двома
+        # шляхами, там — що в межах цих шляхів реальний git справді відновлює коректно.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'scope-mock') -WithGitattributes
+        $dir = Join-Path $repo 'Alpha_SMB/src/Catalogs'
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'A1') | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'A2') | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'A1/A1.mdo') -Value 'один' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $dir 'A2/A2.mdo') -Value 'два' -Encoding UTF8
+
+        $script:ScopeCalls = [System.Collections.Generic.List[object]]::new()
+        Mock -ModuleName rename-edt Invoke-KitGitProcess {
+            param($RepoRoot, $Arguments, [string[]]$StdinRecords = @())
+            $script:ScopeCalls.Add(@($Arguments))
+            if ($Arguments -contains 'rev-parse') { return [pscustomobject]@{ ExitCode = 0; Stdout = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; Stderr = '' } }
+            if ($Arguments -contains 'mv' -and ($Arguments -join ' ') -like '*A2.mdo*') {
+                return [pscustomobject]@{ ExitCode = 128; Stdout = ''; Stderr = 'fatal: destination already exists (симуляція)' }
+            }
+            [pscustomobject]@{ ExitCode = 0; Stdout = ''; Stderr = '' }
+        }
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' } | Should -Throw
+
+        $allCalls = @($script:ScopeCalls)
+        $allCalls.Count | Should -BeGreaterThan 0
+
+        # Головна властивість: "reset" + "--hard" разом БІЛЬШЕ НІКОЛИ не з'являються — це й
+        # був обсяг усього репозиторію, який зламала перша версія I-E.
+        @($allCalls | Where-Object { $_ -contains 'reset' -and $_ -contains '--hard' }).Count | Should -Be 0 -Because '"reset --hard" на весь репозиторій прибрано остаточно'
+
+        $checkoutCall = @($allCalls | Where-Object { $_ -contains 'checkout' })
+        $checkoutCall.Count | Should -Be 1 -Because 'відновлення викликається рівно один раз'
+        $checkoutCall[0][-2] | Should -Be 'Alpha_SMB/src' -Because 'checkout адресований -SourceRelPath, не корню репозиторію'
+        $checkoutCall[0][-1] | Should -Be 'Alpha_SMB/cfe/src' -Because 'checkout адресований -TargetRoot, не корню репозиторію'
+
+        $diffCalls = @($allCalls | Where-Object { $_ -contains 'diff' })
+        $diffCalls.Count | Should -BeGreaterThan 0
+        foreach ($d in $diffCalls) {
+            $d[-2] | Should -Be 'Alpha_SMB/src' -Because 'кожен diff звірки відновлення адресований лише двом керованим шляхам'
+            $d[-1] | Should -Be 'Alpha_SMB/cfe/src'
+        }
+    }
+
+    It 'S-J (рев''ю раунду 3, мутаційно): шлях файла повідомлення коміту створюється ПОЗА робочою копією репозиторію' {
+        # Знахідка 4 (рев'ю раунду 3): попередній тест на S-J шукав файл, який `finally`
+        # однаково прибирає, тож асерція "чи лишився файл" не могла впасти в принципі —
+        # виживала і при старій, і при новій поведінці. Тут перехоплюється САМ ШЛЯХ у момент
+        # запису (Set-Content), ДО будь-якого прибирання — якщо хтось поверне
+        # 'build/rename-edt-commit-message.txt' усередині репозиторію, цей тест впаде, бо
+        # порівнює шлях, а не факт видалення файлу пізніше.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sj-mock') -WithGitattributes
+        $dir = Join-Path $repo 'Alpha_SMB/src/Catalogs/Об1'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'Об1.mdo') -Value 'x' -Encoding UTF8
+
+        Mock -ModuleName rename-edt Invoke-KitGitProcess {
+            param($RepoRoot, $Arguments, [string[]]$StdinRecords = @())
+            if ($Arguments -contains 'rev-parse') { return [pscustomobject]@{ ExitCode = 0; Stdout = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; Stderr = '' } }
+            [pscustomobject]@{ ExitCode = 0; Stdout = ''; Stderr = '' }
+        }
+        $script:SjMsgPath = $null
+        Mock -ModuleName rename-edt Set-Content {
+            param($LiteralPath, $Value, $Encoding)
+            $script:SjMsgPath = $LiteralPath
+        }
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' | Out-Null
+
+        $script:SjMsgPath | Should -Not -BeNullOrEmpty -Because 'команда мала дійти до запису повідомлення коміту'
+        $repoFull = (Resolve-Path $repo).Path.TrimEnd('\', '/')
+        $script:SjMsgPath | Should -Not -BeLike "$repoFull*" -Because 'файл повідомлення має створюватись ПОЗА робочою копією репозиторію (S-J), а не в build/ усередині неї'
     }
 }
 
