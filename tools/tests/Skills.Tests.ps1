@@ -76,7 +76,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # Тому тепер: зобов'язання шукається дослівно й ПО ВСЬОМУ тексту скіла (сховати його в
         # інший розділ — можна, не сказати взагалі — ні), а розділ «Межі» додатково мусить бути
         # непорожнім і називати, чого саме kit не робить.
-        $lifecycle = @('onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')
+        $lifecycle = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')
         $gate = '(?:лише на\s+явне\s+прохання|лише за\s+явним\s+проханням)'
         foreach ($name in $lifecycle) {
             $t = Skill $name

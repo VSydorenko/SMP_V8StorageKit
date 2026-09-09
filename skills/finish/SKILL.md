@@ -21,7 +21,7 @@ description: Закрити задачу агента — синхронізув
 2. **Канонізація**: `operation=build` (Unica) → `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" canon -RepoRoot . -Apply`;
    зміни — комітом у `F`.
 3. **Злиття дзеркал у `F`**: для кожного `truth: storage` воркспейсу — `git merge --no-ff storage/<ключ>`
-   (як у `v8storagekit:reconcile`, розділ 2.4–2.5).
+   (як у `v8storagekit:reconcile`, кроки 4–5 розділу 2).
 4. **Звірка `F` зі сховищем**: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . -Ref <F>`.
    Очікувано `ref-ahead` (робота задачі — це й є залишок для сховища) або `equal`; `storage-ahead`/`mixed`
    означає, що крок 3 не завершено.
