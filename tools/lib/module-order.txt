@@ -26,3 +26,4 @@ Authors
 V8
 StorageReport
 StoragePlatform
+EdtPaths
