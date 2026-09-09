@@ -59,6 +59,44 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
             Invoke-TestGit -Repo $Repo -GitArgs @('commit', '-q', '-m', 'gitsync: версія сховища (EDT-дерево)') | Out-Null
             , $bytes
         }
+
+        function script:Add-KitDuringPassPreCommitHook {
+            <#
+            .SYNOPSIS
+                Рецепт рев'ю раунду 4 (пункт C): .git/hooks/pre-commit, який виконує рядки
+                -DuringPassScript — правку "рукою людини" ПІД ЧАС проходу — і завершується
+                кодом -ExitCode (типово 1, тобто ще й валить коміт).
+            .DESCRIPTION
+                Вікно, у якому правка мусить статись, — САМЕ ПРОХІД. Правка, внесена ДО запуску,
+                нічого не доводить: запобіжник 1/4 (брудна робоча копія) зупинить команду ще до
+                першої мутації ("Робоча копія не чиста … Закомітьте або сховайте зміни"), відкіт
+                не настане взагалі, а правка "вціліє" тривіально — тест був би хибно-зеленим.
+                Саме через цю перешкоду раунд 3 вважав тест на стан диску неможливим.
+
+                Хук виконується ВСЕРЕДИНІ вікна мутації (коміт — остання операція проходу), тож
+                запобіжник його не бачить. -ExitCode 1 форсує падіння коміту (перевірка відкоту),
+                -ExitCode 0 лишає прохід успішним (перевірка, що чужу правку не втягнуто в коміт).
+
+                Хук пишеться байтами з LF і без BOM: його виконує sh (Git for Windows), і CRLF
+                чи BOM у шебангу зламали б запуск. Біта виконання Git for Windows на
+                .git/hooks/* не вимагає — перевірено пробою в цій задачі.
+            #>
+            param(
+                [Parameter(Mandatory)][string]$Repo,
+                [Parameter(Mandatory)][string[]]$DuringPassScript,
+                [int]$ExitCode = 1
+            )
+            $hookPath = Join-Path $Repo '.git/hooks/pre-commit'
+            $body = (@('#!/bin/sh') + $DuringPassScript + @("exit $ExitCode", '')) -join "`n"
+            [System.IO.File]::WriteAllText($hookPath, $body, [System.Text.UTF8Encoding]::new($false))
+            $hookPath
+        }
+
+        function script:Get-TestGitStatus {
+            param([Parameter(Mandatory)][string]$Repo)
+            @(Invoke-TestGit -Repo $Repo -GitArgs @('-c', 'core.quotepath=false', 'status', '--porcelain') |
+                ForEach-Object { "$_" } | Where-Object { $_.Trim() -ne '' })
+        }
     }
 
     It 'позитивний шлях: git mv (R, не D+A) на КОЖНОМУ рядку diff-tree, git log --follow безперервний, байти вмісту не чіпаються' {
@@ -284,12 +322,159 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
     # окремому Describe (мок git-шару): наскрізний тест вище (I-E) доводить, що в межах
     # -SourceRelPath/-TargetRoot реальний git відновлює все правильно; те, що САМЕ ЖОДЕН
     # git-виклик команди не є "reset --hard" на весь репозиторій і що виклики відновлення
-    # адресовані лише двом цим шляхам — доводить мок-тест "жоден git-виклик не чіпає нічого
-    # поза -SourceRelPath/-TargetRoot" (нижче, бо потребує перехоплення АРГУМЕНТІВ git-викликів,
-    # а не лише стану диску: наскрізний прогін через підпроцес kit.ps1 не дає це перехопити,
-    # і спроба відтворити "правку під час проходу" через окремий файл у робочій копії
-    # ЗАВЖДИ впирається в запобіжник 1/4 (брудна копія) ще до старту мутації — це НЕ
-    # властивість, яку тест мав довести, тому такий підхід свідомо відкинуто).
+    # адресовані лише двом цим шляхам — доводить мок-тест нижче (потребує перехоплення
+    # АРГУМЕНТІВ git-викликів, чого наскрізний прогін через підпроцес kit.ps1 не дає).
+    #
+    # Раунд 4, пункт C: тут раніше стояв коментар, що тест на СТАН ДИСКУ під час "правки
+    # людини під час проходу" написати не вдається — правка файлом упирається в запобіжник
+    # чистоти. Це СПРОСТОВАНО й прибрано: правку робить .git/hooks/pre-commit ВСЕРЕДИНІ вікна
+    # мутації (Add-KitDuringPassPreCommitHook вище), і той самий хук форсує падіння коміту.
+    # Два тести нижче написані саме так.
+
+    It 'знахідка A (рев''ю раунду 4): ЖИВА форма першої міграції — дерева призначення в HEAD НЕМАЄ; падіння коміту відкочується, правка людини поза піддеревами ціла' {
+        # Фікстура БЕЗ дерев джерела (-NoSourceTrees, знахідка D): рівно та форма, у якій
+        # rename-edt працює на парку — -TargetRoot створює сама команда, тож у $preHeadSha
+        # його немає. Старий безумовний `git checkout <sha> -- <src> <target>` тут відмовляв
+        # АТОМАРНО ("pathspec did not match any file(s) known to git") і не відновлював нічого,
+        # лишаючи репозиторій із застейдженими перейменуваннями (на SMB_ukr_vendor — 17 366).
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live-rollback') -WithGitattributes -NoSourceTrees
+        Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'початковий рядок' -Encoding UTF8
+        Invoke-TestGit -Repo $repo -GitArgs @('add', 'README.md') | Out-Null
+        Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'README поза обома піддеревами') | Out-Null
+        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
+
+        # Передумова тесту, а не декорація: дерева призначення в HEAD справді немає.
+        @(Invoke-TestGit -Repo $repo -GitArgs @('ls-tree', '-r', '--name-only', 'HEAD', '--', 'Alpha_SMB/cfe/src')).Count |
+            Should -Be 0 -Because 'саме цю форму стара фікстура ніколи не створювала'
+
+        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @("printf '%s\n' 'правка людини під час проходу' >> README.md") | Out-Null
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*відкочено*' -Because "відкіт мусить ВІДБУТИСЬ, а не повідомити 'не вдався повністю': $($r.Output)"
+
+        # СТАН ДИСКУ, не текст повідомлення.
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        $status = @(Get-TestGitStatus -Repo $repo)
+        $status.Count | Should -Be 1 -Because "після відкоту в статусі мусить лишитись РІВНО правка людини: $($status -join ' | ')"
+        $status[0] | Should -Be ' M README.md' -Because 'жодного застейдженого перейменування (R) чи видалення (D) лишитись не мало'
+
+        (Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/ОбщегоНазначения.mdo') | Should -Exist
+        [System.IO.File]::ReadAllBytes((Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl')) | Should -Be $originalBytes
+        (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules') | Should -Not -Exist -Because 'дерево призначення, якого до запуску не було, відкіт мусить ПРИБРАТИ, а не відновлювати'
+        (Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw) | Should -BeLike '*правка людини під час проходу*' -Because 'правка поза обома піддеревами — не справа цієї команди'
+    }
+
+    It 'знахідка B (рев''ю раунду 4): файл, який людина git add-нула в піддерево призначення під час проходу, відкіт НЕ видаляє' {
+        # Тут дерево призначення в HEAD Є (типова фікстура) — саме в цій формі старий відкіт
+        # доходив до прибирання й видаляв "усе, чого не було в SHA" через git diff
+        # --diff-filter=A. Під той опис потрапляв і чужий застейджений файл: git rm -f стирав
+        # його з диска Й з індексу, поки команда рапортувала "решта репозиторію не зачеплена".
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human-file-in-target') -WithGitattributes
+        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
+        $humanRel = 'Alpha_SMB/cfe/src/МійВласнийФайл.txt'
+        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @(
+            "mkdir -p 'Alpha_SMB/cfe/src'"
+            "printf '%s\n' 'це файл людини, не kit' > '$humanRel'"
+            "git add -- '$humanRel'"
+        ) | Out-Null
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+
+        (Join-Path $repo $humanRel) | Should -Exist -Because 'команда прибирає рівно власні цілі ($plan.Moves.To), а чужого файлу не знає й не чіпає'
+        (Get-Content -LiteralPath (Join-Path $repo $humanRel) -Raw) | Should -BeLike '*це файл людини*'
+        $r.Output | Should -BeLike '*розбіжність*' -Because 'чужий файл у піддереві — саме та розбіжність, про яку треба ЧЕСНО доповісти, а не прибрати її видаленням'
+
+        # Власне перейменування все одно відкочено: джерело на місці, цілі kit прибрані.
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        [System.IO.File]::ReadAllBytes((Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl')) | Should -Be $originalBytes
+        (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения.xml') | Should -Not -Exist
+    }
+
+    It 'знахідка A.2 (рев''ю раунду 4): команда відновлення з повідомлення СПРАВДІ повертає цей стан — тест її ВИКОНУЄ, а не звіряє рядок' {
+        # Вимога стенду: "воно мусить назвати команду, яка справді повертає ЦЕЙ конкретний стан,
+        # і ця команда мусить бути перевірена тестом, а не просто написана в рядку". Тут — жива
+        # форма (дерева призначення в HEAD немає) плюс чужий застейджений файл у піддереві
+        # призначення: команда чужого не чіпає, тож приймальна перевірка чесно каже "розбіжність"
+        # і друкує, чим її закрити. Тест бере ці рядки З ВИВОДУ, виконує їх і звіряє стан.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'manual-recovery') -WithGitattributes -NoSourceTrees
+        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
+        $humanRel = 'Alpha_SMB/cfe/src/МійВласнийФайл.txt'
+        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @(
+            "mkdir -p 'Alpha_SMB/cfe/src'"
+            "printf '%s\n' 'це файл людини, не kit' > '$humanRel'"
+            "git add -- '$humanRel'"
+        ) | Out-Null
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*HEAD не рухався*' -Because 'людина мусить дізнатись, ЧОМУ стан узагалі відновний'
+        (Join-Path $repo $humanRel) | Should -Exist -Because 'до відновлення чужий файл ще на місці — його прибирає саме підказана команда, і повідомлення про це попереджає'
+
+        # Рядки виду "  git …" з виводу — це і є підказаний рецепт. Виконуємо ДОСЛІВНО.
+        $recipe = @($r.Output -split "`r?`n" |
+            Where-Object { $_.Trim().StartsWith('git ') } |
+            ForEach-Object { ($_ -split '\s+#')[0].Trim() })
+        $recipe.Count | Should -BeGreaterThan 1 -Because "у повідомленні мусить бути рецепт, а не лише діагностика: $($r.Output)"
+        ($recipe -join ' ') | Should -BeLike '*checkout*'
+        ($recipe -join ' ') | Should -BeLike '*rm*'
+        foreach ($line in $recipe) {
+            # Лапки навколо pathspec знімає оболонка; тут знімаємо їх самі, аргументи не склеюючи.
+            $tokens = @($line -split '\s+' | Select-Object -Skip 1 | ForEach-Object { $_.Trim("'") })
+            Invoke-TestGit -Repo $repo -GitArgs $tokens | Out-Null
+        }
+
+        # Властивість: після рецепту репозиторій РІВНО такий, як був до запуску.
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0 -Because 'рецепт мусить закрити всі 192 (на парку — 17 366) застейджені зміни, а не лише показати їх'
+        [System.IO.File]::ReadAllBytes((Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl')) | Should -Be $originalBytes
+        (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules') | Should -Not -Exist
+    }
+
+    It 'знахідка D (рев''ю раунду 4): у ЖИВІЙ формі (дерева призначення в HEAD немає) успішний прохід теж працює' {
+        # Дзеркало тесту вище на щасливому шляху: без нього "-NoSourceTrees" перевіряло б лише
+        # аварійну гілку, і мутант "команда взагалі не вміє цілитись у неіснуюче дерево"
+        # лишився б непоміченим.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live-positive') -WithGitattributes -NoSourceTrees
+        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+
+        (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения.xml') | Should -Exist
+        [System.IO.File]::ReadAllBytes((Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения/Ext/Module.bsl')) | Should -Be $originalBytes
+        @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0
+    }
+
+    It 'знахідка стенду (раунд 4): УСПІШНИЙ прохід не втягує чужу паралельну правку у свій коміт' {
+        # Властивість ніде не була заявлена й нічим не боронена, хоч ціна її втрати висока:
+        # `git commit -a` (чи будь-яке ширше додавання в індекс) мовчки затягнув би у коміт
+        # перейменування чужу НЕЗАВЕРШЕНУ роботу. Стенд перевірив це побічно на живому проході;
+        # тут — прямо. Хук із -ExitCode 0 править README.md поза обома піддеревами САМЕ під час
+        # проходу (перед самим комітом) і НЕ валить його: прохід лишається успішним.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'foreign-edit-not-swept') -WithGitattributes
+        Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'початковий рядок' -Encoding UTF8
+        Invoke-TestGit -Repo $repo -GitArgs @('add', 'README.md') | Out-Null
+        Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'README поза обома піддеревами') | Out-Null
+        Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src' | Out-Null
+        Add-KitDuringPassPreCommitHook -Repo $repo -ExitCode 0 -DuringPassScript @("printf '%s\n' 'чужа правка під час проходу' >> README.md") | Out-Null
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+
+        $committed = @(Invoke-TestGit -Repo $repo -GitArgs @('-c', 'core.quotepath=false', 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD') | ForEach-Object { "$_" })
+        $committed | Should -Not -Contain 'README.md' -Because 'коміт перейменування мусить містити РІВНО власні шляхи — git commit -F без -a саме це й дає'
+        $committed.Count | Should -BeGreaterThan 0
+
+        $status = @(Get-TestGitStatus -Repo $repo)
+        $status.Count | Should -Be 1 -Because "чужа правка мусить лишитись НЕЗАКОМІЧЕНОЮ: $($status -join ' | ')"
+        $status[0] | Should -Be ' M README.md'
+        (Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw) | Should -BeLike '*чужа правка під час проходу*'
+    }
 
     Context 'Step 3а — запобіжник політики тексту (Test-GitTextPolicy на -TargetRoot)' {
         It 'застаріла gitsync .gitattributes (лише *.bin/*.axdt/*.addin binary) — зупинка ДО git mv, жоден файл не переміщено' {
@@ -332,6 +517,63 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/rename-edt.psm1").Path -Force
+
+        # Знахідка D (рев'ю раунду 4): попередні моки віддавали ExitCode = 0 на що завгодно,
+        # тож мок-тести не бачили ЖОДНОГО збою git — а весь відкіт саме про збої. Спільне тіло
+        # моку нижче вміє три речі, яких бракувало:
+        #   $script:GitMockLsTree   — що САМЕ лежить у $preHeadSha під кожним із двох керованих
+        #                             шляхів (порожньо = такого шляху в коміті немає, тобто
+        #                             жива форма першої міграції);
+        #   $script:GitMockFailWhen — ненульовий ExitCode на КОНКРЕТНИЙ виклик;
+        #   $script:GitMockThrowWhen— виняток із самого шару запуску процесу (немає git у PATH,
+        #                             вичерпані дескриптори) — знахідка F.
+        # Тіло створюється тут ОДИН раз і передається в Mock як -MockWith: замикань немає,
+        # усе налаштування — через $script:-змінні, які видно і в It, і всередині моку.
+        $script:GitMockBody = {
+            param($RepoRoot, $Arguments, [string[]]$StdinRecords = @())
+            $argv = @($Arguments)
+            $script:GitMockCalls.Add($argv)
+            if ($null -ne $script:GitMockThrowWhen -and (& $script:GitMockThrowWhen $argv)) {
+                throw "симуляція: git не запустився ($($argv -join ' '))"
+            }
+            if ($argv -contains 'rev-parse') {
+                return [pscustomobject]@{ ExitCode = $script:GitMockHeadExit; Stdout = $script:GitMockHeadSha; Stderr = 'симуляція rev-parse' }
+            }
+            if ($null -ne $script:GitMockFailWhen -and (& $script:GitMockFailWhen $argv)) {
+                return [pscustomobject]@{ ExitCode = 128; Stdout = ''; Stderr = 'симуляція збою git' }
+            }
+            if ($argv -contains 'ls-tree') {
+                $rel = $argv[-1]
+                $entries = @()
+                if ($script:GitMockLsTree.ContainsKey($rel)) { $entries = @($script:GitMockLsTree[$rel]) }
+                # git ls-tree -z ЗАВЕРШУЄ кожен запис NUL — відтворюємо саме це.
+                $payload = ''
+                foreach ($entry in $entries) { $payload += "$entry`0" }
+                return [pscustomobject]@{ ExitCode = 0; Stdout = $payload; Stderr = '' }
+            }
+            [pscustomobject]@{ ExitCode = 0; Stdout = ''; Stderr = '' }
+        }
+
+        function script:Reset-KitGitMockState {
+            <# .SYNOPSIS Типовий стан спільного моку: усе успішне, дерево призначення в HEAD Є. #>
+            param([hashtable]$LsTree)
+            $script:GitMockCalls = [System.Collections.Generic.List[object]]::new()
+            $script:GitMockHeadSha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+            $script:GitMockHeadExit = 0
+            $script:GitMockFailWhen = $null
+            $script:GitMockThrowWhen = $null
+            $script:GitMockLsTree = if ($PSBoundParameters.ContainsKey('LsTree')) { $LsTree } else { @{} }
+        }
+
+        function script:Add-KitMockEdtPair {
+            <# .SYNOPSIS Два звичайні об'єкти A1/A2 під <Repo>/Alpha_SMB/src — два Moves поспіль. #>
+            param([Parameter(Mandatory)][string]$Repo)
+            $catalogsDir = Join-Path $Repo 'Alpha_SMB/src/Catalogs'
+            foreach ($objectName in 'A1', 'A2') {
+                New-Item -ItemType Directory -Force -Path (Join-Path $catalogsDir $objectName) | Out-Null
+                Set-Content -LiteralPath (Join-Path $catalogsDir "$objectName/$objectName.mdo") -Value $objectName -Encoding UTF8
+            }
+        }
     }
 
     It 'git rm для Unmapped-файлу з дужками в імені йде через '':(literal)'' pathspec, не голий glob-шлях' {
@@ -374,27 +616,21 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
         # властивість: тут — що КОМАНДА НІКОЛИ НЕ ПРОСИТЬ git зробити щось поза двома
         # шляхами, там — що в межах цих шляхів реальний git справді відновлює коректно.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'scope-mock') -WithGitattributes
-        $dir = Join-Path $repo 'Alpha_SMB/src/Catalogs'
-        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'A1') | Out-Null
-        New-Item -ItemType Directory -Force -Path (Join-Path $dir 'A2') | Out-Null
-        Set-Content -LiteralPath (Join-Path $dir 'A1/A1.mdo') -Value 'один' -Encoding UTF8
-        Set-Content -LiteralPath (Join-Path $dir 'A2/A2.mdo') -Value 'два' -Encoding UTF8
+        Add-KitMockEdtPair -Repo $repo
 
-        $script:ScopeCalls = [System.Collections.Generic.List[object]]::new()
-        Mock -ModuleName rename-edt Invoke-KitGitProcess {
-            param($RepoRoot, $Arguments, [string[]]$StdinRecords = @())
-            $script:ScopeCalls.Add(@($Arguments))
-            if ($Arguments -contains 'rev-parse') { return [pscustomobject]@{ ExitCode = 0; Stdout = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'; Stderr = '' } }
-            if ($Arguments -contains 'mv' -and ($Arguments -join ' ') -like '*A2.mdo*') {
-                return [pscustomobject]@{ ExitCode = 128; Stdout = ''; Stderr = 'fatal: destination already exists (симуляція)' }
-            }
-            [pscustomobject]@{ ExitCode = 0; Stdout = ''; Stderr = '' }
+        # Дерево призначення в $preHeadSha Є (типова фікстура) — тоді checkout адресується
+        # обом шляхам, і саме цей обсяг перевіряє тест.
+        Reset-KitGitMockState -LsTree @{
+            'Alpha_SMB/src'     = @('Alpha_SMB/src/Catalogs/A1/A1.mdo', 'Alpha_SMB/src/Catalogs/A2/A2.mdo')
+            'Alpha_SMB/cfe/src' = @('Alpha_SMB/cfe/src/Configuration.xml')
         }
+        $script:GitMockFailWhen = { param($argv) $argv -contains 'mv' -and ($argv -join ' ') -like '*A2.mdo*' }
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
 
         $ctx = [pscustomobject]@{ RepoRoot = $repo }
         { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' } | Should -Throw
 
-        $allCalls = @($script:ScopeCalls)
+        $allCalls = @($script:GitMockCalls)
         $allCalls.Count | Should -BeGreaterThan 0
 
         # Головна властивість: "reset" + "--hard" разом БІЛЬШЕ НІКОЛИ не з'являються — це й
@@ -408,10 +644,110 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
 
         $diffCalls = @($allCalls | Where-Object { $_ -contains 'diff' })
         $diffCalls.Count | Should -BeGreaterThan 0
-        foreach ($d in $diffCalls) {
-            $d[-2] | Should -Be 'Alpha_SMB/src' -Because 'кожен diff звірки відновлення адресований лише двом керованим шляхам'
-            $d[-1] | Should -Be 'Alpha_SMB/cfe/src'
+        foreach ($diffCall in $diffCalls) {
+            $diffCall[-2] | Should -Be 'Alpha_SMB/src' -Because 'кожен diff звірки відновлення адресований лише двом керованим шляхам'
+            $diffCall[-1] | Should -Be 'Alpha_SMB/cfe/src'
         }
+
+        # Знахідка A/B (рев'ю раунду 4): ls-tree питає про кожен керований шлях окремо, а
+        # прибирання адресоване рівно цілям власного плану — жодного pathspec поза цими двома
+        # коренями команда git не передає.
+        $lsTreeCalls = @($allCalls | Where-Object { $_ -contains 'ls-tree' })
+        $lsTreeCalls.Count | Should -Be 2 -Because 'про кожен із двох керованих шляхів питаємо окремо'
+        $lsTreeCalls[0][-1] | Should -Be 'Alpha_SMB/src'
+        $lsTreeCalls[1][-1] | Should -Be 'Alpha_SMB/cfe/src'
+        foreach ($rmCall in @($allCalls | Where-Object { $_ -contains 'rm' })) {
+            $rmCall[-1] | Should -BeLike ':(literal)Alpha_SMB/*'
+        }
+    }
+
+    It 'знахідки A.2 і E (рев''ю раунду 4): невдалий checkout — повідомлення називає ТОЧНУ команду відновлення, і косметичне прибирання НЕ виконується' {
+        # Мок віддає ненульовий ExitCode саме на checkout — форма, якої попередні моки не вміли
+        # відтворити взагалі. Дві властивості одразу:
+        #   A.2 — у тексті мусить бути команда, якою людина відновить стан руками (HEAD не
+        #         рухався), а не лише діагностичні git diff/git status;
+        #   E   — Remove-KitEmptyDirectory не мусить спрацювати після ПРОВАЛУ відновлення: саме
+        #         прибраний скелет робив напівмігроване дерево схожим на успішно мігроване.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'restore-fail-mock') -WithGitattributes
+        Add-KitMockEdtPair -Repo $repo
+
+        Reset-KitGitMockState -LsTree @{ 'Alpha_SMB/src' = @('Alpha_SMB/src/Catalogs/A1/A1.mdo', 'Alpha_SMB/src/Catalogs/A2/A2.mdo') }
+        $script:GitMockFailWhen = { param($argv) ($argv -contains 'mv') -or ($argv -contains 'checkout') }
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        $thrown = $null
+        try { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' | Out-Null }
+        catch { $thrown = $_.Exception.Message }
+
+        $thrown | Should -Not -BeNullOrEmpty
+        $thrown | Should -BeLike '*не вдався повністю*'
+        $thrown | Should -BeLike "*git checkout deadbeefdeadbeefdeadbeefdeadbeefdeadbeef -- Alpha_SMB/src*" -Because 'A.2: точна команда відновлення, а не лише git diff/git status'
+        $thrown | Should -BeLike "*git rm -r -f --ignore-unmatch -- ':(literal)Alpha_SMB/cfe/src'*" -Because 'A.2: дерева призначення в коміті не було — його треба ПРИБРАТИ, і команда це називає'
+        $thrown | Should -BeLike '*HEAD не рухався*'
+
+        # E: теку під -TargetRoot створив New-Item у циклі mv; після ПРОВАЛУ відновлення вона
+        # мусить лишитись на місці — саме її зникнення й створювало хибне враження міграції.
+        (Join-Path $repo 'Alpha_SMB/cfe/src/Catalogs') | Should -Exist -Because 'нічого не прибираємо, коли відновлення не вдалося'
+    }
+
+    It 'знахідка F (рев''ю раунду 4): виняток усередині самого відкоту не з''їдає оригінальну причину падіння' {
+        # Invoke-KitGitProcess СТАРТУЄ процес і може кинути (немає git у PATH, вичерпані
+        # дескриптори). До раунду 4 виклики у catch не були обгорнуті, тож людина бачила лише
+        # вторинну помилку — а на 22-хвилинному проході оригінальна причина це єдине свідчення
+        # того, що саме пішло не так.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'rollback-throw-mock') -WithGitattributes
+        Add-KitMockEdtPair -Repo $repo
+
+        Reset-KitGitMockState -LsTree @{ 'Alpha_SMB/src' = @('Alpha_SMB/src/Catalogs/A1/A1.mdo') }
+        $script:GitMockFailWhen = { param($argv) $argv -contains 'mv' -and ($argv -join ' ') -like '*A2.mdo*' }
+        $script:GitMockThrowWhen = { param($argv) $argv -contains 'ls-tree' }
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        $thrown = $null
+        try { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' | Out-Null }
+        catch { $thrown = $_.Exception.Message }
+
+        $thrown | Should -Not -BeNullOrEmpty
+        $thrown | Should -BeLike '*A2.mdo*' -Because 'оригінальна причина падіння мусить дожити до повідомлення'
+        $thrown | Should -BeLike '*сам відкіт кинув виняток*' -Because 'вторинна помилка теж називається, але ПОРУЧ з оригінальною, а не замість неї'
+        $thrown | Should -BeLike '*симуляція: git не запустився*'
+    }
+
+    It 'знахідка G (рев''ю раунду 4): ненульовий код git rev-parse HEAD зупиняє ДО будь-якої мутації' {
+        # Мутант "вирізати перевірку ExitCode" виживав (15/0). Щоб він помер, мок віддає
+        # НЕПОРОЖНІЙ Stdout при коді 1: інакше зупинку зробила б сусідня перевірка на порожній
+        # SHA, і тест нічого не довів би саме про код виходу.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'revparse-code-mock') -WithGitattributes
+        Add-KitMockEdtPair -Repo $repo
+
+        Reset-KitGitMockState
+        $script:GitMockHeadExit = 1
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' } |
+            Should -Throw '*rev-parse HEAD*'
+
+        @($script:GitMockCalls | Where-Object { ($_ -contains 'mv') -or ($_ -contains 'rm') -or ($_ -contains 'commit') }).Count |
+            Should -Be 0 -Because 'зупинка ДО ЄДИНОЇ руйнівної команди, а не після неї'
+    }
+
+    It 'знахідка G (рев''ю раунду 4): порожній SHA при коді виходу 0 зупиняє ДО будь-якої мутації' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'revparse-empty-mock') -WithGitattributes
+        Add-KitMockEdtPair -Repo $repo
+
+        Reset-KitGitMockState
+        $script:GitMockHeadSha = "   `n"
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' } |
+            Should -Throw '*порожній результат*'
+
+        @($script:GitMockCalls | Where-Object { ($_ -contains 'mv') -or ($_ -contains 'rm') -or ($_ -contains 'commit') }).Count |
+            Should -Be 0
     }
 
     It 'S-J (рев''ю раунду 3, мутаційно): шлях файла повідомлення коміту створюється ПОЗА робочою копією репозиторію' {

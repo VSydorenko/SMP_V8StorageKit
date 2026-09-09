@@ -13,6 +13,15 @@ Set-StrictMode -Version Latest
     і Alpha_SMB (EXTENSION, cfe/src, truth: storage, шлях до сховища навмисно неіснуючий).
     -Workspaces переозначує набір; -ManifestText — пише маніфест дослівно замість
     згенерованого (для тестів схеми й розбіжностей).
+
+    -NoSourceTrees: теки source-set'ів НЕ створюються і НЕ наповнюються, тож у першому коміті
+    (і взагалі в HEAD) їх немає — git порожніх тек не зберігає. Це не примха, а ЖИВА форма, якої
+    типова фікстура не описувала й через це маскувала дефект (знахідка D рев'ю раунду 4 задачі
+    B6/3): rename-edt створює дерево призначення САМА, тож на першій міграції реального
+    gitsync-репозиторію -TargetRoot у HEAD не існує. Фікстура ж завжди клала туди
+    Configuration.xml — і `git checkout <sha> -- <SourceRelPath> <TargetRoot>` у відкоті завжди
+    знаходив обидва pathspec'и, хоч на парку відмовляв би атомарно, не відновивши нічого.
+    Тести відкоту rename-edt, які мусять бачити живу форму, беруть саме цей варіант.
 #>
 
 function Invoke-KitFakeGit {
@@ -68,6 +77,7 @@ function New-KitFakeRepo {
         [switch]$WithGitignore,
         [switch]$WithHooks,
         [switch]$WithSessionHook,
+        [switch]$NoSourceTrees,
         [switch]$NoCommit
     )
 
@@ -119,15 +129,17 @@ function New-KitFakeRepo {
         foreach ($set in $ws['Sets']) {
             $proj.Add("  - name: $($set.Name)"); $proj.Add("    type: $($set.Type)"); $proj.Add("    path: '$($set.Path)'")
             $setDir = Join-Path $wsDir $set.Path
-            New-Item -ItemType Directory -Path $setDir -Force | Out-Null
+            if (-not $NoSourceTrees) { New-Item -ItemType Directory -Path $setDir -Force | Out-Null }
             switch ($set.Type) {
                 'CONFIGURATION' {
                     # vendor: дерево лишається порожнім і в git не потрапляє — як у споживача без дампу.
                     $manifest.Add("      $($set.Name): { truth: vendor, dump: { from: dev } }")
                 }
                 'EXTENSION' {
-                    Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
-                        -Value (New-KitFakeConfigurationXml -Name $set.Name)
+                    if (-not $NoSourceTrees) {
+                        Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
+                            -Value (New-KitFakeConfigurationXml -Name $set.Name)
+                    }
                     # Сховище навмисно неіснуюче: тести B1 до сховищ не звертаються, а перший
                     # же запуск sync упаде на «Каталог сховища не знайдено», не діставшись платформи.
                     $storage = Join-Path (Split-Path -Parent $Root) "no-such-storage-$($set.Name)"
@@ -136,7 +148,9 @@ function New-KitFakeRepo {
                     $manifest.Add("        storage: { path: '$storage' }")
                 }
                 'EXTERNAL_DATA_PROCESSORS' {
-                    Set-Content -LiteralPath (Join-Path $setDir 'README.md') -Value 'обробки' -Encoding UTF8
+                    if (-not $NoSourceTrees) {
+                        Set-Content -LiteralPath (Join-Path $setDir 'README.md') -Value 'обробки' -Encoding UTF8
+                    }
                     $manifest.Add("      $($set.Name): { truth: git }")
                 }
             }

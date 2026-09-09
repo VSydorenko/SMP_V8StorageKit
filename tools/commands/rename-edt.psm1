@@ -36,6 +36,37 @@ function Remove-KitEmptyDirectory {
     }
 }
 
+function Get-KitRenameEdtTreePaths {
+    <#
+    .SYNOPSIS
+        Шляхи блобів, що існують у коміті -Sha під -RelPath. Порожній результат означає, що
+        такого шляху в тому коміті НЕМАЄ (git не зберігає порожніх тек, тож "жодного блоба"
+        і "теки не існує" — те саме).
+    .DESCRIPTION
+        Знахідка A (рев'ю раунду 4): відкіт мусить знати це ДО того, як покличе
+        `git checkout <sha> -- <pathspec>`, бо checkout звіряє pathspec з деревом коміта і при
+        неспівпадінні відмовляє АТОМАРНО — не відновивши нічого. Для дерева призначення, яке
+        створює саме ця команда, неспівпадіння — норма першої міграції, а не виняток.
+
+        `git ls-tree` (на відміну від checkout) на pathspec, який нічого не знайшов, не помиляється:
+        порожній вивід, код 0 — перевірено. Другий ужиток того самого виклику — перелік цілей,
+        які в коміті ВЖЕ БУЛИ: їх відкіт щойно відновив, і прибирати їх не можна.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Sha,
+        [Parameter(Mandatory)][string]$RelPath
+    )
+    # -z обов'язкове: імена в деревах 1С кириличні, а записи ділимо самі; -c core.quotepath=false —
+    # правило репозиторію на кожен git-виклик, що друкує шляхи.
+    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', $Sha, '--', $RelPath)
+    if ($r.ExitCode -ne 0) {
+        throw "git ls-tree $Sha -- '$RelPath' завершився з кодом $($r.ExitCode): $($r.Stderr)"
+    }
+    @($r.Stdout -split "`0" | Where-Object { $_ -ne '' })
+}
+
 function Get-KitRenameEdtBoundaryTag {
     <#
     .SYNOPSIS
@@ -107,11 +138,26 @@ function Invoke-KitRenameEdt {
         Відновлення — АДРЕСНЕ (знахідка 1, рев'ю раунду 3), не `git reset --hard` на весь
         репозиторій: перша версія мала обсяг усього робочого каталогу, і відстежений файл,
         змінений людиною поза -SourceRelPath/-TargetRoot ПІД ЧАС проходу (вікно — весь прохід,
-        до ~18 700 підпроцесів, 22 хвилини на живому дереві), зникав безслідно. `git checkout
-        $preHeadSha -- -SourceRelPath -TargetRoot` повертає вміст цих двох піддерев, тоді
-        `git rm` прибирає те, чого в $preHeadSha не було (checkout нічого не видаляє), тоді
-        `git diff --quiet` звіряє, що різниці більше немає — решта репозиторію не торкається
-        жоден із цих викликів.
+        до ~18 700 підпроцесів, 22 хвилини на живому дереві), зникав безслідно.
+
+        Порядок відкоту (переписаний за знахідками A, B, E, F рев'ю раунду 4):
+        1. `git ls-tree` питає, які з двох керованих шляхів узагалі є в $preHeadSha. Це не
+           перестраховка: `git checkout <tree-ish> -- <pathspec>` при неспівпадінні pathspec із
+           деревом коміта відмовляє АТОМАРНО, а -TargetRoot у $preHeadSha НЕ ІСНУЄ — його
+           створює саме ця команда. Безумовний виклик з обома шляхами (як було до раунду 4) у
+           живій формі першої міграції не відновлював НІЧОГО.
+        2. `git checkout $preHeadSha -- <лише наявні шляхи>` повертає вміст того, що існувало.
+        3. Прибирається рівно $plan.Moves.To, окрім цілей, які в $preHeadSha БУЛИ (їх щойно
+           повернув крок 2). Саме власний перелік команди, а не "все, чого не було в SHA" через
+           `git diff --diff-filter=A`: під той опис потрапляв і файл, який ЛЮДИНА встигла
+           `git add` у піддерево призначення під час проходу, — і відкіт стирав його з диска.
+        4. `git diff --quiet` звіряє, що різниці між $preHeadSha і піддеревами більше немає.
+        Косметичне прибирання порожніх тек — ЛИШЕ після успішного кроку 4 (знахідка E): інакше
+        зламаний відкіт додатково прибирав скелет src/, і дерево виглядало мігрованим.
+        Уся ця послідовність — у власному try/catch (знахідка F): Invoke-KitGitProcess стартує
+        процес і може кинути (немає git у PATH, вичерпані дескриптори), а тоді оригінальна
+        причина падіння — єдине свідчення того, що сталось на 22-хвилинному проході, — губилась
+        би за вторинною помилкою.
     .PARAMETER SourceRelPath
         Корінь EDT-дерева відносно кореня репозиторію (напр. 'cf/src', 'cfe/src',
         'SMP_OnlineExchange/src') — корінь EDT-дерева не завжди 'src/' у корені репозиторію.
@@ -305,54 +351,108 @@ function Invoke-KitRenameEdt {
         # ЧАС проходу (вікно — весь прохід, до ~18 700 підпроцесів, 22 хвилини на живому дереві),
         # зникав безслідно. Властивість тепер інша: відкіт торкається ЛИШЕ цих двох піддерев.
         #
-        # "Адресний" підхід (один із двох, які запропонував координатор): git checkout відновлює
-        # вміст усього, що існувало в $preHeadSha під цими двома шляхами (повертає видалені
-        # Unmapped-файли й файли, що встигли переїхати як Moves.From), АЛЕ не прибирає файли,
-        # яких у $preHeadSha не було (checkout ніколи не видаляє — задокументована поведінка
-        # git). Тому крок 2 — прибрати саме такі "нові" файли під обома коренями (типово це
-        # Moves.To, куди git mv встиг перенести вміст): git diff --diff-filter=A відносно
-        # $preHeadSha в межах ТИХ САМИХ ДВОХ шляхів; крок 3 — звірити, що після цього різниці
-        # між $preHeadSha і поточним станом під обома коренями більше немає (git diff --quiet).
+        # Знахідка A (рев'ю раунду 4): checkout більше не викликається безумовно з обома шляхами.
+        # `git checkout <tree-ish> -- <pathspec>` звіряє pathspec із деревом коміта і при
+        # неспівпадінні відмовляє АТОМАРНО, не відновивши НІЧОГО, — а -TargetRoot у $preHeadSha
+        # не існує, бо його створює саме ця команда. Тобто в живій формі ПЕРШОЇ міграції старий
+        # відкіт не спрацьовував узагалі, і на SMB_ukr_vendor репозиторій лишався б із 17 366
+        # застейдженими перейменуваннями. Тести цього не бачили, бо фікстура завжди створювала
+        # дерево призначення в HEAD (виправлено: New-KitFakeRepo -NoSourceTrees).
+        #
+        # Знахідка B (рев'ю раунду 4): прибирається рівно $plan.Moves.To (мінус цілі, що були в
+        # $preHeadSha), а не "все, чого не було в SHA" через git diff --diff-filter=A. Під той
+        # опис потрапляв і файл, який ЛЮДИНА встигла git add у піддерево призначення під час
+        # проходу, — і `git rm -f` стирав його з диска й індексу, поки команда рапортувала
+        # "решта репозиторію не зачеплена". Команда знає власний перелік; виводити його
+        # відніманням не треба.
+        #
+        # Знахідка F (рев'ю раунду 4): весь відкіт — у власному try/catch. Invoke-KitGitProcess
+        # СТАРТУЄ процес і може кинути (немає git у PATH, вичерпані дескриптори); без цього
+        # обгортання оригінальна причина падіння ($failureMessage) губилась би за вторинною
+        # помилкою — на 22-хвилинному проході це втрата єдиного свідчення, що саме пішло не так.
         $failureMessage = $_.Exception.Message
-        $restoreArgs = @('-c', 'core.quotepath=false', 'checkout', $preHeadSha, '--', $SourceRelPath, $TargetRoot)
-        $restore = Invoke-KitGitProcess -RepoRoot $root -Arguments $restoreArgs
         $pruneErrors = [System.Collections.Generic.List[string]]::new()
-        if ($restore.ExitCode -eq 0) {
-            $added = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'diff', '--name-only', '--diff-filter=A', '-z', $preHeadSha, '--', $SourceRelPath, $TargetRoot)
-            if ($added.ExitCode -eq 0) {
-                foreach ($p in @($added.Stdout -split "`0" | Where-Object { $_ -ne '' })) {
-                    $rmBack = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'rm', '-f', '-q', '--', ":(literal)$p")
-                    if ($rmBack.ExitCode -ne 0) { $pruneErrors.Add("git rm -- '$p': код $($rmBack.ExitCode): $($rmBack.Stderr)") }
+        $restorePaths = @()
+        $targetInSha = @()
+        $shaProbed = $false
+        $verifyExitCode = $null
+        try {
+            $sourceInSha = @(Get-KitRenameEdtTreePaths -RepoRoot $root -Sha $preHeadSha -RelPath $SourceRelPath)
+            $targetInSha = @(Get-KitRenameEdtTreePaths -RepoRoot $root -Sha $preHeadSha -RelPath $TargetRoot)
+            $shaProbed = $true
+            if ($sourceInSha.Count -gt 0) { $restorePaths += $SourceRelPath }
+            if ($targetInSha.Count -gt 0) { $restorePaths += $TargetRoot }
+
+            if ($restorePaths.Count -gt 0) {
+                $restore = Invoke-KitGitProcess -RepoRoot $root -Arguments (@('-c', 'core.quotepath=false', 'checkout', $preHeadSha, '--') + $restorePaths)
+                if ($restore.ExitCode -ne 0) {
+                    $pruneErrors.Add("git checkout $preHeadSha -- $($restorePaths -join ' ') завершився з кодом $($restore.ExitCode): $($restore.Stderr)")
                 }
-            } else {
-                $pruneErrors.Add("git diff --diff-filter=A завершився з кодом $($added.ExitCode): $($added.Stderr)")
             }
-        } else {
-            $pruneErrors.Add("git checkout $preHeadSha -- завершився з кодом $($restore.ExitCode): $($restore.Stderr)")
+
+            # checkout ніколи не видаляє (задокументована поведінка git), тож цілі власного плану
+            # прибираємо самі. --ignore-unmatch: до частини Moves цикл git mv просто не дійшов, і
+            # відсутність такої цілі — норма, а не збій. ":(literal)" — C-A (рев'ю раунду 1):
+            # шлях іде як PATHSPEC, і без цього '[', ']', '*', '?' в імені розкрились би глобом.
+            $targetInShaSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$targetInSha, [System.StringComparer]::Ordinal)
+            foreach ($move in $plan.Moves) {
+                if ($targetInShaSet.Contains($move.To)) { continue }
+                $rmBack = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'rm', '-f', '-q', '--ignore-unmatch', '--', ":(literal)$($move.To)")
+                if ($rmBack.ExitCode -ne 0) { $pruneErrors.Add("git rm -- '$($move.To)': код $($rmBack.ExitCode): $($rmBack.Stderr)") }
+            }
+
+            # Приймальна перевірка: обидва піддерева справді повернулись до стану $preHeadSha —
+            # "звірити, що ці два піддерева справді чисті, і доповісти, якщо ні" (вимога координатора).
+            $verify = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'diff', '--quiet', $preHeadSha, '--', $SourceRelPath, $TargetRoot)
+            $verifyExitCode = $verify.ExitCode
+        } catch {
+            $pruneErrors.Add("сам відкіт кинув виняток: $($_.Exception.Message)")
         }
 
-        # Знахідка 7 (рев'ю раунду 3): reset/checkout не прибирають НЕВІДСТЕЖУВАНІ порожні теки —
-        # New-Item вище міг створити частину дерева -TargetRoot, яку відкіт лишає порожньою
-        # скелетом; косметика, але дерево після невдалого проходу виглядає частково мігрованим.
-        # Best-effort, не впливає на throw/verify нижче.
+        # Знахідка A.2 (рев'ю раунду 4): у повідомленні про невдалий відкіт мусить бути ТОЧНА
+        # команда відновлення, а не лише діагностичні git diff/git status. HEAD не рухався —
+        # саме тому ручне відновлення можливе, і саме тому його треба підказати.
+        $manual = [System.Collections.Generic.List[string]]::new()
+        if ($shaProbed) {
+            if ($restorePaths.Count -gt 0) { $manual.Add("  git checkout $preHeadSha -- $($restorePaths -join ' ')") }
+            if ($targetInSha.Count -eq 0) { $manual.Add("  git rm -r -f --ignore-unmatch -- ':(literal)$TargetRoot'") }
+        } else {
+            $manual.Add("  git ls-tree -d $preHeadSha -- '$SourceRelPath' '$TargetRoot'   # які з двох шляхів були в коміті")
+            $manual.Add("  git checkout $preHeadSha -- <лише ті з них, що вивелись вище>")
+            $manual.Add("  git rm -r -f --ignore-unmatch -- ':(literal)$TargetRoot'       # якщо цього шляху в коміті не було")
+        }
+        $manual.Add('  git status')
+        $manualText = "HEAD не рухався ($preHeadSha), коміту не створено — стан відновлюється вручну:`n" + ($manual -join "`n")
+        if (-not $shaProbed -or $targetInSha.Count -eq 0) {
+            $manualText += "`nУВАГА: git rm вище прибирає ВСЕ дерево '$TargetRoot' — якщо ви додали туди власні файли під час проходу, спершу подивіться git status."
+        }
+
+        if ($pruneErrors.Count -gt 0 -or $null -eq $verifyExitCode -or $verifyExitCode -notin 0, 1) {
+            throw ("Перейменування впало ($failureMessage), і адресний відкіт '$SourceRelPath'/'$TargetRoot' до " +
+                   "$preHeadSha ТЕЖ не вдався повністю ($($pruneErrors -join '; ')).`n$manualText")
+        }
+        if ($verifyExitCode -eq 1) {
+            throw ("Перейменування впало ($failureMessage), і після відкату '$SourceRelPath'/'$TargetRoot' до " +
+                   "$preHeadSha досі є розбіжність (git diff $preHeadSha -- $SourceRelPath $TargetRoot показав би, яка; " +
+                   "типова причина — файл, доданий у ці піддерева ззовні під час проходу: команда прибирає лише власні " +
+                   "цілі й чужого не чіпає).`n$manualText")
+        }
+
+        # Знахідка 7 (рев'ю раунду 3): checkout не прибирає НЕВІДСТЕЖУВАНІ порожні теки — New-Item
+        # вище міг створити частину дерева -TargetRoot, яку відкіт лишає порожнім скелетом.
+        # Знахідка E (рев'ю раунду 4): це прибирання стоїть ПІСЛЯ приймальної перевірки і
+        # виконується ЛИШЕ коли відкіт вдався. Раніше воно йшло перед перевіркою і в зламаному
+        # сценарії прибирало скелет src/ — саме це й робило напівмігроване дерево схожим на
+        # успішно мігроване, а враження "щось уже зроблено" штовхає людину на неправильну дію.
         try { Remove-KitEmptyDirectory -Path $sourceFull } catch {}
         try { Remove-KitEmptyDirectory -Path $targetFullRoot } catch {}
 
-        # Приймальна перевірка: обидва піддерева справді повернулись до стану $preHeadSha —
-        # "звірити, що ці два піддерева справді чисті, і доповісти, якщо ні" (вимога координатора).
-        $verify = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'diff', '--quiet', $preHeadSha, '--', $SourceRelPath, $TargetRoot)
-        if ($pruneErrors.Count -gt 0 -or $verify.ExitCode -notin 0, 1) {
-            throw ("Перейменування впало ($failureMessage), і адресний відкіт '$SourceRelPath'/'$TargetRoot' до " +
-                   "$preHeadSha ТЕЖ не вдався повністю ($($pruneErrors -join '; ')) — розберіться вручну: " +
-                   "git diff $preHeadSha -- $SourceRelPath $TargetRoot; git status")
-        }
-        if ($verify.ExitCode -eq 1) {
-            throw ("Перейменування впало ($failureMessage), і після відкату '$SourceRelPath'/'$TargetRoot' до " +
-                   "$preHeadSha досі є розбіжність (git diff $preHeadSha -- $SourceRelPath $TargetRoot показав би, яка) " +
-                   '— розберіться вручну, решта репозиторію не зачеплена.')
-        }
-        throw ("Перейменування впало та відкочено — ЛИШЕ '$SourceRelPath' і '$TargetRoot' повернуто до стану перед " +
-               "запуском (git checkout $preHeadSha --), решта репозиторію не зачеплена: $failureMessage")
+        # Знахідка H (рев'ю раунду 4): формулювання звужене до фактичної гарантії. `reset --hard`
+        # умів повернути й HEAD; `checkout -- <шляхи>` — ні. Практично коміт — остання операція в
+        # try, тож HEAD і не рухається, але обіцяти "стан перед запуском" ширше за те, що робиться.
+        throw ("Перейменування впало та відкочено: вміст '$SourceRelPath' і '$TargetRoot' повернуто до стану коміту " +
+               "$preHeadSha (індекс і робоче дерево цих двох піддерев; HEAD не рухався — коміту не створювалось), " +
+               "решта репозиторію не зачеплена: $failureMessage")
     }
 
     # Знахідка 2 (рев'ю раунду 3): прибирання порожніх тек — ПОЗА try/catch мутації і ПІСЛЯ

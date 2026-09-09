@@ -369,4 +369,42 @@ Describe 'EdtPaths.psm1 — Get-KitEdtRenamePlan: обхід дерева, чо�
         # 1 (Moves) + 1 (Unmapped) + 1 (Unresolved) + 3 (файли колізії) = 6 обійдених файлів.
         (@(Get-ChildItem -LiteralPath (Join-Path $root 'src') -Recurse -File)).Count | Should -Be 6
     }
+
+    It 'знахідка G (рев''ю раунду 4): інваріант обліку ЗУПИНЯЄ, коли внутрішній крок губить файл (мок Group-Object)' {
+        # Чесно про межу цього інваріанта: за ПОТОЧНИМ потоком він тавтологія — кожен обійдений
+        # файл потрапляє рівно в один список, тож на нормальному дереві мутант "вирізати throw"
+        # вижив (89/0, рев'ю раунду 4). Інваріант і замовлено як запобіжник на МАЙБУТНІЙ
+        # рефакторинг: попередня втрата з обліку (18 726 файлів на диску проти 18 721 у плані)
+        # сталась і закрилась ПОБІЧНО, а побічно закрите побічно ж і відкривається.
+        #
+        # Отже й перевіряти треба ту саму форму: мокнути внутрішній крок МІЖ обходом дерева й
+        # чотирма списками — групування кандидатів за ціллю — так, щоб він загубив рівно один
+        # файл, і довести, що план ЗУПИНЯЄТЬСЯ, а не мовчки повертає менше. Мутант "вирізати
+        # throw" на цьому тесті вмирає: винятку немає, $thrown порожній.
+        $root = Join-Path $TestDrive 'invariant-mutation'
+        foreach ($objectName in 'Об1', 'Об2', 'Об3') {
+            $objectDir = Join-Path $root "src/Catalogs/$objectName"
+            New-Item -ItemType Directory -Force -Path $objectDir | Out-Null
+            Set-Content -LiteralPath (Join-Path $objectDir "$objectName.mdo") -Value 'x'
+        }
+
+        # Group-Object приймає кандидатів конвеєром, тож мок викликається по одному на кандидата
+        # ($InputObject). Перший не повертаємо — це й є "внутрішній крок загубив файл".
+        $script:GroupCallCount = 0
+        Mock -ModuleName EdtPaths Group-Object {
+            $script:GroupCallCount++
+            if ($script:GroupCallCount -eq 1) { return }
+            [pscustomobject]@{ Name = $InputObject.To; Count = 1; Group = @($InputObject) }
+        }
+
+        $thrown = $null
+        try { Get-KitEdtRenamePlan -RepoRoot $root -SourceRelPath 'src' -TargetRoot 'Продукт/cfe/src' | Out-Null }
+        catch { $thrown = $_.Exception.Message }
+
+        $script:GroupCallCount | Should -Be 3 -Because 'мок мусив побачити всіх трьох кандидатів — інакше тест доводить не те'
+        $thrown | Should -Not -BeNullOrEmpty -Because 'втрата файлу з обліку — ЗУПИНКА, а не мовчазна розбіжність'
+        $thrown | Should -BeLike '*Інваріант обліку rename-edt порушено*'
+        $thrown | Should -BeLike '*обійдено 3 файл(ів)*'
+        $thrown | Should -BeLike '*Moves=2*'
+    }
 }
