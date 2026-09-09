@@ -5,6 +5,10 @@ Import-Module "$PSScriptRoot/Preflight.psm1"
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 
 $script:BranchPrefix = 'storage/'
+# Get-KitPendingVersions (Task 2, рев'ю п. 9): поріг, після якого зупинка на -FromVersion
+# поза межами звіту показує лише мінімум/максимум, а не повний перелік — клієнтська база
+# із сотнями версій (мотив задачі) інакше друкує рядок на кілька тисяч символів у консоль.
+$script:ManyVersionsThreshold = 20
 
 function Get-KitStorageBranchName {
     [CmdletBinding()]
@@ -255,6 +259,17 @@ function Get-KitPendingVersions {
         найновішу версію звіту, обчислену тут-таки (без другого прогону платформи, який
         знадобився б, щоб спершу дізнатися цей номер окремим прев'ю). Приклад комбінації:
         -FromVersion 5 -MaxVersions 2 = версії 5 і 6.
+
+        Рев'ю Task 2, п. 5: порожній звіт (AllVersions.Count = 0) при LastVersion = $null —
+        легальний стан САМ ПО СОБІ (щойно підключене, ще зовсім порожнє сховище), але якщо
+        при цьому задано -FromVersion/-FromLatest, мовчазне "pending порожній" видало б людині
+        оману "дзеркало синхронне зі сховищем", хоча насправді версії, яку просили, просто
+        нема з чого взяти. Окрема зупинка нижче — до обчислення $effectiveFrom.
+
+        Рев'ю Task 2, п. 9: перелік доступних версій у зупинці ">max" — повний лише поки версій
+        небагато ($script:ManyVersionsThreshold); на сховищі з сотнями версій (мотив усієї
+        задачі) рядок на кілька тисяч символів у консолі — гірше за жодного переліку. Понад
+        поріг — лише мінімум і максимум зі звіту.
     #>
     [CmdletBinding()]
     param(
@@ -279,6 +294,11 @@ function Get-KitPendingVersions {
         }
     }
 
+    if (($FromLatest -or $null -ne $FromVersion) -and $AllVersions.Count -eq 0) {
+        throw ('Звіт сховища порожній (жодної версії) — -FromVersion/-FromLatest нема з чого застосувати: ' +
+               'версії, яку просили, у сховищі немає. Сховище або справді ще порожнє, або тимчасово недоступне.')
+    }
+
     $effectiveFrom = $null
     if ($FromLatest) {
         $effectiveFrom = $max
@@ -287,8 +307,13 @@ function Get-KitPendingVersions {
             throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
         }
         if ($null -ne $max -and $FromVersion -gt $max) {
-            $available = (@($AllVersions | Sort-Object Version | ForEach-Object Version) -join ', ')
-            throw "Версії $FromVersion немає у звіті сховища (максимум $max). Доступні версії: $available."
+            $sortedVersions = @($AllVersions | Sort-Object Version | ForEach-Object Version)
+            $listText = if ($sortedVersions.Count -le $script:ManyVersionsThreshold) {
+                "Доступні версії: $($sortedVersions -join ', ')."
+            } else {
+                "Доступні версії: від $($sortedVersions[0]) до $max ($($sortedVersions.Count) версій)."
+            }
+            throw "Версії $FromVersion немає у звіті сховища (максимум $max). $listText"
         }
         $effectiveFrom = $FromVersion
     }

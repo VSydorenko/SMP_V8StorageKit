@@ -341,6 +341,36 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
             { Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 999 } |
                 Should -Throw '*999*2, 23, 24, 47*'
         }
+        # Рев'ю Task 2, п. 9: на СОТНЯХ версій (мотив усієї задачі) повний перелік — рядок на
+        # кілька тисяч символів у консолі. Понад поріг — лише мінімум/максимум і кількість.
+        It '-FromVersion за межами звіту з БАГАТЬМА версіями — стисле повідомлення (мін/макс, не повний перелік)' {
+            $many = @(1..700 | ForEach-Object { [pscustomobject]@{ Version = $_ } })
+            $thrown = $null
+            try { Get-KitPendingVersions -AllVersions $many -LastVersion $null -FromVersion 999 }
+            catch { $thrown = $_.Exception.Message }
+            $thrown | Should -Not -BeNullOrEmpty
+            $thrown | Should -BeLike '*999*700*від 1 до 700*'
+            # Негативний доказ: без цього асерт вище проходить і на регресії, що просто
+            # ЗАЛИШИЛА повний перелік поруч зі словами "від 1 до 700" — коротка довжина
+            # повідомлення доводить, що переліку 700 чисел там дійсно немає.
+            $thrown.Length | Should -BeLessThan 200
+        }
+
+        # Рев'ю Task 2, п. 5: порожній звіт (сховище зовсім без версій) при порожній гілці —
+        # легальний стан САМ ПО СОБІ, але з -FromVersion/-FromLatest мовчазне "pending порожній"
+        # видало б sync.psm1 текст "Нових версій немає — дзеркало синхронне зі сховищем", хоча
+        # людина просила версію, якої в сховищі взагалі не існує.
+        Context 'порожній звіт (AllVersions = @()) — окрема зупинка для -From*, не мовчазна порожність' {
+            It '-FromVersion на порожньому звіті — зупинка, а не порожній pending' {
+                { Get-KitPendingVersions -AllVersions @() -LastVersion $null -FromVersion 5 } | Should -Throw '*порожній*'
+            }
+            It '-FromLatest на порожньому звіті — та сама зупинка' {
+                { Get-KitPendingVersions -AllVersions @() -LastVersion $null -FromLatest } | Should -Throw '*порожній*'
+            }
+            It 'порожній звіт БЕЗ -From* — і далі законна порожня відповідь (наявна поведінка не змінилась)' {
+                (Get-KitPendingVersions -AllVersions @() -LastVersion $null).Count | Should -Be 0
+            }
+        }
     }
 
     Context 'New-KitStorageCommitMessage' {

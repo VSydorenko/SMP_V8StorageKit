@@ -65,6 +65,19 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r.Output | Should -BeLike '*Каталог сховища не знайдено*'
         $r.Output | Should -Not -BeLike '*secret*'
     }
+
+    # Рев'ю Task 2, п. 8 — наскрізна перевірка прив'язки прапорця через СПРАВЖНІЙ kit.ps1 (не
+    # напряму Invoke-KitSync): та сама пастка, що вже закріплена для kit verify -Version
+    # (Verify.Tests.ps1) — без диспетчерської перевірки типу параметра '-Apply', що йде одразу
+    # після '-FromVersion', мовчки прив'язався б як $true, а [Nullable[int]] звів би це до 1 —
+    # sync тихо реплеїв би "з версії 1" замість штатної зупинки.
+    It '-FromVersion без значення (далі інший прапорець) — зупинка "потребує значення", не мовчазна прив''язка як 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fromversion-novalue') -WithHooks
+        $r = Invoke-Sync -Repo $repo -More @('-FromVersion', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-FromVersion*значення*'
+        Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
+    }
 }
 
 Describe 'kit sync — злиття в головну гілку: гейт -Apply і провал злиття (мок платформи)' {
@@ -378,29 +391,50 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
                 Should -Throw '*999*60, 64, 65*'
             Test-KitBranchExists -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -BeFalse
         }
+
+        # Рев'ю Task 2, п. 5: сховище БЕЗ ЖОДНОЇ версії (не плутати з "порожня гілка" вище —
+        # тут порожній сам ЗВІТ) + -From* — до фіксу sync казав "Нових версій немає — дзеркало
+        # синхронне зі сховищем", хоча версії, яку просили, у сховищі взагалі не існує.
+        It '-FromVersion/-FromLatest на СХОВИЩІ БЕЗ ЖОДНОЇ ВЕРСІЇ — окрема зупинка, не "дзеркало синхронне"' {
+            $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'empty-storage-report')
+            Mock -ModuleName sync Get-StorageVersions { , @() }
+            { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 5 } | Should -Throw '*порожній*'
+            { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromLatest } | Should -Throw '*порожній*'
+        }
     }
 
     Context 'параметри — валідація до звернення до платформи' {
+        # Рев'ю Task 2, п. 3: без мока Get-StorageVersions регресія будь-якого з трьох гардів
+        # пропускає виклик далі — мокнутий New-ExtensionInfobase віддасть фейковий /F, а СПРАВЖНЯ
+        # Get-StorageVersions піде через Invoke-V8Designer у реальну платформу проти неіснуючої
+        # ІБ. Тест урешті впав би, але вже ПІСЛЯ запуску 1cv8.exe — у безплатформному Describe.
+        # Мокаємо всі три платформні виклики так само, як у сусідньому Context вище.
+        BeforeEach {
+            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'версія') }
+        }
+
         It '-FromVersion разом із -FromLatest — зупинка (взаємовиключні), платформа не викликається' {
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'mutex')
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 5 -FromLatest } |
                 Should -Throw '*взаємовиключ*'
             Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
 
         It '-FromVersion 0 — зупинка, платформа не викликається' {
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'zero')
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 0 } | Should -Throw '*додатн*'
             Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
 
         It '-FromVersion від''ємний — зупинка, платформа не викликається' {
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'negative')
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion -3 } | Should -Throw '*додатн*'
             Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
     }
 

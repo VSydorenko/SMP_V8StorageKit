@@ -117,6 +117,30 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*'
     }
 
+    # Рев'ю Task 2, п. 4 — виміряні силуети парку покривають лише глибину 0 (корінь) і 1
+    # (root/X/DT-INF); другий рівень пошуку (root/X/Y/DT-INF) — навмисна страховка з мізерною
+    # вартістю (Get-ChildItem -Directory на кожен level1, не рекурсія у вміст), і досі не мав
+    # ЖОДНОГО тесту. Не зрізати цикл — закріпити його тестом.
+    It 'Task 2а: DT-INF/ на ГЛИБИНІ 2 (root/Продукт/Підтека/DT-INF) — страховий рівень пошуку, підказка та сама' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-depth2')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/DT-INF') -Force | Out-Null
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*DT-INF*v8storagekit:onboarding*'
+    }
+
+    # Рев'ю Task 2, п. 7 — усі тести вище кличуть префлайт БЕЗ -Lenient (шлях throw — це шлях
+    # sync/verify). Крок задачі зветься «check називає форму репозиторію», а check іде саме
+    # через -Lenient, де знахідка має дійти до Findings, а не кинутись винятком.
+    It 'Task 2а: -Lenient (шлях check) — DT-INF-знахідка йде у Findings, а не кидається як виняток' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-lenient')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        New-Item -ItemType Directory -Path (Join-Path $repo 'DT-INF') -Force | Out-Null
+        $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient
+        $ctx.Ok | Should -BeFalse
+        @($ctx.Findings | Where-Object Level -eq 'error').Count | Should -Be 1
+        $ctx.Findings[0].Message | Should -BeLike '*DT-INF*v8storagekit:onboarding*'
+    }
+
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {
         $text = "version: 1`nproduct: Fake`nworkspaces:`n  - path: Ghost`n    sources:`n      g: { truth: git }"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ghost') -ManifestText $text

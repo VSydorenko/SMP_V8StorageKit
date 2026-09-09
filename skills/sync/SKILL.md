@@ -26,20 +26,22 @@ main» / «дзеркала ще немає» / «недоступне». Якщ
 ## 2. Прев'ю
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>]
+pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest]
 ```
 
 Це **не** безкоштовно: команда піднімає тимчасову ІБ у `build/sync/<ключ>/` і запускає платформу,
 щоб прочитати звіт сховища (хвилина-дві, одна ліцензія). Нічого в git не змінює.
 Показує: дзеркало на версії N, у сховищі M версій, перелік до перенесення (номер, дата,
-автор, тема). `-MaxVersions` — для довгого хвоста (перший реплей великого сховища).
+автор, тема). `-MaxVersions` — скільки версій узяти (для довгого хвоста, дозаливка порціями).
+`-FromVersion N`/`-FromLatest` — з якої версії почати ПЕРШИЙ реплей порожньої гілки (друга,
+незалежна вісь); на непорожній гілці — зупинка, бо стан уже в трейлері вершини.
 
 ## 3. Виконання — лише на явне прохання
 
 Дієслово-наказ («перенеси», «синхронізуй», «так, оновлюй») або підтвердження після прев'ю:
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] -Apply
+pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest] -Apply
 ```
 
 Що відбувається: worktree гілки `storage/<ключ>` під `build/sync/<ключ>/wt`, для кожної версії
