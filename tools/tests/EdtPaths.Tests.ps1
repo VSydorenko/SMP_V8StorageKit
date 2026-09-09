@@ -48,34 +48,34 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
 
     It "<Kind>: власний дескриптор <Kind>/Об1/Об1.mdo -> <Kind>/Об1.xml, Kind='<Kind>'" -ForEach $kinds {
         $r = Convert-KitEdtPath -EdtPath "$Kind/Об1/Об1.mdo"
-        $r.DesignerPath | Should -Be "$Kind/Об1.xml" -Because "усі 41+ видів дають той самий дескрипторний шаблон (Reason: $($r.Reason))"
+        $r.DesignerRelPath | Should -Be "$Kind/Об1.xml" -Because "усі 41+ видів дають той самий дескрипторний шаблон (Reason: $($r.Reason))"
         $r.Reason | Should -BeNullOrEmpty
         $r.Kind | Should -Be $Kind
     }
 
     It 'Configuration.mdo -> Configuration.xml (корінь конфігурації, не Configuration/Configuration.xml)' {
         $r = Convert-KitEdtPath -EdtPath 'Configuration/Configuration.mdo'
-        $r.DesignerPath | Should -Be 'Configuration.xml'
+        $r.DesignerRelPath | Should -Be 'Configuration.xml'
         $r.Kind | Should -Be 'Configuration'
     }
 
     It 'корінні модулі Configuration -> Ext з тим самим ім''ям файлу' {
         foreach ($f in 'SessionModule.bsl', 'OrdinaryApplicationModule.bsl', 'ManagedApplicationModule.bsl', 'ExternalConnectionModule.bsl') {
-            (Convert-KitEdtPath -EdtPath "Configuration/$f").DesignerPath | Should -Be "Ext/$f"
+            (Convert-KitEdtPath -EdtPath "Configuration/$f").DesignerRelPath | Should -Be "Ext/$f"
         }
-        (Convert-KitEdtPath -EdtPath 'Configuration/CommandInterface.cmi').DesignerPath | Should -Be 'Ext/CommandInterface.xml'
-        (Convert-KitEdtPath -EdtPath 'Configuration/MainSectionCommandInterface.cmi').DesignerPath | Should -Be 'Ext/MainSectionCommandInterface.xml'
+        (Convert-KitEdtPath -EdtPath 'Configuration/CommandInterface.cmi').DesignerRelPath | Should -Be 'Ext/CommandInterface.xml'
+        (Convert-KitEdtPath -EdtPath 'Configuration/MainSectionCommandInterface.cmi').DesignerRelPath | Should -Be 'Ext/MainSectionCommandInterface.xml'
     }
 
     It 'M-8: .bin/.png/.svg під Configuration/ — Reason посилається на конкретні розділи спеки (Unresolved, реальний вміст — не Unmapped)' {
         $bin = Convert-KitEdtPath -EdtPath 'Configuration/Logo.bin'
-        $bin.DesignerPath | Should -BeNullOrEmpty
+        $bin.DesignerRelPath | Should -BeNullOrEmpty
         $bin.Status | Should -Be 'Unresolved'
         $bin.Reason | Should -BeLike '*§4.5*'
         $bin.Reason | Should -BeLike '*ParentConfigurations.bin*'
 
         $png = Convert-KitEdtPath -EdtPath 'Configuration/Logo.png'
-        $png.DesignerPath | Should -BeNullOrEmpty
+        $png.DesignerRelPath | Should -BeNullOrEmpty
         $png.Status | Should -Be 'Unresolved'
         $png.Reason | Should -BeLike '*§4.4*'
         $png.Reason | Should -BeLike '*Splash*'
@@ -87,38 +87,38 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
     }
 
     It 'форма власника: Form.form/Module.bsl -> Ext/Form.xml, Ext/Form/Module.bsl' {
-        (Convert-KitEdtPath -EdtPath 'Catalogs/Об1/Forms/Форма1/Form.form').DesignerPath | Should -Be 'Catalogs/Об1/Forms/Форма1/Ext/Form.xml'
-        (Convert-KitEdtPath -EdtPath 'Catalogs/Об1/Forms/Форма1/Module.bsl').DesignerPath | Should -Be 'Catalogs/Об1/Forms/Форма1/Ext/Form/Module.bsl'
+        (Convert-KitEdtPath -EdtPath 'Catalogs/Об1/Forms/Форма1/Form.form').DesignerRelPath | Should -Be 'Catalogs/Об1/Forms/Форма1/Ext/Form.xml'
+        (Convert-KitEdtPath -EdtPath 'Catalogs/Об1/Forms/Форма1/Module.bsl').DesignerRelPath | Should -Be 'Catalogs/Об1/Forms/Форма1/Ext/Form/Module.bsl'
     }
 
     It 'фіксовані ролі модулів об''єкта -> Ext з тією самою роллю' {
         foreach ($f in 'ObjectModule.bsl', 'ManagerModule.bsl', 'RecordSetModule.bsl', 'ValueManagerModule.bsl', 'CommandModule.bsl') {
-            (Convert-KitEdtPath -EdtPath "Catalogs/Об1/$f").DesignerPath | Should -Be "Catalogs/Об1/Ext/$f"
+            (Convert-KitEdtPath -EdtPath "Catalogs/Об1/$f").DesignerRelPath | Should -Be "Catalogs/Об1/Ext/$f"
         }
     }
 
     It 'CommonForms — сама є формою: Form.form/Module.bsl -> Ext/Form.xml, Ext/Form/Module.bsl (не Ext/Module.bsl)' {
-        (Convert-KitEdtPath -EdtPath 'CommonForms/Об1/Form.form').DesignerPath | Should -Be 'CommonForms/Об1/Ext/Form.xml'
-        (Convert-KitEdtPath -EdtPath 'CommonForms/Об1/Module.bsl').DesignerPath | Should -Be 'CommonForms/Об1/Ext/Form/Module.bsl'
+        (Convert-KitEdtPath -EdtPath 'CommonForms/Об1/Form.form').DesignerRelPath | Should -Be 'CommonForms/Об1/Ext/Form.xml'
+        (Convert-KitEdtPath -EdtPath 'CommonForms/Об1/Module.bsl').DesignerRelPath | Should -Be 'CommonForms/Об1/Ext/Form/Module.bsl'
     }
 
     It 'CommonModules/WebServices/HTTPServices/IntegrationServices — Module.bsl -> Ext/Module.bsl' {
         foreach ($kind in 'CommonModules', 'WebServices', 'HTTPServices', 'IntegrationServices') {
-            (Convert-KitEdtPath -EdtPath "$kind/Об1/Module.bsl").DesignerPath | Should -Be "$kind/Об1/Ext/Module.bsl"
+            (Convert-KitEdtPath -EdtPath "$kind/Об1/Module.bsl").DesignerRelPath | Should -Be "$kind/Об1/Ext/Module.bsl"
         }
     }
 
     It 'Subsystems — рекурсивна вкладеність (глибина 4 підсистеми) і власний CommandInterface.cmi' {
-        (Convert-KitEdtPath -EdtPath 'Subsystems/A/CommandInterface.cmi').DesignerPath | Should -Be 'Subsystems/A/Ext/CommandInterface.xml'
+        (Convert-KitEdtPath -EdtPath 'Subsystems/A/CommandInterface.cmi').DesignerRelPath | Should -Be 'Subsystems/A/Ext/CommandInterface.xml'
         $deep = 'Subsystems/A/Subsystems/B/Subsystems/C/Subsystems/D/D.mdo'
-        (Convert-KitEdtPath -EdtPath $deep).DesignerPath | Should -Be 'Subsystems/A/Subsystems/B/Subsystems/C/Subsystems/D.xml'
+        (Convert-KitEdtPath -EdtPath $deep).DesignerRelPath | Should -Be 'Subsystems/A/Subsystems/B/Subsystems/C/Subsystems/D.xml'
     }
 
     It 'видо-специфічні розширення: XDTOPackages/.xdto, Roles/Rights.rights, Styles/Style.style, BusinessProcesses/Flowchart.scheme' {
-        (Convert-KitEdtPath -EdtPath 'XDTOPackages/Об1/Об1.xdto').DesignerPath | Should -Be 'XDTOPackages/Об1/Ext/Package.bin'
-        (Convert-KitEdtPath -EdtPath 'Roles/Об1/Rights.rights').DesignerPath | Should -Be 'Roles/Об1/Ext/Rights.xml'
-        (Convert-KitEdtPath -EdtPath 'Styles/Об1/Style.style').DesignerPath | Should -Be 'Styles/Об1/Ext/Style.xml'
-        (Convert-KitEdtPath -EdtPath 'BusinessProcesses/Об1/Flowchart.scheme').DesignerPath | Should -Be 'BusinessProcesses/Об1/Ext/Flowchart.xml'
+        (Convert-KitEdtPath -EdtPath 'XDTOPackages/Об1/Об1.xdto').DesignerRelPath | Should -Be 'XDTOPackages/Об1/Ext/Package.bin'
+        (Convert-KitEdtPath -EdtPath 'Roles/Об1/Rights.rights').DesignerRelPath | Should -Be 'Roles/Об1/Ext/Rights.xml'
+        (Convert-KitEdtPath -EdtPath 'Styles/Об1/Style.style').DesignerRelPath | Should -Be 'Styles/Об1/Ext/Style.xml'
+        (Convert-KitEdtPath -EdtPath 'BusinessProcesses/Об1/Flowchart.scheme').DesignerRelPath | Should -Be 'BusinessProcesses/Об1/Ext/Flowchart.xml'
     }
 
     # Таблиця макетів — ОСТАТОЧНА (координатор, з доказом на кожен рядок; замінює round-1
@@ -131,7 +131,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         @{ Ext = 'htmldoc' } # 1c-config-objects-spec.md §6.4: XML-дескриптор з <Page>
     ) {
         $r = Convert-KitEdtPath -EdtPath "Reports/Об1/Templates/Мак1/Template.$Ext"
-        $r.DesignerPath | Should -Be 'Reports/Об1/Templates/Мак1/Ext/Template.xml'
+        $r.DesignerRelPath | Should -Be 'Reports/Об1/Templates/Мак1/Ext/Template.xml'
         $r.Status | Should -Be 'Mapped'
     }
 
@@ -140,7 +140,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         @{ Ext = 'txt' }
     ) {
         $r = Convert-KitEdtPath -EdtPath "Reports/Об1/Templates/Мак1/Template.$Ext"
-        $r.DesignerPath | Should -Be "Reports/Об1/Templates/Мак1/Ext/Template.$Ext"
+        $r.DesignerRelPath | Should -Be "Reports/Об1/Templates/Мак1/Ext/Template.$Ext"
         $r.Status | Should -Be 'Mapped'
     }
 
@@ -149,7 +149,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         @{ Ext = 'addin' }
     ) {
         $r = Convert-KitEdtPath -EdtPath "Reports/Об1/Templates/Мак1/Template.$Ext"
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unresolved'
         $r.Reason | Should -Not -BeNullOrEmpty
     }
@@ -157,26 +157,26 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
     It 'Templates: сторінка-сателіт (lang.html) за ФОРМОЮ ШЛЯХУ (не видом метаданих) -> Ext/Template/файл, не колізія' {
         # Координатор: правило працює однаково для DataProcessors/ExchangePlans/Catalogs/
         # CommonTemplates/Reports — перевірено на двох різних видах-власниках.
-        (Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Templates/Мак1/ru.html').DesignerPath | Should -Be 'DataProcessors/Об1/Templates/Мак1/Ext/Template/ru.html'
-        (Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Templates/Мак1/uk.html').DesignerPath | Should -Be 'DataProcessors/Об1/Templates/Мак1/Ext/Template/uk.html'
-        (Convert-KitEdtPath -EdtPath 'ExchangePlans/Об1/Templates/Мак1/ru.html').DesignerPath | Should -Be 'ExchangePlans/Об1/Templates/Мак1/Ext/Template/ru.html'
+        (Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Templates/Мак1/ru.html').DesignerRelPath | Should -Be 'DataProcessors/Об1/Templates/Мак1/Ext/Template/ru.html'
+        (Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Templates/Мак1/uk.html').DesignerRelPath | Should -Be 'DataProcessors/Об1/Templates/Мак1/Ext/Template/uk.html'
+        (Convert-KitEdtPath -EdtPath 'ExchangePlans/Об1/Templates/Мак1/ru.html').DesignerRelPath | Should -Be 'ExchangePlans/Об1/Templates/Мак1/Ext/Template/ru.html'
     }
 
     It 'вкладений ресурс макета поза підтвердженою розкладкою (глибше одного рівня, не .html) -> Unresolved' {
         $r = Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Templates/Мак1/Сторінки/Стор1.png'
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unresolved'
         $r.Reason | Should -Not -BeNullOrEmpty
     }
 
     It 'CommonTemplates: та сама таблиця макетів, що для об''єктних Templates/' {
-        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Мак1.mdo').DesignerPath | Should -Be 'CommonTemplates/Мак1.xml'
-        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.mxlx').DesignerPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.xml'
-        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.htmldoc').DesignerPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.xml'
-        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.bin').DesignerPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.bin'
-        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/ru.html').DesignerPath | Should -Be 'CommonTemplates/Мак1/Ext/Template/ru.html'
+        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Мак1.mdo').DesignerRelPath | Should -Be 'CommonTemplates/Мак1.xml'
+        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.mxlx').DesignerRelPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.xml'
+        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.htmldoc').DesignerRelPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.xml'
+        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.bin').DesignerRelPath | Should -Be 'CommonTemplates/Мак1/Ext/Template.bin'
+        (Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/ru.html').DesignerRelPath | Should -Be 'CommonTemplates/Мак1/Ext/Template/ru.html'
         $scheme = Convert-KitEdtPath -EdtPath 'CommonTemplates/Мак1/Template.scheme'
-        $scheme.DesignerPath | Should -BeNullOrEmpty
+        $scheme.DesignerRelPath | Should -BeNullOrEmpty
         $scheme.Status | Should -Be 'Unresolved'
     }
 
@@ -186,23 +186,23 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         $htmldoc = Convert-KitEdtPath -EdtPath 'CommonTemplates/Печать/Template.htmldoc'
         $ru = Convert-KitEdtPath -EdtPath 'CommonTemplates/Печать/ru.html'
         $uk = Convert-KitEdtPath -EdtPath 'CommonTemplates/Печать/uk.html'
-        $paths = @($htmldoc.DesignerPath, $ru.DesignerPath, $uk.DesignerPath)
+        $paths = @($htmldoc.DesignerRelPath, $ru.DesignerRelPath, $uk.DesignerRelPath)
         ($paths | Sort-Object -Unique).Count | Should -Be 3 -Because 'усі три шляхи мають бути РІЗНІ — нуль колізій'
-        $htmldoc.DesignerPath | Should -Be 'CommonTemplates/Печать/Ext/Template.xml'
-        $ru.DesignerPath | Should -Be 'CommonTemplates/Печать/Ext/Template/ru.html'
-        $uk.DesignerPath | Should -Be 'CommonTemplates/Печать/Ext/Template/uk.html'
+        $htmldoc.DesignerRelPath | Should -Be 'CommonTemplates/Печать/Ext/Template.xml'
+        $ru.DesignerRelPath | Should -Be 'CommonTemplates/Печать/Ext/Template/ru.html'
+        $uk.DesignerRelPath | Should -Be 'CommonTemplates/Печать/Ext/Template/uk.html'
     }
 
     It 'вкладені атрибути форми (Attributes/…, dcss/chart/pnrs) -> Unmapped (ЗНАЄМО: вбудовано у Ext/Form.xml, підтверджено координатором окремо)' {
         $r = Convert-KitEdtPath -EdtPath 'Catalogs/Об1/Forms/Форма1/Attributes/Товари/Кількість/УмоваОформлення.dcss'
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unmapped'
         $r.Reason | Should -BeLike '*Ext/Form.xml*'
     }
 
     It 'ScheduledJobs/Schedule.schedule -> Unmapped (ЗНАЄМО: вбудовано у властивість дескриптора)' {
         $r = Convert-KitEdtPath -EdtPath 'ScheduledJobs/Об1/Schedule.schedule'
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unmapped'
         $r.Reason | Should -Not -BeNullOrEmpty
     }
@@ -219,12 +219,12 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
     ) {
         { Convert-KitEdtPath -EdtPath $Path } | Should -Not -Throw
         $r = Convert-KitEdtPath -EdtPath $Path
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unresolved'
         $r.Reason | Should -Not -BeNullOrEmpty
     }
 
-    It 'файл без відповідника (<Path>) -> DesignerPath = $null, Status = Unmapped (ЗНАЄМО, що не потрібне), Reason пояснює, Kind = $null' -ForEach @(
+    It 'файл без відповідника (<Path>) -> DesignerRelPath = $null, Status = Unmapped (ЗНАЄМО, що не потрібне), Reason пояснює, Kind = $null' -ForEach @(
         @{ Path = 'DT-INF/1CV8.dt' }
         @{ Path = '.project' }
         @{ Path = '.settings' }
@@ -234,7 +234,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         @{ Path = 'DumpFilesIndex.txt' }
     ) {
         $r = Convert-KitEdtPath -EdtPath $Path
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unmapped'
         $r.Reason | Should -Not -BeNullOrEmpty
         $r.Kind | Should -BeNullOrEmpty
@@ -242,7 +242,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
 
     It 'невідомий вид метаданих (немає ні в довідниках, ні в парку) -> Unresolved (НЕ ЗНАЄМО, що це — не мовчазне вгадування і не сміття), Kind = $null' {
         $r = Convert-KitEdtPath -EdtPath 'НевідомийВид/Об1/Об1.mdo'
-        $r.DesignerPath | Should -BeNullOrEmpty
+        $r.DesignerRelPath | Should -BeNullOrEmpty
         $r.Status | Should -Be 'Unresolved'
         $r.Reason | Should -BeLike '*невідомий вид*'
         $r.Kind | Should -BeNullOrEmpty
@@ -250,7 +250,7 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
 
     It 'кириличні імена метаданих проходять без спотворення (SMP_OnlineExchange)' {
         $r = Convert-KitEdtPath -EdtPath 'Catalogs/КлиентыИнтернетМагазина/Forms/ФормаЭлемента/Module.bsl'
-        $r.DesignerPath | Should -Be 'Catalogs/КлиентыИнтернетМагазина/Forms/ФормаЭлемента/Ext/Form/Module.bsl'
+        $r.DesignerRelPath | Should -Be 'Catalogs/КлиентыИнтернетМагазина/Forms/ФормаЭлемента/Ext/Form/Module.bsl'
     }
 }
 

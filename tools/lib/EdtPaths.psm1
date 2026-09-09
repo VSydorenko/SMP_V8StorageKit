@@ -18,7 +18,7 @@ Set-StrictMode -Version Latest
 SMP_SimplyConnect) додали ТРЕТІЙ стан результату, окрім "мапиться" й "мапиться, показати
 причину":
 
-  - Mapped     — DesignerPath відомий напевно.
+  - Mapped     — DesignerRelPath відомий напевно.
   - Unmapped   — ЗНАЄМО, що не потрібне (DT-INF/, .project, .settings, квартет; або файл,
                  чий вміст ГАРАНТОВАНО вбудовується деінде — ScheduledJobs Schedule.schedule,
                  умовне оформлення форми). Під -Apply ВИДАЛЯЄТЬСЯ (git rm), показується
@@ -117,31 +117,31 @@ function Get-KitTemplateContentResult {
         чи те саме розширення) або Unresolved (розширення не охарактеризоване жодною стороною).
     .DESCRIPTION
         Повертає результат ВІДНОСНО кореня самого макета (тобто просто "Ext/…", без префіксу
-        об'єкта/CommonTemplates) — виклики самі приклеюють свій префікс до .DesignerPath.
+        об'єкта/CommonTemplates) — виклики самі приклеюють свій префікс до .DesignerRelPath.
     #>
     param([Parameter(Mandatory)][string]$StemFile)
     $ext = ($StemFile -replace '^Template\.', '').ToLowerInvariant()
-    if ($script:TemplateXmlWrappedExtensions -contains $ext) { return New-KitEdtMapped -DesignerPath 'Ext/Template.xml' }
-    if ($script:TemplatePreservedExtensions.ContainsKey($ext)) { return New-KitEdtMapped -DesignerPath "Ext/Template.$($script:TemplatePreservedExtensions[$ext])" }
+    if ($script:TemplateXmlWrappedExtensions -contains $ext) { return New-KitEdtMapped -DesignerRelPath 'Ext/Template.xml' }
+    if ($script:TemplatePreservedExtensions.ContainsKey($ext)) { return New-KitEdtMapped -DesignerRelPath "Ext/Template.$($script:TemplatePreservedExtensions[$ext])" }
     New-KitEdtUnresolved -Reason ("розширення макета '.$ext' не охарактеризоване (перевірено координатором і в парку, і в довідниках Unica — доказу немає в жоден бік); " +
         'відповідність НЕ встановлена свідомо, а не вгадана — рішення за людиною.')
 }
 
 function New-KitEdtMapped {
-    param([Parameter(Mandatory)][string]$DesignerPath)
-    [pscustomobject]@{ DesignerPath = $DesignerPath; Reason = $null; Status = 'Mapped' }
+    param([Parameter(Mandatory)][string]$DesignerRelPath)
+    [pscustomobject]@{ DesignerRelPath = $DesignerRelPath; Reason = $null; Status = 'Mapped' }
 }
 
 function New-KitEdtUnmapped {
     <# .SYNOPSIS ЗНАЄМО, що не потрібне — під -Apply видаляється (git rm). #>
     param([Parameter(Mandatory)][string]$Reason)
-    [pscustomobject]@{ DesignerPath = $null; Reason = $Reason; Status = 'Unmapped' }
+    [pscustomobject]@{ DesignerRelPath = $null; Reason = $Reason; Status = 'Unmapped' }
 }
 
 function New-KitEdtUnresolved {
     <# .SYNOPSIS НЕ ЗНАЄМО, що це — ніколи не видаляється, лишається на місці. #>
     param([Parameter(Mandatory)][string]$Reason)
-    [pscustomobject]@{ DesignerPath = $null; Reason = $Reason; Status = 'Unresolved' }
+    [pscustomobject]@{ DesignerRelPath = $null; Reason = $Reason; Status = 'Unresolved' }
 }
 
 function Convert-KitConfigurationTail {
@@ -150,14 +150,14 @@ function Convert-KitConfigurationTail {
 
     if ($Tail.Count -eq 1) {
         $f = $Tail[0]
-        if ($f -match '\.mdo$') { return New-KitEdtMapped -DesignerPath 'Configuration.xml' }
+        if ($f -match '\.mdo$') { return New-KitEdtMapped -DesignerRelPath 'Configuration.xml' }
         if ($f -match '^(SessionModule|OrdinaryApplicationModule|ManagedApplicationModule|ExternalConnectionModule)\.bsl$') {
-            return New-KitEdtMapped -DesignerPath "Ext/$f"
+            return New-KitEdtMapped -DesignerRelPath "Ext/$f"
         }
-        if ($f -eq 'CommandInterface.cmi') { return New-KitEdtMapped -DesignerPath 'Ext/CommandInterface.xml' }
-        if ($f -eq 'MainSectionCommandInterface.cmi') { return New-KitEdtMapped -DesignerPath 'Ext/MainSectionCommandInterface.xml' }
-        if ($f -match '\.hpwa$') { return New-KitEdtMapped -DesignerPath 'Ext/HomePageWorkArea.xml' }
-        if ($f -match '\.cai$') { return New-KitEdtMapped -DesignerPath 'Ext/ClientApplicationInterface.xml' }
+        if ($f -eq 'CommandInterface.cmi') { return New-KitEdtMapped -DesignerRelPath 'Ext/CommandInterface.xml' }
+        if ($f -eq 'MainSectionCommandInterface.cmi') { return New-KitEdtMapped -DesignerRelPath 'Ext/MainSectionCommandInterface.xml' }
+        if ($f -match '\.hpwa$') { return New-KitEdtMapped -DesignerRelPath 'Ext/HomePageWorkArea.xml' }
+        if ($f -match '\.cai$') { return New-KitEdtMapped -DesignerRelPath 'Ext/ClientApplicationInterface.xml' }
         # M-8 (рев'ю раунду 1): для .bin/.png/.svg ДЖЕРЕЛО є (1c-configuration-spec.md §4.4/§4.5) —
         # просто невідомо, який САМЕ із задокументованих файлів цей конкретний EDT-файл; це РЕАЛЬНИЙ
         # вміст (заставка, підпис постачальника), не сміття — Unresolved, не Unmapped.
@@ -173,7 +173,7 @@ function Convert-KitConfigurationTail {
         return New-KitEdtUnresolved -Reason "невідомий корінний файл конфігурації 'Configuration/$f' — конвенція Designer для цього розширення не підтверджена жодним джерелом (park-edt-shapes.txt, довідники Unica); звірте вручну."
     }
     if ($Tail.Count -ge 2 -and $Tail[0] -eq 'Help') {
-        return New-KitEdtMapped -DesignerPath ('Ext/' + ($Tail -join '/'))
+        return New-KitEdtMapped -DesignerRelPath ('Ext/' + ($Tail -join '/'))
     }
     return New-KitEdtUnresolved -Reason "неочікувана структура під 'Configuration/': '$($Tail -join '/')' — немає в жодному виміряному чи задокументованому шаблоні."
 }
@@ -188,10 +188,10 @@ function Convert-KitSubsystemsTail {
     # на однoелементному масиві кидає "Index was outside the bounds of the array", а не $null).
     if ($Tail.Count -eq 1) { return New-KitEdtUnresolved -Reason "файл 'Subsystems/$($Tail[0])' лежить прямо під видом, без теки підсистеми — не відповідає жодному відомому шаблону." }
     $name = $Tail[0]
-    if ($Tail.Count -eq 2 -and $Tail[1] -eq "$name.mdo") { return New-KitEdtMapped -DesignerPath "Subsystems/$name.xml" }
-    if ($Tail.Count -eq 2 -and $Tail[1] -eq 'CommandInterface.cmi') { return New-KitEdtMapped -DesignerPath "Subsystems/$name/Ext/CommandInterface.xml" }
+    if ($Tail.Count -eq 2 -and $Tail[1] -eq "$name.mdo") { return New-KitEdtMapped -DesignerRelPath "Subsystems/$name.xml" }
+    if ($Tail.Count -eq 2 -and $Tail[1] -eq 'CommandInterface.cmi') { return New-KitEdtMapped -DesignerRelPath "Subsystems/$name/Ext/CommandInterface.xml" }
     if ($Tail[1] -eq 'Help') {
-        return New-KitEdtMapped -DesignerPath ("Subsystems/$name/Ext/" + ((Get-KitTailFrom -Segments $Tail -From 1) -join '/'))
+        return New-KitEdtMapped -DesignerRelPath ("Subsystems/$name/Ext/" + ((Get-KitTailFrom -Segments $Tail -From 1) -join '/'))
     }
     if ($Tail[1] -eq 'Subsystems') {
         # Tail[1] — сам літеральний маркер вкладеності "Subsystems", не ім'я дочірньої
@@ -205,8 +205,8 @@ function Convert-KitSubsystemsTail {
         # нижче кидає "argument is null" замість штатного порожнього/однoелементного хвоста.
         $childTail = @(Get-KitTailFrom -Segments $Tail -From 2)
         $child = Convert-KitSubsystemsTail -Tail $childTail
-        if ($null -eq $child.DesignerPath) { return $child }
-        return New-KitEdtMapped -DesignerPath "Subsystems/$name/$($child.DesignerPath)"
+        if ($null -eq $child.DesignerRelPath) { return $child }
+        return New-KitEdtMapped -DesignerRelPath "Subsystems/$name/$($child.DesignerRelPath)"
     }
     return New-KitEdtUnresolved -Reason "неочікувана структура під 'Subsystems/$name/': '$((Get-KitTailFrom -Segments $Tail -From 1) -join '/')'."
 }
@@ -215,9 +215,9 @@ function Convert-KitFormTail {
     <# .SYNOPSIS Хвіст УСЕРЕДИНІ "Forms/<Ім'я>/…" одного об'єкта-власника (не CommonForms — той сам є формою). #>
     param([Parameter(Mandatory)][string]$KindObjectPrefix, [Parameter(Mandatory)][string]$FormName, [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Rest)
 
-    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'Form.form') { return New-KitEdtMapped -DesignerPath "$KindObjectPrefix/Forms/$FormName/Ext/Form.xml" }
-    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'Module.bsl') { return New-KitEdtMapped -DesignerPath "$KindObjectPrefix/Forms/$FormName/Ext/Form/Module.bsl" }
-    if ($Rest.Count -ge 1 -and $Rest[0] -eq 'Help') { return New-KitEdtMapped -DesignerPath ("$KindObjectPrefix/Forms/$FormName/Ext/" + ($Rest -join '/')) }
+    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'Form.form') { return New-KitEdtMapped -DesignerRelPath "$KindObjectPrefix/Forms/$FormName/Ext/Form.xml" }
+    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'Module.bsl') { return New-KitEdtMapped -DesignerRelPath "$KindObjectPrefix/Forms/$FormName/Ext/Form/Module.bsl" }
+    if ($Rest.Count -ge 1 -and $Rest[0] -eq 'Help') { return New-KitEdtMapped -DesignerRelPath ("$KindObjectPrefix/Forms/$FormName/Ext/" + ($Rest -join '/')) }
     if ($Rest.Count -ge 1 -and $Rest[0] -eq 'Attributes') {
         # Unmapped, НЕ Unresolved (підтверджено координатором окремо: "2016 файлів Attributes/…
         # правильно віднесені до Unmapped") — ЗНАЄМО, що вбудовується в Ext/Form.xml форми,
@@ -251,11 +251,11 @@ function Convert-KitTemplateFolderTail {
 
     if ($Rest.Count -eq 1 -and $Rest[0] -match '^Template\.[^/]+$') {
         $content = Get-KitTemplateContentResult -StemFile $Rest[0]
-        if ($null -eq $content.DesignerPath) { return $content }
-        return New-KitEdtMapped -DesignerPath "$TemplateRoot/$($content.DesignerPath)"
+        if ($null -eq $content.DesignerRelPath) { return $content }
+        return New-KitEdtMapped -DesignerRelPath "$TemplateRoot/$($content.DesignerRelPath)"
     }
-    if ($Rest.Count -ge 1 -and $Rest[0] -eq 'Help') { return New-KitEdtMapped -DesignerPath ("$TemplateRoot/Ext/" + ($Rest -join '/')) }
-    if ($Rest.Count -eq 1 -and $Rest[0] -match '\.html$') { return New-KitEdtMapped -DesignerPath "$TemplateRoot/Ext/Template/$($Rest[0])" }
+    if ($Rest.Count -ge 1 -and $Rest[0] -eq 'Help') { return New-KitEdtMapped -DesignerRelPath ("$TemplateRoot/Ext/" + ($Rest -join '/')) }
+    if ($Rest.Count -eq 1 -and $Rest[0] -match '\.html$') { return New-KitEdtMapped -DesignerRelPath "$TemplateRoot/Ext/Template/$($Rest[0])" }
     return New-KitEdtUnresolved -Reason "файл макета поза підтвердженою розкладкою ('$($Rest -join '/')') — конвенція Designer для нього не встановлена (ні виміряним парком, ні довідниками)."
 }
 
@@ -263,7 +263,7 @@ function Convert-KitCommandTail {
     <# .SYNOPSIS Хвіст усередині "Commands/<Ім'я>/…" одного об'єкта-власника. #>
     param([Parameter(Mandatory)][string]$KindObjectPrefix, [Parameter(Mandatory)][string]$CommandName, [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Rest)
 
-    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'CommandModule.bsl') { return New-KitEdtMapped -DesignerPath "$KindObjectPrefix/Commands/$CommandName/Ext/CommandModule.bsl" }
+    if ($Rest.Count -eq 1 -and $Rest[0] -eq 'CommandModule.bsl') { return New-KitEdtMapped -DesignerRelPath "$KindObjectPrefix/Commands/$CommandName/Ext/CommandModule.bsl" }
     return New-KitEdtUnresolved -Reason "файл усередині команди поза відомою розкладкою ('$($Rest -join '/')')."
 }
 
@@ -286,28 +286,28 @@ function Convert-KitObjectTail {
     $prefix = "$Kind/$name"
 
     # 1) Власний дескриптор об'єкта — однаково для КОЖНОГО виду (Каталог: X/. Файлы: <Имя>.xml).
-    if ($Tail.Count -eq 2 -and $Tail[1] -eq "$name.mdo") { return New-KitEdtMapped -DesignerPath "$Kind/$name.xml" }
+    if ($Tail.Count -eq 2 -and $Tail[1] -eq "$name.mdo") { return New-KitEdtMapped -DesignerRelPath "$Kind/$name.xml" }
 
     # 2) Видо-специфічні розширення однофайлового вмісту (перевіряються ДО генеричних правил,
     #    бо міняють і назву, і розширення файла — не просто додають "Ext/").
     if ($Tail.Count -eq 2) {
         switch ($Kind) {
-            'CommonPictures' { if ($Tail[1] -ne "$name.mdo") { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Picture/$($Tail[1])" } }
+            'CommonPictures' { if ($Tail[1] -ne "$name.mdo") { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Picture/$($Tail[1])" } }
             'CommonTemplates' {
                 # CommonTemplates САМА є текою макета (без проміжного "Templates/<Ім'я>/") —
                 # той самий Convert-KitTemplateFolderTail, що для об'єктних макетів.
                 return Convert-KitTemplateFolderTail -TemplateRoot $prefix -Rest @($Tail[1])
             }
             'CommonForms' {
-                if ($Tail[1] -eq 'Form.form') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Form.xml" }
-                if ($Tail[1] -eq 'Module.bsl') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Form/Module.bsl" }
+                if ($Tail[1] -eq 'Form.form') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Form.xml" }
+                if ($Tail[1] -eq 'Module.bsl') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Form/Module.bsl" }
             }
-            'XDTOPackages' { if ($Tail[1] -match '\.xdto$') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Package.bin" } }
-            'Roles' { if ($Tail[1] -eq 'Rights.rights') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Rights.xml" } }
-            'Styles' { if ($Tail[1] -eq 'Style.style') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Style.xml" } }
-            'BusinessProcesses' { if ($Tail[1] -eq 'Flowchart.scheme') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Flowchart.xml" } }
+            'XDTOPackages' { if ($Tail[1] -match '\.xdto$') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Package.bin" } }
+            'Roles' { if ($Tail[1] -eq 'Rights.rights') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Rights.xml" } }
+            'Styles' { if ($Tail[1] -eq 'Style.style') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Style.xml" } }
+            'BusinessProcesses' { if ($Tail[1] -eq 'Flowchart.scheme') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Flowchart.xml" } }
             'WSReferences' {
-                if ($Tail[1] -match '\.wsdl$') { return New-KitEdtMapped -DesignerPath "$prefix/Ext/WSDefinition.wsdl" }
+                if ($Tail[1] -match '\.wsdl$') { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/WSDefinition.wsdl" }
                 if ($Tail[1] -ne "$name.mdo") { return New-KitEdtUnresolved -Reason "нестандартний файл WS-посилання ('$($Tail[1])') — конвенція Designer для цього розширення (напр. вкладена XSD-схема) не підтверджена жодним джерелом." }
             }
             'ScheduledJobs' {
@@ -322,12 +322,12 @@ function Convert-KitObjectTail {
 
     # 3) П'ять фіксованих імен модулів об'єкта — Kind/Ім'я/<Файл>.bsl → Kind/Ім'я/Ext/<Файл>.bsl.
     if ($Tail.Count -eq 2 -and $script:FixedRoleModuleFiles -contains $Tail[1]) {
-        return New-KitEdtMapped -DesignerPath "$prefix/Ext/$($Tail[1])"
+        return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/$($Tail[1])"
     }
     # 3а) "Module.bsl" — фіксоване ім'я, але Designer-ціль залежить від виду (CommonForms
     #     розібраний вище окремо; тут — лише прості випадки "Ext/Module.bsl").
     if ($Tail.Count -eq 2 -and $Tail[1] -eq 'Module.bsl') {
-        if ($script:PlainModuleKinds -contains $Kind) { return New-KitEdtMapped -DesignerPath "$prefix/Ext/Module.bsl" }
+        if ($script:PlainModuleKinds -contains $Kind) { return New-KitEdtMapped -DesignerRelPath "$prefix/Ext/Module.bsl" }
         return New-KitEdtUnresolved -Reason "'Module.bsl' для виду '$Kind' не відповідає жодному відомому шаблону модуля."
     }
 
@@ -348,7 +348,7 @@ function Convert-KitObjectTail {
         return Convert-KitCommandTail -KindObjectPrefix $prefix -CommandName $Tail[2] -Rest @(Get-KitTailFrom -Segments $Tail -From 3)
     }
     if ($Tail[1] -eq 'Help') {
-        return New-KitEdtMapped -DesignerPath ("$prefix/Ext/" + ((Get-KitTailFrom -Segments $Tail -From 1) -join '/'))
+        return New-KitEdtMapped -DesignerRelPath ("$prefix/Ext/" + ((Get-KitTailFrom -Segments $Tail -From 1) -join '/'))
     }
 
     return New-KitEdtUnresolved -Reason "неочікувана структура об'єкта '$prefix/': '$((Get-KitTailFrom -Segments $Tail -From 1) -join '/')' — немає в жодному виміряному чи задокументованому шаблоні."
@@ -357,8 +357,9 @@ function Convert-KitObjectTail {
 function Convert-KitEdtPath {
     <#
     .SYNOPSIS
-        EDT-шлях (відносно кореня EDT-дерева, "/"- чи "\"-роздільник) → Designer-шлях
-        (відносно того самого кореня), або $null із поясненням (Reason) і станом (Status).
+        EDT-шлях (відносно кореня EDT-дерева, "/"- чи "\"-роздільник) → ХВІСТ Designer-шляху
+        (поле DesignerRelPath, теж відносно того самого кореня — НЕ повний Designer-шлях),
+        або $null із поясненням (Reason) і станом (Status).
     .DESCRIPTION
         Чиста функція — жодного диска, жодного git. Хвіст мапиться лише за структурою
         сегментів шляху; кириличні імена проходять як звичайні рядки .NET, без
@@ -369,13 +370,21 @@ function Convert-KitEdtPath {
         docs/superpowers/plans/2026-09-03-B6-migrate.md). Результат несе `Kind` — розпізнаний
         вид метаданих (перший сегмент шляху), або $null, коли шлях узагалі не належить
         жодному відомому виду. `-TargetRoot` із плану НЕ додано сюди навмисно — див.
-        task-3-report.md, розділ I-F, чому саме.
+        task-3-report.md, розділ I-F, чому саме: функція не знає й не має знати про
+        розкладку воркспейсу (§2.3: `cfe/src` / `cfe/<Ім'я>/src` / `cf/src`), лише
+        `Get-KitEdtRenamePlan` бере `-TargetRoot` від викликача й приклеює його.
 
-        `Status`: 'Mapped' (DesignerPath відомий), 'Unmapped' (ЗНАЄМО, що не потрібне —
+        Саме тому поле зветься `DesignerRelPath`, не `DesignerPath` (рев'ю раунду 1,
+        друге уточнення контролера після I-F): це лише ХВІСТ — шлях ВІДНОСНО кореня
+        EDT-дерева, який `Get-KitEdtRenamePlan` конкатенує з `-TargetRoot`, щоб отримати
+        повний Designer-шлях (`Moves[].To`). Читати `DesignerRelPath` як самодостатній
+        повний шлях — саме той тихий трап, від якого перейменування захищає.
+
+        `Status`: 'Mapped' (DesignerRelPath відомий), 'Unmapped' (ЗНАЄМО, що не потрібне —
         видаляється під -Apply), 'Unresolved' (НЕ ЗНАЄМО, що це — НІКОЛИ не видаляється).
     .EXAMPLE
         Convert-KitEdtPath -EdtPath 'Catalogs/Контрагенты/Контрагенты.mdo'
-        # DesignerPath = 'Catalogs/Контрагенты.xml'; Kind = 'Catalogs'; Status = 'Mapped'
+        # DesignerRelPath = 'Catalogs/Контрагенты.xml' (ХВІСТ, не повний шлях); Kind = 'Catalogs'; Status = 'Mapped'
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$EdtPath)
@@ -383,13 +392,13 @@ function Convert-KitEdtPath {
     $norm = ($EdtPath -replace '\\', '/').Trim('/')
     if ([string]::IsNullOrWhiteSpace($norm)) {
         $r = New-KitEdtUnresolved -Reason 'порожній шлях.'
-        return [pscustomobject]@{ DesignerPath = $r.DesignerPath; Kind = $null; Reason = $r.Reason; Status = $r.Status }
+        return [pscustomobject]@{ DesignerRelPath = $r.DesignerRelPath; Kind = $null; Reason = $r.Reason; Status = $r.Status }
     }
     $segments = @($norm -split '/')
 
     if ($script:UnmappedTopLevel.ContainsKey($segments[0])) {
         $r = New-KitEdtUnmapped -Reason $script:UnmappedTopLevel[$segments[0]]
-        return [pscustomobject]@{ DesignerPath = $r.DesignerPath; Kind = $null; Reason = $r.Reason; Status = $r.Status }
+        return [pscustomobject]@{ DesignerRelPath = $r.DesignerRelPath; Kind = $null; Reason = $r.Reason; Status = $r.Status }
     }
 
     $kind = $segments[0]
@@ -414,7 +423,7 @@ function Convert-KitEdtPath {
     # перший сегмент шляху, навіть якщо результат не Mapped (напр. ScheduledJobs/.../Schedule.schedule
     # — вид відомий, файл усередині нього просто не має Designer-відповідника).
     $kindForResult = if ($kind -eq 'Configuration' -or $kind -eq 'Subsystems' -or $script:KnownKinds -contains $kind) { $kind } else { $null }
-    [pscustomobject]@{ DesignerPath = $result.DesignerPath; Kind = $kindForResult; Reason = $result.Reason; Status = $result.Status }
+    [pscustomobject]@{ DesignerRelPath = $result.DesignerRelPath; Kind = $kindForResult; Reason = $result.Reason; Status = $result.Status }
 }
 
 function Get-KitEdtRenamePlan {
@@ -473,12 +482,12 @@ function Get-KitEdtRenamePlan {
     foreach ($tail in $files) {
         $result = Convert-KitEdtPath -EdtPath $tail
         $srcRel = "$sourcePrefix/$tail"
-        if ($null -eq $result.DesignerPath) {
+        if ($null -eq $result.DesignerRelPath) {
             $entry = [pscustomobject]@{ From = $srcRel; Reason = $result.Reason }
             if ($result.Status -eq 'Unresolved') { $unresolved.Add($entry) } else { $unmapped.Add($entry) }
             continue
         }
-        $targetRel = "$targetPrefix/$($result.DesignerPath)"
+        $targetRel = "$targetPrefix/$($result.DesignerRelPath)"
         $moveCandidates.Add([pscustomobject]@{ From = $srcRel; To = $targetRel; Kind = $result.Kind })
     }
 
