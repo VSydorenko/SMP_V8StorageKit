@@ -35,6 +35,13 @@
 | A5 | Applied-операції класифіковані (ADR-0074) і **виконуються** з названим ризиком | увесь новий потік збірки | див. B8 — проза в `references/` цьому суперечить |
 | A6 | `v8project.local.yaml` **перекриває** `infobase` із закоміченого `v8project.yaml` | через це дев-база не може лежати під `infobase:` — конвенція kit `devInfobase:` | покласти `infobase.connection` в local overlay і подивитись, яка база виграла в `dryRun`-прев'ю |
 | A7 | Відносні шляхи (`workPath`, **infobase file paths**, source-set) розв'язуються від каталогу головного конфіга | `connection: 'File=build/ib'` дає `<Продукт>/build/ib` | `dryRun`-прев'ю показує абсолютний шлях бази |
+| A8 | шлях source-set поза workspace root відхиляється (`source_set.path_unsafe`, `ready=false`) — спільний `epf/` мусить бути власним воркспейсом | розкладка §2.1 спеки agent-contour | `source_roots.rs:145-168`, `layout.rs:1012-1024`; спроба `../epf/src` дає `ready=false` |
+| A9 | корінь воркспейсу = найближчий предок `cwd` з `v8project.yaml`; `config` кореня не міняє; кеш у `<корінь>/.build/unica` | `cwd` для Unica — тека воркспейсу; три теки `build` з різними власниками | `workspace.rs:21-44` |
+| A10 | `operation=init` не приймає шаблон/`.dt` (лише `operation, config, workdir`) | база агента з `.dt` — `kit provision` через платформу | `tool_contracts.rs:561` |
+| A11 | `project.status` бере `.gitattributes`/`.gitignore` від кореня git-репо через `check-attr --cached`/`check-ignore` | політики git під фактичні шляхи (§2.6) видно Уніці з кореня репо | `git.rs:786-799`, `resources.rs:573-583` |
+
+A8–A11 додано 2026-09 зі спеки agent-contour §11 (дослідницький воркфлоу
+2026-09-02..03); джерела — звіт `unica_companion`, не власне читання Rust.
 
 **A6 докладніше**, бо на ньому побудована конвенція `devInfobase:`. Документація каже це
 у трьох місцях: `references/tooling/v8project.md:75-78` («may override local-only

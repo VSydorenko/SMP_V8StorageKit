@@ -1,6 +1,14 @@
 #Requires -Version 7
 Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, шар 2)' {
     BeforeAll {
+        # Знахідка рев'ю Task 1 B5, підтверджена й полагоджена в Task 6 (Step 6б): цей файл —
+        # єдиний, де асерт покладається на кирилицю у виводі ДОЧІРНЬОГО процесу (git merge через
+        # pre-merge-commit, рядок 74 нижче). UTF-8 для читання цього виводу виставляє лише
+        # Run-Tests.ps1 (рядки 25-26) — голий Invoke-Pester успадковує кодову сторінку консолі
+        # (866 на цій машині типово) і валить порівняння детерміновано, а не «час від часу»: не
+        # плутати з флаком. Виставляємо тут само, а не лише покладаємось на раннер.
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Templates = (Resolve-Path "$PSScriptRoot/../../templates/githooks").Path

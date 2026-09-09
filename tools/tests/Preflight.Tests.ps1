@@ -67,18 +67,18 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
     # H5 (фінальне рев'ю) — до 0.6.0 конвенція клала storage.json у кожну підтеку продукту;
     # такий репозиторій уже має все, що потрібно маніфесту (шляхи сховищ, імена розширень,
     # дев-бази), просто не в тому файлі. Порада "пишіть v8storagekit.yaml руками" для нього
-    # хибна — правильний шлях: kit migrate. Другу гілку (без storage.json) покриває тест
-    # вище — ця фікстура так само не має storage.json, доки я його явно не додам.
-    It 'H5: без маніфесту, але зі storage.json у підтеці — підказка на репозиторій 0.6.0 і kit migrate' {
+    # хибна — правильний шлях називає конкретний скіл.
+    #
+    # Знахідка живого прогону B5, Task 6 (Step 6в): порада називала skil v8storagekit:migrate
+    # і команду kit migrate, яких за чинною спекою (2026-09-03, §9) не буде НІКОЛИ — усі вхідні
+    # форми, включно з цією, веде v8storagekit:onboarding. Асерт перецілено на властивість «на
+    # репозиторії 0.6.0 порада називає РЕАЛЬНИЙ шлях», а не на слово migrate: та сама перевірка
+    # тепер ловила б і регрес назад на неіснуючий migrate, і мовчання (порада без шляху взагалі).
+    It 'H5: без маніфесту, але зі storage.json у підтеці — підказка на репозиторій 0.6.0 і v8storagekit:onboarding' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'legacy-no-manifest')
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/storage.json') -Value '{}' -Encoding UTF8
-        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*kit migrate*'
-        # Правка (рев'ю, 2026-09-04) — migrate лишається правильним шляхом, але команди ще
-        # нема (з'явиться в B6): повідомлення мусить сказати, що робити ДОТИ, а не тільки
-        # заборонити ручне редагування. Якір унікальний саме для цього повідомлення — в
-        # сусідньому (без storage.json, H3) такого підпункту немає.
-        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*наступному блоці*'
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*v8storagekit:onboarding*'
     }
 
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {

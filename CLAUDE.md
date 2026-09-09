@@ -21,9 +21,9 @@
 
 | Тека | Що це |
 |---|---|
-| `tools/` | Диспетчер `kit.ps1` з командами `check`, `sync`, `verify`, `dump`, `session-check`, `provision`, `canon`, `build` у `commands/`; модулі `lib/*.psm1`; Pester-тести `tests/` |
-| `skills/` | Три скіли плагіна — `storage-pipeline`, `product-onboarding`, `repo-migration` |
-| `templates/` | Файли, які плагін копіює в репозиторій-споживач |
+| `tools/` | Диспетчер `kit.ps1` з командами `check`, `sync`, `verify`, `dump`, `session-check`, `provision`, `canon`, `build`, `install-hooks` у `commands/`; модулі `lib/*.psm1`; Pester-тести `tests/` |
+| `skills/` | Вісім скілів — вступний `using-v8storagekit` (вантажить хук споживача) і по одному на намір: `onboarding`, `sync`, `dump`, `reconcile`, `finish`, `provision`, `verify` |
+| `templates/` | Файли, які плагін копіює в репозиторій-споживач: `hooks/`, `githooks/`, зразки маніфесту й накладки |
 | `docs/` | `storage-and-git.md` — архітектура контуру; `follow-ups.md` — свідомо припаркована робота |
 | `.claude-plugin/` | `plugin.json` (версія!) і `marketplace.json` |
 

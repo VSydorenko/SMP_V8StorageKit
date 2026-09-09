@@ -355,7 +355,7 @@ function Invoke-KitCheck {
                 catch { $localRaw = '' }
                 if ($localRaw -match '(?m)^\s*devInfobase\s*:') {
                     & $add warn local-audit ("$($ws.Path)/v8project.local.yaml: ключ devInfobase: — стара конвенція, kit її більше не читає. " +
-                        'Дев-база має переїхати в v8storagekit.local.yaml, infobases: (перекладе kit migrate); ' +
+                        'Дев-база має переїхати в v8storagekit.local.yaml, infobases: (перекладе скіл v8storagekit:onboarding); ' +
                         'доти dump для цього воркспейсу не має звідки взяти базу.')
                 }
             }
