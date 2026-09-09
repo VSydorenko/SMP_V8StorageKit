@@ -81,6 +81,42 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*v8storagekit:onboarding*'
     }
 
+    # Task 2а (task-2-brief.md, знахідка прогону B5) — ознака gitsync-вивантаження: DT-INF/
+    # поруч із текою вихідників, БЕЗ storage.json (skills/onboarding/SKILL.md §5, §5.1).
+    # Виміряно на живому парку (правка координатора під час цієї задачі): DT-INF/ лежить на
+    # РІЗНИХ глибинах — у корені репозиторію, на глибині 1 (усередині підпродукту), і навіть
+    # ДВІЧІ в одному репозиторії (окремо cf/ і cfe/). Три тести нижче покривають усі три силуети
+    # на СИНТЕТИЧНИХ фікстурах — не на живих репозиторіях парку.
+    It 'Task 2а: DT-INF/ У КОРЕНІ репозиторію (без storage.json) — підказка на формат gitsync-вивантаження і onboarding' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-root')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        New-Item -ItemType Directory -Path (Join-Path $repo 'DT-INF') -Force | Out-Null
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*DT-INF*v8storagekit:onboarding*'
+    }
+
+    It 'Task 2а: DT-INF/ на ГЛИБИНІ 1 (усередині підпродукту, без storage.json) — та сама підказка' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-depth1')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/DT-INF') -Force | Out-Null
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*DT-INF*v8storagekit:onboarding*'
+    }
+
+    It 'Task 2а: ДВА DT-INF в одному репозиторії (cf/ і cfe/) — повідомлення називає ОБИДВА, не лише перший' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-two')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        New-Item -ItemType Directory -Path (Join-Path $repo 'cf/DT-INF') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $repo 'cfe/DT-INF') -Force | Out-Null
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*cf/DT-INF*cfe/DT-INF*'
+    }
+
+    It 'Task 2а: DT-INF/ разом зі storage.json (0.6.0) в різних підтеках — 0.6.0 перевіряється першим і виграє' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dtinf-vs-legacy')
+        Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/storage.json') -Value '{}' -Encoding UTF8
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Other/DT-INF') -Force | Out-Null
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*0.6.0*'
+    }
+
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {
         $text = "version: 1`nproduct: Fake`nworkspaces:`n  - path: Ghost`n    sources:`n      g: { truth: git }"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ghost') -ManifestText $text

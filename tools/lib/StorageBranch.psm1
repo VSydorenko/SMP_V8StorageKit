@@ -245,12 +245,24 @@ function Get-KitPendingVersions {
         $null у LastVersion — гілки ще немає: реплеїти все. Два запобіжники успадковані від
         Get-PendingVersions (SyncState.psm1, вилучається): дзеркало попереду максимуму звіту, і
         порожній звіт при непорожньому дзеркалі — обидва зупинка, розбір за людиною.
+
+        -FromVersion/-FromLatest (Task 2, §9.4) — друга вісь: НЕ скільки версій узяти
+        (-MaxVersions — вирішує це незалежно), а З ЯКОЇ версії почати. Виклик sync.psm1 гарантує,
+        що вони приходять сюди лише коли LastVersion = $null (перший реплей порожньої гілки) —
+        тут це вдруге не перевіряється, бо це вже зроблено раніше й дешевше (sync.psm1, перед
+        зверненням до платформи). -FromVersion N лишає версії >= N (ВКЛЮЧНО — не діапазон
+        "більше за", а нижня межа з тим самим номером у переліку); -FromLatest — рівно
+        найновішу версію звіту, обчислену тут-таки (без другого прогону платформи, який
+        знадобився б, щоб спершу дізнатися цей номер окремим прев'ю). Приклад комбінації:
+        -FromVersion 5 -MaxVersions 2 = версії 5 і 6.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$AllVersions,
         [Parameter(Mandatory)][AllowNull()][Nullable[int]]$LastVersion,
-        [int]$MaxVersions = 0
+        [int]$MaxVersions = 0,
+        [Nullable[int]]$FromVersion = $null,
+        [switch]$FromLatest
     )
 
     $max = $null
@@ -267,7 +279,24 @@ function Get-KitPendingVersions {
         }
     }
 
-    $pending = @($AllVersions | Where-Object { $null -eq $LastVersion -or $_.Version -gt $LastVersion } | Sort-Object Version)
+    $effectiveFrom = $null
+    if ($FromLatest) {
+        $effectiveFrom = $max
+    } elseif ($null -ne $FromVersion) {
+        if ($FromVersion -le 0) {
+            throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
+        }
+        if ($null -ne $max -and $FromVersion -gt $max) {
+            $available = (@($AllVersions | Sort-Object Version | ForEach-Object Version) -join ', ')
+            throw "Версії $FromVersion немає у звіті сховища (максимум $max). Доступні версії: $available."
+        }
+        $effectiveFrom = $FromVersion
+    }
+
+    $pending = @($AllVersions | Where-Object {
+        ($null -eq $LastVersion -or $_.Version -gt $LastVersion) -and
+        ($null -eq $effectiveFrom -or $_.Version -ge $effectiveFrom)
+    } | Sort-Object Version)
     if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
     # Кома навмисно: викликачі (sync, тести) беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
     , $pending

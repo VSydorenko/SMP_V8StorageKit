@@ -80,6 +80,41 @@ function Invoke-KitPreflight {
                 'сховищ, імена розширень і дев-бази з наявних storage.json і заповнить маніфест.')
             return $ctx
         }
+
+        # Task 2а (task-2-brief.md, знахідка прогону B5) — інша вхідна форма: gitsync-вивантаження
+        # (skills/onboarding/SKILL.md §5, §5.1). Ознака — DT-INF/ поруч із текою вихідників, БЕЗ
+        # storage.json (інакше вище вже спрацював би гілка 0.6.0). Вимір по живому парку (10
+        # репозиторіїв) показав DT-INF/ на РІЗНИХ глибинах — у корені репозиторію, на глибині 1
+        # (усередині підпродукту), і навіть ДВІЧІ в одному репозиторії окремо для конфігурації й
+        # розширення (cf/DT-INF і cfe/DT-INF) — тому шукаємо в корені й на двох рівнях підтек, а
+        # не лише "корінь" чи лише "підтеки", як $legacyDirs вище. Глибина навмисно ОБМЕЖЕНА
+        # (корінь + 2 рівні), а не рекурсія по всьому дереву: тека вихідників поруч із DT-INF/
+        # може тримати десятки тисяч файлів .mdo, а префлайт іде на КОЖНІЙ команді kit — Get-ChildItem
+        # без обмеження глибини зробив би check/sync/verify помітно повільнішими саме на тих
+        # репозиторіях, заради яких ця ознака існує. На кожному з трьох рівнів перевіряємо лише
+        # Test-Path одного імені (DT-INF) — не читаємо вміст жодної знайденої теки.
+        $dtInfSearchRoots = [System.Collections.Generic.List[string]]::new()
+        $dtInfSearchRoots.Add($root)
+        $level1Dirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)
+        foreach ($d1 in $level1Dirs) { $dtInfSearchRoots.Add($d1.FullName) }
+        foreach ($d1 in $level1Dirs) {
+            foreach ($d2 in @(Get-ChildItem -LiteralPath $d1.FullName -Directory -ErrorAction SilentlyContinue)) {
+                $dtInfSearchRoots.Add($d2.FullName)
+            }
+        }
+        $dtInfFound = @($dtInfSearchRoots | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'DT-INF') -PathType Container } |
+            ForEach-Object {
+                $rel = ([System.IO.Path]::GetRelativePath($root, $_) -replace '\\', '/')
+                if ($rel -eq '.') { 'DT-INF/ (у корені)' } else { "$rel/DT-INF" }
+            } | Sort-Object)
+        if ($dtInfFound.Count -gt 0) {
+            & $fail 'manifest' (
+                "Маніфест $script:ManifestFileName не знайдено в $root, але знайдено DT-INF/ поруч із текою " +
+                "вихідників, без storage.json ($($dtInfFound -join ', ')) — дерево у форматі EDT-вивантаження " +
+                'сховища (gitsync). DT-INF/ доводить лише ФОРМАТ дерева, не походження — яке сховище за ним ' +
+                "стоїть, з'ясовує сам скіл v8storagekit:onboarding (розділ 5.1): він показує знайдене й питає.")
+            return $ctx
+        }
         # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"
         # сам по собі вів у глухий кут: цього скіла ще немає (з'явиться в B5), а це перше й
         # часто ЄДИНЕ повідомлення, яке бачить новий споживач. Пряма дія поруч зі скілом —

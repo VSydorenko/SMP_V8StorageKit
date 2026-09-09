@@ -296,6 +296,13 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
         It '-MaxVersions обрізає з голови' {
             (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -MaxVersions 2).Version | Should -Be @(2, 23)
         }
+        # Task 2 (task-2-brief.md, §9.4) — закріпити явно: -MaxVersions без -From* бере
+        # найРАНІШУ версію. Це наявна, ПРАВИЛЬНА поведінка для дозаливки — саме її сплутали
+        # зі "лише поточна", і саме тому з'явились -FromVersion/-FromLatest нижче. Тест
+        # існує, щоб цю поведінку випадково не "полагодили" під час цієї ж задачі.
+        It '-MaxVersions 1 БЕЗ -From* — найРАНІША версія (закріплення наявної поведінки, Task 2)' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -MaxVersions 1).Version | Should -Be @(2)
+        }
         It 'дзеркало попереду сховища — зупинка' {
             { Get-KitPendingVersions -AllVersions $script:All -LastVersion 99 } | Should -Throw '*попереду*99*47*'
         }
@@ -308,6 +315,31 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
             Get-KitVersionGapNote -Pending $p -LastVersion 2 | Should -BeLike '*23*2*'
             Get-KitVersionGapNote -Pending (Get-KitPendingVersions -AllVersions $script:All -LastVersion 23) -LastVersion 23 | Should -BeNullOrEmpty
             Get-KitVersionGapNote -Pending $p -LastVersion $null | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'Get-KitPendingVersions — -FromVersion/-FromLatest (Task 2, §9.4: глибина ЗВІДКИ, не скільки)' {
+        # $script:All = 2, 23, 24, 47 (BeforeAll вище).
+        It '-FromVersion 23 — версії від 23 ВКЛЮЧНО (не лише "більше за")' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 23).Version | Should -Be @(23, 24, 47)
+        }
+        It '-FromVersion і -MaxVersions комбінуються незалежно: -FromVersion 23 -MaxVersions 2 = 23 і 24' {
+            (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 23 -MaxVersions 2).Version | Should -Be @(23, 24)
+        }
+        It '-FromLatest — рівно одна версія, максимальна зі звіту (47)' {
+            $p = Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromLatest
+            @($p).Count | Should -Be 1
+            $p.Version | Should -Be 47
+        }
+        It '-FromVersion 0 — зупинка (валідація параметра, не мовчазне приведення)' {
+            { Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 0 } | Should -Throw '*додатн*'
+        }
+        It '-FromVersion від''ємний — зупинка' {
+            { Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion -5 } | Should -Throw '*додатн*'
+        }
+        It '-FromVersion більший за максимум зі звіту — зупинка з переліком доступних версій' {
+            { Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 999 } |
+                Should -Throw '*999*2, 23, 24, 47*'
         }
     }
 

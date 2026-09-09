@@ -46,6 +46,16 @@ function Invoke-KitSync {
         платформи за кожну наступну відповідь session-check про це саме запаковане сховище —
         рівно той вічний сигнал "не визначається", заради усунення якого відбиток і існує (спека
         9f6ad5e §5, 0379351 §3.2).
+
+        -FromVersion N / -FromLatest (Task 2, §9.4) — з якої версії почати ПЕРШИЙ реплей порожньої
+        гілки; друга, незалежна вісь від -MaxVersions (яка каже "скільки", не "звідки"). Без них
+        перший реплей великого сховища (сотні версій, 20–40 хв кожна на повній конфігурації)
+        фізично неможливий — довести дзеркало до поточного стану можна лише -FromLatest, без
+        зайвого прогону платформи, який знадобився б, щоб спершу побачити номер версії окремим
+        прев'ю. Обидва застосовні лише поки трейлер Storage-Version на вершині storage/<ключ> ще
+        не існує (гілки немає або вершина без трейлера, п. Get-KitStorageBranchLastVersion) —
+        на непорожній гілці sync зупиняється з поясненням, а не тихо ігнорує ці параметри;
+        дозаливку далі веде звичайний sync (за потреби — -MaxVersions). Параметри взаємовиключні.
     #>
     [CmdletBinding()]
     param(
@@ -54,8 +64,22 @@ function Invoke-KitSync {
         [string]$Source,
         [bool]$Apply,
         [int]$MaxVersions = 0,
-        [switch]$MergeMain
+        [switch]$MergeMain,
+        [Nullable[int]]$FromVersion = $null,
+        [switch]$FromLatest
     )
+
+    # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
+    # Select-KitSources): на клієнтській базі повна конфігурація реплеїться 20–40 хв/версію,
+    # тож типову описку в номері версії чи в самих прапорцях має ловити перевірка, що не коштує
+    # нічого, а не перший-ліпший з можливо кількох джерел truth: storage, ПІСЛЯ підняття
+    # тимчасової ІБ для нього.
+    if ($null -ne $FromVersion -and $FromLatest) {
+        throw 'Параметри -FromVersion і -FromLatest взаємовиключні — вкажіть лише один спосіб визначити початкову версію першого реплею.'
+    }
+    if ($null -ne $FromVersion -and $FromVersion -le 0) {
+        throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
+    }
 
     $root    = $Context.RepoRoot
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
@@ -87,6 +111,18 @@ function Invoke-KitSync {
         # Загортати його в інше повідомлення чи вгадувати стан — не можна.
         $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
         Write-Host ('Дзеркало:   ' + $(if ($null -eq $last) { 'гілки ще немає — реплей усіх версій зі звіту' } else { "версія $last" }))
+
+        # -FromVersion/-FromLatest визначають ЗВІДКИ починати ПЕРШИЙ реплей — на гілці, що вже
+        # має версії, "звідки почати" вже вирішено самим дзеркалом (трейлер Storage-Version
+        # вершини), і мовчки їх ігнорувати означало б приховати від людини, що параметр не
+        # подіяв. Перевірка тут, ДО створення тимчасової ІБ цього джерела (рядок нижче) — ще один
+        # шар "не платити платформою за очевидну помилку виклику", той самий принцип, що
+        # валідація на самому вході функції вище.
+        if ($null -ne $last -and ($null -ne $FromVersion -or $FromLatest)) {
+            throw ("Гілка $($src.Branch) не порожня — вершина вже має трейлер Storage-Version: $last. " +
+                   '-FromVersion і -FromLatest визначають, ЗВІДКИ почати ПЕРШИЙ реплей порожньої гілки; ' +
+                   'на непорожній гілці дозаливку веде звичайний sync (за потреби — -MaxVersions).')
+        }
 
         # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
         $workDir = Join-Path $root 'build/sync' $src.Key
@@ -136,7 +172,8 @@ function Invoke-KitSync {
             }
         }
 
-        $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions
+        $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions `
+            -FromVersion $FromVersion -FromLatest:$FromLatest
         $gap = Get-KitVersionGapNote -Pending $pending -LastVersion $last
         if ($gap) { Write-Host "  $gap" -ForegroundColor DarkGray }
 
