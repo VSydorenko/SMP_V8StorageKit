@@ -156,7 +156,23 @@ function New-KitFakeRepo {
     Set-Content -LiteralPath (Join-Path $Root 'AUTHORS') -Value 'gitbot=Test Bot <test@example.invalid>' -Encoding UTF8
 
     if ($WithGitattributes) { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes') }
-    if ($WithGitignore)     { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore')     -Destination (Join-Path $Root '.gitignore') }
+    if ($WithGitignore) {
+        Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore') -Destination (Join-Path $Root '.gitignore')
+        # Task 6 (Step 2а): templates/gitignore більше не тримає загального **/cf/** — вендорські
+        # дерева ігноруються ЯВНИМИ рядками під фактичні шляхи, які дописує v8storagekit:onboarding
+        # (§3.4). Тести B1–B4 розраховують, що vendor-дерево гітігноровано (у цій фікстурі — кожен
+        # CONFIGURATION source-set, truth: vendor, див. switch у циклі побудови маніфесту вище) —
+        # тут дописуємо той самий рядок, який дописав би onboarding, а не змінюємо сам шаблон.
+        $vendorLines = [System.Collections.Generic.List[string]]::new()
+        foreach ($wsName in @($Workspaces.Keys)) {
+            foreach ($set in $Workspaces[$wsName]['Sets']) {
+                if ($set.Type -eq 'CONFIGURATION') { $vendorLines.Add("$wsName/$($set.Path)/**") }
+            }
+        }
+        if ($vendorLines.Count -gt 0) {
+            Add-Content -LiteralPath (Join-Path $Root '.gitignore') -Value $vendorLines -Encoding UTF8
+        }
+    }
     if ($WithHooks) {
         Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
         Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null

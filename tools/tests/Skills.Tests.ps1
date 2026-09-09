@@ -102,14 +102,18 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'у skills/ немає тек поза 1.0-переліком і трьома старими скілами' {
+    It 'у skills/ немає тек поза 1.0-переліком (Task 6: три старі скіли вилучено — виняток знято)' {
         # C: BeforeAll фільтрує за $Allowed — стороння тека з порушеннями давала нуль фейлів.
-        $legacyStillPresent = @('storage-pipeline', 'product-onboarding', 'repo-migration')
-        # Три старі поки що мусять проходити — Task 6 їх вилучає, і разом з ними прибирається цей виняток.
-        $known = $script:Allowed + $legacyStillPresent
+        # До Task 6 тут стояв виняток $legacyStillPresent = storage-pipeline, product-onboarding,
+        # repo-migration: три старі скіли ще лежали в дереві, поки цей блок їх не замінив. Task 6
+        # видалив ці теки (git rm) — виняток знято разом з ними, і тепер цей It ловить і вилучення
+        # (сама перевірка того, що тек більше немає), і випадкове ВОСКРЕСІННЯ будь-якої з них.
         $actualDirs = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory).Name
+        foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
+            $actualDirs | Should -Not -Contain $old -Because "скіл $old вилучено в Task 6 (B5) — теку не мало лишитись і не мало з'явитись знову"
+        }
         foreach ($d in $actualDirs) {
-            $known | Should -Contain $d -Because "тека skills/$d — поза 1.0-переліком ($($script:Allowed -join ', ')) і поза трьома старими скілами, які Task 6 вилучає"
+            $script:Allowed | Should -Contain $d -Because "тека skills/$d — поза 1.0-переліком ($($script:Allowed -join ', '))"
         }
     }
 

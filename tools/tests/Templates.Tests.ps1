@@ -65,10 +65,10 @@ Describe 'templates/githooks — хуки захисту storage/*' {
     }
 }
 
-Describe 'product-onboarding — шаблон v8project.yaml' {
+Describe 'onboarding — шаблон v8project.yaml (Task 6: колишній product-onboarding)' {
     BeforeAll {
         $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/product-onboarding/SKILL.md").Path
+            Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
     It 'шаблон оголошує власну базу воркспейсу' {
@@ -79,12 +79,13 @@ Describe 'product-onboarding — шаблон v8project.yaml' {
         $script:Skill | Should -Match "connection:\s*'File=build/ib'"
     }
 
-    It 'імʼя EXTENSION-джерела береться з extensionName, а не з імені теки' {
+    It 'імʼя EXTENSION-джерела — реальне ім''я розширення, не ім''я теки продукту' {
         # v8-runner виводить імʼя розширення з імені source-set. Якщо там імʼя теки
         # продукту, operation=make падає на валідації:
         #   source-set 'X' resolves to extension 'X', expected 'SMP_X'
         $script:Skill | Should -Not -Match "(?m)^\s*-\s*name:\s*<Продукт>\s*$"
-        $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<extensionName зі storage\.json>\s*$"
+        $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<ІмʼяРозширення>\s*$"
+        $script:Skill | Should -Match 'name:.*мусить дорівнювати імені розширення'
     }
 
     It 'C2 (рев''ю B4 Task 4): каркас несе хук старту сесії — таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
@@ -96,10 +97,14 @@ Describe 'product-onboarding — шаблон v8project.yaml' {
     }
 }
 
-Describe 'repo-migration — каркас несе хук старту сесії (C2, рев''ю B4 Task 4)' {
+Describe 'onboarding — каркас несе хук старту сесії (C2, рев''ю B4 Task 4; Task 6: колишній repo-migration)' {
+    # Task 6 (B5): repo-migration вилучено, знання перенесено в docs/migration/legacy-gitsync-repo.md,
+    # а цей Describe перенацілено на onboarding — це той самий каркас (§2 «Новий репозиторій», §3.5),
+    # тож регресійний захист знахідки C2 (рев'ю B4 Task 4) лишається чинним, а не втрачається разом
+    # із перейменуванням скіла.
     BeforeAll {
         $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/repo-migration/SKILL.md").Path
+            Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
     It 'таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
@@ -156,5 +161,35 @@ Describe 'templates/v8storagekit*.example — зразки проходять в
         $lines = @(Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Encoding UTF8)
         $lines | Should -Contain 'v8storagekit.local.yaml'
         $lines | Should -Contain 'v8project.local.yaml'
+    }
+
+    It 'шаблон gitignore без загального **/cf/** (Task 6, Step 2а): вендорські дерева — явними рядками onboarding' {
+        # У клієнтському репозиторії cf/src під truth: storage мусить лежати в git (спека §2.3) —
+        # загальне **/cf/** ігнорувало б і його. Гітігнорованість вендорських дерев тепер дає
+        # лише явний рядок під фактичний шлях, який дописує v8storagekit:onboarding.
+        $raw = Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Raw -Encoding UTF8
+        $raw | Should -Not -Match '(?m)^\*\*/cf/\*\*\s*$'
+        $raw | Should -Not -Match '(?m)^!\*\*/cf/README\.md\s*$'
+    }
+}
+
+Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
+    BeforeAll {
+        $script:TemplateClaudeMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (
+            Resolve-Path "$PSScriptRoot/../../templates/CLAUDE.md").Path
+    }
+
+    It 'згадує v8storagekit.yaml, гілки storage/ і всі сім скілів життєвого циклу з префіксом' {
+        $script:TemplateClaudeMd | Should -Match 'v8storagekit\.yaml'
+        $script:TemplateClaudeMd | Should -Match 'storage/'
+        foreach ($n in 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify') {
+            $script:TemplateClaudeMd | Should -Match "v8storagekit:$n" -Because "шаблон не називає скіл $n"
+        }
+    }
+
+    It 'не згадує спадок 0.6.0: storage.json, storage-sync, load-ext' {
+        $script:TemplateClaudeMd | Should -Not -Match 'storage\.json'
+        $script:TemplateClaudeMd | Should -Not -Match 'storage-sync'
+        $script:TemplateClaudeMd | Should -Not -Match 'load-ext'
     }
 }

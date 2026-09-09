@@ -1,17 +1,16 @@
 # templates/
 
-Файли для копіювання в репо-споживач при онбордингу чи міграції (скіли
-`product-onboarding` і `repo-migration`). Два з них навмисно без провідної крапки —
-щоб не діяти на сам kit.
+Файли, які плагін кладе в репозиторій-споживач (скіл `v8storagekit:onboarding`, команда
+`kit install-hooks`). Два з них навмисно без провідної крапки — щоб не діяти на сам kit.
 
 | Файл тут | Стає в репо-споживачі |
 |---|---|
-| `gitattributes` | `.gitattributes` |
-| `gitignore` | `.gitignore` |
-| `settings.json` | `.claude/settings.json` (містить хук `SessionStart`, який кличе шим нижче) |
-| `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` (шим: знаходить плагін у реєстрі, кличе `kit.ps1 session-check`) |
-| `CLAUDE.md` | `CLAUDE.md` |
-| `AUTHORS.example` | `AUTHORS` (у корені репо, не в теці продукту) |
-| `v8storagekit.yaml.example` | `v8storagekit.yaml` (корінь; заповнює `v8storagekit:onboarding`) |
-| `v8storagekit.local.yaml.example` | `v8storagekit.local.yaml` (корінь; гітігнорований) |
+| `gitattributes` | `.gitattributes` (onboarding дописує `<ws>/<path>/** -text` під фактичні шляхи) |
+| `gitignore` | `.gitignore` (без загального `**/cf/**`; onboarding дописує `<ws>/<path>/**` для кожного `truth: vendor`) |
+| `settings.json` | `.claude/settings.json` — дозволи + хук `SessionStart` |
+| `hooks/session-start.ps1` | `.claude/hooks/session-start.ps1` — шим хука (без логіки) |
 | `githooks/pre-commit`, `githooks/pre-merge-commit` | `.githooks/…` + `git config core.hooksPath .githooks` |
+| `CLAUDE.md` | `CLAUDE.md` |
+| `v8storagekit.yaml.example` | `v8storagekit.yaml` (корінь; заповнює onboarding за відповідями людини) |
+| `v8storagekit.local.yaml.example` | `v8storagekit.local.yaml` (корінь; гітігнорований) |
+| `AUTHORS.example` | `AUTHORS` (корінь) |
