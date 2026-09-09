@@ -45,7 +45,14 @@ function Invoke-KitInstallHooks {
     $problems = @($left | Where-Object Level -ne 'info')
     foreach ($f in $problems) { Write-Host "  [$($f.Level)] $($f.Message)" -ForegroundColor Yellow }
     Write-Host 'Готово. .githooks уже в індексі; додайте .claude у перший коміт.' -ForegroundColor Green
-    [pscustomobject]@{ ExitCode = $(if ($problems.Count) { 1 } else { 0 }); Installed = $installed }
+    # Рев'ю (фікс-раунд 1, I2): ExitCode рахує лише error, не будь-який $problems (warn туди теж
+    # потрапляє). Прецедент — check.psm1:407, той самий контракт New-KitFinding: ExitCode =
+    # $errors.Count -gt 0, warn лишає 0. warn тут — це те, що ця команда за побудовою не могла
+    # полагодити сама (типовий приклад: наявний .claude/settings.json без hooks.SessionStart —
+    # Install-KitSessionHook його свідомо не перезаписує, спека §7), а не зупинка (kit.ps1:48-53:
+    # «1 — зупинка»); людина вже бачить її текстом рядком вище через $problems.
+    $errors = @($problems | Where-Object Level -eq 'error')
+    [pscustomobject]@{ ExitCode = $(if ($errors.Count) { 1 } else { 0 }); Installed = $installed }
 }
 
 Export-ModuleMember -Function Invoke-KitInstallHooks

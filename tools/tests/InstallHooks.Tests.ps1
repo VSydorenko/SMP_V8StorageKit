@@ -35,8 +35,26 @@ Describe 'kit install-hooks — хуки захисту й хук старту �
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'keep')
         New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Value '{ "permissions": { "allow": ["Bash(echo:*)"] } }' -Encoding UTF8
-        Invoke-InstallHooks -Repo $repo -More @('-Apply') | Out-Null
+        $r = Invoke-InstallHooks -Repo $repo -More @('-Apply')
         (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw) | Should -BeLike '*Bash(echo:*)*'
+        # Рев'ю (фікс-раунд 1, I1): доказ, що команда справді відпрацювала, не лише що файл, який
+        # тест сам поклав рядком вище, лишився недоторканим — без цього асерту тест зелений і на
+        # вилученому tools/commands/install-hooks.psm1 (диспетчер друкує «Невідома команда» й
+        # виходить кодом 1, settings.json теж лишається незмінним). Шим кладеться навіть тоді,
+        # коли settings.json не чіпають (Hooks.psm1:163) — це і є незалежний доказ роботи команди.
+        Join-Path $repo '.claude/hooks/session-start.ps1' | Should -Exist
+        # Рев'ю (фікс-раунд 1, I2): warn (немає hooks.SessionStart у наявному settings.json) —
+        # це не зупинка (install-hooks.psm1: ExitCode рахує лише error, прецедент check.psm1:407),
+        # тож код виходу 0, а сам warn і далі видно людині текстом. Обидва факти — під тестом, щоб
+        # наступна зміна формули впала тут, а не лишилась непоміченою.
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        # ASCII-only збіг (не кирилична підрядка тексту знахідки): дочірній pwsh тут запущено з-під
+        # голого Invoke-Pester, де [Console]::OutputEncoding = UTF8 не виставлено (це робить лише
+        # Run-Tests.ps1) — кирилиця у захопленому виводі мовчки перекодовується під кодовою
+        # сторінкою консолі, і збіг на кириличному рядку падав би детерміновано незалежно від
+        # виправлення формули (той самий механізм, що валить Hooks.Tests.ps1:74 поза Run-Tests.ps1).
+        # 'hooks.SessionStart' у самому тексті знахідки — ASCII, тому й ідентифікатор перевірки тут.
+        $r.Output | Should -Match '\[warn\].*hooks\.SessionStart'
     }
     It 'на репозиторії без хуків вивід kit check називає команду install-hooks' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-mentions-command')
