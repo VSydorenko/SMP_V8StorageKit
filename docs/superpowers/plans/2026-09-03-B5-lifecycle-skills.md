@@ -229,12 +229,19 @@ Describe 'kit install-hooks — хуки захисту й хук старту �
         $check | Should -Not -Match '100644'
         $check | Should -Not -Match '\[!\].*session-start\.ps1'
     }
-    It 'наявний .claude/settings.json не перезаписується' {
+    It 'наявний .claude/settings.json не перезаписується, але команда про це КАЖЕ і решту роботи робить' {
+        # Асертити лише незмінність файла, який тест сам створив, — недостатньо: такий It зелений і з
+        # повністю вирізаним production-кодом (форма з docs/follow-ups.md §4, знахідка рев'ю Task 1).
+        # Тому перевіряємо три різні речі: файл збережено, попередження надруковано, решта роботи є.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'keep')
         New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Value '{ "permissions": { "allow": ["Bash(echo:*)"] } }' -Encoding UTF8
-        Invoke-InstallHooks -Repo $repo -More @('-Apply') | Out-Null
+        $r = Invoke-InstallHooks -Repo $repo -More @('-Apply')
         (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw) | Should -BeLike '*Bash(echo:*)*'
+        $r.Output | Should -BeLike '*settings.json*'          # мовчазного пропуску немає
+        $r.Output | Should -Match '\[warn\]|\[!\]'
+        Join-Path $repo '.githooks/pre-commit' | Should -Exist  # решту команда зробила
+        $r.ExitCode | Should -Be 0 -Because 'warn не міняє коду виходу — це не зупинка'
     }
 }
 ```
@@ -277,11 +284,17 @@ function Invoke-KitInstallHooks {
     $out = git -C $root update-index --chmod=+x -- @hookPaths 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git update-index --chmod=+x завершився з кодом ${LASTEXITCODE}: $out" }
     Write-Host '  + .githooks/* застейджено з режимом 100755 (біт виконання для клонів на POSIX)'
-    $left = @(Test-KitGitHooks -RepoRoot $root) + @(Test-KitSessionHook -RepoRoot $root)
-    $problems = @($left | Where-Object Level -ne 'info')
-    foreach ($f in $problems) { Write-Host "  [$($f.Level)] $($f.Message)" -ForegroundColor Yellow }
+    $left   = @(Test-KitGitHooks -RepoRoot $root) + @(Test-KitSessionHook -RepoRoot $root)
+    $notice = @($left | Where-Object Level -ne 'info')
+    $errors = @($left | Where-Object Level -eq 'error')
+    foreach ($f in $notice) { Write-Host "  [$($f.Level)] $($f.Message)" -ForegroundColor Yellow }
     Write-Host 'Готово. .githooks уже в індексі; додайте .claude у перший коміт.' -ForegroundColor Green
-    [pscustomobject]@{ ExitCode = $(if ($problems.Count) { 1 } else { 0 }); Installed = $installed }
+    # Код 1 ЛИШЕ на error — так само, як check.psm1 на тих самих об'єктах New-KitFinding: warn
+    # друкується, але коду не міняє (контракт kit.ps1: «1 — зупинка»). Рахувати тут усе, що не info,
+    # означало б, що в репозиторії з наявним .claude/settings.json без hooks.SessionStart —
+    # ТИПОВИЙ стан будь-якого репо, де вже працювали з Claude Code — команда друкує зелене «Готово»
+    # і виходить кодом 1, зробивши все, що могла (знахідка рев'ю Task 1 B5).
+    [pscustomobject]@{ ExitCode = $(if ($errors.Count) { 1 } else { 0 }); Installed = $installed }
 }
 
 Export-ModuleMember -Function Invoke-KitInstallHooks
@@ -1413,6 +1426,20 @@ git commit --only -- skills templates docs/migration tools/tests/Templates.Tests
 
 Абзац після таблиці: «A8–A11 додано 2026-09 зі спеки agent-contour §11 (дослідницький воркфлоу
 2026-09-02..03); джерела — звіт `unica_companion`, не власне читання Rust».
+
+- [ ] **Step 6а: `install-hooks` у переліках команд** (знахідка рев'ю Task 1 B5). Нова команда не
+  згадана в трьох місцях, і після B5 вони перелічуватимуть вісім із дев'яти: `CLAUDE.md:24`,
+  `docs/storage-and-git.md:9`, `skills/using-v8storagekit/SKILL.md:25`. Останній — **роздаваний
+  споживачам артефакт**, тож він найважливіший: агент у чужому репозиторії читає саме його.
+  `docs/storage-and-git.md` B8 перепише цілком, але до B8 він брехатиме, а рядок коштує секунди.
+
+- [ ] **Step 6б: `Hooks.Tests.ps1:74` — не флак, а залежність від runner'а** (знахідка рев'ю Task 1
+  B5). Єдиний асерт файлу на кирилицю у виводі дочірнього процесу
+  (`Should -BeLike '*v8storagekit*дзеркало*'`); UTF-8 виставляє лише `Run-Tests.ps1:25-26`, тож голий
+  `Invoke-Pester` валить його **детерміновано**. Не дефект B5, але вже з'їв час одного виконавця, і
+  «нестабільний тест» — найдорожчий діагноз, бо його заведено ігнорувати. У `docs/follow-ups.md` —
+  **з точним діагнозом, не як «флак»**. Якщо фікс справді однорядковий (виставити кодування в
+  `BeforeAll` того Describe) — узяти тут же; якщо ні — лишити записом.
 
 - [ ] **Step 7:** `CLAUDE.md` kit, таблиця «Структура», рядок `skills/`: «Вісім скілів — вступний
   `using-v8storagekit` (вантажить хук споживача) і по одному на намір: `onboarding`, `sync`, `dump`,
