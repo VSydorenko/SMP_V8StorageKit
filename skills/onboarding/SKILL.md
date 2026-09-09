@@ -128,7 +128,12 @@ Linux/macOS дістав би їх без біта виконання, і git м
 ### 3.6 Перший коміт — окремо, до будь-якого `-Apply`
 
 ```bash
-git add v8storagekit.yaml <ws>/v8project.yaml <ws>/cf/README.md .gitattributes .gitignore .claude/settings.json .claude/hooks/session-start.ps1 AUTHORS CLAUDE.md
+git add v8storagekit.yaml <ws>/v8project.yaml .gitattributes .gitignore .claude/settings.json .claude/hooks/session-start.ps1 AUTHORS CLAUDE.md
+# <ws>/cf/README.md — ОКРЕМОЮ командою і лише якщо крок 3.4 його створив (у воркспейсі є
+# джерело truth: vendor). Одним списком його додавати не можна: git add з неіснуючим шляхом
+# падає атомарно — не стейджить НІЧОГО, включно з файлами, які існують. У воркспейсі
+# зовнішніх обробок теки cf немає взагалі, і перший коміт просто не відбувся б.
+git add <ws>/cf/README.md
 git commit -m "onboarding: <ws> — маніфест, воркспейс Уніки, політики git, хуки"
 # .githooks уже застейджено install-hooks з режимом 100755 — не перестейджувати через `git add -A` без потреби:
 # сам `git add` режим не змінює, але `git ls-files -s .githooks/` після коміту має показати 100755.
