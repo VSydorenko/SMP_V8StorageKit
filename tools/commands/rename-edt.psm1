@@ -70,7 +70,7 @@ function Get-KitRenameEdtTreePaths {
 function Get-KitRenameEdtBoundaryTag {
     <#
     .SYNOPSIS
-        Тег межі EDT-епохи, що вже стоїть на поточному HEAD — лише ЧИТАННЯ (S-I, рев'ю раунду 1).
+        Тег межі EDT-епохи, що вже є в репозиторії — лише ЧИТАННЯ (S-I, рев'ю раунду 1).
     .DESCRIPTION
         Раніше команда сама СТВОРЮВАЛА тег `legacy/gitsync-<YYYY-MM>` на HEAD — рев'ю показало
         дві проблеми: (1) це робота кроку 2 онбордингу (skills/onboarding/SKILL.md §5.1), один
@@ -83,7 +83,14 @@ function Get-KitRenameEdtBoundaryTag {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot)
-    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('tag', '--points-at', 'HEAD', '-l', 'legacy/gitsync-*')
+    # Знахідка 7 пілота (2026-09-10): раніше стояло `--points-at HEAD`, і на живому прогоні це
+    # давало ХИБНЕ попередження «тега межі немає» при наявному теді. Причина структурна: §5.1
+    # ставить тег на ОСТАННІЙ gitsync-коміт (крок 2), а HEAD на момент виклику — це коміт
+    # онбордингу (маніфест, воркспейс, політики, хуки), який стоїть МІЖ ними. Різними їх зробила
+    # правка, що перенесла обов'язковий перший коміт у кінець кроку 1, — тобто перевірка й текст
+    # розійшлись через виправлення попередньої знахідки, і поставити тег «на HEAD» неможливо,
+    # не порушивши §5.1. Тому питаємо не «чи тег на HEAD», а «чи тег межі взагалі є в репозиторії».
+    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('tag', '-l', 'legacy/gitsync-*')
     if ($r.ExitCode -ne 0) { throw "git tag --points-at HEAD завершився з кодом $($r.ExitCode): $($r.Stderr)" }
     @($r.Stdout -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Sort-Object -Culture ([System.Globalization.CultureInfo]::InvariantCulture) | Select-Object -First 1)
 }
@@ -307,9 +314,9 @@ function Invoke-KitRenameEdt {
 
     $boundaryTag = Get-KitRenameEdtBoundaryTag -RepoRoot $root
     if ($boundaryTag) {
-        Write-Host "  Тег межі на HEAD: $boundaryTag" -ForegroundColor DarkGray
+        Write-Host "  Тег межі: $boundaryTag" -ForegroundColor DarkGray
     } else {
-        Write-Host '  На HEAD немає тега межі legacy/gitsync-* — це крок 2 онбордингу (skills/onboarding/SKILL.md §5.1), rename-edt його не створює.' -ForegroundColor DarkGray
+        Write-Host '  У репозиторії немає тега межі legacy/gitsync-* — це крок 2 онбордингу (skills/onboarding/SKILL.md §5.1), rename-edt його не створює.' -ForegroundColor DarkGray
     }
 
     # I-E (рев'ю раунду 1): SHA ДО будь-якої мутації — на будь-яку помилку нижче команда сама
@@ -573,6 +580,33 @@ function Invoke-KitRenameEdt {
         Remove-KitEmptyDirectory -Path $sourceFull
     } catch {
         Write-Host "  Попередження: не вдалось прибрати порожні теки під '$SourceRelPath' ($($_.Exception.Message)) — косметика, коміт уже завершено успішно." -ForegroundColor Yellow
+    }
+
+    # Знахідка 6 пілота (SMP_SimplyCatalog, 2026-09-10) — і вона НАСЛІДОК фікса I-5 (`--only`),
+    # а не окремий дефект. Механізм, виміряний до байтів:
+    #   1. до перейменування файли лежали під `* text=auto` — в індексі НОРМАЛІЗОВАНІ (LF) блоби,
+    #      а stat-розмір запису дорівнює розміру на диску (CRLF), тому git вважав їх незміненими;
+    #   2. `git mv` переносить запис індексу ЯК Є — разом зі старим LF-блобом;
+    #   3. `git commit --only <шляхи>` перечитує названі шляхи З ДИСКА під НОВИМИ атрибутами
+    #      (`-text` на цілі) і кладе в коміт правильні CRLF-байти — але записів індексу НЕ оновлює.
+    # Підсумок: HEAD правильний, індекс — реліквія попереднього режиму. На пілоті це 100 файлів
+    # у `git status` ОДРАЗУ ПІСЛЯ власного успішного коміту команди.
+    #
+    # Чому це не косметика, і чому лікується тут, а не поясненням у скілі:
+    #   - будь-яка наступна команда kit упреться в «Робоча копія не чиста» — конвеєр стоїть
+    #     після власного успішного кроку;
+    #   - природна реакція людини на сто змінених файлів — `git add -A && git commit`, а це
+    #     закомітило б LF-нормалізовані версії, тобто рівно той дефект, від якого написаний
+    #     docs/text-policy.md. Мовчки: жодної помилки, коміт пройде.
+    # `git reset` без `--hard` оновлює ЗАПИСИ ІНДЕКСУ з HEAD і робочої копії не чіпає.
+    # Обмежений тими самими двома піддеревами, що й коміт — та сама дисципліна обсягу, що в I-5:
+    # чуже застейджене поза ними команда не чіпає.
+    $resetPaths = @(":(literal)$SourceRelPath")
+    if ($executedMoveTargets.Count -gt 0) { $resetPaths += ":(literal)$TargetRoot" }
+    $reset = Invoke-KitGitProcess -RepoRoot $root -Arguments (@('-c', 'core.quotepath=false', 'reset', '-q', '--') + $resetPaths)
+    if ($reset.ExitCode -ne 0) {
+        Write-Host ("  Попередження: не вдалось оновити записи індексу (git reset код $($reset.ExitCode)) — коміт УЖЕ правильний, " +
+                    "але `git status` може показувати змінені файли з різницею лише в кінцях рядків. Виправляє: git -C <репозиторій> reset.") -ForegroundColor Yellow
     }
 
     # I-6 (фінальне рев'ю блоку): тут стояв власний `rev-parse` без перевірки коду виходу — друга,

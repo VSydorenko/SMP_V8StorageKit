@@ -200,6 +200,23 @@ Describe 'EdtPaths.psm1 — Convert-KitEdtPath: дескриптор об''єк�
         $r.Reason | Should -BeLike '*Ext/Form.xml*'
     }
 
+    It 'умовне оформлення на рівні форми (.dcssca) -> Unmapped, а НЕ Unresolved (знахідка пілота, доведено обома сторонами)' {
+        # EDT: 674 такі файли по парку, усі на рівні форми, не під Attributes/.
+        # Designer: у живих деревах BankExchange і SimplyConnect окремих .dcssca нуль,
+        # натомість 11 Ext/Form.xml містять <ConditionalAppearance.
+        # Доти падало в Unresolved, який ніколи не видаляється, — і тека джерела не порожніла.
+        $r = Convert-KitEdtPath -EdtPath 'Catalogs/СМП_ЗагрузкаПрайсов/Forms/ФормаЭлемента/ConditionalAppearance.dcssca'
+        $r.DesignerRelPath | Should -BeNullOrEmpty
+        $r.Status | Should -Be 'Unmapped'
+        $r.Reason | Should -BeLike '*Ext/Form.xml*'
+    }
+
+    It 'сусідній .oform на тому ж рівні лишається Unresolved — розширено не ширше за доказ' {
+        $r = Convert-KitEdtPath -EdtPath 'DataProcessors/Об1/Forms/Форма1/Форма1.oform'
+        $r.DesignerRelPath | Should -BeNullOrEmpty
+        $r.Status | Should -Be 'Unresolved'
+    }
+
     It 'ScheduledJobs/Schedule.schedule -> Unmapped (ЗНАЄМО: вбудовано у властивість дескриптора)' {
         $r = Convert-KitEdtPath -EdtPath 'ScheduledJobs/Об1/Schedule.schedule'
         $r.DesignerRelPath | Should -BeNullOrEmpty
