@@ -267,6 +267,25 @@ function Invoke-KitRenameEdt {
                'його спершу і повторіть; rename-edt свідомо не пише .gitattributes сама.')
     }
 
+    # Не запобіжник, а порада: -text на ДЖЕРЕЛІ не обов'язковий (обов'язковий на цілі, запобіжник
+    # 3/4 вище), але без нього ЯКІСТЬ виявлення перейменування залежить не від процедури, а від
+    # core.autocrlf МАШИНИ. Контрольна проба SMP_SimplyConnect (2026-09-10) на тому самому дереві:
+    # при autocrlf=input виходить R100 саме собою, при autocrlf=true — розкид R092..R100
+    # (80xR098, 49xR097, 11xR099, 10xR100, 8xR096, 4xR094, по одному R095/R093/R092). Усе вище
+    # порогу 50 %, --follow працює в обох світах, тож зупиняти прохід не можна — але мовчати теж
+    # не варто: поставити рядок ПІСЛЯ проходу вже пізно.
+    #
+    # У пораді named і друга половина рецепта. Сам по собі коміт -text робить файли з CRLF на диску
+    # "зміненими" проти LF в індексі, і наступний запуск упреться в запобіжник брудної копії (1/4).
+    # Без рематеріалізації порада виглядає шкідливою — тому обидва кроки стоять поруч.
+    if (-not (Test-GitTextPolicy -RepoRoot $root -Path $SourceRelPath)) {
+        Write-Host ("  [!] На джерелі '$SourceRelPath' не діє -text. Прохід відбудеться, але якість виявлення " +
+                    'перейменування залежатиме від core.autocrlf цієї машини (від R092 до R100). Щоб зробити її ' +
+                    "детермінованою: додайте '$SourceRelPath/** -text' у .gitattributes, закомітьте, " +
+                    "тоді рематеріалізуйте дерево (rm -rf '$SourceRelPath' && git checkout -- '$SourceRelPath') " +
+                    'і повторіть. Без рематеріалізації наступний запуск зупиниться на брудній робочій копії.') -ForegroundColor Yellow
+    }
+
     $plan = Get-KitEdtRenamePlan -RepoRoot $root -SourceRelPath $SourceRelPath -TargetRoot $TargetRoot
 
     Write-Host "Перейменування EDT -> Designer: $SourceRelPath -> $TargetRoot"
@@ -286,6 +305,14 @@ function Invoke-KitRenameEdt {
     if ($plan.Unresolved.Count -gt 0) {
         Write-Host '  Не з''ясовано (НІКОЛИ не видаляється — лишається на місці для окремого рішення):' -ForegroundColor Magenta
         Write-KitRenameEdtList -Items $plan.Unresolved -Format { param($u) "$($u.From) — $($u.Reason)" }
+        # Живий перехід SMP_SimplyConnect (2026-09-10): людина довела відповідність для файлу з
+        # Unresolved (однаковий блоб по обидва боки) і перенесла його вручну — git mv упав із
+        # "No such file or directory", бо теки призначення ще немає. Повідомлення git звучить так,
+        # ніби зникло ДЖЕРЕЛО, і відводить діагностику; сказати про теку тут дешевше, ніж лікувати
+        # хибний слід. Приймати підтверджену людиною відповідність команда не вміє свідомо: у неї
+        # немає способу відрізнити доведену відповідність від вгаданої.
+        Write-Host '    Переносите щось із цього переліку вручну — спершу створіть теку призначення:' -ForegroundColor DarkGray
+        Write-Host '    git mv падає з "No such file or directory" саме на відсутній ТЕЦІ, хоча читається як зникле джерело.' -ForegroundColor DarkGray
     }
     if ($plan.Moves.Count -gt 0) {
         Write-Host '  Перейменування:'
