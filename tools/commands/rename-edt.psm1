@@ -224,7 +224,7 @@ function Invoke-KitRenameEdt {
 
     # Запобіжник 1/4: брудна робоча копія (успадковано з repo-migration, §9.2, task-3-brief.md
     # Step 3). Весь репозиторій, а не лише SourceRelPath/TargetRoot — той самий обсяг перевірки,
-    # що docs/migration/legacy-gitsync-repo.md крок 1 і Merge-KitBranchInto (GitMerge.psm1).
+    # що skills/onboarding/SKILL.md §5.1 крок 1 і Merge-KitBranchInto (GitMerge.psm1).
     $status = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'status', '--porcelain')
     if ($status.ExitCode -ne 0) { throw "git status завершився з кодом $($status.ExitCode): $($status.Stderr)" }
     $dirty = @($status.Stdout -split "`r?`n" | Where-Object { $_.Trim() -ne '' })
