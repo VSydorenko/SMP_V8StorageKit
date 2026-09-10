@@ -26,6 +26,7 @@
 | `tools/` | Диспетчер `kit.ps1` з десятьма командами в `commands/`: `check`, `session-check`, `sync`, `dump`, `verify`, `canon`, `provision`, `build`, `install-hooks`, `rename-edt`; модулі `lib/*.psm1`; Pester-тести `tests/` |
 | `skills/` | Вісім скілів — вступний `using-v8storagekit` (вантажить хук споживача) і по одному на намір: `onboarding`, `sync`, `dump`, `reconcile`, `finish`, `provision`, `verify`. `onboarding` — єдиний із підтекою `references/gitsync-migration.md` (деталі переходу старого gitsync-репо, винесені з `SKILL.md` 2026-09-10) |
 | `templates/` | Файли, які плагін копіює в репозиторій-споживач: `hooks/`, `githooks/`, зразки маніфесту й накладки |
+| `.claude/skills/` | Проєктні скіли розробника kit (не роздаються споживачам) — `kit-dev`: методика розробки самого плагіна за моментом застосування |
 | `docs/` | `storage-and-git.md` — архітектура контуру; `follow-ups.md` — свідомо припаркована робота |
 | `.claude-plugin/` | `plugin.json` (версія!) і `marketplace.json` |
 
@@ -177,3 +178,4 @@ MCP-інструменти Уніки тут не потрібні, і `.claude/
 | Чому вихідники не конвертуються, як мігрувати репозиторій з `eol=crlf` | `docs/text-policy.md` |
 | На що покладаємось в Unica й що там зламано | `docs/unica-contract.md` |
 | Як перевести старий gitsync/EDT-репозиторій під kit | `docs/migration/legacy-gitsync-repo.md` |
+| Як тут працювати, щоб не наступити на відомі граблі | скіл `kit-dev` (`.claude/skills/kit-dev/`), активується сам |
