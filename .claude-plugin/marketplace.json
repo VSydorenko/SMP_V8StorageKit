@@ -1,10 +1,19 @@
 {
   "name": "smp-v8storagekit",
-  "owner": { "name": "VSydorenko" },
+  "owner": {
+    "name": "VSydorenko"
+  },
+  "metadata": {
+    "description": "Контур агента для 1С:Підприємства поруч з Unica: сховища конфігурацій у git, база агента, звірка git зі сховищем."
+  },
   "plugins": [
     {
       "name": "v8storagekit",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "VSydorenko/SMP_V8StorageKit",
+        "ref": "v1.0.0"
+      },
       "description": "Контур агента «сховище конфігурацій 1С ↔ git» для репозиторіїв SMP_*"
     }
   ]
