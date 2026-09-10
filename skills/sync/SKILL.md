@@ -51,7 +51,8 @@ Extension-Version|Config-Version/Storage-User`; робоча копія й по�
 (`--allow-unrelated-histories`). Якщо HEAD на головній гілці й копія брудна — злиття не
 робиться, `sync` каже повторити `-MergeMain` після коміту/stash.
 
-**Виняток — міграція gitsync-репозиторію** (`v8storagekit:onboarding`, розділ 5.1): там `sync` —
+**Виняток — міграція gitsync-репозиторію** (`v8storagekit:onboarding`;
+`skills/onboarding/references/gitsync-migration.md`, крок 4): там `sync` —
 крок 4 із шести, і його перше злиття мусить **упасти**. На `main` у цей момент лежать
 перейменовані файли з EDT-вмістом, у дзеркалі — Designer-дамп, спільного предка немає, тож
 конфліктує кожен перекритий шлях: `git merge --abort`, **код виходу 2**, підказка «Повторити

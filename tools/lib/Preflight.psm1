@@ -67,22 +67,24 @@ function Invoke-KitPreflight {
         # Правка (рев'ю, 2026-09-04; знято в Task 6 B5) — маршрут на v8storagekit:migrate сам по
         # собі вів у глухий кут, бо ні скіла, ні команди kit migrate не було — вони мали прийти в
         # B6. За чинною спекою (2026-09-03, §9) окремого migrate не буде НІКОЛИ: усі вхідні форми,
-        # включно з напівмігрованим 0.6.0, веде v8storagekit:onboarding (розділ 5.2 читає підказки
-        # саме зі storage.json). Порада тепер називає скіл, який справді існує, без обіцянки
-        # "з'явиться пізніше".
+        # включно з напівмігрованим 0.6.0, веде v8storagekit:onboarding (зупиняється й питає
+        # людину — skills/onboarding/references/gitsync-migration.md, розділ «Спадок 0.6.0: якщо
+        # storage.json трапився поза парком»). Порада тепер називає скіл, який справді існує, без
+        # обіцянки "з'явиться пізніше".
         $legacyDirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
             Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') -PathType Leaf })
         if ($legacyDirs.Count -gt 0) {
             & $fail 'manifest' (
                 "Маніфест $script:ManifestFileName не знайдено в $root, але в підтеках є storage.json " +
                 "($(($legacyDirs.Name | Sort-Object) -join ', ')) — це репозиторій старої конвенції 0.6.0. " +
-                'Правильний шлях — скіл v8storagekit:onboarding: розділ 5.2 сам прочитає шляхи ' +
-                'сховищ, імена розширень і дев-бази з наявних storage.json і заповнить маніфест.')
+                'Правильний шлях — скіл v8storagekit:onboarding: він зупиниться й спитає, як діяти ' +
+                '(skills/onboarding/references/gitsync-migration.md, розділ «Спадок 0.6.0: якщо ' +
+                'storage.json трапився поза парком»).')
             return $ctx
         }
 
         # Task 2а (task-2-brief.md, знахідка прогону B5) — інша вхідна форма: gitsync-вивантаження
-        # (skills/onboarding/SKILL.md §5, §5.1) МОЖЕ ховатись за ознакою DT-INF/, БЕЗ storage.json
+        # (skills/onboarding/SKILL.md §5, skills/onboarding/references/gitsync-migration.md) МОЖЕ ховатись за ознакою DT-INF/, БЕЗ storage.json
         # (інакше вище вже спрацював би гілка 0.6.0). Вимір по живому парку (10 репозиторіїв)
         # показав DT-INF/ на РІЗНИХ глибинах — у корені репозиторію, на глибині 1 (усередині
         # підпродукту), і навіть ДВІЧІ в одному репозиторії окремо для конфігурації й розширення
@@ -119,7 +121,7 @@ function Invoke-KitPreflight {
                 "Маніфест $script:ManifestFileName не знайдено в $root, але знайдено DT-INF/ без storage.json " +
                 "($($dtInfFound -join ', ')) — дерево у EDT-форматі з DT-INF/, маніфесту немає. DT-INF/ доводить " +
                 'лише ФОРМАТ дерева, не походження — яке сховище за ним стоїть, якщо взагалі стоїть, ' +
-                "з'ясовує сам скіл v8storagekit:onboarding (розділ 5.1): він показує знайдене й питає.")
+                "з'ясовує сам скіл v8storagekit:onboarding (skills/onboarding/SKILL.md §1): він показує знайдене й питає.")
             return $ctx
         }
         # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"

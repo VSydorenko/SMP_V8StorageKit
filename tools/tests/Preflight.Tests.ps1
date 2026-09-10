@@ -82,7 +82,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
     }
 
     # Task 2а (task-2-brief.md, знахідка прогону B5) — ознака gitsync-вивантаження: DT-INF/
-    # поруч із текою вихідників, БЕЗ storage.json (skills/onboarding/SKILL.md §5, §5.1).
+    # поруч із текою вихідників, БЕЗ storage.json (skills/onboarding/SKILL.md §5, skills/onboarding/references/gitsync-migration.md).
     # Виміряно на живому парку (правка координатора під час цієї задачі): DT-INF/ лежить на
     # РІЗНИХ глибинах — у корені репозиторію, на глибині 1 (усередині підпродукту), і навіть
     # ДВІЧІ в одному репозиторії (окремо cf/ і cfe/). Три тести нижче покривають усі три силуети

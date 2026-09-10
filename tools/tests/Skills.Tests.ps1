@@ -136,6 +136,13 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'перший коміт|Перший коміт'
             $t | Should -Not -Match 'v8storagekit:migrate'   # команди й скіла migrate немає (спека 2f2da62)
         }
+        It 'Task 1 (B8): закомічені артефакти збірки — показ переліком, git rm --cached лише з підтвердженням людини' {
+            $t = Skill 'onboarding'
+            $t | Should -Match 'build-artifacts'
+            $t | Should -Match 'git rm --cached'
+            $t | Should -Match 'Лише з підтвердженням'
+            $t | Should -Match 'без підтвердження не змінюється нічого'
+        }
     }
 
     Context 'sync' {

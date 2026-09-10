@@ -73,7 +73,7 @@ function Get-KitRenameEdtBoundaryTag {
         Тег межі EDT-епохи, що вже є в репозиторії — лише ЧИТАННЯ (S-I, рев'ю раунду 1).
     .DESCRIPTION
         Раніше команда сама СТВОРЮВАЛА тег `legacy/gitsync-<YYYY-MM>` на HEAD — рев'ю показало
-        дві проблеми: (1) це робота кроку 2 онбордингу (skills/onboarding/SKILL.md §5.1), один
+        дві проблеми: (1) це робота кроку 2 переходу (skills/onboarding/references/gitsync-migration.md, крок 2 «Тег межі»), один
         раз на репозиторій, а не один раз на джерело; команда, що пише git-реф у чуже репо
         понад свій прямий обов'язок (git mv/rm), робить зайве; (2) ім'я за ПОТОЧНИМ місяцем на
         ПОТОЧНОМУ HEAD хибне для другого продукту того самого репозиторію іншого місяця — HEAD
@@ -84,12 +84,14 @@ function Get-KitRenameEdtBoundaryTag {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot)
     # Знахідка 7 пілота (2026-09-10): раніше стояло `--points-at HEAD`, і на живому прогоні це
-    # давало ХИБНЕ попередження «тега межі немає» при наявному теді. Причина структурна: §5.1
-    # ставить тег на ОСТАННІЙ gitsync-коміт (крок 2), а HEAD на момент виклику — це коміт
-    # онбордингу (маніфест, воркспейс, політики, хуки), який стоїть МІЖ ними. Різними їх зробила
-    # правка, що перенесла обов'язковий перший коміт у кінець кроку 1, — тобто перевірка й текст
-    # розійшлись через виправлення попередньої знахідки, і поставити тег «на HEAD» неможливо,
-    # не порушивши §5.1. Тому питаємо не «чи тег на HEAD», а «чи тег межі взагалі є в репозиторії».
+    # давало ХИБНЕ попередження «тега межі немає» при наявному теді. Причина структурна:
+    # skills/onboarding/references/gitsync-migration.md, крок 2 «Тег межі» ставить тег на
+    # ОСТАННІЙ gitsync-коміт, а HEAD на момент виклику — це коміт онбордингу (маніфест,
+    # воркспейс, політики, хуки), який стоїть МІЖ ними. Різними їх зробила правка, що перенесла
+    # обов'язковий перший коміт у кінець кроку 1, — тобто перевірка й текст розійшлись через
+    # виправлення попередньої знахідки, і поставити тег «на HEAD» неможливо, не порушивши
+    # skills/onboarding/references/gitsync-migration.md, крок 2 «Тег межі». Тому питаємо не
+    # «чи тег на HEAD», а «чи тег межі взагалі є в репозиторії».
     $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('tag', '-l', 'legacy/gitsync-*')
     if ($r.ExitCode -ne 0) { throw "git tag --points-at HEAD завершився з кодом $($r.ExitCode): $($r.Stderr)" }
     @($r.Stdout -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Sort-Object -Culture ([System.Globalization.CultureInfo]::InvariantCulture) | Select-Object -First 1)
@@ -115,8 +117,9 @@ function Invoke-KitRenameEdt {
            лишається незміненим. Перевіряється до виконання будь-якої мутації.
 
         Префлайт строгий (kit.ps1 не додає rename-edt у -Lenient): маніфест і воркспейс уже
-        існують на момент виклику, бо -TargetRoot розв'язує саме звідти викликач (онбординг,
-        розділ 5.1) — ця команда сама по собі маніфесту не читає, приймає готові -SourceRelPath
+        існують на момент виклику, бо -TargetRoot розв'язує саме звідти викликач
+        (skills/onboarding/references/gitsync-migration.md, крок 1) — ця команда сама по собі
+        маніфесту не читає, приймає готові -SourceRelPath
         і -TargetRoot.
 
         Запобіжники перед мутацією, у порядку виконання (рев'ю раунду 1 додав C-B до пари з
@@ -185,7 +188,8 @@ function Invoke-KitRenameEdt {
         (kit.ps1 передає -Workspace/-Source кожній команді) і НІЧОГО тут не робить — на відміну
         від sync/dump/verify, де ними відбирають джерела маніфесту. Ця команда джерел не
         відбирає взагалі: що перейменовувати й куди, повністю задають -SourceRelPath і
-        -TargetRoot, які викликач уже розв'язав з v8project.yaml (онбординг, розділ 5.1).
+        -TargetRoot, які викликач уже розв'язав з v8project.yaml
+        (skills/onboarding/references/gitsync-migration.md, крок 1).
     .PARAMETER Source
         Те саме, що -Workspace: приймається за контрактом диспетчера, не використовується.
     .PARAMETER SourceRelPath
@@ -224,7 +228,7 @@ function Invoke-KitRenameEdt {
 
     # Запобіжник 1/4: брудна робоча копія (успадковано з repo-migration, §9.2, task-3-brief.md
     # Step 3). Весь репозиторій, а не лише SourceRelPath/TargetRoot — той самий обсяг перевірки,
-    # що skills/onboarding/SKILL.md §5.1 крок 1 і Merge-KitBranchInto (GitMerge.psm1).
+    # що skills/onboarding/references/gitsync-migration.md, крок 1 (розвідка й страховка) і Merge-KitBranchInto (GitMerge.psm1).
     $status = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'status', '--porcelain')
     if ($status.ExitCode -ne 0) { throw "git status завершився з кодом $($status.ExitCode): $($status.Stderr)" }
     $dirty = @($status.Stdout -split "`r?`n" | Where-Object { $_.Trim() -ne '' })
@@ -297,7 +301,7 @@ function Invoke-KitRenameEdt {
     # з файлів, які підуть на видалення. Виміряно тоді на SMB_ukr_vendor: 17 344 перейменування,
     # 1 377 без відповідника, 2 колізії — це числа ДО виправлення таблиці макетів (раунд 1) і
     # правила для сторінок HTMLDocument, яке ті дві колізії й усунуло. Поточні числа того самого
-    # дерева: 17 366 / 864 / 494 / 0 колізій — саме вони стоять у skills/onboarding/SKILL.md.
+    # дерева: 17 366 / 864 / 494 / 0 колізій — саме вони стоять у skills/onboarding/references/gitsync-migration.md, крок 3 (коміт перейменування).
     if ($plan.Unmapped.Count -gt 0) {
         Write-Host '  Без відповідника (без -Apply лишаються на місці; під -Apply будуть видалені):' -ForegroundColor Yellow
         Write-KitRenameEdtList -Items $plan.Unmapped -Format { param($u) "$($u.From) — $($u.Reason)" }
@@ -343,7 +347,7 @@ function Invoke-KitRenameEdt {
     if ($boundaryTag) {
         Write-Host "  Тег межі: $boundaryTag" -ForegroundColor DarkGray
     } else {
-        Write-Host '  У репозиторії немає тега межі legacy/gitsync-* — це крок 2 онбордингу (skills/onboarding/SKILL.md §5.1), rename-edt його не створює.' -ForegroundColor DarkGray
+        Write-Host '  У репозиторії немає тега межі legacy/gitsync-* — це крок 2 переходу (skills/onboarding/references/gitsync-migration.md, крок 2 «Тег межі»), rename-edt його не створює.' -ForegroundColor DarkGray
     }
 
     # I-E (рев'ю раунду 1): SHA ДО будь-якої мутації — на будь-яку помилку нижче команда сама
