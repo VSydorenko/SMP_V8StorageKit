@@ -10,8 +10,8 @@
     {
       "name": "v8storagekit",
       "source": {
-        "source": "github",
-        "repo": "VSydorenko/SMP_V8StorageKit",
+        "source": "url",
+        "url": "https://github.com/VSydorenko/SMP_V8StorageKit.git",
         "ref": "v1.0.0"
       },
       "description": "Контур агента «сховище конфігурацій 1С ↔ git» для репозиторіїв SMP_*"
