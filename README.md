@@ -158,6 +158,6 @@ Designer-шлях і перезаписує дерево реплеєм зі с�
 | На що покладаємось в Unica і що там зламано | `docs/unica-contract.md` |
 | Чому вихідники не конвертуються за кінцями рядків | `docs/text-policy.md` |
 | Чому щось відоме не полагоджено | `docs/follow-ups.md` |
-| Перехід gitsync-репозиторію і спайк історії | `docs/migration/` |
+| Перехід gitsync-репозиторію (і числа спайку історії — розділ 12) | `docs/migration/legacy-gitsync-repo.md` |
 | Що саме роздається споживачам | `templates/README.md` |
 | Архітектурне обґрунтування моделі 1.0 | `docs/superpowers/specs/2026-09-03-agent-contour-design.md` |

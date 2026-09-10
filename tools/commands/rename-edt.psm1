@@ -266,7 +266,7 @@ function Invoke-KitRenameEdt {
     if (-not (Test-GitTextPolicy -RepoRoot $root -Path $TargetRoot)) {
         throw ("Політика тексту не діє на '$TargetRoot' (git check-attr text дає щось інше за 'unset') — " +
                'наступний git add конвертує кінці рядків, і побайтова рівність зі сховищем (§9.2 крок 5) ' +
-               'мовчки не досягнеться (спайк 2026-09-09, docs/migration/2026-09-09-history-spike.md). ' +
+               'мовчки не досягнеться (виміряно спайком безперервності історії, 2026-09-09). ' +
                'Політику пише крок онбордингу (templates/gitattributes, docs/text-policy.md) — виконайте ' +
                'його спершу і повторіть; rename-edt свідомо не пише .gitattributes сама.')
     }
