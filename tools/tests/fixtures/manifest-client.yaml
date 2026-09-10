@@ -1,0 +1,16 @@
+version: 1
+client: Alpenpharma
+workspaces:
+  - path: Alpenpharma_UNF
+    sources:
+      base:
+        truth: storage              # конфігурація змінена і під сховищем — з історією
+        storage: { path: 'R:\СховищаКонфігурацій_1С\Alpenpharma' }
+      Адаптация:
+        truth: storage
+        storage: { path: 'R:\СховищаРозширень_1С\Alpenpharma_Адаптация' }
+      SMP_BankExchange_SMB:
+        truth: storage              # наше рішення зі спільного сховища
+        storage:
+          path: 'R:\СховищаРозширень_1С\СМП_BankExchange_SMB'
+          user: Alpenpharma         # користувач сховища за іменем бази

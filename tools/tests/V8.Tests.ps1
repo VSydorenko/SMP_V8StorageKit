@@ -28,95 +28,6 @@ Describe 'ConvertTo-V8IbSwitch' {
     }
 }
 
-Describe 'Read-V8LocalConnection' {
-    BeforeEach {
-        $script:LocalFile = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.yaml')
-    }
-
-    It 'читає і connection, і user з одного файлу правильно (ловить помилку порядку читання $Matches)' {
-        # $Matches — одна спільна змінна на обидва -match. Якщо реалізація дістає значення
-        # connection з $Matches ПІСЛЯ того, як виконався -match для user (а не одразу після
-        # свого власного -match), Connection повернеться порожнім/іншим, бо іменована група
-        # 'c' у $Matches до того моменту вже перезаписана групою 'u'. Значення тут навмисно
-        # різні й неспівпадаючі за формою, щоб таку підміну неможливо було не помітити.
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'devInfobase:'
-            "  connection: 'Srvr=""SRV01"";Ref=""DEMO_BASE"";'"
-            "  user: 'probe-user'"
-        )
-
-        $result = Read-V8LocalConnection -Path $script:LocalFile
-
-        $result.Connection | Should -Be 'Srvr="SRV01";Ref="DEMO_BASE";'
-        $result.User       | Should -Be 'probe-user'
-    }
-
-    It 'кидає виняток з дією, якщо файл відсутній' {
-        $missing = Join-Path $TestDrive 'no-such.yaml'
-        { Read-V8LocalConnection -Path $missing } | Should -Throw '*Не знайдено*'
-    }
-
-    It 'кидає виняток, якщо рядка connection: немає' {
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'devInfobase:'
-            "  user: 'probe-user'"
-        )
-
-        { Read-V8LocalConnection -Path $script:LocalFile } | Should -Throw '*connection*'
-    }
-
-    It 'кидає виняток, якщо рядок connection: не збігається з очікуваним форматом' {
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'devInfobase:'
-            '  connection: без лапок'
-        )
-
-        { Read-V8LocalConnection -Path $script:LocalFile } | Should -Throw '*connection*'
-    }
-
-    It 'повертає порожній User, якщо рядка user: немає — не кидає виняток' {
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'devInfobase:'
-            "  connection: 'File=""C:\bases\demo"";'"
-        )
-
-        $result = Read-V8LocalConnection -Path $script:LocalFile
-
-        $result.Connection | Should -Be 'File="C:\bases\demo";'
-        $result.User       | Should -Be ''
-    }
-}
-
-Describe 'Read-V8LocalStoragePath' {
-    BeforeEach {
-        $script:LocalFile = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.yaml')
-    }
-
-    It 'повертає порожній рядок, а не кидає виняток, якщо файл відсутній — перевизначення просто немає' {
-        $missing = Join-Path $TestDrive 'no-such.yaml'
-        Read-V8LocalStoragePath -Path $missing | Should -Be ''
-    }
-
-    It 'повертає порожній рядок, якщо файл є, а рядка storagePath: немає' {
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
-            "  connection: 'File=""C:\bases\demo"";'"
-        )
-
-        Read-V8LocalStoragePath -Path $script:LocalFile | Should -Be ''
-    }
-
-    It 'читає storagePath: з верхнього рівня, поза infobase:' {
-        Set-Content -LiteralPath $script:LocalFile -Encoding UTF8 -Value @(
-            'infobase:'
-            "  connection: 'File=""C:\bases\demo"";'"
-            "storagePath: 'D:\Сховища\ІншийРозробник'"
-        )
-
-        Read-V8LocalStoragePath -Path $script:LocalFile | Should -Be 'D:\Сховища\ІншийРозробник'
-    }
-}
-
 Describe 'Assert-NoLicenseProblem' {
     It 'пропускає чистий рядок без згадки ліцензії' {
         InModuleScope V8 {
@@ -143,6 +54,13 @@ Describe 'Assert-NoLicenseProblem' {
     }
 }
 
+Describe 'Hide-V8Secrets' {
+    It 'Hide-V8Secrets маскує /P і /ConfigurationRepositoryP, лишаючи решту аргументів' {
+        Hide-V8Secrets -ArgLine 'DESIGNER /F "x" /N "u" /P "secret" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "s2" /Out "l"' |
+            Should -Be 'DESIGNER /F "x" /N "u" /P "***" /ConfigurationRepositoryN "gitbot" /ConfigurationRepositoryP "***" /Out "l"'
+    }
+}
+
 Describe 'New-V8FileInfobase (запобіжник шляху, без звернення до платформи)' {
     It 'кидає виняток на шляху поза -MustBeUnder — до Get-V8Path, незалежно від того, чи встановлена платформа' {
         $outside = Join-Path $TestDrive 'not-the-work-dir'
@@ -157,6 +75,15 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
         New-Item -ItemType Directory -Path $boundary -Force | Out-Null
 
         { New-V8FileInfobase -Path '' -MustBeUnder $boundary } | Should -Throw
+    }
+
+    It 'кидає виняток на неіснуючому -TemplatePath — до Get-V8Path, незалежно від того, чи встановлена платформа' {
+        $boundary = Join-Path $TestDrive 'work-dir-3'
+        New-Item -ItemType Directory -Path $boundary -Force | Out-Null
+        $missing = Join-Path $TestDrive 'no-such.dt'
+
+        { New-V8FileInfobase -Path (Join-Path $boundary 'ib') -MustBeUnder $boundary -TemplatePath $missing } |
+            Should -Throw "*$missing*"
     }
 }
 
@@ -183,44 +110,48 @@ Describe 'New-ExtensionInfobase' -Tag 'Integration' {
     }
 }
 
-Describe 'Read-V8LocalConnection: неоднозначність у v8project.local.yaml' {
-    BeforeAll {
-        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+Describe 'New-V8FileInfobase -TemplatePath: розгортання з .dt' -Tag Integration {
+    It 'створює базу з реального .dt (CREATEINFOBASE /UseTemplate) — і рахунок доходить до /UseTemplate у аргументах' {
+        # .dt робимо самі: порожня ІБ -> /DumpIB. Тест не залежить від чужих файлів (той
+        # самий прийом, що в Provision.Tests.ps1 Integration BeforeAll).
+        $srcIb = New-V8FileInfobase -Path (Join-Path $TestDrive 'dt-src/ib') -MustBeUnder (Join-Path $TestDrive 'dt-src')
+        $dt = Join-Path $TestDrive 'template.dt'
+        (Invoke-V8Designer -IbSwitch ('/F "{0}"' -f $srcIb) -Arguments @('/DumpIB "{0}"' -f $dt)).ExitCode | Should -Be 0
+        Test-Path -LiteralPath $dt -PathType Leaf | Should -BeTrue
+
+        $target = Join-Path $TestDrive 'from-template/ib'
+        $result = New-V8FileInfobase -Path $target -MustBeUnder (Join-Path $TestDrive 'from-template') -TemplatePath $dt
+        $result | Should -Be $target
+        Join-Path $target '1Cv8.1CD' | Should -Exist
+    }
+}
+
+Describe 'V8.psm1 — розпізнавання «база зайнята» (спека §5)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+
+    It 'російський, український і англійський тексти платформи розпізнаються' -ForEach @(
+        @{ Text = 'Ошибка блокировки информационной базы для конфигурирования. Информационная база уже открыта Конфигуратором' }
+        @{ Text = 'Не удалось монопольно заблокировать информационную базу' }
+        @{ Text = 'Помилка блокування інформаційної бази для конфігурування' }
+        @{ Text = 'Не вдалося монопольно заблокувати інформаційну базу' }
+        @{ Text = 'Error locking infobase for configuration. The infobase is already opened by Designer' }
+        @{ Text = 'Failed to lock the infobase exclusively' }
+    ) {
+        Test-V8InfobaseBusy -Output $Text | Should -BeTrue
     }
 
-    It 'читає підключення під devInfobase: — конвенція kit після 0.6.0' {
-        $f = Join-Path $TestDrive 'ok.yaml'
-        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
-            'devInfobase:'
-            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
-            "  user: 'Адміністратор'"
-        )
-        $r = Read-V8LocalConnection -Path $f
-        $r.Connection | Should -Be 'Srvr="VSDATA";Ref="DEV";'
-        $r.User       | Should -Be 'Адміністратор'
+    It 'інший текст і порожній вивід — не «зайнято»' {
+        Test-V8InfobaseBusy -Output 'Неверные или отсутствующие параметры соединения' | Should -BeFalse
+        Test-V8InfobaseBusy -Output '' | Should -BeFalse
     }
 
-    It 'зупиняється на двох рядках connection:' {
-        # Регекс не прив'язаний до батьківського ключа й бере ПЕРШИЙ збіг: файл із двома
-        # підключеннями дав би load-ext.ps1 тихе розкочування розширення не в ту базу.
-        $f = Join-Path $TestDrive 'two.yaml'
-        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
-            'devInfobase:'
-            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
-            'other:'
-            "  connection: 'File=build/ib'"
-        )
-        { Read-V8LocalConnection -Path $f } | Should -Throw -ExpectedMessage '*неоднозначність*'
-    }
-
-    It 'зупиняється на блоці infobase:, який перекриває базу воркспейсу' {
-        # Уніка перекриває local overlay-ем infobase: із закоміченого v8project.yaml,
-        # тому дев-база під цим ключем робить машинну базу воркспейсу інертною.
-        $f = Join-Path $TestDrive 'override.yaml'
-        Set-Content -LiteralPath $f -Encoding UTF8 -Value @(
-            'infobase:'
-            "  connection: 'Srvr=""VSDATA"";Ref=""DEV"";'"
-        )
-        { Read-V8LocalConnection -Path $f } | Should -Throw -ExpectedMessage '*devInfobase*'
+    It 'Assert-V8InfobaseNotBusy: порада «закрийте Конфігуратор» першою, сирий текст — у кінці; на іншому тексті мовчить' {
+        $raw = 'Информационная база уже открыта Конфигуратором'
+        $err = $null
+        try { Assert-V8InfobaseNotBusy -Output $raw -Infobase 'devUNF' } catch { $err = $_.Exception.Message }
+        $err | Should -Not -BeNullOrEmpty
+        $err.IndexOf('закрийте Конфігуратор', [System.StringComparison]::OrdinalIgnoreCase) | Should -BeLessThan $err.IndexOf($raw)
+        $err | Should -BeLike '*devUNF*.cfl*'
+        { Assert-V8InfobaseNotBusy -Output 'усе гаразд' -Infobase 'devUNF' } | Should -Not -Throw
     }
 }

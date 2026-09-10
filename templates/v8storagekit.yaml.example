@@ -1,0 +1,29 @@
+# v8storagekit.yaml — маніфест конвеєра «сховище ↔ git» (плагін v8storagekit, спека §2.4).
+# Один файл у корені репозиторію. Структуру (шляхи, типи) НЕ описує — вона у v8project.yaml
+# кожного воркспейсу; тут — лише truth кожного джерела й те, чого Unica не знає.
+# Кладе й заповнює скіл v8storagekit:onboarding, питаючи truth для кожного джерела.
+version: 1
+product: <НазваПродукту>            # АБО client: <НазваКлієнта> — метадані для імен артефактів і звітів
+# mainBranch: main                  # необов'язково; лише якщо головна гілка не main
+
+workspaces:
+  - path: <Воркспейс_UA>            # тека з v8project.yaml безпосередньо в корені репо
+    sources:                        # ключ = name: source-set у <Воркспейс_UA>/v8project.yaml
+      base:                         # базова конфігурація вендора
+        truth: vendor               # не наше, у git не потрапляє (.gitignore); локально — дамп
+        dump: { from: devUNF }      # ключ дев-бази з v8storagekit.local.yaml → infobases:
+      <ІмʼяРозширення>:             # = <Name> у cfe/…/Configuration.xml = name: source-set
+        truth: storage              # істина — сховище конфігурацій; гілка storage/<ІмʼяРозширення>
+        storage:
+          path: 'R:\СховищаРозширень_1С\<Сховище>'
+          user: gitbot              # типово gitbot, пароль порожній
+
+  - path: epf                       # спільні зовнішні обробки — власний воркспейс
+    sources:
+      external-processors: { truth: git }   # зовнішнього джерела немає: пишуть люди й агент
+
+# Словник truth:
+#   storage — сховище конфігурацій; sync дзеркалить у storage/<ключ>; у git з історією
+#   dump    — жива база, лише поточний стан; dump пише в git без історії
+#   vendor  — чужа конфігурація; dump лише локально, у git не потрапляє
+#   git     — зовнішнього джерела немає

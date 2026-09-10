@@ -8,7 +8,8 @@
 
     Три категорії у виводі відповідають реальним залежностям, а не оформленню:
 
-      Конвеєр       — без цього скрипти tools/ не запустяться взагалі.
+      Конвеєр       — без цього скрипти tools/ не запустяться взагалі
+                      (PowerShell 7, git, платформа 8.3.27.x, модуль powershell-yaml).
       Розробка kit  — без цього не прогнати тести цього репозиторію.
       Вихідники     — конвеєр працюватиме повністю, але працювати з тим, що він
                       синхронізував, буде нічим. Сюди потрапляє плагін unica: у tools/
@@ -35,6 +36,7 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'lib/Environment.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/Yaml.psm1') -Force
 
 $checks = [System.Collections.Generic.List[object]]::new()
 
@@ -54,6 +56,10 @@ try {
     $checks.Add((New-EnvironmentCheck -Name 'Платформа 1С 8.3.27.x' -Category 'Конвеєр' -Ok $false `
         -Detail $_.Exception.Message))
 }
+
+$yaml = Test-KitYamlModule
+$checks.Add((New-EnvironmentCheck -Name 'Модуль powershell-yaml' -Category 'Конвеєр' -Ok $yaml.Available `
+    -Detail $(if ($yaml.Available) { "версія $($yaml.Version) — читає v8storagekit.yaml і v8project.yaml" } else { $yaml.Reason })))
 
 # --- Розробка kit ------------------------------------------------------------
 
@@ -96,6 +102,12 @@ $warnings = @($checks | Where-Object { -not $_.Ok -and $_.Category -ne 'Конв
 Write-Host ''
 if ($blocking.Count -gt 0) {
     Write-Host "Конвеєр запустити не вийде: не виконано $($blocking.Count) обов'язкових умов(и)."
+
+    if (-not $yaml.Available) {
+        Write-Host ''
+        Write-Host '  Встановити powershell-yaml (PSGallery):'
+        Write-Host '    Install-Module powershell-yaml -Scope CurrentUser'
+    }
 } else {
     Write-Host 'Конвеєр запуститься: усі обов''язкові умови виконано.'
 }

@@ -226,20 +226,21 @@ function Read-StorageReport {
         Sort-Object Version)
 }
 
-function Get-StorageVersions {
+function Get-StorageReportArguments {
+    <#
+    .SYNOPSIS
+        Аргументи Конфігуратора для звіту сховища. -Extension належить команді-дії
+        (ранбук, п. 1); для сховища КОНФІГУРАЦІЇ його немає взагалі — сховище одне й
+        те саме API, різниця лише в цьому ключі.
+    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$IbSwitch,
+        [Parameter(Mandatory)][string]$ReportPath,
         [Parameter(Mandatory)][string]$StoragePath,
-        [Parameter(Mandatory)][string]$ExtensionName,
         [Parameter(Mandatory)][string]$StorageUser,
-        [Parameter(Mandatory)][string]$WorkDir
+        [string]$StoragePassword = '',
+        [string]$ExtensionName = ''
     )
-
-    New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
-    $reportPath = Join-Path $WorkDir 'storage-report.mxl'
-    if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath -Force }
-
     # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport
     # сам трактує "//" у тексті коментаря як межу рядкового коментаря — усе від "//" до
     # кінця рядка зникає з MXL ще до того, як звіт узагалі потрапляє в цей інструмент (не
@@ -251,18 +252,49 @@ function Get-StorageVersions {
     # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
     # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
     # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
-    $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments @(
+    $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
+    if ($ExtensionName) { $report += " -Extension $ExtensionName" }
+    # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
+    , @(
         '/ConfigurationRepositoryF "{0}"' -f $StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $StorageUser
-        '/ConfigurationRepositoryP ""'
-        '/ConfigurationRepositoryReport "{0}" -NBegin 1 -Extension {1} -IncludeCommentLinesWithDoubleSlash' -f $reportPath, $ExtensionName
+        '/ConfigurationRepositoryP "{0}"' -f $StoragePassword
+        $report
+    )
+}
+
+function Get-StorageVersions {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$IbSwitch,
+        [Parameter(Mandatory)][string]$StoragePath,
+        [string]$ExtensionName = '',
+        [Parameter(Mandatory)][string]$StorageUser,
+        [string]$StoragePassword = '',
+        [Parameter(Mandatory)][string]$WorkDir
     )
 
+    New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
+    $reportPath = Join-Path $WorkDir 'storage-report.mxl'
+    if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath -Force }
+
+    # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
+    # яка його й формує.
+    $result = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments (Get-StorageReportArguments `
+        -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser `
+        -StoragePassword $StoragePassword -ExtensionName $ExtensionName)
+
     if ($result.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $reportPath)) {
+        if ($result.Output -match 'Ошибка аутентификации в хранилище') {
+            throw ("Сховище $StoragePath відхилило користувача '$StorageUser'. Заведіть у сховищі " +
+                   'користувача gitbot (читання, порожній пароль) або вкажіть наявного через ' +
+                   'storage.user у маніфесті; пароль — лише в v8storagekit.local.yaml ' +
+                   '(storages.<ключ>.password)')
+        }
         throw "Не вдалося побудувати звіт сховища $StoragePath : $($result.Output)"
     }
 
     Read-StorageReport -Path $reportPath
 }
 
-Export-ModuleMember -Function ConvertFrom-MxlText, Get-MxlStringCells, Read-StorageReport, Get-StorageVersions
+Export-ModuleMember -Function ConvertFrom-MxlText, Get-MxlStringCells, Read-StorageReport, Get-StorageReportArguments, Get-StorageVersions

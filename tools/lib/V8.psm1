@@ -56,100 +56,6 @@ function ConvertTo-V8IbSwitch {
     throw "Не вдалося розпізнати рядок підключення: $Connection"
 }
 
-function Read-V8LocalConnection {
-    <#
-    .SYNOPSIS
-        Підключення до дев-бази з v8project.local.yaml.
-    .DESCRIPTION
-        Файл спільний з Унікою, і це джерело неоднозначності, яку функція мусить
-        ловити, а не переживати мовчки.
-
-        Уніка автоматично підхоплює v8project.local.yaml поруч із головним конфігом і
-        ПЕРЕКРИВАЄ ним блок infobase: (`references/tooling/v8project.md` у плагіні
-        unica: «may override local-only workPath, infobase, tools, tests, and mcp
-        settings»). Тому дев-база, оголошена тут під `infobase:`, скасовує машинну базу
-        воркспейсу з закоміченого v8project.yaml — і зміна, заради якої той блок туди
-        додали, стає інертною.
-
-        Тому конвенція kit: у v8project.local.yaml дев-база живе під `devInfobase:`,
-        якого Уніка не читає, а `infobase:` там не з'являється взагалі.
-
-        Друга частина ризику — наша власна. Регекс нижче не прив'язаний до
-        батьківського ключа й ловить будь-який рядок `connection:`, а `-match`
-        повертає ПЕРШИЙ збіг. Файл із двома підключеннями дав би dump-config.ps1
-        помітне падіння, а load-ext.ps1 — тихе розкочування розширення не в ту базу.
-        Обидві форми неоднозначності зупиняють роботу тут, з поясненням.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "Не знайдено $Path — у ньому має бути підключення до дев-бази."
-    }
-
-    $local = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-
-    $connectionCount = ([regex]::Matches($local, "(?m)^\s*connection:\s*'.+?'\s*$")).Count
-    if ($connectionCount -gt 1) {
-        throw "У $Path знайдено $connectionCount рядків connection: — неоднозначність. " +
-              "Kit бере перший збіг, і це може виявитись не та база. Лишіть рівно одне " +
-              "підключення, до дев-бази, під ключем devInfobase:."
-    }
-
-    if ($local -match "(?m)^\s*infobase:\s*$") {
-        throw "У $Path є блок infobase: — приберіть його. Уніка перекриває ним машинну " +
-              "базу воркспейсу з v8project.yaml, і та настройка стає інертною. " +
-              "Підключення до дев-бази має жити під devInfobase:."
-    }
-
-    if ($local -notmatch "(?m)^\s*connection:\s*'(?<c>.+?)'\s*$") {
-        throw "У $Path немає рядка connection: '...'"
-    }
-    # $Matches належить лише останньому виконаному -match: значення connection треба
-    # забрати одразу, до того як наступний -match (для user) перепише $Matches.
-    $connection = $Matches['c']
-
-    $user = ''
-    if ($local -match "(?m)^\s*user:\s*'(?<u>.+?)'\s*$") { $user = $Matches['u'] }
-
-    [pscustomobject]@{
-        Connection = $connection
-        User       = $user
-    }
-}
-
-function Read-V8LocalStoragePath {
-    <#
-    .SYNOPSIS
-        Необов'язкове перевизначення storagePath із v8project.local.yaml.
-    .DESCRIPTION
-        storage.json — закомічений, і storagePath у ньому єдиний спільний для всієї
-        команди (docs/storage-and-git.md, "Пряме обмеження на локальні
-        шляхи розробників"): свідомий виняток із заборони на локальні шляхи, бо
-        синхронізація має бути самоналаштовуваною. Але в другого розробника з іншим
-        розташуванням дисків цей шлях може не існувати — редагувати заради цього
-        закомічений файл означало б або чужий diff, або локальний коміт поверх
-        спільного storage.json щоразу після pull.
-
-        v8project.local.yaml (gitignored) уже несе підключення до дев-бази цього ж
-        продукту на цій самій машині (Read-V8LocalConnection) — той самий файл, той
-        самий механізм, лише необов'язковий рядок storagePath: '...' на верхньому
-        рівні (поза infobase:). На відміну від Read-V8LocalConnection, де
-        connection: обов'язковий, тут відсутність файлу чи рядка — не помилка, а
-        законний стан "перевизначення немає": функція повертає порожній рядок, і
-        викликач лишає storagePath зі storage.json без змін.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
-
-    if (-not (Test-Path -LiteralPath $Path)) { return '' }
-
-    $local = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-    if ($local -match "(?m)^\s*storagePath:\s*'(?<s>.+?)'\s*$") { return $Matches['s'] }
-
-    ''
-}
-
 function Assert-NoLicenseProblem {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
@@ -157,6 +63,58 @@ function Assert-NoLicenseProblem {
     if ($Output -match '(?i)лиценз|ліценз|license|HASP') {
         throw "Платформа повідомила про проблему з ліцензією, робота зупинена:`n$Output"
     }
+}
+
+# Тексти з ресурсів платформи про монопольне захоплення ІБ (дослідження, п. 4 спеки). Список
+# розширюваний: якщо платформа відповіла іншим формулюванням — додайте його сюди, і тест
+# «база зайнята» отримає новий рядок. Файли .cfl індикатором не є — лишаються після закриття.
+$script:InfobaseBusyPatterns = @(
+    'Ошибка блокировки информационной базы для конфигурирования'
+    'уже открыта Конфигуратором'
+    'Не удалось монопольно заблокировать информационную базу'
+    'Помилка блокування інформаційної бази для конфігурування'
+    'вже відкрита Конфігуратором'
+    'Не вдалося монопольно заблокувати інформаційну базу'
+    'Error locking infobase for configuration'
+    'already opened by Designer'
+    'Failed to lock the infobase exclusively'
+    'Cannot lock the infobase exclusively'
+)
+
+function Test-V8InfobaseBusy {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
+    foreach ($p in $script:InfobaseBusyPatterns) {
+        if ($Output.IndexOf($p, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    }
+    $false
+}
+
+function Assert-V8InfobaseNotBusy {
+    <#
+    .SYNOPSIS
+        Зупинка з порадою, а не сирим повідомленням, коли базу тримає Конфігуратор чи інший
+        монопольний сеанс (спека §5).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Output,
+        [Parameter(Mandatory)][string]$Infobase
+    )
+    if (-not (Test-V8InfobaseBusy -Output $Output)) { return }
+    throw ("База '$Infobase' зайнята — її відкрито Конфігуратором або іншим монопольним сеансом. Закрийте Конфігуратор " +
+           "(для серверної бази — перевірте сеанси: rac session list, якщо піднято ras) і повторіть. Файли .cfl " +
+           "індикатором не є — вони лишаються після закриття.`nПлатформа відповіла: $Output")
+}
+
+function Hide-V8Secrets {
+    <#
+    .SYNOPSIS
+        Маскує паролі в рядку аргументів платформи — для Write-Verbose і текстів зупинок.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$ArgLine)
+    $ArgLine -replace '(/P|/ConfigurationRepositoryP)\s+"[^"]*"', '$1 "***"'
 }
 
 function Invoke-V8Designer {
@@ -183,7 +141,7 @@ function Invoke-V8Designer {
     $parts += '/Out "{0}"' -f $log
 
     $argLine = $parts -join ' '
-    Write-Verbose "1cv8 $argLine"
+    Write-Verbose "1cv8 $(Hide-V8Secrets -ArgLine $argLine)"
 
     $proc = Start-Process -FilePath $V8Path -ArgumentList $argLine `
         -Wait -NoNewWindow -PassThru
@@ -205,6 +163,7 @@ function New-V8FileInfobase {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$TemplatePath,
         [string]$V8Path
     )
 
@@ -215,6 +174,14 @@ function New-V8FileInfobase {
     # впасти одразу, незалежно від того, чи знайдена платформа на цій машині.
     Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -Description 'Path інфобази'
 
+    # Той самий принцип — до Get-V8Path: неіснуючий шаблон має впасти одразу, незалежно
+    # від того, чи знайдена платформа на цій машині.
+    $template = ''
+    if ($TemplatePath) {
+        if (-not (Test-Path -LiteralPath $TemplatePath -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $TemplatePath" }
+        $template = ' /UseTemplate "{0}"' -f (Resolve-Path -LiteralPath $TemplatePath).Path
+    }
+
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
     if (Test-Path -LiteralPath $Path) {
@@ -223,7 +190,7 @@ function New-V8FileInfobase {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
 
     $log = Join-Path $Path 'create.log'
-    $argLine = 'CREATEINFOBASE File="{0}"; /DisableStartupDialogs /Out "{1}"' -f $Path, $log
+    $argLine = 'CREATEINFOBASE File="{0}";{1} /DisableStartupDialogs /Out "{2}"' -f $Path, $template, $log
     $proc = Start-Process -FilePath $V8Path -ArgumentList $argLine -Wait -NoNewWindow -PassThru
 
     $msg = ''
@@ -267,4 +234,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Read-V8LocalConnection, Read-V8LocalStoragePath, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase
+Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
