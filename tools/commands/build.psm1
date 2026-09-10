@@ -101,7 +101,11 @@ function Invoke-KitBuild {
     $plan = @(foreach ($s in $epfSources) { foreach ($d in (Get-KitEpfDescriptors -Source $s)) { [pscustomobject]@{ Source = $s; Descriptor = $d } } })
     foreach ($p in $plan) { Write-Host "  .epf  $($p.Descriptor.Name).epf  ← $($p.Source.RepoPath)" }
     foreach ($e in $extSources) {
-        Write-Host "  .cfe  $($e.Key).cfe — не kit: operation=make Уніки (cwd $($e.Workspace), source-set $($e.Key)) з output=$outDir\$($e.Key).cfe" -ForegroundColor DarkGray
+        # --extension обов'язковий, і без нього make падає аж у раннері: "artifacts cfe export
+        # requires non-empty --extension" (живий перехід SMP_BankExchange, 2026-09-10 — інструкція
+        # друкувалась без нього і не працювала на жодному з трьох воркспейсів). --source-set його
+        # НЕ замінює, хоча значення тут те саме: ім'я розширення.
+        Write-Host "  .cfe  $($e.Key).cfe — не kit: operation=make Уніки (cwd $($e.Workspace), source-set $($e.Key), extension $($e.Key)) з output=$outDir\$($e.Key).cfe" -ForegroundColor DarkGray
     }
     if ($plan.Count -eq 0 -and $extSources.Count -eq 0) { Write-Host '  Джерел для збірки в цьому виборі немає.' }
 
@@ -148,6 +152,16 @@ function Invoke-KitBuild {
         Write-Host "У $outDir порожньо. .cf/.cfe збирає operation=make Уніки з output=$outDir\<Ім'я>.cfe; .epf — з source-set EXTERNAL_DATA_PROCESSORS." -ForegroundColor Yellow
     } else {
         $files | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Host
+    }
+
+    # Код виходу 0 означає "kit зробив свою частину", а не "всі артефакти на місці": .cf/.cfe
+    # збирає operation=make Уніки, і в прев'ю це сказано, а у виводі -Apply вже ні. Разом із тим,
+    # що build/artifacts між прогонами не чиститься, це складалось у мовчазний збій: у теці
+    # лежав .cfe від попередньої збірки 0.6.0 (два тижні), решти двох не було зовсім, і "kit build
+    # -Apply → 0" читалось як повний успіх (живий перехід SMP_BankExchange, 2026-09-10). Єдине,
+    # що це ловило, — звірка LastWriteTime у таблиці вище; тепер на неї вказано прямо.
+    if ($extSources.Count -gt 0) {
+        Write-Host ("Код 0 = kit зібрав .epf. Розширень у цьому виборі: {0} — їх .cfe kit НЕ збирає (див. рядки вище), і стара копія в теці виглядає як свіжа. Звірте LastWriteTime із часом цього прогону." -f $extSources.Count) -ForegroundColor Yellow
     }
     [pscustomobject]@{ ExitCode = 0; Artifacts = $artifacts.ToArray() }
 }
