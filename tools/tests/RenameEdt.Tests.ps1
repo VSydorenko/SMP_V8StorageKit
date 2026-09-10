@@ -97,6 +97,99 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
             @(Invoke-TestGit -Repo $Repo -GitArgs @('-c', 'core.quotepath=false', 'status', '--porcelain') |
                 ForEach-Object { "$_" } | Where-Object { $_.Trim() -ne '' })
         }
+
+        function script:Add-KitOccupyTargetHook {
+            <#
+            .SYNOPSIS
+                Хук post-index-change, що ОДИН раз створює й СТЕЙДЖИТЬ чужий файл за адресою
+                -OccupyRel — тобто "хтось зайняв цільовий шлях" ПІД ЧАС проходу.
+            .DESCRIPTION
+                post-index-change спрацьовує на кожен запис індексу, зокрема на першому ж
+                `git mv` — тобто вже після запобіжників на старті (їх чужий файл не бентежить,
+                бо на момент перевірки його ще не існує). Коли цикл `git mv` дійде до
+                перейменування, ціль якого зайнято, git відмовиться ("destination exists") — і
+                це рівно та форма, яка ВИКЛИКАЄ відкіт (знахідка 1, рев'ю раунду 5).
+
+                Маркер `.git/kit-occupy-done` рятує від рекурсії: `git add` усередині хука сам
+                пише індекс і викликав би хук знову.
+            #>
+            param(
+                [Parameter(Mandatory)][string]$Repo,
+                [Parameter(Mandatory)][string]$OccupyRel,
+                [Parameter(Mandatory)][string]$Content
+            )
+            $dirRel = ($OccupyRel -replace '/[^/]+$', '')
+            $body = @(
+                '#!/bin/sh'
+                '[ -f .git/kit-occupy-done ] && exit 0'
+                ': > .git/kit-occupy-done'
+                "mkdir -p '$dirRel'"
+                "printf '%s\n' '$Content' > '$OccupyRel'"
+                "git add -- '$OccupyRel'"
+                'exit 0'
+            ) -join "`n"
+            [System.IO.File]::WriteAllText((Join-Path $Repo '.git/hooks/post-index-change'), "$body`n", [System.Text.UTF8Encoding]::new($false))
+        }
+
+        function script:Add-KitBreakRestoreHook {
+            <#
+            .SYNOPSIS
+                Ламає АВТОМАТИЧНИЙ відкіт, не заважаючи запобіжникам на старті: хук
+                post-index-change ставить обов'язковий smudge-фільтр на дерево джерела.
+            .DESCRIPTION
+                Потрібно для знахідки 2 (рев'ю раунду 5): наскрізний тест рецепту, що виконує його
+                на репозиторії, де автоматичний відкіт УЖЕ все відновив, не розрізняє правильний
+                рецепт від будь-якого іншого, що не падає — рев'юер підмінив рядок рецепту на
+                завідомо неправильний і отримав 114/114 зелених. Щоб рецепт мав що робити,
+                джерело мусить лишитись НЕвідновленим.
+
+                Фільтр ставиться ВСЕРЕДИНІ вікна мутації (на першому ж записі індексу), тож
+                `git status` запобіжника 1/4 його ще не бачить. `clean` — наскрізний `cat`, тож
+                status/diff працюють; падає лише `smudge`, тобто рівно `git checkout` відкоту.
+                Перевірено справжнім git: checkout завершується кодом 128
+                ("smudge filter boom failed"), а джерело лишається переміщеним.
+            #>
+            param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][string]$SourceRelPath)
+            $body = @(
+                '#!/bin/sh'
+                '[ -f .git/kit-break-done ] && exit 0'
+                ': > .git/kit-break-done'
+                "printf '%s\n' '$SourceRelPath/** filter=boom' > .git/info/attributes"
+                'git config filter.boom.clean cat'
+                'git config filter.boom.smudge false'
+                'git config filter.boom.required true'
+                'exit 0'
+            ) -join "`n"
+            [System.IO.File]::WriteAllText((Join-Path $Repo '.git/hooks/post-index-change'), "$body`n", [System.Text.UTF8Encoding]::new($false))
+        }
+
+        function script:Repair-KitBrokenRestore {
+            <# .SYNOPSIS Людина усунула причину, через яку автоматичний відкіт упав, і бере рецепт із виводу. #>
+            param([Parameter(Mandatory)][string]$Repo)
+            Remove-Item -LiteralPath (Join-Path $Repo '.git/info/attributes') -Force -ErrorAction SilentlyContinue
+            Invoke-TestGit -Repo $Repo -GitArgs @('config', '--remove-section', 'filter.boom') | Out-Null
+        }
+
+        function script:Invoke-KitRecipeFromOutput {
+            <#
+            .SYNOPSIS
+                Виконує рядки рецепту («  git …») з виводу команди ДОСЛІВНО й по порядку;
+                повертає самі рядки, щоб тест міг звірити їх із очікуваним рецептом.
+            .DESCRIPTION
+                Знахідка 2 (рев'ю раунду 5) вимагає асерцію, прив'язану саме до РЯДКА РЕЦЕПТУ, а
+                не до будь-якого тексту у виводі: попередня асерція збігалася з текстом помилки
+                pruneErrors, тож упасти не могла. Відбір за «^пробіли + git » бере лише рецепт —
+                текст помилки згадує git усередині речення, не з початку рядка.
+            #>
+            param([Parameter(Mandatory)][string]$Output, [Parameter(Mandatory)][string]$Repo)
+            $recipe = @($Output -split "`r?`n" | Where-Object { $_ -match '^\s+git\s' } | ForEach-Object { $_.Trim() })
+            foreach ($line in $recipe) {
+                # Лапки навколо pathspec знімає оболонка; тут знімаємо їх самі, аргументи не склеюючи.
+                $tokens = @($line -split '\s+' | Select-Object -Skip 1 | ForEach-Object { $_.Trim("'") })
+                Invoke-TestGit -Repo $Repo -GitArgs $tokens | Out-Null
+            }
+            $recipe
+        }
     }
 
     It 'позитивний шлях: git mv (R, не D+A) на КОЖНОМУ рядку diff-tree, git log --follow безперервний, байти вмісту не чіпаються' {
@@ -384,7 +477,7 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
         $r.ExitCode | Should -Not -Be 0
 
-        (Join-Path $repo $humanRel) | Should -Exist -Because 'команда прибирає рівно власні цілі ($plan.Moves.To), а чужого файлу не знає й не чіпає'
+        (Join-Path $repo $humanRel) | Should -Exist -Because 'команда прибирає рівно власні ВИКОНАНІ цілі, а чужого файлу не знає й не чіпає'
         (Get-Content -LiteralPath (Join-Path $repo $humanRel) -Raw) | Should -BeLike '*це файл людини*'
         $r.Output | Should -BeLike '*розбіжність*' -Because 'чужий файл у піддереві — саме та розбіжність, про яку треба ЧЕСНО доповісти, а не прибрати її видаленням'
 
@@ -394,45 +487,120 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения.xml') | Should -Not -Exist
     }
 
-    It 'знахідка A.2 (рев''ю раунду 4): команда відновлення з повідомлення СПРАВДІ повертає цей стан — тест її ВИКОНУЄ, а не звіряє рядок' {
-        # Вимога стенду: "воно мусить назвати команду, яка справді повертає ЦЕЙ конкретний стан,
-        # і ця команда мусить бути перевірена тестом, а не просто написана в рядку". Тут — жива
-        # форма (дерева призначення в HEAD немає) плюс чужий застейджений файл у піддереві
-        # призначення: команда чужого не чіпає, тож приймальна перевірка чесно каже "розбіжність"
-        # і друкує, чим її закрити. Тест бере ці рядки З ВИВОДУ, виконує їх і звіряє стан.
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'manual-recovery') -WithGitattributes -NoSourceTrees
-        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
-        $humanRel = 'Alpha_SMB/cfe/src/МійВласнийФайл.txt'
-        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @(
-            "mkdir -p 'Alpha_SMB/cfe/src'"
-            "printf '%s\n' 'це файл людини, не kit' > '$humanRel'"
-            "git add -- '$humanRel'"
-        ) | Out-Null
+    It 'знахідка 1 (рев''ю раунду 5): чужий файл за адресою НЕВИКОНАНОГО перейменування переживає відкіт, виконані цілі — прибрані' {
+        # Найважливіша форма, бо вона ж і ВИКЛИКАЄ відкіт: `git mv` падає на "destination exists"
+        # рівно тоді, коли хтось зайняв цільовий шлях. Прибирання по ВСЬОМУ $plan.Moves знищувало
+        # б цей чужий застейджений файл із диска й індексу — тобто відкіт руйнував би саме те,
+        # через що його й покликали.
+        #
+        # Чужий файл з'являється ПІД ЧАС проходу (хук post-index-change на першому ж git mv):
+        # якби він існував до запуску, команда не почалась би — запобіжник 1/4 бачить і
+        # застейджене, і невідстежуване.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'occupied-target') -WithGitattributes -NoSourceTrees
+        $catalogs = Join-Path $repo 'Alpha_SMB/src/Catalogs'
+        foreach ($objectName in 'A1', 'A2', 'A3') {
+            New-Item -ItemType Directory -Force -Path (Join-Path $catalogs $objectName) | Out-Null
+            Set-Content -LiteralPath (Join-Path $catalogs "$objectName/$objectName.mdo") -Value $objectName -Encoding UTF8
+        }
+        Invoke-TestGit -Repo $repo -GitArgs @('add', '-A') | Out-Null
+        Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'gitsync: три об''єкти') | Out-Null
+        $occupiedRel = 'Alpha_SMB/cfe/src/Catalogs/A3.xml'
+        Add-KitOccupyTargetHook -Repo $repo -OccupyRel $occupiedRel -Content 'це файл людини, не kit'
         $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
 
         $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
         $r.ExitCode | Should -Not -Be 0
-        $r.Output | Should -BeLike '*HEAD не рухався*' -Because 'людина мусить дізнатись, ЧОМУ стан узагалі відновний'
-        (Join-Path $repo $humanRel) | Should -Exist -Because 'до відновлення чужий файл ще на місці — його прибирає саме підказана команда, і повідомлення про це попереджає'
+        $r.Output | Should -BeLike '*destination exists*' -Because "падіння мало статись саме на зайнятій цілі: $($r.Output)"
 
-        # Рядки виду "  git …" з виводу — це і є підказаний рецепт. Виконуємо ДОСЛІВНО.
-        $recipe = @($r.Output -split "`r?`n" |
-            Where-Object { $_.Trim().StartsWith('git ') } |
-            ForEach-Object { ($_ -split '\s+#')[0].Trim() })
-        $recipe.Count | Should -BeGreaterThan 1 -Because "у повідомленні мусить бути рецепт, а не лише діагностика: $($r.Output)"
-        ($recipe -join ' ') | Should -BeLike '*checkout*'
-        ($recipe -join ' ') | Should -BeLike '*rm*'
-        foreach ($line in $recipe) {
-            # Лапки навколо pathspec знімає оболонка; тут знімаємо їх самі, аргументи не склеюючи.
-            $tokens = @($line -split '\s+' | Select-Object -Skip 1 | ForEach-Object { $_.Trim("'") })
-            Invoke-TestGit -Repo $repo -GitArgs $tokens | Out-Null
+        # ГОЛОВНЕ: файл, якого команда не створювала, лишається і на диску, і в індексі.
+        (Join-Path $repo $occupiedRel) | Should -Exist -Because 'до перейменування A3 цикл НЕ ДІЙШОВ — цей файл створила не команда'
+        (Get-Content -LiteralPath (Join-Path $repo $occupiedRel) -Raw) | Should -BeLike '*це файл людини*'
+        @(Invoke-TestGit -Repo $repo -GitArgs @('ls-files', '--', $occupiedRel)).Count | Should -Be 1 -Because 'застейджений чужий файл не мав зникнути з індексу'
+
+        # Виконані перейменування (A1, A2) — навпаки, прибрані, а джерело повернуто.
+        (Join-Path $repo 'Alpha_SMB/cfe/src/Catalogs/A1.xml') | Should -Not -Exist
+        (Join-Path $repo 'Alpha_SMB/cfe/src/Catalogs/A2.xml') | Should -Not -Exist
+        foreach ($objectName in 'A1', 'A2', 'A3') {
+            (Join-Path $catalogs "$objectName/$objectName.mdo") | Should -Exist -Because 'джерело мало повернутись цілком'
         }
-
-        # Властивість: після рецепту репозиторій РІВНО такий, як був до запуску.
         (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
-        @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0 -Because 'рецепт мусить закрити всі 192 (на парку — 17 366) застейджені зміни, а не лише показати їх'
-        [System.IO.File]::ReadAllBytes((Join-Path $repo 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl')) | Should -Be $originalBytes
-        (Join-Path $repo 'Alpha_SMB/cfe/src/CommonModules') | Should -Not -Exist
+    }
+
+    It 'знахідка 2 (рев''ю раунду 5): рецепт виконано зі стану, де АВТОМАТИЧНИЙ відкіт джерело НЕ відновив — і саме рецепт його повертає' {
+        # Попередній тест рецепту виконував його там, де автоматичний відкіт уже все відновив:
+        # будь-який checkout, що не падає, давав той самий стан, і підміна рядка рецепту на
+        # завідомо неправильний лишала 114/114 зелених. Тут автоматичний відкіт ЗЛАМАНО
+        # (обов'язковий smudge-фільтр, поставлений усередині вікна мутації), джерело лишається
+        # переміщеним — тож рецепт має що робити, і неправильний рецепт цього не зробить.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'recipe-from-broken') -WithGitattributes -NoSourceTrees
+        $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
+        Add-KitBreakRestoreHook -Repo $repo -SourceRelPath 'Alpha_SMB/src'
+        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @('true')
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+        $moduleRel = 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl'
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*не вдався повністю*' -Because "автоматичний відкіт мав упасти на smudge-фільтрі: $($r.Output)"
+
+        # ПЕРЕДУМОВА тесту: джерело справді НЕ відновлене — інакше рецепт нічого не доводить.
+        (Join-Path $repo $moduleRel) | Should -Not -Exist -Because 'git checkout відкоту впав, тож джерело лишилось переміщеним'
+
+        Repair-KitBrokenRestore -Repo $repo
+        $recipe = @(Invoke-KitRecipeFromOutput -Output $r.Output -Repo $repo)
+
+        # Асерція, прив'язана до РЯДКА РЕЦЕПТУ (а не до будь-якого тексту у виводі): підміна
+        # шляху в рецепті ламає і цей рядок, і стан нижче.
+        $recipe.Count | Should -Be 3 -Because "рецепт — рівно три команди по порядку: $($recipe -join ' | ')"
+        $recipe[0] | Should -Be "git rm -r -f --ignore-unmatch -- ':(literal)Alpha_SMB/cfe/src'"
+        $recipe[1] | Should -Be "git checkout $before -- Alpha_SMB/src"
+        $recipe[2] | Should -Be 'git status'
+
+        # Стан після рецепту — рівно той, що був до запуску.
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0 -Because 'рецепт мусить закрити ВСІ застейджені зміни, а не лише показати їх'
+        [System.IO.File]::ReadAllBytes((Join-Path $repo $moduleRel)) | Should -Be $originalBytes
+        @(Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe') -Recurse -File -Force -ErrorAction SilentlyContinue).Count |
+            Should -Be 0 -Because 'дерева призначення до запуску не існувало — після рецепту в ньому не має лишитись жодного файлу'
+    }
+
+    It 'знахідка 3 (рев''ю раунду 5): у формі «ціль у SHA БУЛА» рецепт теж відновлює стан — і прибирання в ньому обов''язкове' {
+        # Форма повторного прогону й міграції в наперед закомічене дерево. Старий рецепт для неї
+        # складався з самого checkout — а checkout нічого не видаляє, тож усе, що з'явилось у
+        # піддереві призначення й чого немає в SHA, лишалось 'A' в індексі й на диску: підказана
+        # команда стан НЕ відновлювала. Тут це відтворено чужим файлом за адресою невиконаного
+        # перейменування — після самого лише checkout він лишився б застейдженим.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'recipe-target-in-sha') -WithGitattributes
+        $catalogs = Join-Path $repo 'Alpha_SMB/src/Catalogs'
+        foreach ($objectName in 'A1', 'A2') {
+            New-Item -ItemType Directory -Force -Path (Join-Path $catalogs $objectName) | Out-Null
+            Set-Content -LiteralPath (Join-Path $catalogs "$objectName/$objectName.mdo") -Value $objectName -Encoding UTF8
+        }
+        Invoke-TestGit -Repo $repo -GitArgs @('add', '-A') | Out-Null
+        Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'gitsync: два об''єкти') | Out-Null
+        $occupiedRel = 'Alpha_SMB/cfe/src/Catalogs/A2.xml'
+        Add-KitOccupyTargetHook -Repo $repo -OccupyRel $occupiedRel -Content 'це файл людини, не kit'
+        $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
+        $configRel = 'Alpha_SMB/cfe/src/Configuration.xml'
+        (Join-Path $repo $configRel) | Should -Exist -Because 'передумова форми: дерево призначення в HEAD Є'
+
+        $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*розбіжність*'
+        (Join-Path $repo $occupiedRel) | Should -Exist -Because 'чужий файл переживає автоматичний відкіт (знахідка 1) — і саме він робить стан невідновленим'
+
+        $recipe = @(Invoke-KitRecipeFromOutput -Output $r.Output -Repo $repo)
+        $recipe.Count | Should -Be 3
+        $recipe[0] | Should -Be "git rm -r -f --ignore-unmatch -- ':(literal)Alpha_SMB/cfe/src'" -Because 'без прибирання рецепт у цій формі стан НЕ відновлює — checkout нічого не видаляє'
+        $recipe[1] | Should -Be "git checkout $before -- Alpha_SMB/src Alpha_SMB/cfe/src" -Because 'обидва шляхи є в SHA, тож обидва відновлюються'
+        $r.Output | Should -BeLike '*спершу подивіться git status*' -Because 'попередження про прибирання чужого мусить друкуватись і в цій формі'
+
+        (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim() | Should -Be $before
+        @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0 -Because 'рецепт мусить повернути стан, а не лише показати діагностику'
+        (Join-Path $repo $configRel) | Should -Exist -Because 'файл, що БУВ у SHA, рецепт прибрав першою командою й повернув другою'
+        foreach ($objectName in 'A1', 'A2') {
+            (Join-Path $catalogs "$objectName/$objectName.mdo") | Should -Exist
+        }
     }
 
     It 'знахідка D (рев''ю раунду 4): у ЖИВІЙ формі (дерева призначення в HEAD немає) успішний прохід теж працює' {
@@ -682,13 +850,48 @@ Describe 'kit rename-edt — мок git-шару в процесі: C-A, pathspe
 
         $thrown | Should -Not -BeNullOrEmpty
         $thrown | Should -BeLike '*не вдався повністю*'
-        $thrown | Should -BeLike "*git checkout deadbeefdeadbeefdeadbeefdeadbeefdeadbeef -- Alpha_SMB/src*" -Because 'A.2: точна команда відновлення, а не лише git diff/git status'
-        $thrown | Should -BeLike "*git rm -r -f --ignore-unmatch -- ':(literal)Alpha_SMB/cfe/src'*" -Because 'A.2: дерева призначення в коміті не було — його треба ПРИБРАТИ, і команда це називає'
         $thrown | Should -BeLike '*HEAD не рухався*'
+
+        # Знахідка 2 (рев'ю раунду 5): асерція прив'язана до РЯДКІВ РЕЦЕПТУ, а не до будь-якого
+        # тексту в повідомленні. Попередня форма (`-BeLike '*git checkout <sha> -- <шлях>*'`)
+        # збігалася з текстом помилки pruneErrors, який містить ту саму підстроку, — тобто
+        # впасти не могла: підміна самого рецепту лишала тест зеленим.
+        $recipe = @($thrown -split "`r?`n" | Where-Object { $_ -match '^\s+git\s' } | ForEach-Object { $_.Trim() })
+        $recipe.Count | Should -Be 3 -Because "рецепт — рівно три команди по порядку: $($recipe -join ' | ')"
+        $recipe[0] | Should -Be "git rm -r -f --ignore-unmatch -- ':(literal)Alpha_SMB/cfe/src'"
+        $recipe[1] | Should -Be 'git checkout deadbeefdeadbeefdeadbeefdeadbeefdeadbeef -- Alpha_SMB/src'
+        $recipe[2] | Should -Be 'git status'
 
         # E: теку під -TargetRoot створив New-Item у циклі mv; після ПРОВАЛУ відновлення вона
         # мусить лишитись на місці — саме її зникнення й створювало хибне враження міграції.
         (Join-Path $repo 'Alpha_SMB/cfe/src/Catalogs') | Should -Exist -Because 'нічого не прибираємо, коли відновлення не вдалося'
+    }
+
+    It 'знахідка 4 (рев''ю раунду 5): зламана приймальна перевірка (git diff з кодом, відмінним від 0/1) — це ЗБІЙ відкоту, а не мовчазний успіх' {
+        # Мутація "ігнорувати $verifyExitCode, лишити тільки pruneErrors" давала 114/114 зелених:
+        # гілка "сам git diff зламався" не була покрита нічим. Мок віддає 128 саме на diff, коли
+        # решта відкоту пройшла успішно — тоді команда мусить сказати, що стан піддерев НЕ
+        # підтверджено, а не відрапортувати "відкочено".
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-broken-mock') -WithGitattributes
+        Add-KitMockEdtPair -Repo $repo
+
+        Reset-KitGitMockState -LsTree @{ 'Alpha_SMB/src' = @('Alpha_SMB/src/Catalogs/A1/A1.mdo', 'Alpha_SMB/src/Catalogs/A2/A2.mdo') }
+        $script:GitMockFailWhen = {
+            param($argv)
+            ($argv -contains 'diff') -or (($argv -contains 'mv') -and (($argv -join ' ') -like '*A2.mdo*'))
+        }
+        Mock -ModuleName rename-edt Invoke-KitGitProcess $script:GitMockBody
+
+        $ctx = [pscustomobject]@{ RepoRoot = $repo }
+        $thrown = $null
+        try { Invoke-KitRenameEdt -Context $ctx -Apply $true -SourceRelPath 'Alpha_SMB/src' -TargetRoot 'Alpha_SMB/cfe/src' | Out-Null }
+        catch { $thrown = $_.Exception.Message }
+
+        $thrown | Should -Not -BeNullOrEmpty
+        $thrown | Should -BeLike '*не вдався повністю*' -Because 'непідтверджений стан — це збій відкоту'
+        $thrown | Should -BeLike '*приймальну перевірку відкоту виконати не вдалося*'
+        $thrown | Should -BeLike '*завершився з кодом 128*'
+        $thrown | Should -Not -BeLike '*Перейменування впало та відкочено*' -Because 'рапортувати успішний відкіт, не перевіривши його, не можна'
     }
 
     It 'знахідка F (рев''ю раунду 4): виняток усередині самого відкоту не з''їдає оригінальну причину падіння' {
