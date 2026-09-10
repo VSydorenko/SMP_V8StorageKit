@@ -282,6 +282,46 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*git rm -r --cached*'
     }
 
+    # Task 1 (B8): артефакти збірки (*.epf/*.erf/*.cfe/*.cf) у git не лежать — рішення
+    # користувача 2026-09-10. Живий приклад, який фіксує цей інваріант: SMP_BankExchange мав
+    # epf/dist/*.epf ЗАКОМІЧЕНИМ під воркспейсом, а templates/gitignore слова dist не знав.
+    It 'Task 1: закомічений .epf під воркспейсом (поза workPath) — warn build-artifacts, код 0' {
+        $repo = New-GoodRepo 'build-artifacts-committed'
+        New-Item -ItemType Directory -Force -Path (Join-Path $repo 'Alpha_SMB/epf/dist') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/epf/dist/Foo.epf') -Value 'fake epf' -Encoding UTF8
+        # -f: Task 1 щойно додав dist/ у templates/gitignore (Step 1) саме тому, що в СТАРІЙ формі
+        # цього правила не було — фікстура тут відтворює вже закомічений спадок, а не нове
+        # порушення; без -f git мовчки пропустив би файл, і тест нічого не перевіряв би.
+        git -C $repo add -f -- Alpha_SMB/epf/dist/Foo.epf
+        git -C $repo commit -qm 'фікстура: .epf закомічено поза workPath (спадок форми до 1.0)'
+        $r = Invoke-Check -Repo $repo
+        # warn, НЕ error (спека рівня): error завалив би перехід репозиторію за законний стан
+        # форми 0.6.0 — код лишається 0.
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*[!]*артефакти збірки*Foo.epf*'
+        $r.Output | Should -BeLike '*git rm --cached*'
+    }
+
+    # Другий тест не декоративний (брифа задачі): він відрізняє інваріант «артефакт НЕ В GIT» від
+    # «файла з таким розширенням НІДЕ немає» — це різні речі. Файл тут ТАКОЖ закомічений (git
+    # ls-files його бачить), просто лежить під workPath/artifacts, куди пише kit build.
+    It 'Task 1: той самий файл, закомічений УСЕРЕДИНІ build/artifacts/ — check мовчить про build-artifacts' {
+        $repo = New-GoodRepo 'build-artifacts-in-place'
+        New-Item -ItemType Directory -Force -Path (Join-Path $repo 'Alpha_SMB/build/artifacts') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/build/artifacts/Foo.epf') -Value 'fake epf' -Encoding UTF8
+        # -f: build/ гітігноровано шаблоном (templates/gitignore) — тут навмисно закомічений
+        # виняток, щоб довести, що саме ФАКТ перебування під workPath/artifacts, а не сама
+        # відсутність файлу, гасить попередження.
+        git -C $repo add -f -- Alpha_SMB/build/artifacts/Foo.epf
+        git -C $repo commit -qm 'фікстура: .epf закомічено під workPath/artifacts'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        # '*артефакти збірки*' — текст самого повідомлення (людський вивід); тег знахідки
+        # 'build-artifacts' у Write-Host не друкується (лише Message), і збігся б із назвою
+        # теки фікстури нижче — тому саме ця фраза, а не тег.
+        $r.Output | Should -Not -BeLike '*артефакти збірки*'
+    }
+
     It '§3.2: немонотонна гілка storage/X — код 1; лінійна з кореневим комітом — 0' {
         $repo = New-GoodRepo 'branch'
         foreach ($v in 5, 9) {

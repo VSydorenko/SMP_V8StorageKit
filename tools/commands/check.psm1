@@ -278,6 +278,46 @@ function Invoke-KitCheck {
                 }
             }
 
+            # §2.6/§13 — артефакти збірки в git не лежать (рішення користувача 2026-09-10).
+            # Вони похідні: бінарний блоб лишається в історії назавжди, а закомічений артефакт
+            # поруч зі свіжим не відрізнити — хто читає дерево, не бачить, який із них зібрано з
+            # поточних вихідників. Єдине їх місце — build/artifacts/ (гітігнорована), куди пише
+            # kit build.
+            #
+            # РІВЕНЬ warn, І САМЕ warn. error завалив би перехід репозиторію, у якому артефакти в
+            # git були ЗАКОННОЮ нормою форми 0.6.0 (SMP_BankExchange: epf/dist/*.epf у git).
+            # За правилом рівнів це «ще не ухвалене рішення», а не порушення: прибрати з індексу
+            # пропонує onboarding, вирішує людина. Наступний читач побачить warn там, де «очевидно
+            # має бути error», — причина написана тут, поруч з інваріантом, а не лише в плані.
+            #
+            # .erf у переліку спеки (§2.6) немає — там три розширення. Доданий свідомо: зовнішній
+            # звіт збирає та сама команда платформи, що й .epf
+            # (/LoadExternalDataProcessorOrReportFromFiles), і лишити його поза переліком означало б
+            # відому дірку в інваріанті. Якщо це визнають зайвим — прибирати разом із цим рядком.
+            $artifactExt = @('.epf', '.erf', '.cfe', '.cf')
+            $wsWorkPath = if ($ws.Project.WorkPath) { $ws.Project.WorkPath } else { 'build' }
+            $wsPrefix = ($ws.Path -replace '\\', '/').TrimEnd('/')
+            $workPrefix = "$wsPrefix/$(($wsWorkPath -replace '\\', '/').TrimEnd('/'))/"
+            $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+                '-c', 'core.quotepath=false', 'ls-files', '-z', '--', $ws.Path)
+            if ($tracked.ExitCode -ne 0) {
+                & $add error build-artifacts "$($ws.Path): git ls-files завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)"
+            } else {
+                $committedArtifacts = @($tracked.Stdout -split "`0" |
+                    Where-Object { $_ -ne '' } |
+                    Where-Object { $artifactExt -contains [System.IO.Path]::GetExtension($_).ToLowerInvariant() } |
+                    Where-Object { -not $_.StartsWith($workPrefix, [System.StringComparison]::OrdinalIgnoreCase) })
+                if ($committedArtifacts.Count -gt 0) {
+                    $shown = @($committedArtifacts | Select-Object -First 5) -join ', '
+                    $tail = if ($committedArtifacts.Count -gt 5) { " та ще $($committedArtifacts.Count - 5)" } else { '' }
+                    & $add warn build-artifacts (
+                        "$($ws.Path): у git лежать артефакти збірки — $($committedArtifacts.Count) файл(ів): $shown$tail. " +
+                        "Вони похідні, і закомічений артефакт застаріє непомітно: поруч зі свіжим його не відрізнити. " +
+                        'Єдине їх місце — build/artifacts/ у КОРЕНІ репозиторію (гітігнорована), куди пише kit build. ' +
+                        'Прибрати з індексу зі збереженням історії: git rm --cached <шлях> — рішення за вами, kit сам нічого не змінює.')
+                }
+            }
+
             $localPath = Join-Path $ws.FullPath 'v8project.local.yaml'
             $relLocalPath = "$($ws.Path)/v8project.local.yaml"
 
