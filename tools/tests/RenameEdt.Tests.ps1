@@ -92,6 +92,43 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
             $hookPath
         }
 
+        function script:Add-KitDuringPassStagedEditHook {
+            <#
+            .SYNOPSIS
+                Правка людини ПІД ЧАС проходу, ЗАСТЕЙДЖЕНА в СПРАВЖНІЙ індекс: хук
+                post-index-change один раз дописує рядок у -Rel і робить `git add`.
+            .DESCRIPTION
+                I-5 (фінальне рев'ю блоку). Чому не через pre-commit (Add-KitDuringPassPreCommitHook):
+                для ЧАСТКОВОГО коміту (`git commit --only -- <шляхи>`) git виконує pre-commit із
+                GIT_INDEX_FILE = ТИМЧАСОВИЙ індекс цього коміту, тож `git add` усередині pre-commit
+                потрапляє в коміт навіть при --only. Перевірено справжнім git окремим прогоном:
+                README.md опинявся в коміті попри `--only -- src tgt`. Такий тест був би червоним і
+                з фіксом, і без нього — тобто не розрізняв би їх узагалі.
+
+                post-index-change спрацьовує на першому ж записі індексу самого проходу (git rm /
+                git mv), тобто правка стає застейдженою в основному індексі ДО коміту — рівно та
+                форма, яку `git commit -F` без pathspec затягував у коміт перейменування, а
+                `git commit --only -- <два піддерева>` лишає застейдженою й незакоміченою.
+
+                Маркер `.git/kit-staged-edit-done` рятує від рекурсії: `git add` усередині хука сам
+                пише індекс і викликав би хук знову.
+            #>
+            param(
+                [Parameter(Mandatory)][string]$Repo,
+                [Parameter(Mandatory)][string]$Rel,
+                [Parameter(Mandatory)][string]$Content
+            )
+            $body = @(
+                '#!/bin/sh'
+                '[ -f .git/kit-staged-edit-done ] && exit 0'
+                ': > .git/kit-staged-edit-done'
+                "printf '%s\n' '$Content' >> '$Rel'"
+                "git add -- '$Rel'"
+                'exit 0'
+            ) -join "`n"
+            [System.IO.File]::WriteAllText((Join-Path $Repo '.git/hooks/post-index-change'), "$body`n", [System.Text.UTF8Encoding]::new($false))
+        }
+
         function script:Get-TestGitStatus {
             param([Parameter(Mandatory)][string]$Repo)
             @(Invoke-TestGit -Repo $Repo -GitArgs @('-c', 'core.quotepath=false', 'status', '--porcelain') |
@@ -464,14 +501,20 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         # доходив до прибирання й видаляв "усе, чого не було в SHA" через git diff
         # --diff-filter=A. Під той опис потрапляв і чужий застейджений файл: git rm -f стирав
         # його з диска Й з індексу, поки команда рапортувала "решта репозиторію не зачеплена".
+        #
+        # I-5 (фінальне рев'ю блоку) переписав механіку стенду, не властивість: чужий файл
+        # СТЕЙДЖИТЬСЯ хуком post-index-change, тобто в СПРАВЖНІЙ індекс (як його справді
+        # застейджила б людина), а pre-commit лишився рівно тим, чим він тут і був, — способом
+        # завалити коміт і викликати відкіт. Робити обидві справи одним pre-commit більше не
+        # можна: після переходу коміту на `--only` git дає pre-commit ТИМЧАСОВИЙ індекс
+        # (GIT_INDEX_FILE), тож `git add` усередині нього не стейджить нічого в основний індекс —
+        # файл лишався б невідстежуваним, і приймальна перевірка відкоту чесно не бачила б
+        # розбіжності, якої в індексі й немає. Стенд моделював би не той стан, що описано вище.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human-file-in-target') -WithGitattributes
         $originalBytes = Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src'
         $humanRel = 'Alpha_SMB/cfe/src/МійВласнийФайл.txt'
-        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @(
-            "mkdir -p 'Alpha_SMB/cfe/src'"
-            "printf '%s\n' 'це файл людини, не kit' > '$humanRel'"
-            "git add -- '$humanRel'"
-        ) | Out-Null
+        Add-KitOccupyTargetHook -Repo $repo -OccupyRel $humanRel -Content 'це файл людини, не kit'
+        Add-KitDuringPassPreCommitHook -Repo $repo -DuringPassScript @('true') | Out-Null
         $before = (Invoke-TestGit -Repo $repo -GitArgs @('rev-parse', 'HEAD')).Trim()
 
         $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
@@ -618,29 +661,33 @@ Describe 'kit rename-edt — коміт перейменування EDT -> Desi
         @(Get-TestGitStatus -Repo $repo).Count | Should -Be 0
     }
 
-    It 'знахідка стенду (раунд 4): УСПІШНИЙ прохід не втягує чужу паралельну правку у свій коміт' {
-        # Властивість ніде не була заявлена й нічим не боронена, хоч ціна її втрати висока:
-        # `git commit -a` (чи будь-яке ширше додавання в індекс) мовчки затягнув би у коміт
-        # перейменування чужу НЕЗАВЕРШЕНУ роботу. Стенд перевірив це побічно на живому проході;
-        # тут — прямо. Хук із -ExitCode 0 править README.md поза обома піддеревами САМЕ під час
-        # проходу (перед самим комітом) і НЕ валить його: прохід лишається успішним.
+    It 'I-5 (фінальне рев''ю): УСПІШНИЙ прохід не втягує в коміт чужу ЗАСТЕЙДЖЕНУ правку' {
+        # Властивість: коміт перейменування містить РІВНО два керовані піддерева, і чужа робота,
+        # застейджена людиною ПІД ЧАС 22-хвилинного проходу, лишається незакоміченою.
+        #
+        # Попередня версія цього тесту (знахідка стенду раунду 4) брала правку НЕЗАСТЕЙДЖЕНУ — і
+        # тому доводила документовану поведінку самого `git commit` без -a, а не поведінку kit:
+        # вирізання pathspec із коміту її не валило. Тепер правка ЗАСТЕЙДЖЕНА в справжній індекс
+        # (Add-KitDuringPassStagedEditHook, post-index-change — там же пояснено, чому не pre-commit),
+        # тож без `--only -- <два піддерева>` увесь індекс разом із нею їде в коміт перейменування.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'foreign-edit-not-swept') -WithGitattributes
         Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'початковий рядок' -Encoding UTF8
         Invoke-TestGit -Repo $repo -GitArgs @('add', 'README.md') | Out-Null
         Invoke-TestGit -Repo $repo -GitArgs @('commit', '-q', '-m', 'README поза обома піддеревами') | Out-Null
         Add-KitFakeEdtTree -Repo $repo -Rel 'Alpha_SMB/src' | Out-Null
-        Add-KitDuringPassPreCommitHook -Repo $repo -ExitCode 0 -DuringPassScript @("printf '%s\n' 'чужа правка під час проходу' >> README.md") | Out-Null
+        Add-KitDuringPassStagedEditHook -Repo $repo -Rel 'README.md' -Content 'чужа правка під час проходу'
 
         $r = Invoke-RenameEdt -Repo $repo -More @('-SourceRelPath', 'Alpha_SMB/src', '-TargetRoot', 'Alpha_SMB/cfe/src', '-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
 
         $committed = @(Invoke-TestGit -Repo $repo -GitArgs @('-c', 'core.quotepath=false', 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD') | ForEach-Object { "$_" })
-        $committed | Should -Not -Contain 'README.md' -Because 'коміт перейменування мусить містити РІВНО власні шляхи — git commit -F без -a саме це й дає'
-        $committed.Count | Should -BeGreaterThan 0
+        $committed | Should -Not -Contain 'README.md' -Because 'коміт мусить містити РІВНО два керовані піддерева — це дає лише git commit --only -- <ті самі шляхи>'
+        $committed | Should -Contain 'Alpha_SMB/src/CommonModules/ОбщегоНазначения/Module.bsl' -Because 'власні шляхи проходу в коміті бути МУСЯТЬ (інакше "нічого не закомічено" теж проходило б цей тест)'
+        $committed | Should -Contain 'Alpha_SMB/cfe/src/CommonModules/ОбщегоНазначения/Ext/Module.bsl'
 
         $status = @(Get-TestGitStatus -Repo $repo)
-        $status.Count | Should -Be 1 -Because "чужа правка мусить лишитись НЕЗАКОМІЧЕНОЮ: $($status -join ' | ')"
-        $status[0] | Should -Be ' M README.md'
+        $status.Count | Should -Be 1 -Because "чужа правка мусить лишитись ЗАСТЕЙДЖЕНОЮ й НЕЗАКОМІЧЕНОЮ: $($status -join ' | ')"
+        $status[0] | Should -Be 'M  README.md' -Because 'саме "M " (застейджено, робоче дерево чисте) — правка нікуди не поділась і не поїхала в коміт'
         (Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw) | Should -BeLike '*чужа правка під час проходу*'
     }
 
