@@ -304,6 +304,35 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r.Output | Should -Not -BeLike '*бракує власника*'
         }
     }
+    It '-Source звужує до воркспейсу, який містить це джерело' {
+        # Живий прогін (SimplyConnect, 2026-09-15): provision -Source <розширення> створив
+        # бази агента для ОБОХ воркспейсів репозиторію — зайва порожня файлова база на диску
+        # й зайвий запуск Конфігуратора (а отже зайнята ліцензія) на кожен нецільовий
+        # воркспейс, без жодного попередження.
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+                @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
+                @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(
+                @{ Name = 'baseBeta'; Type = 'CONFIGURATION'; Path = 'cf/src' }
+                @{ Name = 'Beta_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'provision-source') -Workspaces $ws
+        Add-KitOwnerTree -Repo $repo -Workspaces $ws
+
+        $r = Invoke-Provision -Repo $repo -More @('-Source', 'Beta_SMB')
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*Beta_SMB*'
+        $r.Output | Should -Not -BeLike '*Alpha_SMB*'
+    }
+
+    It '-Source, якого немає в маніфесті, зупиняє з переліком наявних' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'provision-source-missing')
+        Add-KitOwnerTree -Repo $repo
+        $r = Invoke-Provision -Repo $repo -More @('-Source', 'НемаТакого')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Alpha_SMB*'
+    }
 }
 
 Describe 'kit provision — платформа: порожня база й база з .dt' -Tag Integration {
@@ -362,4 +391,5 @@ Describe 'kit provision — платформа: порожня база й ба�
         & pwsh -NoProfile -File $script:Kit provision -RepoRoot $repo -Apply -Force 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
     }
+
 }

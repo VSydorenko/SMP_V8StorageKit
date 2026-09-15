@@ -112,4 +112,49 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*.git*'
     }
+
+    It 'жодна команда не оголошує параметра, якого не вживає' {
+        # Клас дефектів, знайдений на живому прогоні (SimplyConnect, 2026-09-15): provision
+        # оголошував -Source і мовчки його ігнорував, тож звуження не відбувалось, а помилки
+        # не було — створювались бази агента для ВСІХ воркспейсів. Те саме мав install-hooks
+        # (-Workspace і -Source). Причина структурна: kit.ps1 клав Source/Workspace у splat
+        # для кожної команди, тож команда мусила оголосити параметр, навіть якщо не вживає.
+        # Текстовий grep тут не годиться (згадка в коментарі рахувалась би за використання) —
+        # тому AST: шукаємо використання змінної в тілі функції ПОЗА param-блоком.
+        $commandsDir = Join-Path (Split-Path $script:Kit -Parent) 'commands'
+        $bad = [System.Collections.Generic.List[string]]::new()
+        foreach ($file in Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1') {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+            $funcs = $ast.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -like 'Invoke-Kit*'
+            }, $true)
+            foreach ($fn in $funcs) {
+                $paramBlock = $fn.Body.ParamBlock
+                if (-not $paramBlock) { continue }
+                $paramEnd = $paramBlock.Extent.EndOffset
+                foreach ($p in $paramBlock.Parameters) {
+                    $name = $p.Name.VariablePath.UserPath
+                    $uses = $fn.Body.FindAll({
+                        param($n)
+                        $n -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                        $n.VariablePath.UserPath -eq $name -and
+                        $n.Extent.StartOffset -gt $paramEnd
+                    }, $true)
+                    if (@($uses).Count -eq 0) {
+                        $bad.Add("$($file.Name): $($fn.Name) оголошує -$name і жодного разу не читає")
+                    }
+                }
+            }
+        }
+        ($bad -join "`n") | Should -BeNullOrEmpty
+    }
+
+    It 'параметр, якого команда не приймає, зупиняє диспетчер із поясненням' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unsupported-param')
+        $r = Invoke-Kit @('install-hooks', '-RepoRoot', $repo, '-Source', 'Alpha_SMB')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*install-hooks*'
+        $r.Output | Should -BeLike '*-Source*'
+    }
 }

@@ -29,7 +29,9 @@ function Invoke-KitCheck {
         [Parameter(Mandatory)]$Context,
         [string]$Workspace,
         [string]$Source,
-        [bool]$Apply,
+        # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
+        # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
+        # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
         [switch]$Quiet
     )
 

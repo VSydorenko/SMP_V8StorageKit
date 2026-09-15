@@ -114,7 +114,29 @@ try {
         }
     }
 
-    $common = @{ Context = $context; Workspace = $Workspace; Source = $Source; Apply = [bool]$Apply }
+    # Спільні параметри передаються лише тим командам, які їх ОГОЛОШУЮТЬ. Раніше $common
+    # клався цілком і безумовно, тож кожна команда мусила оголосити -Workspace/-Source,
+    # навіть коли не має чого ними звужувати — інакше splat падав. Наслідок був гірший за
+    # незручність: оголошений «для splat» параметр ніхто не читав, і виклик із ним не
+    # звужував нічого й не помилявся (живий прогін 2026-09-15: provision -Source створив
+    # бази агента для ВСІХ воркспейсів репозиторію — зайва порожня база й зайвий запуск
+    # Конфігуратора з ліцензією на кожен нецільовий; те саме мовчки ковтав install-hooks).
+    # Тепер команда оголошує лише те, що вживає (тест «жодна команда не оголошує параметра,
+    # якого не вживає» тримає це), а параметр, який людина передала й команда не приймає, —
+    # зупинка з переліком того, що вона приймає, а не тиша.
+    $accepted = @((Get-Command -Name $functionName).Parameters.Keys)
+    $common = @{ Context = $context }
+    foreach ($shared in @(
+            @{ Name = 'Workspace'; Given = [bool]$Workspace; Value = $Workspace },
+            @{ Name = 'Source';    Given = [bool]$Source;    Value = $Source },
+            @{ Name = 'Apply';     Given = [bool]$Apply;     Value = [bool]$Apply })) {
+        if ($accepted -contains $shared.Name) { $common[$shared.Name] = $shared.Value; continue }
+        if ($shared.Given) {
+            $alsoAccepts = @('Workspace', 'Source', 'Apply') | Where-Object { $accepted -contains $_ }
+            $what = if ($alsoAccepts) { "приймає лише: $($alsoAccepts -join ', ')" } else { 'не приймає жодного зі спільних параметрів' }
+            throw "Команда '$Command' не приймає -$($shared.Name): вона $what."
+        }
+    }
     # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream
     # (те, що потрапляє сюди, у $result) повертає лише $null або {ExitCode; …} — жодного
     # третього варіанту. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
