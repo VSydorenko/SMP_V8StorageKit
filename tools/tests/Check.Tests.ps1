@@ -37,6 +37,19 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Alpha_SMB*'
     }
 
+    It 'база агента з v8project.yaml (без .local) збігається з дев-базою людини — check це каже' {
+        $repo = New-GoodRepo -Name 'agent-base-collision'
+        $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+        New-Item -ItemType Directory -Force -Path $ibDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'fake' -Encoding UTF8
+        # Дев-база людини в накладці вказує на ту саму теку, що база агента у ЗАКОМІЧЕНОМУ
+        # v8project.yaml — жодного v8project.local.yaml у репозиторії немає.
+        $overlay = @('infobases:', "  dev: { connection: 'File=$ibDir' }") -join "`n"
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*дев-базою людини*'
+    }
+
     It 'база агента на місці — знахідки немає' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-with-base') -WithHooks
         $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'

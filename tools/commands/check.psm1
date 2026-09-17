@@ -79,7 +79,16 @@ function Invoke-KitCheck {
             $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
             if ($null -eq $ws) { continue }
             $ab = $null
-            try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws } catch { continue }  # збіг із базою людини вже описує інша знахідка
+            try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws }
+            catch {
+                # Resolve-KitAgentBase кидає рівно на одному: база агента виявилась дев-базою
+                # людини (принцип 3). Ковтати це не можна — попередній коментар тут стверджував,
+                # що «збіг описує інша знахідка», і це було хибно: local-audit звіряє ЛИШЕ
+                # v8project.local.yaml, а підключення законно буває й у закоміченому
+                # v8project.yaml. Тоді про колізію не казав НІХТО, аж доки команда не падала.
+                & $add 'error' 'agent-base-required' "$($ws.Path): $($_.Exception.Message)"
+                continue
+            }
             if ($null -eq $ab -or ($ab.Kind -eq 'file' -and -not $ab.Exists)) {
                 & $add 'warn' 'agent-base-required' (
                     "Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
