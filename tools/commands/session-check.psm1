@@ -87,6 +87,13 @@ function Invoke-KitSessionCheck {
             if ($LASTEXITCODE -ne 0 -or -not $iso) { $gitProblem = "git log $($src.Branch) не відповів" }
             else { $lastMirror = ([datetimeoffset]$iso).UtcDateTime }
         }
+
+        # Стан origin — з наявних refs, БЕЗ мережі (спека §6): два джерела правди (сховище й
+        # origin) розходяться мовчки, і сліпота до другого дає впевнено хибну картину першого.
+        $originGap = $null
+        if ($mirror -and -not $gitProblem) {
+            $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+        }
         $activity = Get-KitStorageActivity -StoragePath $src.StoragePath
 
         # Task 8 (запаковане сховище + відбиток, task-8-brief.md): відбиток — ЛИШЕ читання
@@ -218,6 +225,7 @@ function Invoke-KitSessionCheck {
             Key = $src.Key; Branch = $src.Branch; MirrorExists = $mirror; LastMirrorDate = $lastMirror
             StorageWrite = $activity.LatestObjectWrite; NewInStorage = $newInStorage; NewInStorageReason = $newInStorageReason
             UnmergedCommits = $unmerged; Accessible = $activity.Accessible; GitProblem = $gitProblem; Text = $text
+            OriginGap = $originGap
         })
     }
 
@@ -229,7 +237,17 @@ function Invoke-KitSessionCheck {
         foreach ($i in $checkInfos) { Write-Host "[i] $($i.Message)" -ForegroundColor Gray }
         foreach ($w in $checkWarns) { Write-Host "[!] $($w.Message)" -ForegroundColor Yellow }   # warn/info не міняють коду: його визначають сигнали
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
-        foreach ($s in $signals) { Write-Host $s.Text }
+        foreach ($s in $signals) {
+            Write-Host $s.Text
+            # Task 6 (спека §6): два джерела правди (сховище й origin) розходяться мовчки — ця
+            # знахідка окрема від $s.Text (Get-KitOriginGap рахується поза текстовим блоком
+            # вище), і друкується лише тут, у людському виводі, — у -AsJson форму НЕ потрапляє
+            # текстом, лише полем OriginGap на самому сигналі (контракт «масив сигналів» вище).
+            if ($null -ne $s.OriginGap -and $s.OriginGap.HasRemote -and $s.OriginGap.Behind -gt 0) {
+                Write-Host ("- {0}: локальна гілка {1} позаду origin на {2} комітів — git fetch" -f `
+                    $s.Key, $s.Branch, $s.OriginGap.Behind) -ForegroundColor Yellow
+            }
+        }
     }
     # Коди за змістом (спека §5, f4307df), пріоритет: 1 — хоч одне джерело зі станом git, який не прочитано
     # (наявна гілка, а log/rev-list не відповіли) — репозиторій, той самий клас, що зупинка check; інакше
