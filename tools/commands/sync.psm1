@@ -88,10 +88,28 @@ function Invoke-KitSync {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — синхронізувати нічого.'
         return [pscustomobject]@{ ExitCode = 0; Synced = @() }
     }
+
     foreach ($src in $sources) {
         if ($src.Type -notin @('CONFIGURATION', 'EXTENSION')) {
             throw "Джерело '$($src.Key)' має тип $($src.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION."
         }
+    }
+
+    # Fetch нічого не змінює в робочому дереві й не чіпає сховища, а знімає цілий клас хибних
+    # висновків: локальне дзеркало, що відстало від origin, читається як «сховище попереду»
+    # (ішуз #4). Недоступна мережа чи відсутній remote — попередження, не зупинка: репозиторій
+    # без origin легальний.
+    # Таймаути обов'язкові, і не заради швидкості: Invoke-KitGitProcess чекає на процес БЕЗ
+    # обмеження часу (той самий клас, що docs/follow-ups.md §6 про платформу). Недоступний
+    # SSH-хост тримав би прев'ю кілька хвилин на TCP-таймауті, а ключ під passphrase без
+    # агента підвісив би його НАЗАВЖДИ — git чекав би вводу, якого в неінтерактивному процесі
+    # не буде. BatchMode=yes перетворює це на швидку помилку, яку ми й показуємо попередженням.
+    $fetch = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+        '-c', 'core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=5',
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=10',
+        'fetch', '--quiet', '--no-tags', 'origin')
+    if ($fetch.ExitCode -ne 0) {
+        Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
     }
 
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
@@ -259,6 +277,11 @@ function Invoke-KitSync {
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
+
+        $gap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+        if ($gap.HasRemote -and $gap.Ahead -gt 0) {
+            Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $gap.Ahead, $src.Branch) -ForegroundColor Yellow
+        }
 
         # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база
         # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена

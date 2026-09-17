@@ -10,7 +10,8 @@
 # Resolve-KitAgentInfobasePath; сам V8Project.psm1 вкладено імпортує V8.psm1 заради
 # ConvertTo-V8IbSwitch — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1);
 # TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
-# C2 Task 1). Рядки з # ігноруються.
+# C2 Task 1); GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess,
+# C2 Task 5). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Yaml

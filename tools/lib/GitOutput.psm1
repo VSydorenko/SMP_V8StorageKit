@@ -1,6 +1,10 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
+# Без -Force — та сама конвенція, що в решті lib-модулів: не перезавантажувати вже наявний
+# глобальний TreeCompare. Get-KitOriginGap бере звідти Invoke-KitGitProcess.
+Import-Module "$PSScriptRoot/TreeCompare.psm1"
+
 function Split-GitEolNoise {
     <#
     .SYNOPSIS
@@ -81,4 +85,31 @@ function Test-GitTextPolicy {
     [bool]($out -match ':\s*text:\s*unset\s*$')
 }
 
-Export-ModuleMember -Function Split-GitEolNoise, Test-GitTextPolicy
+function Get-KitOriginGap {
+    <#
+    .SYNOPSIS
+        Розходження локальної гілки з origin/<гілка> — БЕЗ мережі (спека 2026-09-17 §6).
+    .DESCRIPTION
+        Читає лише те, що вже є локально (refs/remotes). Мережу чіпає викликач, і лише там, де
+        це дозволено: session-check працює під стелею часу хука старту сесії й fetch не робить.
+
+        Відсутність remote чи remote-tracking гілки — легальний стан (репозиторій без origin,
+        гілка ще не пушена), а не помилка: HasRemote=$false і нулі.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch)
+
+    $none = [pscustomobject]@{ HasRemote = $false; Behind = 0; Ahead = 0 }
+    $ref  = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "refs/remotes/origin/$Branch")
+    if ($ref.ExitCode -ne 0) { return $none }
+
+    $counts = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-list', '--left-right', '--count', "$Branch...origin/$Branch")
+    if ($counts.ExitCode -ne 0) { return $none }
+    $parts = @($counts.Stdout.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+    if ($parts.Count -ne 2) { return $none }
+
+    # left = коміти, які є лише локально (ahead); right = лише в origin (behind).
+    [pscustomobject]@{ HasRemote = $true; Ahead = [int]$parts[0]; Behind = [int]$parts[1] }
+}
+
+Export-ModuleMember -Function Split-GitEolNoise, Test-GitTextPolicy, Get-KitOriginGap

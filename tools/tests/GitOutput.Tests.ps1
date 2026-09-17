@@ -85,3 +85,35 @@ Describe 'Test-GitTextPolicy' {
         Test-GitTextPolicy -RepoRoot $script:Repo -Path 'Продукт/cfe/src' | Should -BeFalse
     }
 }
+
+Describe 'Get-KitOriginGap' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/GitOutput.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+    }
+
+    It 'без remote — HasRemote=$false і нулі' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-remote')
+        $g = Get-KitOriginGap -RepoRoot $repo -Branch 'main'
+        $g.HasRemote | Should -BeFalse
+        $g.Behind    | Should -Be 0
+    }
+
+    It 'локальна гілка позаду origin — Behind рахується' {
+        $up   = Join-Path $TestDrive 'upstream'
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'behind')
+        git clone -q --bare $repo $up 2>&1 | Out-Null
+        git -C $repo remote add origin $up 2>&1 | Out-Null
+        # Коміт лише в origin: клонуємо, комітимо там, фетчимо назад.
+        $work = Join-Path $TestDrive 'work'
+        git clone -q $up $work 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $work 'new.txt') -Value 'x' -Encoding UTF8
+        git -C $work add -A 2>&1 | Out-Null
+        git -C $work -c user.email=t@e.invalid -c user.name=T commit -q -m 'з іншої машини' 2>&1 | Out-Null
+        git -C $work push -q origin main 2>&1 | Out-Null
+        git -C $repo fetch -q origin 2>&1 | Out-Null
+        $g = Get-KitOriginGap -RepoRoot $repo -Branch 'main'
+        $g.HasRemote | Should -BeTrue
+        $g.Behind    | Should -Be 1
+    }
+}
