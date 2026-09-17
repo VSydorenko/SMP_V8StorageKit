@@ -38,6 +38,18 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 Import-Module Pester -MinimumVersion 5.0
+
+# Розділення по комі власноруч — не примха, а єдиний спосіб, щоб задокументована форма
+# запуску працювала. `pwsh -File <скрипт> -Only Sync,Verify` (саме її називає дозволеною
+# CLAUDE.md) віддає «Sync,Verify» ОДНИМ рядком: прив'язку масиву робить парсер PowerShell,
+# а через -File аргументи приходять уже розібраними оболонкою, і кома лишається всередині
+# елемента. Наслідок був тихо-гучний: скрипт шукав файл «Sync,Verify.Tests.ps1» і падав із
+# переліком доступних — тобто запобіжник нижче спрацьовував, але на рівному місці, і форма
+# з CLAUDE.md не працювала жодного разу (виявлено виконавцем у сесії C2, 2026-09-17).
+# Через -Command те саме працювало, бо там рядок розбирає парсер.
+$Only       = @($Only       | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$ExcludeTag = @($ExcludeTag | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 $config = New-PesterConfiguration
 if ($Only) {
     # Неіснуючий файл — зупинка з переліком, а не мовчазний прогін нуля тестів: описка в

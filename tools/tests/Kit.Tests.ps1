@@ -158,3 +158,41 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r.Output | Should -BeLike '*-Source*'
     }
 }
+
+Describe 'Copy-KitTools — повнота пісочниці' {
+    # Чому цей Describe існує. Тести запускають kit ПІДПРОЦЕСОМ із копії дерева, яку робить
+    # Copy-KitTools, а та копіює фіксований перелік тек. Перелік уже двічі відставав від коду,
+    # і обидва рази наслідок був той самий і найгірший з можливих: тест зеленів НЕ З ТІЄЇ
+    # ПРИЧИНИ. tools/assets (стаб розширення) і templates/settings.json свого часу ловили
+    # живим прогоном, а .claude-plugin/plugin.json спіймали на префлайті C2 — без нього
+    # Get-KitPluginVersion у пісочниці повертає $null, знахідки kit-version немає, і тести,
+    # що її чекають, «проходять» бо перевірка просто не спрацювала.
+    # Тут ми не перелічуємо теки вдруге (це була б копія формули, яку follow-ups §4 називає
+    # дефектом), а перевіряємо ВЛАСТИВІСТЬ: kit у пісочниці робить те саме, що вдома.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:SandboxKit = Copy-KitTools -Root (Join-Path $TestDrive 'completeness')
+        $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo') -WithHooks -WithGitattributes -WithGitignore
+    }
+
+    It 'check у пісочниці не падає на відсутньому файлі плагіна' {
+        $out = & pwsh -NoProfile -File $script:SandboxKit check -RepoRoot $script:Repo 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        # Клас «щось не скопіювали» має власний почерк: .NET кидає саме такими фразами,
+        # і жодна штатна зупинка kit так не звучить.
+        $out | Should -Not -Match 'Cannot find path|не вдалося знайти шлях|ItemNotFoundException|FileNotFoundException'
+        $code | Should -Be 0 -Because "у справному репозиторії check має завершитись нулем; вивід:`n$out"
+    }
+
+    It 'версія плагіна доступна з пісочниці — інакше перевірка kit-version мовчить, а тести зеленіють дарма' {
+        # Пряма перевірка того, що спіймали префлайтом: Get-KitPluginVersion рахує шлях від
+        # tools/lib копії, тож .claude-plugin/plugin.json мусить бути ПОРУЧ із tools/ у копії.
+        $libPath = Join-Path (Split-Path $script:SandboxKit) 'lib/Preflight.psm1'
+        $probe = & pwsh -NoProfile -Command {
+            param($Module)
+            Import-Module $Module -Force
+            Get-KitPluginVersion
+        } -args $libPath 2>&1 | Out-String
+        $probe.Trim() | Should -Match '^\d+\.\d+\.\d+$' -Because "у пісочниці Get-KitPluginVersion має віддати версію, а не порожнечу; отримано: '$($probe.Trim())'"
+    }
+}

@@ -19,7 +19,9 @@ description: Закрити задачу агента — синхронізув
 1. **Сховище → дзеркало**: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . -Apply`
    (`-Apply` — після прев'ю й згоди; прохання «готуй PR» це включає, якщо людина не сказала інакше).
 2. **Канонізація**: `operation=build` (Unica) → `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" canon -RepoRoot . -Apply`;
-   зміни — комітом у `F`.
+   зміни — комітом у `F`. Крок не марний, хоч крок 3 і замінить дерево: канон і дамп дзеркала —
+   один формат, тож саме канонізація лишає у прев'ю `adopt` роботу людини замість різниці
+   форматів (`v8storagekit:reconcile`, крок 3 розділу 2).
 3. **Прийняти дзеркала в `F`**: для кожного `truth: storage`
    `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" adopt -RepoRoot . -Source <ключ>`
    — прев'ю, показ людині всіх списків, і за її згодою `-Apply` (як у `v8storagekit:reconcile`,
