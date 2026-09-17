@@ -99,9 +99,9 @@ function Get-KitSourceInfobase {
 
 function Enter-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source)
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [string]$User = '')
     if ($Source.Type -ne 'CONFIGURATION' -or -not $script:ConfigurationStorageNeedsBind) { return $false }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @('/ConfigurationRepositoryBindCfg -forceBindAlreadyBindedUser -forceReplaceCfg'))
     if ($r.ExitCode -ne 0) { throw "Прив'язка тимчасової ІБ до сховища конфігурації не вдалася: $($r.Output)" }
     $true
@@ -109,9 +109,9 @@ function Enter-KitStorageBind {
 
 function Exit-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound)
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound, [string]$User = '')
     if (-not $Bound) { return }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
     if ($r.ExitCode -ne 0) { Write-Host "УВАГА: не вдалося зняти прив'язку тимчасової ІБ до сховища ($($Source.StoragePath)): $($r.Output)" -ForegroundColor Red }
 }
 
@@ -132,10 +132,11 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][int]$Version,
         [Parameter(Mandatory)][string]$Target,
-        [Parameter(Mandatory)][string]$MustBeUnder
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$User = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
     if ($upd.ExitCode -ne 0) { throw "Оновлення до версії $Version не вдалося: $($upd.Output)" }
 
@@ -144,7 +145,7 @@ function Invoke-KitStorageCheckout {
     if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
-    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
+    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) { throw "Вивантаження версії $Version не вдалося: $($dump.Output)" }
 
     foreach ($junk in $script:PlatformJunk) {

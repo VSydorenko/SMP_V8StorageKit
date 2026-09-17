@@ -71,4 +71,32 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             { Get-KitSourceInfobase -Context $script:Ctx -Source $bad } | Should -Throw '*Beta*'
         }
     }
+
+    Context 'користувач бази доходить до платформи' {
+        It 'Invoke-KitStorageCheckout передає -User у Invoke-V8Designer' {
+            $script:seen = @()
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                $script:seen += $User
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $target = Join-Path $TestDrive 'dump'
+            Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
+                -Target $target -MustBeUnder $TestDrive -User 'agent' | Out-Null
+            $script:seen | Should -Contain 'agent'
+        }
+
+        It 'без -User викликає платформу без користувача — стара поведінка не змінилась' {
+            $script:seen = @()
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                $script:seen += [string]$User
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $target = Join-Path $TestDrive 'dump2'
+            Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
+                -Target $target -MustBeUnder $TestDrive | Out-Null
+            $script:seen | Should -Not -Contain 'agent'
+        }
+    }
 }
