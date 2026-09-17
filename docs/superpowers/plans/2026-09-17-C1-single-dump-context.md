@@ -503,19 +503,28 @@ Expected: FAIL — `sync` доходить до `Get-V8Path` або створю
 `<ws>/build/ib/1Cv8.1CD`. Той самий ідіом уже вживають тести Task 5, лише винесений у фікстуру.
 Проставити перемикач в обох `Describe`.
 
-**Мертві докази прибрати разом із моками.** Моки `New-ExtensionInfobase` і твердження
-`Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1` (`Sync.Tests.ps1`,
-рядки 145, 158, 174, 184, 196) після цієї задачі перевіряють виклик, якого більше немає. Замінити
-на доказ, що **платформа в цьому шляху не потрібна взагалі**:
+**Мертві докази прибрати разом із моками — але не одним рухом на всі тести.** Моки
+`New-ExtensionInfobase` і твердження `Should -Invoke … New-ExtensionInfobase -Times 1` після цієї
+задачі перевіряють виклик, якого більше немає. Заміна залежить від того, чи тест **реплеїть
+версію**, і в `Describe 83` ці дві групи різні:
 
-```powershell
-        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
-        # …
-        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
-```
+| тести | що з ними | чому |
+|---|---|---|
+| **без реплею** — `Sync.Tests.ps1:132, 162, 223, 250` | `Mock … Invoke-V8Designer` + `Should -Invoke … Invoke-V8Designer -Times 0` | платформа в цьому шляху не потрібна взагалі; мок лишається пасткою — випадковий похід у реальний `1cv8.exe` спіймається, а не пройде |
+| **з реплеєм** — `Sync.Tests.ps1:188, 277` | просто прибрати мертвий `New-ExtensionInfobase` і його `-Times 1` | у них уже стоїть `Should -Invoke … Invoke-V8Designer -Times 2` (UpdateCfg + DumpConfigToFiles) — живий доказ перехоплення, кращий за будь-яку заміну. `-Times 0` тут зробив би тест червоним |
 
-Мок лишається як пастка: якщо якийсь шлях усе-таки піде в платформу, `-Times 0` це спіймає, а не
-пропустить у реальний `1cv8.exe`.
+**Окремо — тавтологічні guard'и в `Describe 301`.** `Context 'параметри — валідація до звернення
+до платформи'` тричі стверджує `Should -Invoke … New-ExtensionInfobase -Times 0`
+(`Sync.Tests.ps1:422, 429, 436`). Після цієї задачі `sync` цієї функції не кличе **ні за яких
+умов**, тож твердження стає завжди-зеленим і перестає охороняти те, заради чого написане:
+вирізання самої валідації його не зачепить. Це рівно той клас дефекту, який
+`docs/follow-ups.md` §4 називає дефектом культури тестів.
+
+Замінити на `Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0` (мок уже
+стоїть у `BeforeEach`, `Sync.Tests.ps1:337`), а невживаний мок `New-ExtensionInfobase`
+(`Sync.Tests.ps1:336`) прибрати. Сусіднє `Should -Invoke -ModuleName sync Get-StorageVersions -Times 0`
+у цих трьох тестах **лишається** — воно живе й після зміни, бо `Get-StorageVersions` у
+нормальному шляху викликається.
 
 - [ ] **Step 8: Прогнати — мають пройти**
 
