@@ -866,7 +866,7 @@ Expected: PASS, зокрема наявні тести `Skills.Tests.ps1` про
 - [ ] **Step 7: Перевірити правило `${CLAUDE_PLUGIN_ROOT}`**
 
 ```bash
-grep -rn 'CLAUDE_PLUGIN_ROOT' skills/ | grep -v '/tools/\|/templates/\|/docs/'
+grep -rnP 'CLAUDE_PLUGIN_ROOT\}(?!/)' skills/
 ```
 
 Expected: порожньо. Токен допустимий лише **всередині шляху** — речення *про* токен після

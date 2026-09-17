@@ -773,7 +773,7 @@ Run: `pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration`
 Expected: PASS.
 
 ```bash
-grep -rn 'CLAUDE_PLUGIN_ROOT' skills/ | grep -v '/tools/\|/templates/\|/docs/'
+grep -rnP 'CLAUDE_PLUGIN_ROOT\}(?!/)' skills/
 ```
 
 Expected: порожньо.
@@ -1578,7 +1578,7 @@ Expected: у переліку доступних команд є `adopt` — д�
 - [ ] **Перевірки правил репозиторію** (мають бути порожні):
 
 ```bash
-grep -rn 'CLAUDE_PLUGIN_ROOT' skills/ | grep -v '/tools/\|/templates/\|/docs/'
+grep -rnP 'CLAUDE_PLUGIN_ROOT\}(?!/)' skills/
 test -e hooks/hooks.json && echo "ПОМИЛКА: hooks.json у плагіні"
 ```
 
