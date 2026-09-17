@@ -67,6 +67,15 @@ Describe 'kit build — виявлення й збір артефактів бе
         $r.Output | Should -BeLike '*operation=make*build*artifacts*'
     }
 
+    It 'підказка про .cfe друкує output, який Unica приймає — відносний до воркспейсу' {
+        # Прев'ю (без -Apply) платформи не торкається.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'build-hint') -WithHooks
+        $r = Invoke-Build -Repo $repo
+        $r.Output | Should -BeLike '*output=build/artifacts/Alpha_SMB.cfe*'
+        $r.Output | Should -Not -BeLike "*output=$repo*"
+        $r.Output | Should -BeLike '*kit build*забере*'
+    }
+
     It '-Workspace обмежує збір артефактів лише вибраним воркспейсом (Q1 звіту задачі 3 — Copy-KitWorkspaceArtifacts не мусить чіпати сусідні воркспейси)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'scope') -Workspaces $script:WsTwo -WithHooks
         foreach ($n in 'Alpha_SMB', 'Beta_SMB') {

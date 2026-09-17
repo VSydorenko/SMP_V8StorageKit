@@ -43,6 +43,11 @@
 
 Редагування метаданих, форм, СКД, ролей; валідація; `operation=build/make/test/syntax` — Unica.
 
+**Збірка `.cfe`:** `operation=make` Уніки з `output=build/artifacts/<Ім'я>.cfe` — шлях
+**відносний до воркспейсу**, бо поза свій корінь Unica писати відмовляється. Файл лягає у
+`<Воркспейс>/build/artifacts/`, звідки `kit build -Apply` забирає його у кореневий
+`build/artifacts/` разом із `.epf`.
+
 ## Межі
 
 - **Формат вихідників — Designer platform XML; платформа — гілка 8.3.27.x.**
