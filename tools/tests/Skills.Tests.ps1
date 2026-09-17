@@ -12,6 +12,21 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
             [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
         function script:Skill([string]$Name) { ($script:Skills | Where-Object Name -eq $Name).Text }
+
+        # Усі .md скіла, не лише SKILL.md: підтеку references/ агент читає тим самим Read, і
+        # речення ПРО токен шкодить там не менше — воно так само проситься в копіювання. До
+        # 2026-09-18 набір вище бачив рівно вісім SKILL.md, а skills/onboarding/references/
+        # лежало поза машинною перевіркою з трьома вживаннями токена (усі виявились
+        # легітимними — але це було везіння, не гарантія).
+        $script:SkillDocs = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory |
+            Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -Filter '*.md' -File -Recurse | ForEach-Object {
+                    [pscustomobject]@{
+                        Rel  = [IO.Path]::GetRelativePath($script:SkillsDir, $_.FullName)
+                        Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8)
+                    }
+                }
+            })
     }
 
     It 'frontmatter: name = ім''я теки, description з тригерами' {
@@ -20,9 +35,16 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $s.Text | Should -Match '(?m)^description:.*Тригер'
         }
     }
-    It '${CLAUDE_PLUGIN_ROOT} — лише всередині шляху (за токеном одразу /)' {
-        foreach ($s in $script:Skills) {
-            [regex]::Matches($s.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($s.Name) токен вжито не як частину шляху"
+    It '${CLAUDE_PLUGIN_ROOT} — лише всередині шляху (за токеном одразу /), у ВСІХ .md скіла' {
+        # Guard на ВЛАСТИВІСТЬ («за токеном одразу /»), не на перелік тек. Ручна перевірка в
+        # CLAUDE.md і README.md довго стояла у формі grep -v '/tools/|/templates/|/docs/' — вона
+        # перелічувала МІСЦЯ, куди веде шлях, і мала обидві вади: кричала на легітимний
+        # ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json (четверта тека, якої в переліку не
+        # було) і мовчки пропускала справжню пастку, якщо в тому ж рядку траплялось слово
+        # /tools/. Тут перевіряється саме форма вживання, тож нова тека плагіна нічого не ламає.
+        $script:SkillDocs.Count | Should -BeGreaterThan 8 -Because 'набір мусить брати й references/, не лише вісім SKILL.md'
+        foreach ($d in $script:SkillDocs) {
+            [regex]::Matches($d.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($d.Rel) токен вжито не як частину шляху"
         }
     }
     It 'перехресні посилання — лише з префіксом v8storagekit: і лише на відомі скіли' {
