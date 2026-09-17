@@ -49,18 +49,24 @@ function Invoke-KitCheck {
         # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
         # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
         # розходяться, і мовчати про це означає дати агентові працювати не тими правилами.
+        #
+        # $pluginVersion — сирий рядок із .claude-plugin/plugin.json, а не з маніфесту: на відміну
+        # від $Context.Manifest.KitVersion (Manifest.psm1 уже перевірив його регекспом
+        # ^\d+\.\d+\.\d+$ під час Read-KitManifest), тут формат нічим не гарантований — plugin.json
+        # редагують автори плагіна, і передрелізний тег штибу '1.1.0-rc1' цілком можливий. [version]
+        # на такому рядку кидає виняток, а check виконується в кожній сесії через session-check —
+        # одна нестандартна версія у власному файлі плагіна не має право ламати старт сесії
+        # споживача. Тому той самий формат перевіряємо тут, і на невдачу мовчки не видаємо
+        # знахідку — так само, як уже поводиться код на $null від Get-KitPluginVersion.
         $pluginVersion = Get-KitPluginVersion
-        if ($pluginVersion -and $Context.Manifest.KitVersion) {
+        if ($pluginVersion -and $Context.Manifest.KitVersion -and $pluginVersion -match '^\d+\.\d+\.\d+$') {
             $have = [version]$Context.Manifest.KitVersion
             $need = [version]$pluginVersion
             if ($have -lt $need) {
-                # Тег знахідки ('kit-version') у Write-Host не друкується (лише Message, той самий
-                # факт, що вже задокументовано для 'agent-base-required' і 'build-artifacts' вище) —
-                # тож текст сам називає перевірку "kit-version", інакше рядок ніяк не знайти у виводі.
-                & $add 'warn' 'kit-version' ("kit-version: структуру репозиторію доведено до v$have, а плагін уже v$need — " +
+                & $add 'warn' 'kit-version' ("Структуру репозиторію доведено до v$have, а плагін уже v$need — " +
                     'кроки оновлення: скіл v8storagekit:onboarding, references/upgrades.md.')
             } elseif ($have -gt $need) {
-                & $add 'warn' 'kit-version' ("kit-version: структура репозиторію на v$have, а плагін у цьому оточенні старіший — v$need. " +
+                & $add 'warn' 'kit-version' ("Структура репозиторію на v$have, а плагін у цьому оточенні старіший — v$need. " +
                     'Оновіть плагін (claude plugin update), інакше агент працюватиме застарілими правилами.')
             }
         }

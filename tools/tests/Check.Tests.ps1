@@ -54,15 +54,22 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     # Task 9 — структура репозиторію (kitVersion маніфесту) звіряється з версією плагіна, який
-    # зараз виконується (Get-KitPluginVersion, Preflight.psm1). Обидва напрямки — warn.
+    # зараз виконується (Get-KitPluginVersion, Preflight.psm1). Обидва напрямки — warn. Тег
+    # знахідки ('kit-version') у Write-Host не друкується (лише Message, той самий факт, що
+    # вже задокументовано вище для 'agent-base-required' і нижче для 'build-artifacts') — тож
+    # асерції тут ловлять характерну фразу з кожної гілки, а не тег: 'v8storagekit:onboarding'
+    # (з префіксом плагіна) зустрічається лише в гілці «структура відстає», 'claude plugin
+    # update' — лише в гілці «плагін старіший». Голе слово 'onboarding' без префікса тут НЕ
+    # годиться — воно вже є в іншій, незалежній знахідці кожного New-GoodRepo (info hook-shim,
+    # Hooks.psm1: «…onboarding кладе його з templates/hooks/…») і зробило б асерцію хибно
+    # позитивною (спіймано живим прогоном фікс-раунду 1).
     It 'структура відстає від плагіна — warn kit-version із порадою onboarding' {
         $repo = New-GoodRepo -Name 'kv-behind'
         (Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw) `
             -replace 'kitVersion: .*', 'kitVersion: 0.9.0' |
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8
         $r = Invoke-Check -Repo $repo
-        $r.Output | Should -BeLike '*kit-version*'
-        $r.Output | Should -BeLike '*onboarding*'
+        $r.Output | Should -BeLike '*v8storagekit:onboarding*'
     }
 
     It 'плагін старіший за структуру — warn із порадою оновити плагін' {
@@ -71,14 +78,41 @@ Describe 'kit check — інваріанти репозиторію-спожив
             -replace 'kitVersion: .*', 'kitVersion: 99.0.0' |
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8
         $r = Invoke-Check -Repo $repo
-        $r.Output | Should -BeLike '*kit-version*'
         $r.Output | Should -BeLike '*claude plugin update*'
     }
 
     It 'версії збігаються — знахідки немає' {
         $repo = New-GoodRepo -Name 'kv-equal'
         $r = Invoke-Check -Repo $repo
-        $r.Output | Should -Not -BeLike '*kit-version*'
+        $r.Output | Should -Not -BeLike '*v8storagekit:onboarding*'
+        $r.Output | Should -Not -BeLike '*claude plugin update*'
+    }
+
+    # Important 2 (рев'ю фікс-раунду 1) — .claude-plugin/plugin.json редагують автори плагіна,
+    # і формат його version нічим не гарантований (на відміну від kitVersion маніфесту, який
+    # Manifest.psm1 уже перевірив регекспом): передрелізний тег штибу '1.1.0-rc1' — цілком
+    # можливе майбутнє значення. [version] на такому рядку кидає, а check виконується в кожній
+    # сесії через session-check — виняток тут ламав би старт сесії в кожного споживача. Перевірка
+    # мусить мовчки не видавати знахідку, а не падати.
+    It 'версія плагіна не X.Y.Z (напр. передрелізний тег) — код 0, без падіння й без знахідки' {
+        $repo = New-GoodRepo -Name 'kv-unparseable'
+        # У КОПІЇ дерева (Copy-KitTools), не в робочій копії плагіна: саме проти цієї копії
+        # $script:Kit запускає підпроцес check нижче. Оригінальний вміст відновлюємо в finally —
+        # інакше мутація пережила б цей It і зіпсувала kit-version для решти тестів файлу,
+        # які повторно використовують той самий $script:Kit.
+        $pluginJsonPath = Join-Path (Split-Path -Parent (Split-Path -Parent $script:Kit)) '.claude-plugin/plugin.json'
+        $original = Get-Content -LiteralPath $pluginJsonPath -Raw
+        try {
+            $json = $original | ConvertFrom-Json
+            $json.version = '1.1.0-rc1'
+            ($json | ConvertTo-Json -Depth 5) | Set-Content -LiteralPath $pluginJsonPath -Encoding UTF8
+            $r = Invoke-Check -Repo $repo
+            $r.ExitCode | Should -Be 0
+            $r.Output | Should -Not -BeLike '*v8storagekit:onboarding*'
+            $r.Output | Should -Not -BeLike '*claude plugin update*'
+        } finally {
+            Set-Content -LiteralPath $pluginJsonPath -Value $original -Encoding UTF8 -NoNewline
+        }
     }
 
     # S1 (живий прогін задачі 11): прибрали з маніфесту блок розширення, лишили base —
