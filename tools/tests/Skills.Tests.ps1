@@ -212,4 +212,21 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match '--name-only'      # перетин файлів F і нових версій — критерій (а)
         }
     }
+
+    It 'finish ставить operation=build між verify і тестами' {
+        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/finish/SKILL.md') -Raw -Encoding UTF8
+        $posVerify = $text.IndexOf('kit.ps1" verify')
+        $posBuild  = $text.IndexOf('operation=build', $posVerify)
+        $posTests  = $text.IndexOf('operation=syntax', $posVerify)
+        $posVerify | Should -BeGreaterThan -1
+        $posBuild  | Should -BeGreaterThan $posVerify
+        $posTests  | Should -BeGreaterThan $posBuild
+    }
+
+    It 'sync і reconcile попереджають, що база лишається у стані сховища' {
+        foreach ($s in @('sync', 'reconcile')) {
+            $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
+            $text | Should -BeLike '*operation=build*'
+        }
+    }
 }
