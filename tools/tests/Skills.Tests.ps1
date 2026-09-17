@@ -186,30 +186,39 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'reconcile' {
-        It 'sync → operation=build → canon → merge storage/* у гілку задачі → семантичний diff' {
+        It 'sync → operation=build → canon → adopt (заміна, прев''ю обох списків)' {
             $t = Skill 'reconcile'
             $t | Should -Match 'kit\.ps1" sync'
             $t | Should -Match 'operation=build'
             $t | Should -Match 'kit\.ps1" canon'
-            $t | Should -Match 'git merge --no-ff storage/'
-            $t | Should -Match 'git diff'
+            $t | Should -Match 'kit\.ps1" adopt'
+            $t | Should -Match 'зникне з гілки'
             # Позитивно, а не Should -Not -Match 'rebase': сам скіл ЗАБОРОНЯЄ rebase словами
-            # «не rebase, не re-derive — merge», тож негативна перевірка на слово падала б на
+            # «не rebase, не re-derive», тож негативна перевірка на слово падала б на
             # власному тексті скіла (знахідка префлайту B5). Guard має тримати властивість, а не
             # відсутність підрядка.
             $t | Should -Match 'не rebase'
             $t | Should -Not -Match 'git rebase'   # наказу rebase немає — лише заборона словами
+            $t | Should -Not -Match 'git merge --no-ff storage/'   # C2 Task 4: adopt замінює merge
         }
     }
     Context 'finish' {
-        It 'sync → canon → merge → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
+        It 'sync → canon → adopt → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
             # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
             $t | Should -Match 'суттєв'
-            $t | Should -Match 'ORIG_HEAD'
+            $t | Should -Match 'ЗНИКНЕ з гілки'   # C2 Task 4: критерій (б) — прев'ю adopt, не конфлікт злиття
             $t | Should -Match '--name-only'      # перетин файлів F і нових версій — критерій (а)
+            $t | Should -Not -Match 'ORIG_HEAD'   # ORIG_HEAD був від git merge; adopt його не лишає
+        }
+    }
+    It 'reconcile і finish приймають версію сховища через adopt, а не git merge' {
+        foreach ($s in @('reconcile', 'finish')) {
+            $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
+            $text | Should -BeLike '*kit.ps1" adopt*'
+            $text | Should -Not -BeLike '*git merge --no-ff storage/*'
         }
     }
 
