@@ -16,6 +16,36 @@ Describe 'kit check — інваріанти репозиторію-спожив
         }
     }
 
+    It 'джерело truth: storage у воркспейсі без бази агента — warn agent-base-required' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{
+                Sets = @(
+                    @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
+                    @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }
+                )
+            }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-no-base') -Workspaces $ws -WithHooks
+        $r = Invoke-Check -Repo $repo
+        # Тег знахідки ('agent-base-required') у Write-Host не друкується — лише Message
+        # (той самий факт, що вже задокументовано нижче для 'build-artifacts'): підставою для
+        # асерції править фраза з повідомлення. 'kit provision' у виводі 'kit check' зустрічається
+        # лише в ЦЬОМУ повідомленні (перевірено grep по tools/lib/ і tools/commands/ у контексті
+        # виконання check) — підміна 'agent-base-required', яка інакше НІКОЛИ не з'явиться в
+        # Output і зробила б обидва тести (і позитивний, і негативний) хибними без різниці.
+        $r.Output | Should -BeLike '*kit provision*'
+        $r.Output | Should -BeLike '*Alpha_SMB*'
+    }
+
+    It 'база агента на місці — знахідки немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-with-base') -WithHooks
+        $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+        New-Item -ItemType Directory -Force -Path $ibDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'fake' -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -Not -BeLike '*kit provision*'
+    }
+
     It 'усе гаразд — код 0, лише інформаційні рядки' {
         $r = Invoke-Check -Repo (New-GoodRepo 'good')
         $r.ExitCode | Should -Be 0

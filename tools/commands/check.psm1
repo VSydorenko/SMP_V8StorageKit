@@ -46,6 +46,22 @@ function Invoke-KitCheck {
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
             "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
 
+        # Після C1 дамп версії сховища виконується в базі агента (спека 2026-09-17 §3), тож для
+        # кожного truth: storage база — передумова, а не зручність. Сказати на старті сесії дешевше,
+        # ніж зупинити sync, який людина вже запустила. warn, не error: репозиторій несуперечливий —
+        # просто ще не готовий до sync на ЦІЙ машині.
+        foreach ($src in @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)) {
+            $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
+            if ($null -eq $ws) { continue }
+            $ab = $null
+            try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws } catch { continue }  # збіг із базою людини вже описує інша знахідка
+            if ($null -eq $ab -or ($ab.Kind -eq 'file' -and -not $ab.Exists)) {
+                & $add 'warn' 'agent-base-required' (
+                    "Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
+                    "воркспейсу '$($ws.Path)' немає: kit provision -Workspace $($ws.Path) -Apply, потім operation=build Уніки.")
+            }
+        }
+
         # Правка 3 (фінальне рев'ю) — mainBranch друкується рядком вище, але досі не
         # перевірявся: маніфест міг називати гілку, якої в репозиторії ще немає (описка,
         # або репозиторій, де trunk ще не перейменували на main), а B2 зіллє storage/* саме
