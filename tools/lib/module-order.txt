@@ -8,8 +8,9 @@
 # Resolve-KitAgentBase, C1 Task 1); StorageImprint — після StorageBranch (бере
 # Get-KitStorageActivity, B3 Task 8); AgentBase — після V8Project (бере Resolve-V8AgentInfobase і
 # Resolve-KitAgentInfobasePath; сам V8Project.psm1 вкладено імпортує V8.psm1 заради
-# ConvertTo-V8IbSwitch — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1). Рядки з
-# # ігноруються.
+# ConvertTo-V8IbSwitch — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1);
+# TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
+# C2 Task 1). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Yaml
@@ -21,6 +22,7 @@ StorageBranch
 StorageImprint
 GitMerge
 TreeCompare
+TreeBackup
 Hooks
 GitOutput
 Authors
