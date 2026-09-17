@@ -55,6 +55,15 @@
 | `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md` | процедури | `git merge` → `kit adopt`; `output` відносний |
 | `skills/onboarding/SKILL.md` | підключення репозиторію | пише `kitVersion`; посилання на `references/upgrades.md` |
 | `skills/onboarding/references/upgrades.md` | кроки оновлення | **створити** |
+| `docs/storage-and-git.md` | як влаштований контур «сховище ↔ git» | `adopt` як команда контуру; `origin` у картині світу |
+
+**Урок C1, який цей план мусить врахувати:** у списку файлів задачі має бути не лише те, що
+змінюється, а й **те, що про змінюване розповідає**. C1 переписав команди й скіли, але
+`docs/storage-and-git.md` — документ, на який `CLAUDE.md` посилає за питанням «як влаштований
+контур», — лишився стверджувати, що `verify` «завжди піднімає власну тимчасову ІБ». Плану цього
+файлу в переліку не було, тож туди не подивився ніхто, і злиття гілки заблокувало саме це, а не
+код (виправлено комітом `c18c78c`, одинадцять місць). Кожна задача нижче, що додає команду або
+змінює картину контуру, тягне за собою цей документ.
 
 ---
 
@@ -569,6 +578,24 @@ Expected: FAIL — обидва скіли містять `git merge --no-ff sto
    кроки 4–5 розділу 2).
 ```
 
+- [ ] **Step 4а: Внести `adopt` у документ про контур**
+
+`docs/storage-and-git.md` описує команди контуру й ролі гілок — саме його читає той, хто питає
+«як це влаштовано». Нова команда там мусить з'явитись, інакше документ описуватиме контур, у
+якому дзеркало потрапляє в гілку задачі злиттям (урок C1, див. шапку плану).
+
+Що додати: рядок у таблицю команд (`adopt` — мутує так, дзеркало → гілка задачі), і в розділ про
+ролі гілок — абзац про те, що гілка задачі приймає версію сховища **заміною**, з причиною
+(людина кладе у сховище свою версію, можливо частину; злиття лишало б невзяте в гілці).
+
+Перевірка, що не лишилось старого опису:
+
+```bash
+grep -rn 'git merge --no-ff storage/' docs/ skills/ templates/
+```
+
+Expected: порожньо — або лише там, де мова про історичну поведінку з явною позначкою «до 1.0.1».
+
 - [ ] **Step 5: Прогнати й перевірити токен**
 
 Run: `pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration`
@@ -583,8 +610,8 @@ Expected: порожньо.
 - [ ] **Step 6: Коміт**
 
 ```bash
-git add skills/reconcile/SKILL.md skills/finish/SKILL.md tools/tests/Skills.Tests.ps1
-git commit --only -- skills/reconcile/SKILL.md skills/finish/SKILL.md tools/tests/Skills.Tests.ps1
+git add skills/reconcile/SKILL.md skills/finish/SKILL.md docs/storage-and-git.md tools/tests/Skills.Tests.ps1
+git commit --only -- skills/reconcile/SKILL.md skills/finish/SKILL.md docs/storage-and-git.md tools/tests/Skills.Tests.ps1
 ```
 
 Повідомлення: `скіли: версія сховища приймається adopt-ом із показом ціни, не git merge`.
@@ -1212,6 +1239,83 @@ git commit --only -- skills/onboarding/references/upgrades.md skills/onboarding/
 ```
 
 Повідомлення: `onboarding: upgrades.md — кроки переходу 1.0.0 → 1.0.1`.
+
+---
+
+### Task 11: колізія «база агента = дев-база людини» перестає бути невидимою в `check`
+
+**Files:**
+- Modify: `tools/commands/check.psm1` (рядок 57 — `catch { continue }` у блоці `agent-base-required`)
+- Test: `tools/tests/Check.Tests.ps1`
+
+**Чому це тут, а не у `follow-ups`:** це **дефект плану C1**, не нова ідея. Task 5 того плану
+задала текст `catch { continue }` з коментарем «збіг із базою людини вже описує інша знахідка» —
+і припущення виявилось хибним. Знахідка `local-audit` (`check.psm1:370–399`) читає **лише**
+`v8project.local.yaml` (`Read-V8ProjectLocalInfobase -Path $localPath`), тоді як
+`Resolve-V8AgentInfobase` бере підключення з **обох** джерел: спершу `.local`, з фолбеком на
+закомічений `v8project.yaml`. Отже для репозиторію, де `infobase:` стоїть прямо у `v8project.yaml`,
+колізію не показує **жодна** знахідка `check`.
+
+**Межа дефекту названа точно:** це прогалина в **завчасному попередженні**, не в безпеці. Сам
+запобіжник у `Resolve-KitAgentBase` кидає безумовно, тож запису в базу людини не станеться за
+жодних умов — `sync`, `canon` і `provision` зупиняться в момент запуску. Ціна — людина дізнається
+про колізію тоді, коли вже запустила команду, а не на старті сесії.
+
+- [ ] **Step 1: Написати падаючий тест**
+
+```powershell
+    It 'база агента з v8project.yaml (без .local) збігається з дев-базою людини — check це каже' {
+        $repo = New-GoodRepo -Name 'agent-base-collision'
+        $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+        New-Item -ItemType Directory -Force -Path $ibDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'fake' -Encoding UTF8
+        # Дев-база людини в накладці вказує на ту саму теку, що база агента у ЗАКОМІЧЕНОМУ
+        # v8project.yaml — жодного v8project.local.yaml у репозиторії немає.
+        $overlay = @('infobases:', "  dev: { connection: 'File=$ibDir' }") -join "`n"
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*дев-базою людини*'
+    }
+```
+
+- [ ] **Step 2: Прогнати — має впасти**
+
+Expected: FAIL — `check` мовчить: `Resolve-KitAgentBase` кидає, а `catch { continue }` ковтає.
+
+- [ ] **Step 3: Перетворити виняток на знахідку замість того, щоб його ковтати**
+
+У `tools/commands/check.psm1`, у блоці `agent-base-required`:
+
+```powershell
+            $ab = $null
+            try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws }
+            catch {
+                # Resolve-KitAgentBase кидає рівно на одному: база агента виявилась дев-базою
+                # людини (принцип 3). Ковтати це не можна — попередній коментар тут стверджував,
+                # що «збіг описує інша знахідка», і це було хибно: local-audit звіряє ЛИШЕ
+                # v8project.local.yaml, а підключення законно буває й у закоміченому
+                # v8project.yaml. Тоді про колізію не казав НІХТО, аж доки команда не падала.
+                & $add 'error' 'agent-base-required' "$($ws.Path): $($_.Exception.Message)"
+                continue
+            }
+```
+
+Рівень `error`, не `warn`: це не «ще не готово до `sync`», а суперечність конфігурації, яку треба
+розв'язати до будь-якої роботи — і всі команди на ній однаково зупиняються.
+
+- [ ] **Step 4: Прогнати**
+
+Expected: PASS. Наявний тест «база агента на місці — знахідки немає» має лишитись зеленим: у
+ньому колізії немає, тож `Resolve-KitAgentBase` не кидає.
+
+- [ ] **Step 5: Коміт**
+
+```bash
+git add tools/commands/check.psm1 tools/tests/Check.Tests.ps1
+git commit --only -- tools/commands/check.psm1 tools/tests/Check.Tests.ps1
+```
+
+Повідомлення: `check: колізія бази агента з базою людини більше не мовчить, коли infobase у v8project.yaml`.
 
 ---
 
