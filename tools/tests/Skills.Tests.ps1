@@ -226,7 +226,14 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     It 'sync і reconcile попереджають, що база лишається у стані сховища' {
         foreach ($s in @('sync', 'reconcile')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
+            # Два твердження, не одне: голе 'operation=build' регресії НЕ ловить для reconcile —
+            # цей підрядок був там і ДО C1 (тричі, з іншої причини — страховка canon), тож
+            # відкот кроку 2 до старого формулювання лишив би тест зеленим (рев'ю Task 6,
+            # Important). Друге твердження тримає саме те, що додав C1: стан бази після sync
+            # названо ОГОЛОШЕНИМ КОНТРАКТОМ, а не збоєм. До C1 слова «контракт» не було ЖОДНОГО
+            # разу в жодному з двох файлів (звірено проти ea4decc) — це й робить його guard'ом.
             $text | Should -BeLike '*operation=build*'
+            $text | Should -BeLike '*контракт*'
         }
     }
 }
