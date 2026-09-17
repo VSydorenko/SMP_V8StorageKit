@@ -170,6 +170,35 @@ Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles
 куплені живими прогонами пастки (розбір `-z` із записами `R`/`C`, `-uall`, збій git до
 `Remove-Item`).
 
+**Одне доповнення понад перенос: зберігати також версію з ІНДЕКСУ.** `Backup-KitDirtyFiles`
+читає вміст **із диска** (`Copy-Item` за `Test-Path -PathType Leaf`), тож застейджена правка,
+робочу копію якої повернули до `HEAD`, у копію не потрапляє — на диску лежить версія `HEAD`, а
+єдиний носій правки — індекс. Перевірено живим git: такий файл дає статус `MM`, тобто в перелік
+`Get-KitDirtyRecords` **потрапляє**, але копіюється не той вміст.
+
+Для `canon` це нешкідливо (він індексу не чіпає, і після `Remove-Item` правка відновлюється з
+індексу), а для `adopt` фатально: там перед заміною стоїть `git reset -- <шлях>` (Task 3, умова
+5), після якого індексна версія лишається без жодного посилання. Тому функція додатково
+виконує:
+
+```powershell
+    # Версія з ІНДЕКСУ — окремим піддеревом: для застейдженої правки, робочу копію якої
+    # повернули до HEAD, індекс єдиний носій вмісту, а Copy-Item вище зберіг би версію з
+    # диска. git checkout-index бінарно-безпечний і сам відтворює структуру шляхів (перевірено
+    # живим git), на відміну від cat-file через текстовий stdout.
+    $indexRoot = Join-Path $BackupRoot 'index'
+    New-Item -ItemType Directory -Path $indexRoot -Force | Out-Null
+    $staged = @($Records | Where-Object { $_.Status.Length -ge 2 -and $_.Status[0] -ne ' ' -and $_.Status[0] -ne '?' } |
+        ForEach-Object { $_.Path })
+    if ($staged.Count -gt 0) {
+        $co = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments (@('checkout-index', "--prefix=$indexRoot/", '--') + $staged)
+        if ($co.ExitCode -ne 0) { Write-Host "  УВАГА: індексні версії не збережено (код $($co.ExitCode)): $($co.Stderr)" -ForegroundColor Yellow }
+    }
+```
+
+Попередження, не зупинка: невдача збереження **додаткової** копії не має скасовувати роботу,
+основна копія з диска вже на місці.
+
 - [ ] **Step 4: Перевести `canon.psm1` на спільні функції**
 
 Видалити з `canon.psm1` обидві приватні функції; у `Invoke-KitCanon` замінити виклики:
