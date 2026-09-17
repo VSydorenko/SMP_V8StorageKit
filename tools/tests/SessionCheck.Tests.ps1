@@ -247,7 +247,7 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
     # «сигнали не обчислювались» через той самий шлях check.psm1, а не сирим текстом винятку
     # ДО виклику Invoke-KitCheck. Той самий сценарій, що й тест шима в B4.
     It 'префлайт лінивий для session-check: маніфест без workspaces → код 1, [-], «workspaces», «не обчислювались»' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-manifest') -ManifestText "version: 1`n"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-manifest') -ManifestText "version: 1`nkitVersion: 1.0.1`n"
         $r = Invoke-SessionCheck -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -Match '\[-\].*workspaces'

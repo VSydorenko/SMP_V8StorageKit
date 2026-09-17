@@ -137,7 +137,7 @@ Describe 'kit canon — мок платформного шару: лічильн
         # (canon.psm1) лишало б усі наявні тести зеленими, а canon на EXTENSION-джерелі
         # вивантажував би в cfe/src основну конфігурацію замість розширення.
         $manifest = @(
-            'version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: dump, dump: { from: dev } }',
             "      Alpha_SMB: { truth: storage, storage: { path: '$(Join-Path $TestDrive 'no-such-storage')' } }"
         ) -join "`n"

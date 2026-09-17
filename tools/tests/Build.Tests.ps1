@@ -37,7 +37,7 @@ Describe 'kit build — виявлення й збір артефактів бе
     }
 
     It 'truth: vendor у EXTENSION не радить operation=make — чужу конфігурацію build не збирає (C4 фікс-раунду)' {
-        $manifest = @('version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      Alpha_SMB: { truth: vendor, dump: { from: dev } }') -join "`n"
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vendor-ext') -Workspaces $ws -ManifestText $manifest -WithHooks

@@ -73,6 +73,10 @@ gitsync-вивантаження сховища. Окремої команди �
 `CLAUDE.md` → `CLAUDE.md` (заповнити плейсхолдери), `AUTHORS.example` → `AUTHORS`,
 `v8storagekit.yaml.example` → `v8storagekit.yaml` (переписати за відповідями нижче),
 `v8storagekit.local.yaml.example` → `v8storagekit.local.yaml` (гітігнорований, лише локальне).
+
+У `v8storagekit.yaml` поле `kitVersion:` записати числом поточної версії плагіна — воно береться
+з `version` у `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` (не з голови й не зі зразка):
+це не «версія, у якій репозиторій створено», а «до якої версії плагіна доведено структуру».
 Далі — розділ 3 для кожного воркспейсу.
 
 ## 3. Воркспейс і його джерела

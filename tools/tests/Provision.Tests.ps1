@@ -280,7 +280,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             # (на відміну від sync) до сховища не звертається.
             $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
             $manifest = @(
-                'version: 1', 'product: Fake', 'workspaces:',
+                'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
                 '  - path: Alpha_SMB', '    sources:',
                 '      base:', '        truth: storage', "        storage: { path: 'R:\no-such-storage-base' }"
             ) -join "`n"

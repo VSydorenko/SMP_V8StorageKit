@@ -113,7 +113,7 @@ Describe 'kit dump — мок платформного шару: -Apply без �
     }
 
     It 'джерело типу EXTENSION — Arguments платформи несуть -Extension з ключем джерела' {
-        $manifest = @('version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      Alpha_SMB: { truth: vendor, dump: { from: dev } }') -join "`n"
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-ext') -Workspaces $ws -ManifestText $manifest -OverlayText $script:Overlay -WithHooks
@@ -137,7 +137,7 @@ Describe 'kit dump — жива дев-база (лише читання, 20–4
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         $overlay = "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF_sydorenko"";'`n    user: 'Администратор'"
-        $manifest = @('version: 1', 'product: BankExchange', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: BankExchange', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: devUNF } }', "      Alpha_SMB: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -ManifestText $manifest -OverlayText $overlay -WithHooks -WithGitattributes -WithGitignore
     }

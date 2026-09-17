@@ -110,6 +110,7 @@ function New-KitFakeRepo {
 
     $manifest = [System.Collections.Generic.List[string]]::new()
     $manifest.Add('version: 1')
+    $manifest.Add('kitVersion: 1.0.1')
     $manifest.Add('product: Fake')
     $manifest.Add('workspaces:')
 

@@ -93,7 +93,7 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
 
     It 'kit session-check упав (код 1) — шим не мовчить: позначка «стан невідомий» і текст зупинки, код шима 0' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'broken') -WithHooks
-        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value 'version: 1' -Encoding UTF8   # маніфест без workspaces → префлайт кидає
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value "version: 1`nkitVersion: 1.0.1" -Encoding UTF8   # маніфест без workspaces → префлайт кидає
         $r = Invoke-Shim -Cwd $repo -Registry $script:Registry
         $r.ExitCode | Should -Be 0
         $json = $r.Output | ConvertFrom-Json
