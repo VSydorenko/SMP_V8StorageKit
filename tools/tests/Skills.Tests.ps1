@@ -143,6 +143,14 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'Лише з підтвердженням'
             $t | Should -Match 'без підтвердження не змінюється нічого'
         }
+
+        It 'onboarding посилається на upgrades.md, і той описує перехід на 1.0.1' {
+            $skill = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/onboarding/SKILL.md') -Raw -Encoding UTF8
+            $skill | Should -BeLike '*references/upgrades.md*'
+            $up = Join-Path $PSScriptRoot '../../skills/onboarding/references/upgrades.md'
+            $up | Should -Exist
+            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike '*1.0.1*'
+        }
     }
 
     Context 'sync' {
