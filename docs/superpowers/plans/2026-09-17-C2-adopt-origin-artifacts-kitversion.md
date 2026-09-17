@@ -457,6 +457,28 @@ git commit --only -- tools/commands/adopt.psm1 tools/tests/Adopt.Tests.ps1
         $copies.Count | Should -BeGreaterThan 0
     }
 
+    It 'після -Apply verify бачить нову версію: merge-base піднявся до вершини дзеркала' {
+        $repo = New-AdoptRepo -Name 'adopt-ancestry'
+        Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply') | Out-Null
+        # Головна властивість, а не текст виводу: дзеркало стало предком HEAD. Саме на цьому
+        # тримається Get-KitVerifyVersion — без другого предка verify далі читав би стару версію.
+        git -C $repo merge-base --is-ancestor 'storage/Alpha_SMB' HEAD 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0 -Because 'без другого предка verify читав би стару версію сховища'
+        (git -C $repo rev-list --count --merges 'HEAD~1..HEAD') | Should -Be '1'
+    }
+
+    It 'зміни поза шляхом джерела — зупинка до знищення дерева' {
+        $repo = New-AdoptRepo -Name 'adopt-foreign'
+        # Чужа незакомічена робота поза піддеревом джерела: коміт adopt під час злиття не може
+        # бути частковим, тож без guard'а вона потрапила б у нього.
+        Set-Content -LiteralPath (Join-Path $repo 'AUTHORS') -Value 'gitbot=Хтось <x@y.invalid>' -Encoding UTF8
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*AUTHORS*'
+        # Дерево ціле: зупинка сталася до Remove-Item.
+        Join-Path $repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
+    }
+
     It 'дерево вже збігається з дзеркалом — коміту немає' {
         $repo = New-AdoptRepo -Name 'adopt-noop'
         Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply') | Out-Null
@@ -501,20 +523,52 @@ Expected: FAIL — `-Apply` наразі нічого не робить (гіл�
             Write-Host "  $($dirty.Count) незакомічених змін — копія перед заміною у $backupDir" -ForegroundColor Yellow
         }
 
+        # Версія й guard на чужі зміни — ДО Remove-Item: обидва можуть зупинити команду, і
+        # зупинятись треба поки дерево ще ціле. Get-KitStorageBranchLastVersion кидає на гілці
+        # без числового трейлера навмисно (той самий інваріант тримає
+        # Test-KitStorageBranchInvariants) — пом'якшувати його не можна, це сховало б
+        # діагностику пошкодженої або ручної гілки сховища.
+        $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
+
+        # Guard замість `commit --only`: під час merge git відхиляє частковий коміт («cannot do
+        # a partial commit during a merge»), тож коміт нижче йде БЕЗ pathspec. У спільній
+        # робочій копії це означало б, що adopt заміта чужу незакомічену роботу у свій коміт —
+        # тому перевіряємо, що поза шляхом джерела нічого не змінено, і зупиняємось до Remove-Item.
+        $outside = Invoke-KitGitProcess -RepoRoot $root -Arguments @('-c', 'core.quotepath=false', 'status', '--porcelain', '-z', '-uall')
+        if ($outside.ExitCode -ne 0) { throw "git status завершився з кодом $($outside.ExitCode): $($outside.Stderr)" }
+        $prefix  = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
+        $foreign = @($outside.Stdout -split "`0" | Where-Object { $_.Trim() -ne '' } |
+            Where-Object { $_.Length -ge 4 -and -not $_.Substring(3).StartsWith("$prefix/", [System.StringComparison]::Ordinal) })
+        if ($foreign.Count -gt 0) {
+            throw ("Поза шляхом джерела '$($src.RepoPath)' є незакомічені зміни ($($foreign.Count)): " +
+                   "$($foreign -join '; ')`nКоміт adopt під час злиття не може бути частковим, тож ці зміни " +
+                   'потрапили б у нього. Закомітьте або приберіть їх і повторіть.')
+        }
+
+        # Другий предок — вершина дзеркала (спека §5): без нього merge-base не рухається,
+        # і verify далі дампить зі сховища СТАРУ версію, показуючи розбіжності, яких немає.
+        # -s ours лишає НАШЕ дерево (з дзеркала не протікає нічого), --no-ff не дає git
+        # зробити fast-forward і втратити другого предка, --allow-unrelated-histories — бо
+        # storage/* orphan (StorageBranch.psm1:422), як уже робить sync для головної гілки.
+        $merge = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+            'merge', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', $mirror)
+        $alreadyMerged = ($merge.Stdout + $merge.Stderr) -match '(?i)Already up to date|Уже обновлено'
+        if ($merge.ExitCode -ne 0 -and -not $alreadyMerged) {
+            throw "Не вдалося записати злиття $mirror у поточну гілку (код $($merge.ExitCode)): $($merge.Stderr)"
+        }
+
         Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $root -Description "дерево джерела $($src.Key)"
         if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
         New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
         Copy-Item -Path (Join-Path $mirrorDir '*') -Destination $src.FullPath -Recurse -Force
 
         # -A обов'язковий і саме на ШЛЯХУ джерела: він фіксує і нові файли, і ВИДАЛЕННЯ тих,
-        # яких у дзеркалі немає. Обмеження pathspec-ом тримає межу «точковий коміт у спільній
-        # робочій копії» — чужі зміни поза цим шляхом не потраплять.
+        # яких у дзеркалі немає.
         $add = Invoke-KitGitProcess -RepoRoot $root -Arguments @('add', '-A', '--', $src.RepoPath)
         if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
 
-        $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
         $message = "adopt: $($src.Key) ← $mirror (версія $version)"
-        $commit  = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '--only', '-m', $message, '--', $src.RepoPath)
+        $commit  = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '-m', $message)
         if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }
 
         Write-Host "  Замінено: прийшло $($incoming.Count), зникло $($diff.OnlyInTree.Count). Коміт: $message" -ForegroundColor Green
