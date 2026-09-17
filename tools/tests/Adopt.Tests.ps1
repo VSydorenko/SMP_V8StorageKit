@@ -113,4 +113,37 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $apply.Output   | Should -Not -BeLike '*вже збігається*'
         (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/CrOnly.xml') -Raw) | Should -Be "рядок`n"
     }
+
+    It '-Apply рухає ancestry: дзеркало стає предком гілки задачі через один злиттєвий коміт' {
+        # Фінальне рев'ю C2, Critical: verify визначає версію сховища через git merge-base
+        # (Get-KitVerifyVersion, StorageBranch.psm1:556), а заміна піддерева сама по собі
+        # merge-base не рухає. Властивість, на якій тримається verify, — рівно ці дві: дзеркало
+        # мусить стати ПРЕДКОМ гілки задачі, і коміт заміни мусить бути ЗЛИТТЄВИМ (двобатьківським).
+        $repo = New-AdoptRepo -Name 'adopt-ancestry'
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Be 0
+
+        git -C $repo merge-base --is-ancestor 'storage/Alpha_SMB' HEAD
+        $LASTEXITCODE | Should -Be 0
+
+        (git -C $repo rev-list --count --merges 'HEAD~1..HEAD' | Out-String).Trim() | Should -Be '1'
+    }
+
+    It 'guard спрацьовує ДО Remove-Item: чужа незакомічена зміна поза шляхом джерела зупиняє -Apply' {
+        # Фінальне рев'ю C2, Critical, «Чотири умови» п.1: коміт заміни йде через git merge, а
+        # партійний коміт (--only) git під час злиття забороняє — тож коміт після merge
+        # неминуче йде БЕЗ pathspec і фіксує ВЕСЬ індекс. Без guard'а чужа незакомічена робота
+        # поза шляхом джерела поїхала б у цей коміт непомітно. Доказ, що зупинка стається ДО
+        # знищення, а не після, — OnlyInBranch.xml (усередині шляху джерела) досі на місці.
+        $repo = New-AdoptRepo -Name 'adopt-guard-outside'
+        $strayPath = Join-Path $repo 'stray-outside.txt'
+        Set-Content -LiteralPath $strayPath -Value 'чужа незакомічена робота поза шляхом джерела' -Encoding UTF8
+
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*stray-outside.txt*'
+        Join-Path $repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
+        (Get-Content -LiteralPath $strayPath -Raw) | Should -BeLike '*чужа незакомічена робота*'
+    }
 }
