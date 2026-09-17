@@ -223,8 +223,12 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $posTests  | Should -BeGreaterThan $posBuild
     }
 
-    It 'sync і reconcile попереджають, що база лишається у стані сховища' {
-        foreach ($s in @('sync', 'reconcile')) {
+    It 'sync, verify і reconcile попереджають, що база лишається у стані сховища' {
+        # verify тут нарівні із sync: verify.psm1 так само робить ConfigurationRepositoryUpdateCfg
+        # і так само лишає базу у стані версії сховища, а скіл викликають і напряму, не лише з
+        # finish (фінальне рев'ю C1, Important 1). Спека §4 перелічує sync/reconcile/finish —
+        # перелік неповний, і це знає код, а не текст.
+        foreach ($s in @('sync', 'verify', 'reconcile')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
             # Два твердження, не одне: голе 'operation=build' регресії НЕ ловить для reconcile —
             # цей підрядок був там і ДО C1 (тричі, з іншої причини — страховка canon), тож

@@ -615,7 +615,7 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cfg') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes
         # Шаблонний templates/gitignore тут не годиться: його правило **/cf/** ігнорувало б
         # САМЕ дерево cf/src, яке цей тест перевіряє (тут truth: storage, не vendor). Але без
-        # ЖОДНОГО .gitignore build/sync/<key>/ (тимчасова ІБ і worktree, які sync створює на
+        # ЖОДНОГО .gitignore build/sync/<key>/ (worktree й робочі файли, які sync створює на
         # час реплею) лишається невідстеженим — робоча копія "брудна", і Merge-KitBranchInto
         # штатно відмовляється зливати в брудний main (саме це спіймав перший живий
         # Integration-прогін тут, а не CRLF-попередження git — core.autocrlf тут false,
