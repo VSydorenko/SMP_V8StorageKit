@@ -33,6 +33,14 @@
 - Методика — скіл `kit-dev`: `grep` перед новою перевіркою, guard на властивість а не на текст,
   мутація тестів лише на копії дерева, перенумерація документа тягне всі посилання, живий прогін
   після серії правок.
+- **Кожна нова глобально видима функція дописується в `$RequiredCommands`**
+  (`tools/tests/ModuleImportOrder.Tests.ps1:10`). У цьому плані їх чотири:
+  `Get-KitDirtyRecords`, `Backup-KitDirtyFiles` (Task 1), `Get-KitOriginGap` (Task 5),
+  `Get-KitPluginVersion` (Task 9). Без цього тест видимості мовчки не перевіряє нових експортів.
+- **Фікстури тестів, де команда пише у `build/`, беруть `-WithGitignore`.** `New-KitFakeRepo`
+  кладе шаблонний `.gitignore` лише за цим перемикачем, а `build/` ігнорується саме ним. Без
+  нього асерція «`git status --porcelain` порожній» падає на власному робочому смітті команди —
+  так уже роблять `Canon.Tests.ps1:351` і `Check.Tests.ps1:15`.
 
 ---
 
@@ -244,7 +252,9 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         # людина у сховище не взяла), і файл, який у дзеркалі інший.
         function script:New-AdoptRepo {
             param([string]$Name)
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks
+            # -WithGitignore обов'язковий: adopt пише в <корінь>/build/adopt/<ключ>/mirror, і без
+            # шаблонного .gitignore асерція «git status порожній» впаде на робочому смітті самої команди.
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore
             $src  = Join-Path $repo 'Alpha_SMB/cfe/src'
             Set-Content -LiteralPath (Join-Path $src 'Shared.xml') -Value 'версія гілки' -Encoding UTF8
             Set-Content -LiteralPath (Join-Path $src 'OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
@@ -528,11 +538,43 @@ git commit --only -- tools/commands/adopt.psm1 tools/tests/Adopt.Tests.ps1
 ### Task 4: скіли переходять із `git merge` на `kit adopt`
 
 **Files:**
-- Modify: `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md`
+- Modify: `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md`, `docs/storage-and-git.md`,
+  `docs/superpowers/specs/2026-09-03-agent-contour-design.md`
 - Test: `tools/tests/Skills.Tests.ps1`
 
 **Interfaces:**
 - Consumes: `kit adopt` (Task 2, 3).
+
+**Замітати треба всі місця, а не команду.** Про злиття дзеркала в гілку задачі говорять **сім**
+місць у цих файлах, і заміна лише двох рядків із командою лишила б документи описувати контур,
+якого вже немає — рівно та помилка, що заблокувала злиття C1:
+
+| файл | місце | що з ним |
+|---|---|---|
+| `skills/reconcile/SKILL.md:8` | «не rebase, не re-derive — **merge** дзеркала» | принцип переформулювати: історія гілки лишається цілою, але дерево джерела **заміняється**, а не зливається |
+| `skills/reconcile/SKILL.md:41` | сама команда `git merge --no-ff` | → `kit adopt` (Step 3) |
+| `skills/reconcile/SKILL.md:58` | зупинка «`git merge`: конфлікт — це нормально» | конфлікту злиття в цьому сценарії більше не буває — прибрати |
+| `skills/reconcile/SKILL.md:59` | зупинка «Хук `pre-merge-commit` відмовляє» | у сценарії `adopt` не спрацьовує — прибрати (хук лишається, він охороняє інше) |
+| `skills/finish/SKILL.md:23` | крок 3 | → `kit adopt` (Step 4) |
+| `skills/finish/SKILL.md:40` | доповідь гейту: `git diff --stat ORIG_HEAD..HEAD` | після `adopt` немає `ORIG_HEAD` від merge — замінити на два списки прев'ю `adopt` |
+| `skills/finish/SKILL.md` крок 8 | тіло PR: «Дзеркала злиті: storage/… до версії N» | «Дзеркала прийняті (`adopt`): storage/… до версії N» |
+| `docs/storage-and-git.md:66, 82, 197` | діаграма й два абзаци про `merge storage/X` у `F` | переписати під заміну |
+
+**Критерій «суттєвого» в гейті `finish` теж змінюється.** Пункт (б) — «злиття на кроці 3 мало
+конфлікти» — після `adopt` беззмістовний. Замінити на: **«(б) прев'ю `adopt` показало непорожній
+список „ЗНИКНЕ з гілки“»**, тобто людина не взяла частину роботи агента. Це сильніший сигнал за
+попередній: конфлікт злиття був технічним проксі («щось розійшлося»), а цей — прямий і
+семантичний, і саме заради нього `adopt` робився.
+
+Скіл `finish` сам каже, що критерій живе у двох місцях: у ньому й у контурній спеці
+(`docs/superpowers/specs/2026-09-03-agent-contour-design.md`, рядки 854–871). Правити **обидва**,
+більше ніде.
+
+**Межа, яку цей план НЕ переходить:** злиття дзеркала в **головну** гілку лишається злиттям —
+`Invoke-KitMainMerge`, `Merge-KitBranchInto`, звірочний коміт `verify -Apply` і відповідний розділ
+`storage-and-git.md` не змінюються. Головна гілка накопичує історію проєкту (PR-и, звірочні
+коміти), і там merge доречний. `adopt` замінює прийняття лише в гілку **задачі**, де діє інша
+семантика: не накопичення, а відповідність сховищу.
 
 - [ ] **Step 1: Написати падаючий тест**
 
@@ -587,14 +629,18 @@ Expected: FAIL — обидва скіли містять `git merge --no-ff sto
 Що додати: рядок у таблицю команд (`adopt` — мутує так, дзеркало → гілка задачі), і в розділ про
 ролі гілок — абзац про те, що гілка задачі приймає версію сховища **заміною**, з причиною
 (людина кладе у сховище свою версію, можливо частину; злиття лишало б невзяте в гілці).
+Переписати також три місця з таблиці вище: діаграму (рядок 66), абзац «переносять у сховище —
+`merge storage/X` у `F`» (рядок 82) і рядок «У гілку задачі — так само, командою `merge storage/X`»
+(рядок 197). Розділ про злиття в **головну** гілку не чіпати — там merge лишається.
 
 Перевірка, що не лишилось старого опису:
 
 ```bash
-grep -rn 'git merge --no-ff storage/' docs/ skills/ templates/
+grep -rn 'merge storage/\|merge --no-ff storage/' docs/ skills/ templates/
 ```
 
-Expected: порожньо — або лише там, де мова про історичну поведінку з явною позначкою «до 1.0.1».
+Expected: влучання лише там, де мова про **головну** гілку (`Invoke-KitMainMerge`, звірочний
+коміт) або про історичну поведінку з явною позначкою «до 1.0.1». Жодного — про гілку задачі.
 
 - [ ] **Step 5: Прогнати й перевірити токен**
 
@@ -712,7 +758,15 @@ function Get-KitOriginGap {
     # висновків: локальне дзеркало, що відстало від origin, читається як «сховище попереду»
     # (ішуз #4). Недоступна мережа чи відсутній remote — попередження, не зупинка: репозиторій
     # без origin легальний.
-    $fetch = Invoke-KitGitProcess -RepoRoot $root -Arguments @('fetch', '--quiet', 'origin')
+    # Таймаути обов'язкові, і не заради швидкості: Invoke-KitGitProcess чекає на процес БЕЗ
+    # обмеження часу (той самий клас, що docs/follow-ups.md §6 про платформу). Недоступний
+    # SSH-хост тримав би прев'ю кілька хвилин на TCP-таймауті, а ключ під passphrase без
+    # агента підвісив би його НАЗАВЖДИ — git чекав би вводу, якого в неінтерактивному процесі
+    # не буде. BatchMode=yes перетворює це на швидку помилку, яку ми й показуємо попередженням.
+    $fetch = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+        '-c', 'core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=5',
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=10',
+        'fetch', '--quiet', '--no-tags', 'origin')
     if ($fetch.ExitCode -ne 0) {
         Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
     }
@@ -795,15 +849,18 @@ git commit --only -- tools/lib/GitOutput.psm1 tools/commands/sync.psm1 tools/com
     }
 
     It 'session-check не викликає git fetch' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sc-nofetch') -WithHooks
-        # GIT_TRACE пише кожен запуск git у файл — шукаємо в ньому підкоманду fetch.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sc-nofetch') -WithHooks -WithGitignore
+        # GIT_TRACE пише кожен запуск git у файл рядком виду
+        #   trace: built-in: git fetch origin
+        # — БЕЗ лапок навколо підкоманди (перевірено на git 2.53). Асерція на "*'fetch'*"
+        # (у лапках) була б зелена завжди й не стверджувала б нічого — рівно той клас
+        # тавтологічного guard'а, що docs/follow-ups.md §4 називає дефектом культури тестів.
         $trace = Join-Path $TestDrive 'git-trace.log'
         $env:GIT_TRACE = $trace
         Invoke-SessionCheck -Repo $repo | Out-Null
         Remove-Item Env:\GIT_TRACE
-        if (Test-Path -LiteralPath $trace) {
-            (Get-Content -LiteralPath $trace -Raw) | Should -Not -BeLike "*'fetch'*"
-        }
+        $trace | Should -Exist -Because 'без трасування тест не стверджує нічого'
+        (Get-Content -LiteralPath $trace -Raw) | Should -Not -BeLike '*built-in: git fetch*'
     }
 ```
 
