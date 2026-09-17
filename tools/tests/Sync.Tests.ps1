@@ -88,6 +88,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r.Output   | Should -BeLike '*kit provision*'
         $r.Output   | Should -BeLike '*operation=build*'
         (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
+        Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }
 
     It 'база агента збігається з дев-базою людини — зупинка до платформи (принцип 3)' {
@@ -377,7 +378,6 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
 
     Context 'порожня гілка — куди веде -FromVersion/-FromLatest' {
         BeforeEach {
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Invoke-KitMainMerge { $true }
             # 60/64/65: розрив (61-63 оптимізовано) — той самий силует, що живий прогін
@@ -491,9 +491,8 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
                 -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
                 -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
             # До реалізації Task 2 ця зупинка ще не існує — без мока платформа не мокана і
-            # виконання пішло б у реальний New-ExtensionInfobase/1cv8.exe. Мокаємо тут теж, щоб
-            # тест до фікса падав швидко й з ясної причини, а не зависав на платформі.
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+            # виконання пішло б у реальну платформу. Мокаємо тут теж, щоб тест до фікса падав
+            # швидко й з ясної причини, а не зависав на платформі.
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 6 -Comment 'нова') }
         }

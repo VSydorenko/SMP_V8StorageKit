@@ -99,4 +99,43 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $script:seen | Should -Not -Contain 'agent'
         }
     }
+
+    Context '«розширення не знайдено» — переклад у рецепт operation=build (Task 3, Step 6)' {
+        # UpdateCfg падає до Target/MustBeUnder — шлях сюди не доходить, тож тека $TestDrive
+        # нижче ніколи не читається й не пишеться, лише формально задовольняє Mandatory-параметри.
+        It 'EXTENSION, платформа каже «расширение … не найдено» — виняток називає operation=build' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                [pscustomobject]@{ ExitCode = 1; Output = 'Расширение "SMP_X" не найдено в конфигурации.' }
+            }
+            { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
+                -Target (Join-Path $TestDrive 'dump-ext-notfound') -MustBeUnder $TestDrive } |
+                Should -Throw '*operation=build*'
+        }
+
+        It 'EXTENSION, інший текст платформи — звичайна зупинка, БЕЗ operation=build (регекс не збігається з будь-чим)' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                [pscustomobject]@{ ExitCode = 1; Output = 'Внутренняя ошибка платформы.' }
+            }
+            $err = $null
+            try {
+                Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
+                    -Target (Join-Path $TestDrive 'dump-ext-othererror') -MustBeUnder $TestDrive
+            } catch { $err = $_.Exception.Message }
+            $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
+            $err | Should -Not -BeLike '*operation=build*'
+        }
+
+        It 'CONFIGURATION, той самий текст «не найдено» — звичайна зупинка, гілка обмежена типом EXTENSION' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                [pscustomobject]@{ ExitCode = 1; Output = 'Расширение "SMP_X" не найдено в конфигурации.' }
+            }
+            $err = $null
+            try {
+                Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 7 `
+                    -Target (Join-Path $TestDrive 'dump-cfg-notfound') -MustBeUnder $TestDrive
+            } catch { $err = $_.Exception.Message }
+            $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
+            $err | Should -Not -BeLike '*operation=build*'
+        }
+    }
 }
