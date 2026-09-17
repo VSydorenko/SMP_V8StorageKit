@@ -106,6 +106,14 @@ function Invoke-KitSync {
             throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
         }
 
+        # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17 §2):
+        # серіалізація розширення залежить від присутності конфігурації-власника, і дамп зі
+        # стаба давав GUID там, де canon дає імена. Get-KitSourceInfobase несе запобіжник
+        # «це не дев-база людини» — критичний саме тут, бо UpdateCfg замінює конфігурацію в базі.
+        # Перевірка дешева (читання YAML) і стоїть поруч із перевіркою каталогу сховища вище,
+        # ДО створення робочої теки нижче.
+        $agent = Get-KitSourceInfobase -Context $Context -Source $src
+
         # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
         # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
         # Загортати його в інше повідомлення чи вгадувати стан — не можна.
@@ -161,12 +169,13 @@ function Invoke-KitSync {
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        Write-Host 'Створюю тимчасову ІБ і читаю історію сховища...'
-        $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+        $ibSwitch = $agent.IbSwitch
+        Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
+        Write-Host 'Читаю історію сховища...'
 
         $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
             -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir
+            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $agent.User
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
 
@@ -230,13 +239,13 @@ function Invoke-KitSync {
         # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
         $bound = $false
         try {
-            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src
+            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $agent.User
             foreach ($v in $pending) {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
                 $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path
+                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $agent.User
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
                 $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
@@ -245,10 +254,17 @@ function Invoke-KitSync {
                 $done.Add($v.Version)
             }
         } finally {
-            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound
+            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $agent.User
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
+
+        # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база
+        # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
+        # поведінка — мовчати про неї означало б, що наступний operation=syntax чи test побіжить
+        # не на тому стані, який агент вважає своїм.
+        Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+            $agent.Workspace, $done[-1]) -ForegroundColor Yellow
 
         $merged = $false
         if ($wt.Created -or $MergeMain) {

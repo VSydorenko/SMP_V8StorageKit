@@ -138,7 +138,17 @@ function Invoke-KitStorageCheckout {
     $ext = Get-KitExtensionArgument -Source $Source
     $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
-    if ($upd.ExitCode -ne 0) { throw "Оновлення до версії $Version не вдалося: $($upd.Output)" }
+    if ($upd.ExitCode -ne 0) {
+        Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
+        # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
+        # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
+        # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
+        if ($Source.Type -eq 'EXTENSION' -and $upd.Output -match '(?i)расширени\w+ .*не найдено|розширенн\w+ .*не знайдено') {
+            throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
+                   "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
+        }
+        throw "Оновлення до версії $Version не вдалося: $($upd.Output)"
+    }
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"

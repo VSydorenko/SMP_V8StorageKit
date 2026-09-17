@@ -78,7 +78,8 @@ function New-KitFakeRepo {
         [switch]$WithHooks,
         [switch]$WithSessionHook,
         [switch]$NoSourceTrees,
-        [switch]$NoCommit
+        [switch]$NoCommit,
+        [switch]$WithAgentBase
     )
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
@@ -121,6 +122,16 @@ function New-KitFakeRepo {
         $proj.Add('format: DESIGNER'); $proj.Add('builder: DESIGNER'); $proj.Add("workPath: 'build'")
         if ($ws.Contains('Infobase') -and $ws['Infobase']) {
             $proj.Add('infobase:'); $proj.Add("  connection: '$($ws['Infobase'])'")
+            if ($WithAgentBase) {
+                # Той самий ідіом, що Canon.Tests.ps1/Provision.Tests.ps1 (1Cv8.1CD — ознака
+                # наявної файлової бази для Resolve-KitAgentBase.Exists): sync (Task 3) тепер
+                # резолвить базу агента з диска ще до звернення до платформи, і без цього файлу
+                # тести, що кличуть Invoke-KitSync у процесі, отримають зупинку з рецептом
+                # "kit provision" замість роботи мокованої платформи.
+                $ibDir = Join-Path $wsDir 'build/ib'
+                New-Item -ItemType Directory -Path $ibDir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'stub' -Encoding UTF8
+            }
         }
         $proj.Add('source-set:')
 
