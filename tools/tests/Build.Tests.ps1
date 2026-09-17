@@ -76,6 +76,18 @@ Describe 'kit build — виявлення й збір артефактів бе
         $r.Output | Should -BeLike '*kit build*забере*'
     }
 
+    It 'повідомлення про порожню теку артефактів (-Apply) друкує output, відносний до воркспейсу' {
+        # Друге з трьох місць Task 7 (build.psm1): без -Apply preview повертається раніше й
+        # цього рядка не друкує (тест вище ловить лише перше місце — підказку для розширень).
+        # Це повідомлення показується саме тоді, коли артефактів ще немає, — найчастіший
+        # сценарій першого виклику kit build, і саме його бачить людина найперше.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'build-hint-empty') -WithHooks
+        $r = Invoke-Build -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike "*output=build/artifacts/<Ім'я>.cfe*"
+        $r.Output | Should -Not -BeLike "*output=$repo*"
+    }
+
     It '-Workspace обмежує збір артефактів лише вибраним воркспейсом (Q1 звіту задачі 3 — Copy-KitWorkspaceArtifacts не мусить чіпати сусідні воркспейси)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'scope') -Workspaces $script:WsTwo -WithHooks
         foreach ($n in 'Alpha_SMB', 'Beta_SMB') {

@@ -24,7 +24,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 |---|---|---|
 | «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:sync` | `kit.ps1 sync [-Apply]` |
 | «вивантаж конфігурацію з бази» | `v8storagekit:dump` | `kit.ps1 dump [-Apply]` |
-| «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `canon` → `merge storage/*` у гілку задачі |
+| «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `canon` → `adopt storage/*` у гілку задачі (заміна, з прев'ю обох списків) |
 | «закриваємо задачу», «готуй PR» | `v8storagekit:finish` | `sync` → `canon` → `verify` → артефакти → PR |
 | «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply] [-Force]` |
 | «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
@@ -34,8 +34,8 @@ Unica не вміє: сховища, дамп із живої бази, база
 порожній репозиторій і gitsync-вивантаження сховища — веде `onboarding`; `storage.json` —
 реліквія форми 0.6.0, яка зникла з парку: побачивши його, зупиніться й спитайте людину.
 
-Десять команд kit: `check`, `session-check`, `sync`, `dump`, `verify`, `canon`, `provision`,
-`build`, `install-hooks`, `rename-edt` (лише крок переходу, його кличе `onboarding`). Запускаються з кореня репозиторію:
+Одинадцять команд kit: `check`, `session-check`, `sync`, `dump`, `verify`, `canon`, `adopt`,
+`provision`, `build`, `install-hooks`, `rename-edt` (лише крок переходу, його кличе `onboarding`). Запускаються з кореня репозиторію:
 `pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" <команда> -RepoRoot .`
 Без `-Apply` жодна команда нічого не змінює в git, сховищі чи базах — але `sync` і `verify`
 без `-Apply` усе одно піднімають платформу (хвилина-дві, ліцензія). `dump` — ні: без `-Apply`
@@ -46,7 +46,8 @@ Unica не вміє: сховища, дамп із живої бази, база
 
 - редагувати метадані/форми/СКД/ролі — `unica.*`; валідувати — `cfe.validate`, `cf.validate`;
 - накотити джерела в базу агента — `operation=build`; зібрати `.cf`/`.cfe` — `operation=make`
-  з `output=<корінь репо>/build/artifacts/<Ім'я>.cfe`; тести — `operation=test`; синтаксис — `operation=syntax`;
+  з `output=build/artifacts/<Ім'я>.cfe` (відносний до воркспейсу: поза свій корінь Unica
+  писати відмовляється); тести — `operation=test`; синтаксис — `operation=syntax`;
 - застосовні операції (`dryRun:false`) — лише на явне прохання, з названим ризиком.
 
 ## Як читати «Стан сховищ» нижче

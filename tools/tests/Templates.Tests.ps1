@@ -192,4 +192,10 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
         $script:TemplateClaudeMd | Should -Not -Match 'storage-sync'
         $script:TemplateClaudeMd | Should -Not -Match 'load-ext'
     }
+
+    It 'C2 Task 7: абзац «Збірка .cfe» називає output відносним до воркспейсу, не абсолютним' {
+        $script:TemplateClaudeMd | Should -Match 'Збірка `\.cfe`'
+        $script:TemplateClaudeMd | Should -Match 'output=build/artifacts/<Ім''я>\.cfe'
+        $script:TemplateClaudeMd | Should -Not -Match 'output=<корінь'
+    }
 }
