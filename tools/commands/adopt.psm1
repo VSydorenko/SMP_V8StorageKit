@@ -74,6 +74,41 @@ function Invoke-KitAdopt {
             Write-Host '  Це попередній перегляд. Заміна — з -Apply (дерево джерела буде переписане вмістом дзеркала).' -ForegroundColor Cyan
             continue
         }
+
+        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0) {
+            Write-Host '  Дерево уже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
+            continue
+        }
+
+        # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у
+        # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
+        $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
+        if ($dirty.Count -gt 0) {
+            $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
+            $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $backupDir = Join-Path $ws.FullPath (Join-Path $ws.Project.WorkPath (Join-Path 'adopt-backup' "$($src.Key)-$stamp"))
+            $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $src.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath
+            Write-Host "  $($dirty.Count) незакомічених змін — копія перед заміною у $backupDir" -ForegroundColor Yellow
+        }
+
+        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $root -Description "дерево джерела $($src.Key)"
+        if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
+        New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
+        Copy-Item -Path (Join-Path $mirrorDir '*') -Destination $src.FullPath -Recurse -Force
+
+        # -A обов'язковий і саме на ШЛЯХУ джерела: він фіксує і нові файли, і ВИДАЛЕННЯ тих,
+        # яких у дзеркалі немає. Обмеження pathspec-ом тримає межу «точковий коміт у спільній
+        # робочій копії» — чужі зміни поза цим шляхом не потраплять.
+        $add = Invoke-KitGitProcess -RepoRoot $root -Arguments @('add', '-A', '--', $src.RepoPath)
+        if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
+
+        $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
+        $message = "adopt: $($src.Key) ← $mirror (версія $version)"
+        $commit  = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '--only', '-m', $message, '--', $src.RepoPath)
+        if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }
+
+        Write-Host "  Замінено: прийшло $($incoming.Count), зникло $($diff.OnlyInTree.Count). Коміт: $message" -ForegroundColor Green
+        $adopted[-1].Applied = $true
     }
 
     [pscustomobject]@{ ExitCode = 0; Adopted = $adopted.ToArray() }
