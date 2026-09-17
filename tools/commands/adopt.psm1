@@ -65,6 +65,12 @@ function Invoke-KitAdopt {
 
         $incoming = @($diff.Content) + @($diff.OnlyInDump)
         Write-Host "  Побайтово рівних: $($diff.Equal) із $($diff.Total)"
+        # CrOnly — окремим рядком, не всередині «прийде зі сховища»: причина інша, не чиясь
+        # робота, а політика тексту (той самий підпис зламаної CRLF-політики, що verify.psm1
+        # друкує для дампу проти дерева — docs/text-policy.md). Формулювання title навмисно
+        # дослівно збігається з verify.psm1, щоб дві команди одного контуру називали одне й те
+        # саме однаково (рев'ю фікс-раунду 1).
+        Write-KitAdoptList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
         Write-KitAdoptList -Title "прийде зі сховища ($mirror)" -Items $incoming
         Write-KitAdoptList -Title 'ЗНИКНЕ з гілки — робота, яку людина у сховище не взяла' -Items $diff.OnlyInTree -Loud
 
@@ -75,23 +81,32 @@ function Invoke-KitAdopt {
             continue
         }
 
-        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0) {
-            Write-Host '  Дерево уже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
+        # CrOnly входить у перевірку no-op нарівні з Incoming/OnlyInTree (рев'ю фікс-раунду 1):
+        # різниця лише в CR — не шум, а підпис зламаної політики тексту (docs/text-policy.md),
+        # і -Apply має її виправити так само, як змістовну розбіжність.
+        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0 -and $diff.CrOnly.Count -eq 0) {
+            Write-Host '  Дерево вже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
             continue
         }
+
+        # $ws — до страховки (рев'ю фікс-раунду 1, Minor): Assert-SafeWorkPath нижче тепер теж
+        # бере його межею, тому обчислення не може лишатись усередині `if ($dirty.Count -gt 0)`.
+        $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
 
         # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у
         # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
         if ($dirty.Count -gt 0) {
-            $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
             $backupDir = Join-Path $ws.FullPath (Join-Path $ws.Project.WorkPath (Join-Path 'adopt-backup' "$($src.Key)-$stamp"))
             $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $src.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath
             Write-Host "  $($dirty.Count) незакомічених змін — копія перед заміною у $backupDir" -ForegroundColor Yellow
         }
 
-        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $root -Description "дерево джерела $($src.Key)"
+        # -MustBeUnder $ws.FullPath, не $root (рев'ю фікс-раунду 1, Minor): те саме звуження,
+        # що canon.psm1:83 — коментар вище каже «те саме, що робить canon», і межа guard'а
+        # перед Remove-Item -Recurse -Force на дереві людини мусить це підтверджувати буквально.
+        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($src.Key)"
         if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
         New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
         Copy-Item -Path (Join-Path $mirrorDir '*') -Destination $src.FullPath -Recurse -Force

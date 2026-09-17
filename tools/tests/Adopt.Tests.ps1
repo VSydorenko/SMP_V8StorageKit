@@ -80,7 +80,37 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply') | Out-Null
         $before = (git -C $repo rev-parse HEAD)
         $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
-        $r.Output | Should -BeLike '*уже збігається*'
+        $r.Output | Should -BeLike '*вже збігається*'
         (git -C $repo rev-parse HEAD) | Should -Be $before
+    }
+
+    It 'файл різниться лише CR — прев''ю називає окремо, -Apply замінює і не каже «вже збігається»' {
+        # Регресія рев'ю фікс-раунду 1: CrOnly ігнорувався і в перевірці no-op, і в прев'ю —
+        # дерево, що різниться з дзеркалом лише кінцями рядків, виглядало як «вже збігається»,
+        # хоча CRLF/LF-розбіжність — підпис зламаної політики тексту (docs/text-policy.md), а
+        # не шум, і verify.psm1 на тому самому дереві доповів би протилежне.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-cronly') -WithHooks -WithGitignore
+        $src  = Join-Path $repo 'Alpha_SMB/cfe/src'
+        Set-Content -LiteralPath (Join-Path $src 'CrOnly.xml') -Value "рядок`r`n" -Encoding UTF8 -NoNewline
+        git -C $repo add -A 2>&1 | Out-Null
+        git -C $repo commit -q -m 'робота агента' 2>&1 | Out-Null
+        # Дзеркало: той самий текст, але без CR (LF-only) — саме та різниця, яку Compare-KitTrees
+        # класифікує як CrOnly (побайтово різні, однакові після вилучення \r).
+        git -C $repo checkout -q -b 'storage/Alpha_SMB' 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'CrOnly.xml') -Value "рядок`n" -Encoding UTF8 -NoNewline
+        git -C $repo add -A 2>&1 | Out-Null
+        $env:V8KIT_SYNC = '1'
+        git -C $repo commit -q -m 'sync: версія 7' -m 'Storage-Version: 7' 2>&1 | Out-Null
+        Remove-Item Env:\V8KIT_SYNC
+        git -C $repo checkout -q main 2>&1 | Out-Null
+
+        $preview = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB')
+        $preview.Output | Should -BeLike '*лише CR*'
+        $preview.Output | Should -BeLike '*CrOnly.xml*'
+
+        $apply = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $apply.ExitCode | Should -Be 0
+        $apply.Output   | Should -Not -BeLike '*вже збігається*'
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/CrOnly.xml') -Raw) | Should -Be "рядок`n"
     }
 }
