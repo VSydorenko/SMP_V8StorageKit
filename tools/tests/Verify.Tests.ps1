@@ -47,6 +47,22 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r.Output | Should -BeLike "*'nope'*"
     }
 
+    It 'бази агента немає — verify зупиняється з рецептом, не створивши build/verify' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-no-base') -WithHooks
+        New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
+        # Get-KitVerifyVersion (git-інваріанти дзеркала) звіряється РАНІШЕ за резолв бази
+        # агента — щоб дійти до нього, спільний предок 'main' і 'storage/Alpha_SMB' має нести
+        # валідний трейлер Storage-Version, інакше verify зупиниться на "Розбір: kit check"
+        # ще до Get-KitSourceInfobase. Голий 'git branch' (без цього коміту) робив би merge-base
+        # рівно вершиною main без трейлера — не той шлях, що ця перевірка має покрити.
+        git -C $repo commit -q --allow-empty -m 'версія' -m "Storage-Source: Alpha_SMB`nStorage-Version: 1" 2>&1 | Out-Null
+        git -C $repo branch 'storage/Alpha_SMB' 2>&1 | Out-Null
+        $r = Invoke-Verify -Repo $repo
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*kit provision*'
+        Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
+    }
+
     It '-Version без числа — зупинка з поясненням, а не тиха звірка проти версії 1 (рев''ю B3 раунд 3, M6 → Step 5а)' {
         # CommandArgs = @('-Version', '-Ref', 'main'): наступний токен після '-Version' — інший
         # прапорець ('-Ref'), тож без захисту диспетчер підставив би $splat.Version = $true.
@@ -70,10 +86,11 @@ Describe 'kit verify — мок платформного шару: щаслив�
     # AllowEmptyCollection, а Get-KitBinaryPaths штатно повертає порожній HashSet, коли
     # жоден файл дерева не позначений binary в .gitattributes — саме так виглядає
     # найтиповіше дерево 1С (лише XML/BSL). Мокається лише платформний шар —
-    # New-KitStorageInfobase, Enter-/Exit-KitStorageBind, Invoke-KitStorageCheckout — усі
-    # викликаються ПРЯМО з verify.psm1, тому -ModuleName verify (урок Task 1: Mock
-    # -ModuleName діє лише в приватному столі команд НАЗВАНОГО модуля). Export-KitTree,
-    # Get-KitBinaryPaths і Compare-KitTrees лишаються СПРАВЖНІМИ — саме в них сидів дефект.
+    # Enter-/Exit-KitStorageBind, Invoke-KitStorageCheckout — усі викликаються ПРЯМО з
+    # verify.psm1, тому -ModuleName verify (урок Task 1: Mock -ModuleName діє лише в
+    # приватному столі команд НАЗВАНОГО модуля). Export-KitTree, Get-KitBinaryPaths і
+    # Compare-KitTrees лишаються СПРАВЖНІМИ — саме в них сидів дефект. verify тепер дампить
+    # у базі агента (Get-KitSourceInfobase, Task 4) — звідси -WithAgentBase нижче.
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
@@ -84,7 +101,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
     }
 
     It 'жоден файл не позначений binary — verify не падає на прив''язці параметра, доходить до вердикту equal' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-happy') -WithHooks -WithGitattributes -WithGitignore
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-happy') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
         # script:-scoped, не локальна $content: Mock -ModuleName виконує -MockWith у
         # приватному столі НАЗВАНОГО модуля (verify), а не в лексичному оточенні It-блоку —
         # той самий прийом, що Sync.Tests.ps1 уже застосовує через script:-функції
@@ -102,7 +119,6 @@ Describe 'kit verify — мок платформного шару: щаслив�
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
-        Mock -ModuleName verify New-KitStorageInfobase { '/F "fake-ib"' }
         Mock -ModuleName verify Enter-KitStorageBind { $false }
         Mock -ModuleName verify Exit-KitStorageBind { }
         Mock -ModuleName verify Invoke-KitStorageCheckout {
@@ -121,10 +137,14 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $result.ExitCode | Should -Be 0
         $result.Results.Count | Should -Be 1
         $result.Results[0].Verdict | Should -Be 'equal'
+        # Доказ, що платформа справді перехоплена, а не здогад із часу виконання (той самий
+        # прийом, що Sync.Tests.ps1): без цього тест міг би мовчки піти в реальний 1cv8.exe.
+        # Це єдиний виклик у шляху verify, що справді пішов би в платформу — Enter-/Exit-
+        # KitStorageBind теж моковані.
         Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1
-        # Доказ перехоплення, а не здогад із часу виконання (той самий прийом, що
-        # Sync.Tests.ps1): без цього тест міг би мовчки піти в реальний 1cv8.exe.
-        Should -Invoke -ModuleName verify New-KitStorageInfobase -Times 1
+        # Позитивний доказ самої зміни: тимчасова ІБ більше не створюється — verify.psm1
+        # дампить у базі агента (build/ib воркспейсу, не build/verify/<ключ>/ib).
+        Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
     }
 }
 
