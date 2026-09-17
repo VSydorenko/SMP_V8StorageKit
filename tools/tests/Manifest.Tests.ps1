@@ -49,79 +49,102 @@ Describe 'Manifest.psm1 — схема v8storagekit.yaml' {
 
     Context 'відмови схеми — кожна називає місце і причину' {
         It 'невідомий truth' {
-            $p = Write-Yaml 'bad-truth.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: mirror }')
+            $p = Write-Yaml 'bad-truth.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: mirror }')
             { Read-KitManifest -Path $p } | Should -Throw "*'mirror'*storage, dump, vendor, git*"
         }
         It 'truth: storage без storage.path' {
-            $p = Write-Yaml 'no-storage-path.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: storage, storage: { user: u } }')
+            $p = Write-Yaml 'no-storage-path.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: storage, storage: { user: u } }')
             { Read-KitManifest -Path $p } | Should -Throw "*'path'*"
         }
         It 'truth: storage без блоку storage:' {
-            $p = Write-Yaml 'no-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: storage }')
+            $p = Write-Yaml 'no-storage.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: storage }')
             { Read-KitManifest -Path $p } | Should -Throw '*storage:*'
         }
         It 'truth: storage зі storage: і dump: одночасно — суперечність' {
-            $p = Write-Yaml 'storage-with-dump.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: storage, storage: { path: 'x' }, dump: { from: 'y' } }")
+            $p = Write-Yaml 'storage-with-dump.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: storage, storage: { path: 'x' }, dump: { from: 'y' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*storage*dump:*'
         }
         It 'truth: vendor без dump.from' {
-            $p = Write-Yaml 'no-from.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: vendor }')
+            $p = Write-Yaml 'no-from.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: vendor }')
             { Read-KitManifest -Path $p } | Should -Throw '*dump:*from*'
         }
         It 'truth: vendor: dump.from порожній при наявному блоці dump: — зупинка' {
-            $p = Write-Yaml 'empty-dump-from.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: vendor, dump: { from: '' } }")
+            $p = Write-Yaml 'empty-dump-from.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: vendor, dump: { from: '' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*dump.from*порожній*'
         }
         It 'truth: dump зі storage: одночасно — суперечність' {
-            $p = Write-Yaml 'dump-with-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: dump, dump: { from: 'x' }, storage: { path: 'y' } }")
+            $p = Write-Yaml 'dump-with-storage.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: dump, dump: { from: 'x' }, storage: { path: 'y' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*dump*storage:*'
         }
         It 'truth: git зі storage: — суперечність' {
-            $p = Write-Yaml 'git-with-storage.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, storage: { path: 'x' } }")
+            $p = Write-Yaml 'git-with-storage.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, storage: { path: 'x' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*git*storage*'
         }
         It 'truth: git з dump: — суперечність' {
-            $p = Write-Yaml 'git-with-dump.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, dump: { from: 'x' } }")
+            $p = Write-Yaml 'git-with-dump.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, dump: { from: 'x' } }")
             { Read-KitManifest -Path $p } | Should -Throw '*git*dump*'
         }
         It 'невідомий кореневий ключ' {
-            $p = Write-Yaml 'unknown-root.yaml' @('version: 1', 'product: X', 'products: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
-            { Read-KitManifest -Path $p } | Should -Throw "*'products'*version, product, client, mainBranch, workspaces*"
+            $p = Write-Yaml 'unknown-root.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'products: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            { Read-KitManifest -Path $p } | Should -Throw "*'products'*version, kitVersion, product, client, mainBranch, workspaces*"
         }
         It 'невідомий ключ усередині джерела (структуру описує v8project.yaml, не маніфест)' {
-            $p = Write-Yaml 'unknown-source-key.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, path: 'cfe/src' }")
+            $p = Write-Yaml 'unknown-source-key.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, path: 'cfe/src' }")
             { Read-KitManifest -Path $p } | Should -Throw "*'path'*truth, storage, dump*"
         }
         It 'product і client разом — зупинка' {
-            $p = Write-Yaml 'both.yaml' @('version: 1', 'product: X', 'client: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            $p = Write-Yaml 'both.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'client: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
             { Read-KitManifest -Path $p } | Should -Throw '*product*client*'
         }
         It 'ні product, ні client — зупинка' {
-            $p = Write-Yaml 'neither.yaml' @('version: 1', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            $p = Write-Yaml 'neither.yaml' @('version: 1', 'kitVersion: 1.0.1', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
             { Read-KitManifest -Path $p } | Should -Throw '*product*client*'
         }
         It 'version: 2 — зупинка' {
-            $p = Write-Yaml 'v2.yaml' @('version: 2', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
-            { Read-KitManifest -Path $p } | Should -Throw '*version*'
+            $p = Write-Yaml 'v2.yaml' @('version: 2', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            { Read-KitManifest -Path $p } | Should -Throw '*version: 2*'
         }
         It 'workspaces[].path із роздільником — зупинка (воркспейс лише безпосередньо в корені)' {
-            $p = Write-Yaml 'nested-ws.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: a/b', '    sources:', '      a: { truth: git }')
+            $p = Write-Yaml 'nested-ws.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: a/b', '    sources:', '      a: { truth: git }')
             { Read-KitManifest -Path $p } | Should -Throw "*'a/b'*"
         }
         It 'той самий воркспейс двічі — зупинка' {
-            $p = Write-Yaml 'dup-ws.yaml' @('version: 1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }', '  - path: A', '    sources:', '      b: { truth: git }')
+            $p = Write-Yaml 'dup-ws.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }', '  - path: A', '    sources:', '      b: { truth: git }')
             { Read-KitManifest -Path $p } | Should -Throw '*двічі*'
         }
     }
 
     Context 'mainBranch' {
         It 'типово main; явний master приймається' {
-            $p = Write-Yaml 'master.yaml' @('version: 1', 'product: X', 'mainBranch: master', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            $p = Write-Yaml 'master.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'mainBranch: master', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
             (Read-KitManifest -Path $p).MainBranch | Should -Be 'master'
         }
         It 'mainBranch у просторі storage/ — зупинка' {
-            $p = Write-Yaml 'bad-main.yaml' @('version: 1', 'product: X', 'mainBranch: storage/x', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
+            $p = Write-Yaml 'bad-main.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'mainBranch: storage/x', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
             { Read-KitManifest -Path $p } | Should -Throw '*mainBranch*'
+        }
+    }
+
+    Context 'kitVersion — до якої версії плагіна доведено структуру репозиторію' {
+        It 'kitVersion обов''язковий — маніфест без нього не читається' {
+            $text = @('version: 1', 'product: Fake', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }') -join "`n"
+            $path = Join-Path $TestDrive 'no-kitversion.yaml'
+            Set-Content -LiteralPath $path -Value $text -Encoding UTF8
+            { Read-KitManifest -Path $path } | Should -Throw '*kitVersion*'
+        }
+
+        It 'kitVersion не схожий на X.Y.Z — зупинка' {
+            $text = @('version: 1', 'kitVersion: остання', 'product: Fake', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }') -join "`n"
+            $path = Join-Path $TestDrive 'bad-kitversion.yaml'
+            Set-Content -LiteralPath $path -Value $text -Encoding UTF8
+            { Read-KitManifest -Path $path } | Should -Throw '*X.Y.Z*'
+        }
+
+        It 'kitVersion доходить до результату' {
+            $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }') -join "`n"
+            $path = Join-Path $TestDrive 'good-kitversion.yaml'
+            Set-Content -LiteralPath $path -Value $text -Encoding UTF8
+            (Read-KitManifest -Path $path).KitVersion | Should -Be '1.0.1'
         }
     }
 }

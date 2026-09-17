@@ -23,6 +23,22 @@ function New-KitFinding {
     [pscustomobject]@{ Level = $Level; Check = $Check; Message = $Message }
 }
 
+function Get-KitPluginVersion {
+    <#
+    .SYNOPSIS
+        Версія цього плагіна з .claude-plugin/plugin.json — для порівняння з kitVersion маніфесту.
+    .DESCRIPTION
+        Шлях рахується від розташування модуля (tools/lib → корінь плагіна), а не від кореня
+        репозиторію-споживача: kit виконується З плагіна, ПРОТИ чужого репозиторію.
+    #>
+    [CmdletBinding()]
+    param()
+    $path = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../.claude-plugin/plugin.json'))
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try { return [string]((Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json).version) }
+    catch { return $null }
+}
+
 function Invoke-KitPreflight {
     <#
     .SYNOPSIS
@@ -249,4 +265,4 @@ function Select-KitSources {
     $sources
 }
 
-Export-ModuleMember -Function New-KitFinding, Invoke-KitPreflight, Select-KitSources
+Export-ModuleMember -Function New-KitFinding, Get-KitPluginVersion, Invoke-KitPreflight, Select-KitSources

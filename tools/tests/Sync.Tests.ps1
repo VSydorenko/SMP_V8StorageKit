@@ -45,7 +45,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
     }
 
     It 'джерело truth: storage на EXTERNAL_DATA_PROCESSORS — зупинка (сховища для обробок не буває)' {
-        $text = @('version: 1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', "      tools: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
+        $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', "      tools: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
         $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-proc') -Workspaces $ws -ManifestText $text -WithHooks
         $r = Invoke-Sync -Repo $repo
@@ -77,6 +77,48 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*-FromVersion*значення*'
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
+    }
+
+    It 'бази агента немає — зупинка з рецептом, дамп не починається' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-agent-base') -WithHooks
+        # Каталог сховища має існувати, інакше sync зупиниться раніше — на ньому.
+        New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
+        $r = Invoke-Sync -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*kit provision*'
+        $r.Output   | Should -BeLike '*operation=build*'
+        (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
+        Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
+    }
+
+    It 'база агента збігається з дев-базою людини — зупинка до платформи (принцип 3)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human-base') -WithHooks
+        New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
+        $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+        New-Item -ItemType Directory -Force -Path $ibDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'fake' -Encoding UTF8
+        $overlay = @('infobases:', "  dev: { connection: 'File=$ibDir' }") -join "`n"
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
+        $r = Invoke-Sync -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*дев-базою людини*'
+    }
+
+    It 'у v8project.yaml немає infobase: — зупинка з іменем воркспейсу' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{
+                Sets = @(
+                    @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
+                    @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }
+                )
+            }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-infobase') -Workspaces $ws -WithHooks
+        New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
+        $r = Invoke-Sync -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*Alpha_SMB*'
+        $r.Output   | Should -BeLike '*infobase*'
     }
 }
 
@@ -129,7 +171,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
     }
 
     It 'дзеркало вже синхронне, -MergeMain БЕЗ -Apply — злиття не викликається (лише -Apply дозволяє мутацію)' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-preview') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-preview') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'no-pending-preview-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
@@ -139,10 +181,11 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        # B3 Task 1: New-KitStorageInfobase (кличе New-ExtensionInfobase) живе в
-        # StoragePlatform.psm1, не в sync — Mock -ModuleName діє лише в приватному столі
-        # команд названого модуля, тож саме StoragePlatform, а не sync (той нічого б не перехопив).
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Task 3: sync тепер дампить у базі агента (Get-KitSourceInfobase), не в тимчасовій ІБ
+        # зі стабом — New-ExtensionInfobase більше не кличеться. Мок Invoke-V8Designer лишається
+        # ПАСТКОЮ на цьому шляху: дзеркало вже синхронне (pending.Count=0), і платформа тут
+        # узагалі не потрібна — випадковий похід у реальний 1cv8.exe спіймається, а не пройде.
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Кома навмисно: Get-StorageVersions (StorageReport.psm1:195) сама повертає
         # comma-wrapped масив, а не голий @(...) — мок мусить давати ту саму форму, щоб не
         # проходити випадково лише тому, що в наборі один елемент (F7).
@@ -153,13 +196,12 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $result.ExitCode | Should -Be 0
         $result.Synced[0].MergedIntoMain | Should -Be $false
         Should -Invoke -ModuleName sync Invoke-KitMainMerge -Times 0
-        # Доказ перехоплення, а не здогад із часу виконання: без цього мок може мовчки не
-        # спрацювати (межа модуля), і тест лишиться зеленим, реально покликавши 1cv8.exe.
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+        # Доказ, що платформа справді не викликана на цьому шляху, а не здогад із часу виконання.
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
     It 'дзеркало вже синхронне, -MergeMain РАЗОМ з -Apply — злиття викликається' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-apply') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-pending-apply') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'no-pending-apply-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
@@ -169,9 +211,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        # B3 Task 1: те саме, що в попередньому тесті — New-KitStorageInfobase кличе
-        # New-ExtensionInfobase зі StoragePlatform.psm1, а не з sync.
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Task 3: те саме, що в попередньому тесті — дзеркало вже синхронне, платформа на цьому
+        # шляху не потрібна взагалі; мок Invoke-V8Designer лишається пасткою на регресію.
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
@@ -180,20 +222,18 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $result.ExitCode | Should -Be 0
         $result.Synced[0].MergedIntoMain | Should -Be $true
         Should -Invoke -ModuleName sync Invoke-KitMainMerge -Times 1
-        # Доказ перехоплення, а не здогад із часу виконання (див. попередній тест).
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+        # Доказ, що платформа справді не викликана на цьому шляху (див. попередній тест).
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
     It 'провал злиття після успішного реплею — ExitCode 2, підказка на повтор із -Apply, дзеркало вже оновлене' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-fails') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-fails') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-fails-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        # B3 Task 1: New-KitStorageInfobase кличе New-ExtensionInfobase зі StoragePlatform.psm1.
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
         # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
         # B3 Task 1: реальний виклик /ConfigurationRepositoryUpdateCfg і /DumpConfigToFiles тепер
@@ -210,7 +250,6 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         # Доказ перехоплення, а не здогад із часу виконання: без цього виклик міг мовчки піти
         # у реальний 1cv8.exe (Invoke-KitStorageCheckout кличе Invoke-V8Designer двічі —
         # UpdateCfg і DumpConfigToFiles — на кожну версію; тут версія одна).
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
 
@@ -220,7 +259,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
     # тому випадку, заради якого зроблена — неактивне (запаковане) сховище ніколи не отримає
     # відбитка, і session-check лишається з вічним "не визначається".
     It 'відбиток пишеться в гілці "Нових версій немає" — саме для неактивного сховища (Task 8)' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-no-pending') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-no-pending') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'imprint-no-pending-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
@@ -230,7 +269,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Task 3: платформа на цьому шляху не потрібна взагалі (дзеркало вже синхронне) —
+        # мок лишається пасткою на регресію, не доказом нормального виклику.
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
 
@@ -243,18 +284,19 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
         $imprint | Should -Not -BeNullOrEmpty
         $imprint.Version | Should -Be 5
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
     It 'відбиток пишеться БЕЗ -Apply (прев''ю); version у ньому — максимум зі звіту, НЕ кількість версій' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-preview') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-preview') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'imprint-preview-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+        # Task 3: платформа на цьому шляху не потрібна взагалі — мок лишається пасткою на регресію.
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Дві версії з розривом (3, 9) — максимум 9, кількість 2: version у відбитку МАЄ бути 9.
         Mock -ModuleName sync Get-StorageVersions {
             , @(
@@ -270,18 +312,17 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
         $imprint | Should -Not -BeNullOrEmpty
         $imprint.Version | Should -Be 9
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
     It 'відбиток пишеться З -Apply' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-apply') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-apply') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'imprint-apply-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
@@ -293,7 +334,6 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
         $imprint | Should -Not -BeNullOrEmpty
         $imprint.Version | Should -Be 7
-        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
 }
@@ -323,7 +363,11 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
         }
         function script:New-KitEmptyBranchRepo {
             param([Parameter(Mandatory)][string]$Root)
-            $repo = New-KitFakeRepo -Root $Root -WithHooks
+            # -WithAgentBase: Task 3 — sync резолвить базу агента з диска (Get-KitSourceInfobase)
+            # ще до звернення до платформи, для КОЖНОГО джерела в циклі; без цього переключача
+            # кожен тест цього Describe, що кличе Invoke-KitSync, отримав би зупинку з рецептом
+            # "kit provision" замість роботи мокованої платформи.
+            $repo = New-KitFakeRepo -Root $Root -WithHooks -WithAgentBase
             $storageDir = "$Root-storage"
             New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
@@ -334,7 +378,6 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
 
     Context 'порожня гілка — куди веде -FromVersion/-FromLatest' {
         BeforeEach {
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Invoke-KitMainMerge { $true }
             # 60/64/65: розрив (61-63 оптимізовано) — той самий силует, що живий прогін
@@ -405,12 +448,11 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
 
     Context 'параметри — валідація до звернення до платформи' {
         # Рев'ю Task 2, п. 3: без мока Get-StorageVersions регресія будь-якого з трьох гардів
-        # пропускає виклик далі — мокнутий New-ExtensionInfobase віддасть фейковий /F, а СПРАВЖНЯ
-        # Get-StorageVersions піде через Invoke-V8Designer у реальну платформу проти неіснуючої
-        # ІБ. Тест урешті впав би, але вже ПІСЛЯ запуску 1cv8.exe — у безплатформному Describe.
-        # Мокаємо всі три платформні виклики так само, як у сусідньому Context вище.
+        # пропускає виклик далі — СПРАВЖНЯ Get-StorageVersions піде через Invoke-V8Designer у
+        # реальну платформу проти неіснуючої ІБ. Тест урешті впав би, але вже ПІСЛЯ запуску
+        # 1cv8.exe — у безплатформному Describe. Мокаємо платформні виклики так само, як у
+        # сусідньому Context вище.
         BeforeEach {
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'версія') }
         }
@@ -419,21 +461,25 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'mutex')
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 5 -FromLatest } |
                 Should -Throw '*взаємовиключ*'
-            Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            # Task 3: sync цієї функції не кличе НІ ЗА ЯКИХ УМОВ — Should -Invoke на
+            # New-ExtensionInfobase був би завжди-зеленим (тавтологічним), вирізання самої
+            # валідації його не зачепить (docs/follow-ups.md §4). Замінено на живий доказ:
+            # платформа взагалі не викликана.
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
             Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
 
         It '-FromVersion 0 — зупинка, платформа не викликається' {
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'zero')
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 0 } | Should -Throw '*додатн*'
-            Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
             Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
 
         It '-FromVersion від''ємний — зупинка, платформа не викликається' {
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'negative')
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion -3 } | Should -Throw '*додатн*'
-            Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
             Should -Invoke -ModuleName sync Get-StorageVersions -Times 0
         }
     }
@@ -445,9 +491,8 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
                 -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
                 -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
             # До реалізації Task 2 ця зупинка ще не існує — без мока платформа не мокана і
-            # виконання пішло б у реальний New-ExtensionInfobase/1cv8.exe. Мокаємо тут теж, щоб
-            # тест до фікса падав швидко й з ясної причини, а не зависав на платформі.
-            Mock -ModuleName StoragePlatform New-ExtensionInfobase { '/F "fake-ib"' }
+            # виконання пішло б у реальну платформу. Мокаємо тут теж, щоб тест до фікса падав
+            # швидко й з ясної причини, а не зависав на платформі.
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 6 -Comment 'нова') }
         }
@@ -465,6 +510,128 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
                 Should -Throw '*Storage-Version*5*'
             (git -C $script:Repo rev-parse 'storage/Alpha_SMB') | Should -Be $before
         }
+    }
+}
+
+Describe 'kit sync — origin: fetch перед реплеєм і підказка про push (Task 5, спека 2026-09-17 §6)' {
+    # Той самий прийом мокання, що в Describe вище — Invoke-KitSync кличеться напряму в цьому
+    # процесі, платформа НЕ запускається. git fetch і Get-KitOriginGap тут НЕ мокані навмисно:
+    # реальний локальний "origin" (bare-клон) — найдешевший спосіб довести, що sync справді читає
+    # ЖИВИЙ стан remote-tracking гілки, а не мок, який був би зеленим і на регресії.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+
+        function script:New-KitTestContext {
+            param([Parameter(Mandatory)][string]$Repo)
+            Invoke-KitPreflight -RepoRoot $Repo
+        }
+        function script:New-KitFakeStorageVersion {
+            param([int]$Version, [string]$User = 'gitbot', [string]$Comment = 'версія')
+            [pscustomobject]@{
+                Version = $Version; User = $User; Date = '01.01.2026'; Time = '09:00:00'
+                ConfigVersion = ''; Comment = $Comment; Added = @(); Modified = @(); Deleted = @()
+                Timestamp = [datetime]'2026-01-01T09:00:00'
+            }
+        }
+    }
+
+    It 'дзеркало отримало новий коміт, а origin відстав — підказка "git push origin (гілка)" з точним числом' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'push-hint') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'push-hint-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        # origin — реальний bare-клон стану РЕПО ДО нового коміту: sync має fetch'нути його сам
+        # (Task 5, Step 4), і лише тоді Get-KitOriginGap побачить різницю.
+        $up = Join-Path $TestDrive 'push-hint-upstream'
+        git clone -q --bare $repo $up 2>&1 | Out-Null
+        git -C $repo remote add origin $up 2>&1 | Out-Null
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 6 -Comment 'нова') }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 0
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*Дзеркало попереду origin на 1 — git push origin storage/Alpha_SMB*'
+    }
+
+    It 'дзеркало вже синхронне з origin (Ahead=0) — підказки про push немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'push-hint-none') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'push-hint-none-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        # origin містить рівно той самий коміт (клоновано ПІСЛЯ запису версії 5) — Ahead=0.
+        $up = Join-Path $TestDrive 'push-hint-none-upstream'
+        git clone -q --bare $repo $up 2>&1 | Out-Null
+        git -C $repo remote add origin $up 2>&1 | Out-Null
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        # Той самий номер версії, що вже на вершині — pending порожній, реплею немає взагалі.
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 0
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -Not -BeLike '*Дзеркало попереду origin*'
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+    }
+
+    # Фінальне рев'ю C2 — знахідка §6: підказка друкувалась лише в гілці коду з новими версіями;
+    # дзеркало, що лишилось попереду origin ЩЕ З ПОПЕРЕДНЬОГО прогону (git push тоді не зробили),
+    # при sync БЕЗ нових версій мовчало. Тут версія 5 — локальний коміт, зроблений ДО клонування
+    # origin (тобто "попередній прогін"), а цей прогін bачить ту саму версію 5 у звіті — pending
+    # порожній, реплею не буде взагалі.
+    It 'дзеркало попереду origin ще з попереднього прогону, а нових версій цього разу немає — підказка про push однаково друкується' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'push-hint-stale') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'push-hint-stale-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 4')
+
+        # origin клонується ТУТ — бачить лише версію 4.
+        $up = Join-Path $TestDrive 'push-hint-stale-upstream'
+        git clone -q --bare $repo $up 2>&1 | Out-Null
+        git -C $repo remote add origin $up 2>&1 | Out-Null
+
+        # Версія 5 — попереднім прогоном sync, локально; origin про неї не знає (не запушили).
+        # Контент версії 5 мусить ВІДРІЗНЯТИСЬ від версії 4 — інакше git commit побачить чисте
+        # дерево ("nothing to commit") і сам коміт не відбудеться.
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content ((New-KitFakeConfigurationXml -Name 'Alpha_SMB') + "`r`n<!-- v5 -->") `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+
+        $ctx = New-KitTestContext -Repo $repo
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        # Той самий номер версії, що вже на вершині — pending порожній, реплею немає взагалі.
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+
+        $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 0
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*Нових версій немає*'
+        $text | Should -BeLike '*Дзеркало попереду origin на 1 — git push origin storage/Alpha_SMB*'
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 }
 
@@ -496,7 +663,7 @@ Describe 'kit sync — реальне сховище (перший і повто
 
         $ws = [ordered]@{ 'SMP_BankExchange_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'SMP_BankExchange_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
-        $manifest = @('version: 1', 'product: BankExchange', 'workspaces:', '  - path: SMP_BankExchange_SMB', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: BankExchange', 'workspaces:', '  - path: SMP_BankExchange_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: devUNF } }',
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
@@ -565,12 +732,12 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         # сховище без правки тесту (рішення архітектора).
         $script:CfgStorage = if ($env:V8KIT_CFG_STORAGE) { $env:V8KIT_CFG_STORAGE } else { 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV' }
         $ws = [ordered]@{ 'Client_UNF' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
-        $manifest = @('version: 1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',
             '      base:', '        truth: storage', "        storage: { path: '$script:CfgStorage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cfg') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes
         # Шаблонний templates/gitignore тут не годиться: його правило **/cf/** ігнорувало б
         # САМЕ дерево cf/src, яке цей тест перевіряє (тут truth: storage, не vendor). Але без
-        # ЖОДНОГО .gitignore build/sync/<key>/ (тимчасова ІБ і worktree, які sync створює на
+        # ЖОДНОГО .gitignore build/sync/<key>/ (worktree й робочі файли, які sync створює на
         # час реплею) лишається невідстеженим — робоча копія "брудна", і Merge-KitBranchInto
         # штатно відмовляється зливати в брудний main (саме це спіймав перший живий
         # Integration-прогін тут, а не CRLF-попередження git — core.autocrlf тут false,

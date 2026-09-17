@@ -37,7 +37,7 @@ Describe 'kit build — виявлення й збір артефактів бе
     }
 
     It 'truth: vendor у EXTENSION не радить operation=make — чужу конфігурацію build не збирає (C4 фікс-раунду)' {
-        $manifest = @('version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      Alpha_SMB: { truth: vendor, dump: { from: dev } }') -join "`n"
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vendor-ext') -Workspaces $ws -ManifestText $manifest -WithHooks
@@ -65,6 +65,27 @@ Describe 'kit build — виявлення й збір артефактів бе
         # дає 'C:\foo\build\artifacts', на відміну від [System.IO.Path]::Combine) — літеральний
         # прямий слеш у виводі команди не з'являється.
         $r.Output | Should -BeLike '*operation=make*build*artifacts*'
+    }
+
+    It 'підказка про .cfe друкує output, який Unica приймає — відносний до воркспейсу' {
+        # Прев'ю (без -Apply) платформи не торкається.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'build-hint') -WithHooks
+        $r = Invoke-Build -Repo $repo
+        $r.Output | Should -BeLike '*output=build/artifacts/Alpha_SMB.cfe*'
+        $r.Output | Should -Not -BeLike "*output=$repo*"
+        $r.Output | Should -BeLike '*kit build*забере*'
+    }
+
+    It 'повідомлення про порожню теку артефактів (-Apply) друкує output, відносний до воркспейсу' {
+        # Друге з трьох місць Task 7 (build.psm1): без -Apply preview повертається раніше й
+        # цього рядка не друкує (тест вище ловить лише перше місце — підказку для розширень).
+        # Це повідомлення показується саме тоді, коли артефактів ще немає, — найчастіший
+        # сценарій першого виклику kit build, і саме його бачить людина найперше.
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'build-hint-empty') -WithHooks
+        $r = Invoke-Build -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike "*output=build/artifacts/<Ім'я>.cfe*"
+        $r.Output | Should -Not -BeLike "*output=$repo*"
     }
 
     It '-Workspace обмежує збір артефактів лише вибраним воркспейсом (Q1 звіту задачі 3 — Copy-KitWorkspaceArtifacts не мусить чіпати сусідні воркспейси)' {

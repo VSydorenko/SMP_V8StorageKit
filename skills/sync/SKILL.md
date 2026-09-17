@@ -29,7 +29,7 @@ main» / «дзеркала ще немає» / «недоступне». Якщ
 pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest]
 ```
 
-Це **не** безкоштовно: команда піднімає тимчасову ІБ у `build/sync/<ключ>/` і запускає платформу,
+Це **не** безкоштовно: команда звертається до бази агента воркспейсу й запускає платформу,
 щоб прочитати звіт сховища (хвилина-дві, одна ліцензія). Нічого в git не змінює.
 Показує: дзеркало на версії N, у сховищі M версій, перелік до перенесення (номер, дата,
 автор, тема). `-MaxVersions` — скільки версій узяти (для довгого хвоста, дозаливка порціями).
@@ -43,6 +43,10 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-S
 ```
 pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest] -Apply
 ```
+
+**Після `sync` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт
+(спека 2026-09-17 §4), і `sync` друкує про це рядком. Перед будь-якою роботою з базою — синтаксисом,
+тестами, збіркою — `operation=build` Уніки (`cwd` = воркспейс).
 
 Що відбувається: worktree гілки `storage/<ключ>` під `build/sync/<ключ>/wt`, для кожної версії
 `UpdateCfg -v N` → `DumpConfigToFiles` → коміт із трейлерами `Storage-Source/Storage-Version/

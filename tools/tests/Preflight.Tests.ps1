@@ -142,7 +142,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
     }
 
     It 'воркспейс із маніфесту без теки — зупинка з його ім''ям' {
-        $text = "version: 1`nproduct: Fake`nworkspaces:`n  - path: Ghost`n    sources:`n      g: { truth: git }"
+        $text = "version: 1`nkitVersion: 1.0.1`nproduct: Fake`nworkspaces:`n  - path: Ghost`n    sources:`n      g: { truth: git }"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ghost') -ManifestText $text
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw "*'Ghost'*"
     }
@@ -155,7 +155,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
 
     It 'ключ sources, якого немає серед name: source-set-ів — зупинка з переліком наявних' {
         $text = @(
-            'version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             "      Alpha_SMB_typo: { truth: storage, storage: { path: 'x' } }"
         ) -join "`n"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-key') -ManifestText $text
@@ -164,7 +164,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
 
     It '-Lenient збирає ВСІ проблеми, а не першу' {
         $text = @(
-            'version: 1', 'product: Fake', 'workspaces:',
+            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:', "      nope: { truth: git }",
             '  - path: Ghost',     '    sources:', "      g: { truth: git }"
         ) -join "`n"

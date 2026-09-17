@@ -204,8 +204,10 @@ function Invoke-KitRenameEdt {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Context,
-        [string]$Workspace,
-        [string]$Source,
+        # -Workspace і -Source ця команда не оголошує: вона адресує дерево явними
+        # -SourceRelPath і -TargetRoot, а не вибіркою з маніфесту (довідка переходу кличе її
+        # саме так), тож звужувати нема чого. Диспетчер на переданий -Workspace/-Source
+        # зупиняється з поясненням замість мовчазного ігнорування.
         [bool]$Apply,
         [Parameter(Mandatory)][string]$SourceRelPath,
         [Parameter(Mandatory)][string]$TargetRoot

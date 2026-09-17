@@ -49,11 +49,21 @@ function Read-KitManifest {
 
     $m = Read-KitYaml -Path $Path
     $where = "Маніфест $Path"
-    Assert-KitMapKeys -Map $m -Allowed @('version', 'product', 'client', 'mainBranch', 'workspaces') `
-        -Required @('version', 'workspaces') -Where $where
+    Assert-KitMapKeys -Map $m -Allowed @('version', 'kitVersion', 'product', 'client', 'mainBranch', 'workspaces') `
+        -Required @('version', 'kitVersion', 'workspaces') -Where $where
 
     if ([string]$m['version'] -ne '1') {
         throw "$where — version: $($m['version']) не підтримується; kit знає лише version: 1."
+    }
+
+    # version: — версія СХЕМИ цього файлу; kitVersion: — до якої версії плагіна доведено
+    # СТРУКТУРУ репозиторію (спека 2026-09-17 §8). Різні величини: схема змінюється рідко,
+    # структура — з кожним оновленням, яке щось вимагає від споживача. Фолбеку на відсутнє поле
+    # немає навмисно (рішення власника 2026-09-17): наявні репозиторії власник позначає сам.
+    $kitVersion = [string]$m['kitVersion']
+    if ($kitVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw ("$where — kitVersion: '$kitVersion' не схожий на X.Y.Z. Це версія плагіна, до якої доведено " +
+               'структуру репозиторію; довести її й записати число — скіл v8storagekit:onboarding.')
     }
 
     $hasProduct = $m.Contains('product')
@@ -146,6 +156,7 @@ function Read-KitManifest {
     [pscustomobject]@{
         Path       = (Resolve-Path -LiteralPath $Path).Path
         Version    = 1
+        KitVersion = $kitVersion
         Kind       = $(if ($hasProduct) { 'product' } else { 'client' })
         Label      = $label
         MainBranch = $mainBranch

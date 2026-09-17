@@ -18,8 +18,10 @@ function Invoke-KitInstallHooks {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Context,
-        [string]$Workspace,
-        [string]$Source,
+        # -Workspace/-Source ця команда не оголошує свідомо: хуки, шим і settings.json
+        # ставляться на ВЕСЬ репозиторій, звужувати нема чого. Диспетчер (kit.ps1) на
+        # переданий -Workspace/-Source тепер зупиняється з поясненням замість мовчазного
+        # ігнорування, яке було тут до 1.0.1.
         [bool]$Apply
     )
     $root = $Context.RepoRoot

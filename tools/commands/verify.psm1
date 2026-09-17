@@ -46,6 +46,23 @@ function Invoke-KitVerify {
         return [pscustomobject]@{ ExitCode = 0; Results = @() }
     }
 
+    # Fetch нічого не змінює в робочому дереві й не чіпає сховища, а знімає цілий клас хибних
+    # висновків: локальне дзеркало, що відстало від origin, читається як «сховище попереду»
+    # (ішуз #4). Недоступна мережа чи відсутній remote — попередження, не зупинка: репозиторій
+    # без origin легальний.
+    # Таймаути обов'язкові, і не заради швидкості: Invoke-KitGitProcess чекає на процес БЕЗ
+    # обмеження часу (той самий клас, що docs/follow-ups.md §6 про платформу). Недоступний
+    # SSH-хост тримав би прев'ю кілька хвилин на TCP-таймауті, а ключ під passphrase без
+    # агента підвісив би його НАЗАВЖДИ — git чекав би вводу, якого в неінтерактивному процесі
+    # не буде. BatchMode=yes перетворює це на швидку помилку, яку ми й показуємо попередженням.
+    $fetch = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+        '-c', 'core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=5',
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=10',
+        'fetch', '--quiet', '--no-tags', 'origin')
+    if ($fetch.ExitCode -ne 0) {
+        Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
+    }
+
     $results = [System.Collections.Generic.List[object]]::new()
     $anyAction = $false
 
@@ -55,14 +72,21 @@ function Invoke-KitVerify {
         # точнішу зупинку; шлях сховища — другим (P1 префлайту B3).
         $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $ref -Branch $src.Branch
         if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
+        # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17
+        # §2, той самий принцип, що sync.psm1): обидва боки порівняння verify мають бути
+        # здобуті в одному контексті серіалізації, інакше різниця форматів (GUID проти імен)
+        # читається як різниця змісту. Get-KitSourceInfobase несе запобіжник «це не дев-база
+        # людини» — тут це критично, бо викликач нижче робить ConfigurationRepositoryUpdateCfg,
+        # який ЗАМІНЮЄ конфігурацію в базі.
+        $agent = Get-KitSourceInfobase -Context $Context -Source $src
         # $null -ne $Version, не голе if ($Version): "не передано" (Nullable[int] лишається
         # $null) — це не те саме, що "передано конкретну версію", і різницю має відрізняти
         # перевірка на $null, а не булеву усічення значення.
-        [pscustomobject]@{ Source = $src; Info = $vv; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
+        [pscustomobject]@{ Source = $src; Info = $vv; Agent = $agent; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 
     foreach ($item in $plan) {
-        $src = $item.Source; $vv = $item.Info; $ver = $item.Version
+        $src = $item.Source; $vv = $item.Info; $ver = $item.Version; $agent = $item.Agent
         Write-Host ''
         Write-Host "Джерело:  $($src.Workspace)/$($src.Key)  ·  ref: $ref  ·  версія сховища: $ver (merge-base $($vv.Commit.Substring(0, 7)))"
         if ($vv.NewerVersions.Count -gt 0) {
@@ -74,8 +98,8 @@ function Invoke-KitVerify {
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        Write-Host '  Тимчасова ІБ, версія зі сховища, дамп...'
-        $ib = New-KitStorageInfobase -Source $src -WorkDir $workDir
+        $ib = $agent.IbSwitch
+        Write-Host "  База агента ($ib), версія зі сховища, дамп..."
         # $bound = $false ПЕРЕД try обов'язковий (рев'ю B3 раунд 2, Important 4 — та сама
         # асиметрія, що вже виправлена в sync.psm1:150-155): під Set-StrictMode -Version Latest
         # звернення до неприсвоєної змінної у finally само кине й витіснить первинний виняток.
@@ -85,14 +109,16 @@ function Invoke-KitVerify {
         # конфігурації, і межа «сховище лише читання» тримається саме на симетрії цієї пари.
         $bound = $false
         try {
-            $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src
-            $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir
+            $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
+            $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -User $agent.User
         } finally {
-            Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound
+            Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
         }
         $treeDir = Join-Path $workDir 'tree'
         $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
         Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
+        Write-Host ("  База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+            $agent.Workspace, $ver) -ForegroundColor Yellow
 
         # Ordinal HashSet замість Sort-Object -Unique (рев'ю B3 раунд 2, дрібна правка 7):
         # Sort-Object -Unique за замовчуванням культурозалежний і регістронечутливий — та
@@ -135,7 +161,7 @@ function Invoke-KitVerify {
             # принцип, що sync.psm1 документує для Invoke-KitMainMerge («невдача злиття не
             # скасовує реплею»): конфлікт злиття одного джерела не має скасовувати verify
             # решти джерел без try — виняток летів би назовні crash-ом усього прогону, ХОЧА
-            # платформна робота (тимчасова ІБ, дамп, дерево) для вже перевірених і для решти
+            # платформна робота (дамп зі сховища в базі агента, дерево) для вже перевірених і для решти
             # джерел лишається дорогою й корисною, а структурований Results — важливішим за
             # один необроблений виняток.
             try {

@@ -137,6 +137,16 @@ function Invoke-KitProvision {
         $workspaces = @($workspaces | Where-Object Path -eq $Workspace)
         if ($workspaces.Count -eq 0) { throw "Воркспейсу '$Workspace' немає в маніфесті. Є: $($Context.Workspaces.Path -join ', ')." }
     }
+    # База агента належить ВОРКСПЕЙСУ, не джерелу, тож -Source тут означає «воркспейс, який
+    # містить це джерело» — форма, якою його й кличуть: людина знає ім'я розширення, а не
+    # ім'я теки воркспейсу. Звуження йде через наявну Select-KitSources, а не власним
+    # пошуком: вона вже дає правильні зупинки на невідомому ключі й на ключі, що є в кількох
+    # воркспейсах (kit-dev, випадок 5: друга перевірка з іншою логікою гірша за жодну).
+    if ($Source) {
+        $matched = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
+        $wsOfSource = @($matched.Workspace | Sort-Object -Unique)
+        $workspaces = @($workspaces | Where-Object { $wsOfSource -contains $_.Path })
+    }
     $overlayPath = if ($Context.OverlayPath) { $Context.OverlayPath } else { Join-Path $Context.RepoRoot 'v8storagekit.local.yaml' }
     $done = [System.Collections.Generic.List[object]]::new()
 

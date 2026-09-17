@@ -137,7 +137,7 @@ Describe 'kit canon — мок платформного шару: лічильн
         # (canon.psm1) лишало б усі наявні тести зеленими, а canon на EXTENSION-джерелі
         # вивантажував би в cfe/src основну конфігурацію замість розширення.
         $manifest = @(
-            'version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: dump, dump: { from: dev } }',
             "      Alpha_SMB: { truth: storage, storage: { path: '$(Join-Path $TestDrive 'no-such-storage')' } }"
         ) -join "`n"
@@ -269,7 +269,7 @@ Describe 'kit canon — мок платформного шару: лічильн
         # коротше за очікуваний префікс статусу), або мовчки обрізає перші три символи
         # назви файла — перевірено живим прогоном рев'ю ("cfe/src/Old.xml" ставало
         # "/src/Old.xml"). Corrupted-шлях не проходить перевірку префіксу в
-        # Backup-KitCanonDirtyFiles і просто мовчки не копіюється — сам по собі факт
+        # Backup-KitDirtyFiles і просто мовчки не копіюється — сам по собі факт
         # "Renamed.xml є в копії" НЕ ловить дефект (він однаково є і за наївного розбору,
         # бо перший токен запису парситься правильно за випадковим збігом зсуву).
         # Ловить дефект лише КІЛЬКІСТЬ записів: наївний розбір рахує старий шлях

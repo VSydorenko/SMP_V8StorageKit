@@ -12,6 +12,21 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
             [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
         function script:Skill([string]$Name) { ($script:Skills | Where-Object Name -eq $Name).Text }
+
+        # Усі .md скіла, не лише SKILL.md: підтеку references/ агент читає тим самим Read, і
+        # речення ПРО токен шкодить там не менше — воно так само проситься в копіювання. До
+        # 2026-09-18 набір вище бачив рівно вісім SKILL.md, а skills/onboarding/references/
+        # лежало поза машинною перевіркою з трьома вживаннями токена (усі виявились
+        # легітимними — але це було везіння, не гарантія).
+        $script:SkillDocs = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory |
+            Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -Filter '*.md' -File -Recurse | ForEach-Object {
+                    [pscustomobject]@{
+                        Rel  = [IO.Path]::GetRelativePath($script:SkillsDir, $_.FullName)
+                        Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8)
+                    }
+                }
+            })
     }
 
     It 'frontmatter: name = ім''я теки, description з тригерами' {
@@ -20,9 +35,16 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $s.Text | Should -Match '(?m)^description:.*Тригер'
         }
     }
-    It '${CLAUDE_PLUGIN_ROOT} — лише всередині шляху (за токеном одразу /)' {
-        foreach ($s in $script:Skills) {
-            [regex]::Matches($s.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($s.Name) токен вжито не як частину шляху"
+    It '${CLAUDE_PLUGIN_ROOT} — лише всередині шляху (за токеном одразу /), у ВСІХ .md скіла' {
+        # Guard на ВЛАСТИВІСТЬ («за токеном одразу /»), не на перелік тек. Ручна перевірка в
+        # CLAUDE.md і README.md довго стояла у формі grep -v '/tools/|/templates/|/docs/' — вона
+        # перелічувала МІСЦЯ, куди веде шлях, і мала обидві вади: кричала на легітимний
+        # ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json (четверта тека, якої в переліку не
+        # було) і мовчки пропускала справжню пастку, якщо в тому ж рядку траплялось слово
+        # /tools/. Тут перевіряється саме форма вживання, тож нова тека плагіна нічого не ламає.
+        $script:SkillDocs.Count | Should -BeGreaterThan 8 -Because 'набір мусить брати й references/, не лише вісім SKILL.md'
+        foreach ($d in $script:SkillDocs) {
+            [regex]::Matches($d.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($d.Rel) токен вжито не як частину шляху"
         }
     }
     It 'перехресні посилання — лише з префіксом v8storagekit: і лише на відомі скіли' {
@@ -143,6 +165,19 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'Лише з підтвердженням'
             $t | Should -Match 'без підтвердження не змінюється нічого'
         }
+
+        It 'onboarding посилається на upgrades.md, і той описує перехід на ПОТОЧНУ версію плагіна' {
+            $skill = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/onboarding/SKILL.md') -Raw -Encoding UTF8
+            $skill | Should -BeLike '*references/upgrades.md*'
+            $up = Join-Path $PSScriptRoot '../../skills/onboarding/references/upgrades.md'
+            $up | Should -Exist
+            # Версія читається з plugin.json, а не вшита: вшите число старіє на першому ж бампі
+            # й тест починає вимагати переходу, якого вже немає (спіймано бампом 1.0.1 → 1.1.0).
+            $pluginVersion = [string]((Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.claude-plugin/plugin.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+            $pluginVersion | Should -Not -BeNullOrEmpty
+            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike "*$pluginVersion*" `
+                -Because "upgrades.md мусить описувати перехід на версію, яку плагін щойно оголосив ($pluginVersion)"
+        }
     }
 
     Context 'sync' {
@@ -186,30 +221,67 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'reconcile' {
-        It 'sync → operation=build → canon → merge storage/* у гілку задачі → семантичний diff' {
+        It 'sync → operation=build → canon → adopt (заміна, прев''ю обох списків)' {
             $t = Skill 'reconcile'
             $t | Should -Match 'kit\.ps1" sync'
             $t | Should -Match 'operation=build'
             $t | Should -Match 'kit\.ps1" canon'
-            $t | Should -Match 'git merge --no-ff storage/'
-            $t | Should -Match 'git diff'
+            $t | Should -Match 'kit\.ps1" adopt'
+            $t | Should -Match 'зникне з гілки'
             # Позитивно, а не Should -Not -Match 'rebase': сам скіл ЗАБОРОНЯЄ rebase словами
-            # «не rebase, не re-derive — merge», тож негативна перевірка на слово падала б на
+            # «не rebase, не re-derive», тож негативна перевірка на слово падала б на
             # власному тексті скіла (знахідка префлайту B5). Guard має тримати властивість, а не
             # відсутність підрядка.
             $t | Should -Match 'не rebase'
             $t | Should -Not -Match 'git rebase'   # наказу rebase немає — лише заборона словами
+            $t | Should -Not -Match 'git merge --no-ff storage/'   # C2 Task 4: adopt замінює merge
         }
     }
     Context 'finish' {
-        It 'sync → canon → merge → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
+        It 'sync → canon → adopt → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
             # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
             $t | Should -Match 'суттєв'
-            $t | Should -Match 'ORIG_HEAD'
+            $t | Should -Match 'ЗНИКНЕ з гілки'   # C2 Task 4: критерій (б) — прев'ю adopt, не конфлікт злиття
             $t | Should -Match '--name-only'      # перетин файлів F і нових версій — критерій (а)
+            $t | Should -Not -Match 'ORIG_HEAD'   # ORIG_HEAD був від git merge; adopt його не лишає
+        }
+    }
+    It 'reconcile і finish приймають версію сховища через adopt, а не git merge' {
+        foreach ($s in @('reconcile', 'finish')) {
+            $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
+            $text | Should -BeLike '*kit.ps1" adopt*'
+            $text | Should -Not -BeLike '*git merge --no-ff storage/*'
+        }
+    }
+
+    It 'finish ставить operation=build між verify і тестами' {
+        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/finish/SKILL.md') -Raw -Encoding UTF8
+        $posVerify = $text.IndexOf('kit.ps1" verify')
+        $posBuild  = $text.IndexOf('operation=build', $posVerify)
+        $posTests  = $text.IndexOf('operation=syntax', $posVerify)
+        $posVerify | Should -BeGreaterThan -1
+        $posBuild  | Should -BeGreaterThan $posVerify
+        $posTests  | Should -BeGreaterThan $posBuild
+    }
+
+    It 'sync, verify і reconcile попереджають, що база лишається у стані сховища' {
+        # verify тут нарівні із sync: verify.psm1 так само робить ConfigurationRepositoryUpdateCfg
+        # і так само лишає базу у стані версії сховища, а скіл викликають і напряму, не лише з
+        # finish (фінальне рев'ю C1, Important 1). Спека §4 перелічує sync/reconcile/finish —
+        # перелік неповний, і це знає код, а не текст.
+        foreach ($s in @('sync', 'verify', 'reconcile')) {
+            $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
+            # Два твердження, не одне: голе 'operation=build' регресії НЕ ловить для reconcile —
+            # цей підрядок був там і ДО C1 (тричі, з іншої причини — страховка canon), тож
+            # відкот кроку 2 до старого формулювання лишив би тест зеленим (рев'ю Task 6,
+            # Important). Друге твердження тримає саме те, що додав C1: стан бази після sync
+            # названо ОГОЛОШЕНИМ КОНТРАКТОМ, а не збоєм. До C1 слова «контракт» не було ЖОДНОГО
+            # разу в жодному з двох файлів (звірено проти ea4decc) — це й робить його guard'ом.
+            $text | Should -BeLike '*operation=build*'
+            $text | Should -BeLike '*контракт*'
         }
     }
 }

@@ -29,7 +29,9 @@ function Invoke-KitCheck {
         [Parameter(Mandatory)]$Context,
         [string]$Workspace,
         [string]$Source,
-        [bool]$Apply,
+        # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
+        # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
+        # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
         [switch]$Quiet
     )
 
@@ -43,6 +45,64 @@ function Invoke-KitCheck {
         $byTruth = (@($all | Group-Object Truth | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
             "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
+
+        # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
+        # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
+        # розходяться, і мовчати про це означає дати агентові працювати не тими правилами.
+        #
+        # $pluginVersion — сирий рядок із .claude-plugin/plugin.json, а не з маніфесту: на відміну
+        # від $Context.Manifest.KitVersion (Manifest.psm1 уже перевірив його регекспом
+        # ^\d+\.\d+\.\d+$ під час Read-KitManifest), тут формат нічим не гарантований — plugin.json
+        # редагують автори плагіна, і передрелізний тег штибу '1.1.0-rc1' цілком можливий. [version]
+        # на такому рядку кидає виняток, а check виконується в кожній сесії через session-check —
+        # одна нестандартна версія у власному файлі плагіна не має право ламати старт сесії
+        # споживача. Тому той самий формат перевіряємо тут, і на невдачу мовчки не видаємо
+        # знахідку — так само, як уже поводиться код на $null від Get-KitPluginVersion.
+        $pluginVersion = Get-KitPluginVersion
+        if ($pluginVersion -and $Context.Manifest.KitVersion -and $pluginVersion -match '^\d+\.\d+\.\d+$') {
+            $have = [version]$Context.Manifest.KitVersion
+            $need = [version]$pluginVersion
+            if ($have -lt $need) {
+                & $add 'warn' 'kit-version' ("Структуру репозиторію доведено до v$have, а плагін уже v$need — " +
+                    'кроки оновлення: скіл v8storagekit:onboarding, references/upgrades.md.')
+            } elseif ($have -gt $need) {
+                & $add 'warn' 'kit-version' ("Структура репозиторію на v$have, а плагін у цьому оточенні старіший — v$need. " +
+                    'Оновіть плагін (claude plugin update), інакше агент працюватиме застарілими правилами.')
+            }
+        }
+
+        # Після C1 дамп версії сховища виконується в базі агента (спека 2026-09-17 §3), тож для
+        # кожного truth: storage база — передумова, а не зручність. Сказати на старті сесії дешевше,
+        # ніж зупинити sync, який людина вже запустила. warn, не error: репозиторій несуперечливий —
+        # просто ще не готовий до sync на ЦІЙ машині.
+        foreach ($src in @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)) {
+            $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
+            if ($null -eq $ws) { continue }
+            $ab = $null
+            try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws }
+            catch {
+                # Ковтати це не можна: попередній коментар тут стверджував, що «збіг описує інша
+                # знахідка», і це було хибно — local-audit звіряє ЛИШЕ v8project.local.yaml, а
+                # підключення законно буває й у закоміченому v8project.yaml. Тоді про колізію не
+                # казав НІХТО, аж доки команда не падала.
+                #
+                # Підстав для винятку кілька, і звужувати цей перелік назад до однієї НЕ треба
+                # (рев'ю C2 Task 11 спіймало саме таке звуження — тією ж помилкою, яку задача
+                # виправляла): (а) база агента збіглася з дев-базою людини — принцип 3;
+                # (б) підключення нерозбірне — ConvertTo-V8IbSwitch (V8.psm1) кидає на порожньому
+                # рядку, на Srvr= без Ref= і на невпізнаному форматі; (в) Test-KitSameInfobase
+                # fail-closed і кидає й тоді, коли нерозбірне підключення дев-бази з накладки.
+                # Зупинка виправдана в усіх трьох, а текст самого винятку йде у повідомлення —
+                # тож людина бачить справжню причину, не наш здогад про неї.
+                & $add 'error' 'agent-base-required' "$($ws.Path): $($_.Exception.Message)"
+                continue
+            }
+            if ($null -eq $ab -or ($ab.Kind -eq 'file' -and -not $ab.Exists)) {
+                & $add 'warn' 'agent-base-required' (
+                    "Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
+                    "воркспейсу '$($ws.Path)' немає: kit provision -Workspace $($ws.Path) -Apply, потім operation=build Уніки.")
+            }
+        }
 
         # Правка 3 (фінальне рев'ю) — mainBranch друкується рядком вище, але досі не
         # перевірявся: маніфест міг називати гілку, якої в репозиторії ще немає (описка,

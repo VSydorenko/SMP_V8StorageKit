@@ -77,8 +77,9 @@ function Invoke-KitBuild {
         які operation=make Уніки поклала в артефакти воркспейсів, і вміст теки на екран (спека §5).
     .DESCRIPTION
         .cf/.cfe kit САМ не збирає — це робить operation=make Уніки; build лише друкує, як саме
-        її покликати (output=<корінь>/build/artifacts/<Ім'я>.cfe), і забирає звідти, куди make
-        могла покласти файл замість цього (запасний шлях Q6 — <воркспейс>/build/artifacts/).
+        її покликати (output=build/artifacts/<Ім'я>.cfe — відносний до воркспейсу, бо поза свій
+        корінь Unica писати відмовляється), і забирає звідти, куди make могла покласти файл
+        замість цього (запасний шлях Q6 — <воркспейс>/build/artifacts/).
     #>
     [CmdletBinding()]
     param(
@@ -105,7 +106,13 @@ function Invoke-KitBuild {
         # requires non-empty --extension" (живий перехід SMP_BankExchange, 2026-09-10 — інструкція
         # друкувалась без нього і не працювала на жодному з трьох воркспейсів). --source-set його
         # НЕ замінює, хоча значення тут те саме: ім'я розширення.
-        Write-Host "  .cfe  $($e.Key).cfe — не kit: operation=make Уніки (cwd $($e.Workspace), source-set $($e.Key), extension $($e.Key)) з output=$outDir\$($e.Key).cfe" -ForegroundColor DarkGray
+        # output — ВІДНОСНИЙ до воркспейсу: Unica відмовляє в записі поза корінь воркспейсу
+        # ("refusing to write outside workspace root"), а build/artifacts kit тримає в корені
+        # репозиторію, тобто на рівень вище. Абсолютний шлях із кореня заборонений за
+        # визначенням, і саме він стояв тут і в шаблоні CLAUDE.md до 1.0.1 (ішуз #5): агент
+        # спершу отримував відмову, потім згадував обхід, потім копіював руками — щоразу.
+        Write-Host "  .cfe  $($e.Key).cfe — не kit: operation=make Уніки (cwd $($e.Workspace), source-set $($e.Key), extension $($e.Key)) з output=build/artifacts/$($e.Key).cfe" -ForegroundColor DarkGray
+        Write-Host "        файл ляже у $($e.Workspace)/build/artifacts/ — kit build -Apply забере його в $outDir" -ForegroundColor DarkGray
     }
     if ($plan.Count -eq 0 -and $extSources.Count -eq 0) { Write-Host '  Джерел для збірки в цьому виборі немає.' }
 
@@ -149,7 +156,7 @@ function Invoke-KitBuild {
     Write-Host ''
     $files = @(Get-ChildItem -LiteralPath $outDir -File)
     if ($files.Count -eq 0) {
-        Write-Host "У $outDir порожньо. .cf/.cfe збирає operation=make Уніки з output=$outDir\<Ім'я>.cfe; .epf — з source-set EXTERNAL_DATA_PROCESSORS." -ForegroundColor Yellow
+        Write-Host "У $outDir порожньо. .cf/.cfe збирає operation=make Уніки з output=build/artifacts/<Ім'я>.cfe (відносний до воркспейсу); .epf — з source-set EXTERNAL_DATA_PROCESSORS." -ForegroundColor Yellow
     } else {
         $files | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Host
     }

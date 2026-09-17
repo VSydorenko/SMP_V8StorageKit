@@ -2,9 +2,10 @@
 Set-StrictMode -Version Latest
 
 # Lib-модулі вже імпортував kit.ps1 (module-order.txt); тут — лише оркестрація.
-# Спільний платформний шар «версія сховища → дамп» (New-KitStorageInfobase, Enter/Exit-KitStorageBind,
+# Спільний платформний шар «версія сховища → дамп» (Get-KitSourceInfobase, Enter/Exit-KitStorageBind,
 # Invoke-KitStorageCheckout, Get-KitRepositoryArguments) — StoragePlatform.psm1 (B3 Task 1); ним же
-# користується verify.
+# користується verify. Після C1 (2026-09-17) дамп іде в базі агента воркспейсу, яку резолвить
+# Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync більше не кличе.
 
 function Invoke-KitMainMerge {
     <#
@@ -40,7 +41,7 @@ function Invoke-KitSync {
         читання звіту — і в прев'ю (без -Apply), і з -Apply, обидва: прев'ю нічого не змінює в
         git, у сховищі чи в дев-базі (це і є контракт "-Apply — лише коли попросили"), а
         build/session-check/ — не один із трьох, це робоча тека МАШИНИ, гітігнорована цілком
-        (templates/gitignore, рядок build/) — те саме прев'ю вже кладе туди тимчасову ІБ і дампи.
+        (templates/gitignore, рядок build/) — те саме прев'ю вже кладе туди worktree й дампи.
         Відбиток — знання, здобуте читанням звіту, яке щойно відбулося; викидати його, щоб
         дотриматись букви правила "прев'ю нічого не змінює", означало б платити повним прогоном
         платформи за кожну наступну відповідь session-check про це саме запаковане сховище —
@@ -72,8 +73,8 @@ function Invoke-KitSync {
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
     # Select-KitSources): на клієнтській базі повна конфігурація реплеїться 20–40 хв/версію,
     # тож типову описку в номері версії чи в самих прапорцях має ловити перевірка, що не коштує
-    # нічого, а не перший-ліпший з можливо кількох джерел truth: storage, ПІСЛЯ підняття
-    # тимчасової ІБ для нього.
+    # нічого, а не перший-ліпший з можливо кількох джерел truth: storage, ПІСЛЯ прогону платформи
+    # в базі агента для нього.
     if ($null -ne $FromVersion -and $FromLatest) {
         throw 'Параметри -FromVersion і -FromLatest взаємовиключні — вкажіть лише один спосіб визначити початкову версію першого реплею.'
     }
@@ -87,10 +88,28 @@ function Invoke-KitSync {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — синхронізувати нічого.'
         return [pscustomobject]@{ ExitCode = 0; Synced = @() }
     }
+
     foreach ($src in $sources) {
         if ($src.Type -notin @('CONFIGURATION', 'EXTENSION')) {
             throw "Джерело '$($src.Key)' має тип $($src.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION."
         }
+    }
+
+    # Fetch нічого не змінює в робочому дереві й не чіпає сховища, а знімає цілий клас хибних
+    # висновків: локальне дзеркало, що відстало від origin, читається як «сховище попереду»
+    # (ішуз #4). Недоступна мережа чи відсутній remote — попередження, не зупинка: репозиторій
+    # без origin легальний.
+    # Таймаути обов'язкові, і не заради швидкості: Invoke-KitGitProcess чекає на процес БЕЗ
+    # обмеження часу (той самий клас, що docs/follow-ups.md §6 про платформу). Недоступний
+    # SSH-хост тримав би прев'ю кілька хвилин на TCP-таймауті, а ключ під passphrase без
+    # агента підвісив би його НАЗАВЖДИ — git чекав би вводу, якого в неінтерактивному процесі
+    # не буде. BatchMode=yes перетворює це на швидку помилку, яку ми й показуємо попередженням.
+    $fetch = Invoke-KitGitProcess -RepoRoot $root -Arguments @(
+        '-c', 'core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=5',
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=10',
+        'fetch', '--quiet', '--no-tags', 'origin')
+    if ($fetch.ExitCode -ne 0) {
+        Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
     }
 
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
@@ -105,6 +124,14 @@ function Invoke-KitSync {
         if (-not (Test-Path -LiteralPath $src.StoragePath)) {
             throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
         }
+
+        # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17 §2):
+        # серіалізація розширення залежить від присутності конфігурації-власника, і дамп зі
+        # стаба давав GUID там, де canon дає імена. Get-KitSourceInfobase несе запобіжник
+        # «це не дев-база людини» — критичний саме тут, бо UpdateCfg замінює конфігурацію в базі.
+        # Перевірка дешева (читання YAML) і стоїть поруч із перевіркою каталогу сховища вище,
+        # ДО створення робочої теки нижче.
+        $agent = Get-KitSourceInfobase -Context $Context -Source $src
 
         # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
         # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
@@ -128,7 +155,7 @@ function Invoke-KitSync {
         # -FromVersion/-FromLatest визначають ЗВІДКИ починати ПЕРШИЙ реплей — на гілці, що вже
         # має версії, "звідки почати" вже вирішено самим дзеркалом (трейлер Storage-Version
         # вершини), і мовчки їх ігнорувати означало б приховати від людини, що параметр не
-        # подіяв. Перевірка тут, ДО створення тимчасової ІБ цього джерела (рядок нижче) — ще один
+        # подіяв. Перевірка тут, ДО першого звернення до платформи для цього джерела — ще один
         # шар "не платити платформою за очевидну помилку виклику", той самий принцип, що
         # валідація на самому вході функції вище.
         if ($null -ne $last -and ($null -ne $FromVersion -or $FromLatest)) {
@@ -161,12 +188,13 @@ function Invoke-KitSync {
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        Write-Host 'Створюю тимчасову ІБ і читаю історію сховища...'
-        $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+        $ibSwitch = $agent.IbSwitch
+        Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
+        Write-Host 'Читаю історію сховища...'
 
         $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
             -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir
+            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $agent.User
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
 
@@ -192,6 +220,17 @@ function Invoke-KitSync {
 
         if ($pending.Count -eq 0) {
             Write-Host 'Нових версій немає — дзеркало синхронне зі сховищем.'
+
+            # M-4-подібна знахідка (фінальне рев'ю, Important §6): дзеркало могло лишитись
+            # попереду origin від ПОПЕРЕДНЬОГО прогону sync (наприклад, git push тоді не
+            # виконали) — цей прогін нових версій не приносить, але попередження про
+            # непушений push усе одно стосується поточного стану гілки й не має мовчати
+            # лише тому, що цей рядок стоїть у гілці коду "pending порожній".
+            $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+            if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+                Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+            }
+
             $merged = $false
             if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src; if (-not $merged) { $mergeFailed = $true } }
             $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged })
@@ -230,13 +269,13 @@ function Invoke-KitSync {
         # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
         $bound = $false
         try {
-            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src
+            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $agent.User
             foreach ($v in $pending) {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
                 $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path
+                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $agent.User
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
                 $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
@@ -245,10 +284,22 @@ function Invoke-KitSync {
                 $done.Add($v.Version)
             }
         } finally {
-            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound
+            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $agent.User
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
+
+        $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+        if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+            Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+        }
+
+        # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база
+        # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
+        # поведінка — мовчати про неї означало б, що наступний operation=syntax чи test побіжить
+        # не на тому стані, який агент вважає своїм.
+        Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+            $agent.Workspace, $done[-1]) -ForegroundColor Yellow
 
         $merged = $false
         if ($wt.Created -or $MergeMain) {
