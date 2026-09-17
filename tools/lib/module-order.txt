@@ -4,7 +4,8 @@
 # StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport; GitMerge — після
 # StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath); TreeCompare — після
 # PathSafety (Assert-SafeWorkPath); StoragePlatform — після PathSafety і V8 (New-ExtensionInfobase,
-# New-V8FileInfobase, Invoke-V8Designer); StorageImprint — після StorageBranch (бере
+# New-V8FileInfobase, Invoke-V8Designer) І після AgentBase (Get-KitSourceInfobase бере
+# Resolve-KitAgentBase, C1 Task 1); StorageImprint — після StorageBranch (бере
 # Get-KitStorageActivity, B3 Task 8); AgentBase — після V8Project (бере Resolve-V8AgentInfobase і
 # Resolve-KitAgentInfobasePath; сам V8Project.psm1 вкладено імпортує V8.psm1 заради
 # ConvertTo-V8IbSwitch — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1). Рядки з

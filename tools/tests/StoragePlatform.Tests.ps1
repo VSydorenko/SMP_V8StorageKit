@@ -26,4 +26,49 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
     It 'Enter-KitStorageBind для розширення — завжди $false і без платформи' {
         Enter-KitStorageBind -IbSwitch '/F "x"' -Source $script:Ext | Should -BeFalse
     }
+
+    Context 'Get-KitSourceInfobase — база джерела' {
+        BeforeAll {
+            $script:Ctx = [pscustomobject]@{
+                RepoRoot   = 'R:\repo'
+                Workspaces = @([pscustomobject]@{ Path = 'Alpha_SMB'; FullPath = 'R:\repo\Alpha_SMB'; Project = 'проєкт' })
+            }
+            $script:Src = [pscustomobject]@{ Key = 'Alpha_SMB'; Type = 'EXTENSION'; Workspace = 'Alpha_SMB' }
+        }
+
+        It 'бази немає в v8project.yaml — зупинка з рецептом provision і build' {
+            Mock -ModuleName StoragePlatform Resolve-KitAgentBase { $null }
+            { Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src } |
+                Should -Throw '*kit provision*operation=build*'
+        }
+
+        It 'база оголошена, але файлу немає — та сама зупинка, з іменем воркспейсу' {
+            Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
+                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = ''; Kind = 'file'; Exists = $false }
+            }
+            { Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src } | Should -Throw '*Alpha_SMB*'
+        }
+
+        It 'база на місці — повертає підключення й користувача' {
+            Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
+                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = 'agent'; Kind = 'file'; Exists = $true }
+            }
+            $r = Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src
+            $r.IbSwitch  | Should -Be '/F "R:\repo\Alpha_SMB\build\ib"'
+            $r.User      | Should -Be 'agent'
+            $r.Workspace | Should -Be 'Alpha_SMB'
+        }
+
+        It 'серверна база — Exists не перевіряється, підключення віддається як є' {
+            Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
+                [pscustomobject]@{ IbSwitch = '/S "VSDEV\Alpha"'; User = 'agent'; Kind = 'server'; Exists = $true }
+            }
+            (Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src).IbSwitch | Should -Be '/S "VSDEV\Alpha"'
+        }
+
+        It 'воркспейсу джерела немає в контексті — зупинка, а не мовчазний $null' {
+            $bad = [pscustomobject]@{ Key = 'X'; Type = 'EXTENSION'; Workspace = 'Beta' }
+            { Get-KitSourceInfobase -Context $script:Ctx -Source $bad } | Should -Throw '*Beta*'
+        }
+    }
 }

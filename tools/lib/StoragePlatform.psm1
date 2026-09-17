@@ -3,6 +3,10 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/V8.psm1"
+# Без -Force — та сама конвенція, що для PathSafety і V8 вище. AgentBase у module-order.txt
+# стоїть раніше за StoragePlatform, тож у kit.ps1 функція вже є глобально; явний імпорт тут
+# потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
+Import-Module "$PSScriptRoot/AgentBase.psm1"
 
 # Результат спайку B2 (спека §14, «Результат спайку»): чи потребує UpdateCfg для ОСНОВНОЇ
 # конфігурації прив'язки ІБ до сховища. $true — kit робить ConfigurationRepositoryBindCfg під
@@ -50,6 +54,47 @@ function New-KitStorageInfobase {
         'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir)) }
         default         { throw "Джерело '$($Source.Key)' має тип $($Source.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION." }
     }
+}
+
+function Get-KitSourceInfobase {
+    <#
+    .SYNOPSIS
+        База, в якій виконуються всі платформні операції джерела: база агента воркспейсу
+        (спека 2026-09-17, §2, §3). Замінює New-KitStorageInfobase, яка створювала тимчасову
+        ІБ зі стабом.
+    .DESCRIPTION
+        Серіалізація розширення залежить від того, чи є в базі конфігурація-власник: дамп у
+        ІБ зі стабом дає GUID у DesignTimeRef і явні дефолти форм, дамп у базі з власником —
+        імена й опущені дефолти. Доки sync/verify дампили зі стаба, а canon — з бази агента,
+        verify показував формат як зміст (ішузи #3 і #6).
+
+        Фолбеку на порожню ІБ тут немає НАВМИСНО: він повернув би другий формат у git —
+        рівно той розкол, який ця зміна закриває. Тому бази немає — зупинка з рецептом.
+
+        Запобіжник «це не дев-база людини» лежить у Resolve-KitAgentBase (принцип 3) і
+        спрацьовує саме тут: після цієї зміни викликач робить ConfigurationRepositoryUpdateCfg,
+        який ЗАМІНЮЄ конфігурацію в базі, — помилкове потрапляння в базу людини коштувало б
+        її роботи.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$Source
+    )
+
+    $ws = @($Context.Workspaces | Where-Object Path -eq $Source.Workspace) | Select-Object -First 1
+    if ($null -eq $ws) {
+        throw "Воркспейсу '$($Source.Workspace)' немає в контексті маніфесту — джерело '$($Source.Key)' нікуди не прив'язане."
+    }
+
+    $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
+    $recipe = ("Джерело '$($Source.Key)' (truth: storage) вивантажується в контексті базової конфігурації — " +
+               "потрібна база агента воркспейсу '$($ws.Path)'. Спершу: kit provision -Workspace $($ws.Path) -Apply, " +
+               'потім operation=build Уніки, тоді повторіть команду.')
+    if ($null -eq $ab) { throw "У v8project.yaml воркспейсу '$($ws.Path)' немає infobase:. $recipe" }
+    if ($ab.Kind -eq 'file' -and -not $ab.Exists) { throw "Бази агента ще немає на диску. $recipe" }
+
+    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Workspace = $ws.Path }
 }
 
 function Enter-KitStorageBind {
@@ -116,4 +161,4 @@ function Invoke-KitStorageCheckout {
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
-Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, New-KitStorageInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout
+Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, New-KitStorageInfobase, Get-KitSourceInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout
