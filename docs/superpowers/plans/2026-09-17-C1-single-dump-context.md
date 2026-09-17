@@ -488,10 +488,39 @@ Expected: FAIL — `sync` доходить до `Get-V8Path` або створю
             $agent.Workspace, $done[-1]) -ForegroundColor Yellow
 ```
 
+- [ ] **Step 7а: Полагодити наявні in-process тести з моком платформи**
+
+`Sync.Tests.ps1` має два `Describe`, які кличуть `Invoke-KitSync` **напряму в процесі тесту**
+(рядки 83 і 301) і мокають платформний шар. Після цієї задачі `sync` спершу резолвить базу агента
+**з диска** (`Resolve-KitAgentBase` → поле `Exists`), і жоден наявний мок цього не перехоплює:
+фікстура оголошує `Infobase = 'File=build/ib'` (`KitFixtures.psm1:101`), а файлу
+`<ws>/build/ib/1Cv8.1CD` немає — тести отримають зупинку з рецептом замість роботи.
+
+Лагодимо **не моком** `Get-KitSourceInfobase`: мок обійшов би резолв, і запобіжник «це не
+дев-база людини» лишився б без покриття саме на шляху `sync` — тобто на тому шляху, де він тепер
+захищає деструктивну операцію. Натомість фікстура вчиться створювати базу: перемикач
+`-WithAgentBase` у `New-KitFakeRepo`, який для кожного воркспейсу з оголошеним `Infobase` створює
+`<ws>/build/ib/1Cv8.1CD`. Той самий ідіом уже вживають тести Task 5, лише винесений у фікстуру.
+Проставити перемикач в обох `Describe`.
+
+**Мертві докази прибрати разом із моками.** Моки `New-ExtensionInfobase` і твердження
+`Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 1` (`Sync.Tests.ps1`,
+рядки 145, 158, 174, 184, 196) після цієї задачі перевіряють виклик, якого більше немає. Замінити
+на доказ, що **платформа в цьому шляху не потрібна взагалі**:
+
+```powershell
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        # …
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+```
+
+Мок лишається як пастка: якщо якийсь шлях усе-таки піде в платформу, `-Times 0` це спіймає, а не
+пропустить у реальний `1cv8.exe`.
+
 - [ ] **Step 8: Прогнати — мають пройти**
 
 Run: `pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration`
-Expected: PASS.
+Expected: PASS — зокрема обидва `Describe` з моками, полагоджені у Step 7а.
 
 - [ ] **Step 9: Мутаційна перевірка запобіжника (kit-dev, case 6 і 7 — на КОПІЇ дерева)**
 
@@ -595,6 +624,27 @@ Expected: FAIL — `verify` створює `build/verify/Alpha_SMB` і йде д
 
 Рядок `$workDir = Join-Path $root 'build/verify' $src.Key` лишається — там ще живуть `dump` і
 `tree`. Нічого видаляти не треба: `ib` тепер просто не створюється.
+
+- [ ] **Step 6а: Полагодити мок-тест `verify` і замінити мертвий доказ**
+
+`Verify.Tests.ps1`, `Describe` на рядку 66 («мок платформного шару: щасливий шлях»), кличе
+`Invoke-KitVerify` напряму. Дати йому базу тим самим перемикачем `-WithAgentBase` (Task 3, Step 7а).
+
+Мок `New-KitStorageInfobase` і твердження
+`Should -Invoke -ModuleName verify New-KitStorageInfobase -Times 1` (рядок 105) стають мертві —
+`verify` цієї функції більше не кличе. Доказом «`1cv8.exe` не запускався» лишається
+`Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1`: після цієї задачі це
+єдиний виклик у шляху `verify`, що справді пішов би в платформу (`Enter-`/`Exit-KitStorageBind`
+теж моковані).
+
+Додати **позитивний доказ самої зміни** — те, чого стара форма перевірити не могла:
+
+```powershell
+        Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
+```
+
+Тимчасова ІБ більше не створюється, і тека `ib` під робочою текою `verify` не з'являється. Без
+цього рядка видалення мертвого моку лишило б зміну без жодного тесту, який її помічає.
 
 - [ ] **Step 7: Прогнати — мають пройти**
 
@@ -792,7 +842,9 @@ Expected: FAIL — у `finish` `operation=build` стоїть перед `verify
    (`testRunner=yaxunit` або `va`). Червоне — PR не готувати; повернутись до роботи.
 ```
 
-Далі перенумерувати наявні кроки «Артефакти» → 7 і «PR» → 8.
+Далі перенумерувати **всі** наявні кроки, що зсунулись: «Артефакти» → 7, «PR» → 8,
+«Після злиття PR» → 9. У `finish` вісім кроків, не сім — восьмий (`skills/finish/SKILL.md:61`)
+описує звірку головної гілки після злиття PR і теж зсувається.
 
 **Перенумерація тягне посилання** (kit-dev, case 9): `grep -rn 'крок 5\|крок 6\|крок 7' skills/ docs/`
 і поправити кожне влучання, що вказує на зсунуті кроки, — не лише в самому файлі.
