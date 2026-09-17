@@ -188,5 +188,6 @@ MCP-інструменти Уніки тут не потрібні, і `.claude/
 | Що саме роздається споживачам | `templates/README.md` |
 | Чому вихідники не конвертуються, як мігрувати репозиторій з `eol=crlf` | `docs/text-policy.md` |
 | На що покладаємось в Unica й що там зламано | `docs/unica-contract.md` |
+| Що зміниться, коли Уніка перейде на новий v8-runner (0.13), і чи дублює він kit | `docs/v8-runner-migration.md` |
 | Як перевести старий gitsync/EDT-репозиторій під kit | `docs/migration/legacy-gitsync-repo.md` |
 | Як тут працювати, щоб не наступити на відомі граблі | скіл `kit-dev` (`.claude/skills/kit-dev/`), активується сам |
