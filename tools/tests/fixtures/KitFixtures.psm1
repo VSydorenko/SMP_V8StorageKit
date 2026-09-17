@@ -119,13 +119,19 @@ function New-KitFakeRepo {
     # без Import-Module цього ризику не несе: інакше фікстура й production-код розходяться
     # мовчки, щойно .claude-plugin/plugin.json підніме версію — і саме це мала ловити перевірка
     # check.psm1 "версії збігаються" (Check.Tests.ps1).
-    $kitPluginVersion = '1.0.1'
+    # Фолбек на літерал прибрано (бамп 1.0.1 → 1.1.0 показав, чому): він тихо підставляв
+    # застарілу версію щоразу, коли plugin.json не прочитався, — і тест check.psm1 «версії
+    # збігаються» порівнював вигадане число замість справжнього, тобто маскував саме те
+    # розходження, яке мав ловити (deferred-minor звіту C2: production віддає $null, фікстура
+    # брала літерал). Відсутній або нечитабельний plugin.json у пісочниці — аномалія
+    # (Copy-KitTools його копіює), тож зупинка тут чесніша за будь-яке значення.
     $pluginJsonPath = Join-Path $kitRoot '.claude-plugin/plugin.json'
-    if (Test-Path -LiteralPath $pluginJsonPath -PathType Leaf) {
-        try {
-            $v = [string]((Get-Content -LiteralPath $pluginJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).version)
-            if ($v) { $kitPluginVersion = $v }
-        } catch { }
+    if (-not (Test-Path -LiteralPath $pluginJsonPath -PathType Leaf)) {
+        throw "Фікстура не знайшла $pluginJsonPath — kitVersion у синтетичному маніфесті нізвідки взяти."
+    }
+    $kitPluginVersion = [string]((Get-Content -LiteralPath $pluginJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+    if (-not $kitPluginVersion) {
+        throw "У $pluginJsonPath немає поля version — kitVersion у синтетичному маніфесті нізвідки взяти."
     }
 
     $manifest = [System.Collections.Generic.List[string]]::new()

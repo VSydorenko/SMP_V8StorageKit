@@ -166,12 +166,17 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'без підтвердження не змінюється нічого'
         }
 
-        It 'onboarding посилається на upgrades.md, і той описує перехід на 1.0.1' {
+        It 'onboarding посилається на upgrades.md, і той описує перехід на ПОТОЧНУ версію плагіна' {
             $skill = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/onboarding/SKILL.md') -Raw -Encoding UTF8
             $skill | Should -BeLike '*references/upgrades.md*'
             $up = Join-Path $PSScriptRoot '../../skills/onboarding/references/upgrades.md'
             $up | Should -Exist
-            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike '*1.0.1*'
+            # Версія читається з plugin.json, а не вшита: вшите число старіє на першому ж бампі
+            # й тест починає вимагати переходу, якого вже немає (спіймано бампом 1.0.1 → 1.1.0).
+            $pluginVersion = [string]((Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.claude-plugin/plugin.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+            $pluginVersion | Should -Not -BeNullOrEmpty
+            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike "*$pluginVersion*" `
+                -Because "upgrades.md мусить описувати перехід на версію, яку плагін щойно оголосив ($pluginVersion)"
         }
     }
 
