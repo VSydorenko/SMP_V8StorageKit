@@ -46,6 +46,25 @@ function Invoke-KitCheck {
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
             "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
 
+        # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
+        # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
+        # розходяться, і мовчати про це означає дати агентові працювати не тими правилами.
+        $pluginVersion = Get-KitPluginVersion
+        if ($pluginVersion -and $Context.Manifest.KitVersion) {
+            $have = [version]$Context.Manifest.KitVersion
+            $need = [version]$pluginVersion
+            if ($have -lt $need) {
+                # Тег знахідки ('kit-version') у Write-Host не друкується (лише Message, той самий
+                # факт, що вже задокументовано для 'agent-base-required' і 'build-artifacts' вище) —
+                # тож текст сам називає перевірку "kit-version", інакше рядок ніяк не знайти у виводі.
+                & $add 'warn' 'kit-version' ("kit-version: структуру репозиторію доведено до v$have, а плагін уже v$need — " +
+                    'кроки оновлення: скіл v8storagekit:onboarding, references/upgrades.md.')
+            } elseif ($have -gt $need) {
+                & $add 'warn' 'kit-version' ("kit-version: структура репозиторію на v$have, а плагін у цьому оточенні старіший — v$need. " +
+                    'Оновіть плагін (claude plugin update), інакше агент працюватиме застарілими правилами.')
+            }
+        }
+
         # Після C1 дамп версії сховища виконується в базі агента (спека 2026-09-17 §3), тож для
         # кожного truth: storage база — передумова, а не зручність. Сказати на старті сесії дешевше,
         # ніж зупинити sync, який людина вже запустила. warn, не error: репозиторій несуперечливий —

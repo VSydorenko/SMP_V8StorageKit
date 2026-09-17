@@ -108,9 +108,29 @@ function New-KitFakeRepo {
         }
     }
 
+    # Версія — читанням .claude-plugin/plugin.json НАПРЯМУ, тим самим шляхом, що й
+    # Get-KitPluginVersion (Preflight.psm1, Task 9), але БЕЗ Import-Module цього модуля тут:
+    # New-KitFakeRepo кличуть із BeforeAll тестів, які вже самі імпортували Preflight.psm1 у
+    # глобальну область — вкладений Import-Module -Force звідси перезавантажив би той самий
+    # файл як вкладений модуль KitFixtures і зняв би Invoke-KitPreflight та решту з глобальної
+    # області (спіймано живим прогоном: Preflight.Tests.ps1 і всі тести, що йдуть після нього
+    # в тому ж процесі, впали з CommandNotFoundException на Invoke-KitPreflight — той самий
+    # ризик, що застерігає коментар check.psm1 і docs/follow-ups.md §5). Читання самого файлу
+    # без Import-Module цього ризику не несе: інакше фікстура й production-код розходяться
+    # мовчки, щойно .claude-plugin/plugin.json підніме версію — і саме це мала ловити перевірка
+    # check.psm1 "версії збігаються" (Check.Tests.ps1).
+    $kitPluginVersion = '1.0.1'
+    $pluginJsonPath = Join-Path $kitRoot '.claude-plugin/plugin.json'
+    if (Test-Path -LiteralPath $pluginJsonPath -PathType Leaf) {
+        try {
+            $v = [string]((Get-Content -LiteralPath $pluginJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+            if ($v) { $kitPluginVersion = $v }
+        } catch { }
+    }
+
     $manifest = [System.Collections.Generic.List[string]]::new()
     $manifest.Add('version: 1')
-    $manifest.Add('kitVersion: 1.0.1')
+    $manifest.Add("kitVersion: $kitPluginVersion")
     $manifest.Add('product: Fake')
     $manifest.Add('workspaces:')
 
@@ -300,6 +320,12 @@ function Copy-KitTools {
     # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі
     # спіймав: "Cannot find path ...\templates\settings.json").
     Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $Root 'templates/settings.json') -Force
+    # .claude-plugin/plugin.json: Get-KitPluginVersion (Preflight.psm1, Task 9) рахує шлях від
+    # розташування МОДУЛЯ (tools/lib → корінь плагіна) — у цій копії, не в робочій копії плагіна,
+    # бо саме копію запускає підпроцес kit.ps1 нижче. Без цього файлу тут функція повертає $null,
+    # і знахідка 'kit-version' у check ніколи не з'являється в тестах, що йдуть через Copy-KitTools.
+    New-Item -ItemType Directory -Path (Join-Path $Root '.claude-plugin') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $kitRoot '.claude-plugin/plugin.json') -Destination (Join-Path $Root '.claude-plugin/plugin.json') -Force
     Join-Path $Root 'tools/kit.ps1'
 }
 

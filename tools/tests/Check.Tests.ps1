@@ -53,6 +53,34 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -Match '\[-\]'
     }
 
+    # Task 9 — структура репозиторію (kitVersion маніфесту) звіряється з версією плагіна, який
+    # зараз виконується (Get-KitPluginVersion, Preflight.psm1). Обидва напрямки — warn.
+    It 'структура відстає від плагіна — warn kit-version із порадою onboarding' {
+        $repo = New-GoodRepo -Name 'kv-behind'
+        (Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw) `
+            -replace 'kitVersion: .*', 'kitVersion: 0.9.0' |
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*kit-version*'
+        $r.Output | Should -BeLike '*onboarding*'
+    }
+
+    It 'плагін старіший за структуру — warn із порадою оновити плагін' {
+        $repo = New-GoodRepo -Name 'kv-ahead'
+        (Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw) `
+            -replace 'kitVersion: .*', 'kitVersion: 99.0.0' |
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*kit-version*'
+        $r.Output | Should -BeLike '*claude plugin update*'
+    }
+
+    It 'версії збігаються — знахідки немає' {
+        $repo = New-GoodRepo -Name 'kv-equal'
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -Not -BeLike '*kit-version*'
+    }
+
     # S1 (живий прогін задачі 11): прибрали з маніфесту блок розширення, лишили base —
     # source-set 'Alpha_SMB' і далі оголошено в v8project.yaml, а check про це мовчав.
     # Тут — дзеркальний сценарій: source-set у v8project.yaml Є, а маніфест його НЕ знає.
