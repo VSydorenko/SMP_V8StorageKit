@@ -371,6 +371,13 @@ function Invoke-KitAdopt {
         Write-Host "  Побайтово рівних: $($diff.Equal) із $($diff.Total)"
         Write-KitAdoptList -Title "прийде зі сховища ($mirror)" -Items $incoming
         Write-KitAdoptList -Title 'ЗНИКНЕ з гілки — робота, яку людина у сховище не взяла' -Items $diff.OnlyInTree -Loud
+        # CrOnly — окремим рядком і тим самим формулюванням, що у verify.psm1:141: причина в
+        # нього інша, ніж у решти (не чиясь робота, а зламана політика тексту), але це
+        # РОЗХОДЖЕННЯ, а не шум — так його називає і docs/text-policy.md, і verify, який
+        # включає CrOnly у свій $differs. Якби adopt його ігнорував, дві команди одного
+        # контуру суперечили б одна одній на тому самому дереві: adopt казав би «вже
+        # збігається», а verify на наступному кроці finish — «розбіжність».
+        Write-KitAdoptList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
 
         $adopted.Add([pscustomobject]@{ Key = $src.Key; Mirror = $mirror; Incoming = $incoming.Count; Dropped = $diff.OnlyInTree.Count; Applied = $false })
 
@@ -475,7 +482,10 @@ Expected: FAIL — `-Apply` наразі нічого не робить (гіл�
             continue
         }
 
-        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0) {
+        # CrOnly входить у перевірку no-op нарівні з рештою: adopt робить дерево ПОБАЙТОВО
+        # рівним дзеркалу (спека §5), а різниця в кінцях рядків — розходження, яке verify
+        # однаково покаже наступним кроком.
+        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0 -and $diff.CrOnly.Count -eq 0) {
             Write-Host '  Дерево вже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
             continue
         }
