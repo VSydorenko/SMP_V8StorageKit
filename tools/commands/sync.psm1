@@ -220,6 +220,17 @@ function Invoke-KitSync {
 
         if ($pending.Count -eq 0) {
             Write-Host 'Нових версій немає — дзеркало синхронне зі сховищем.'
+
+            # M-4-подібна знахідка (фінальне рев'ю, Important §6): дзеркало могло лишитись
+            # попереду origin від ПОПЕРЕДНЬОГО прогону sync (наприклад, git push тоді не
+            # виконали) — цей прогін нових версій не приносить, але попередження про
+            # непушений push усе одно стосується поточного стану гілки й не має мовчати
+            # лише тому, що цей рядок стоїть у гілці коду "pending порожній".
+            $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+            if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+                Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+            }
+
             $merged = $false
             if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src; if (-not $merged) { $mergeFailed = $true } }
             $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged })
@@ -278,9 +289,9 @@ function Invoke-KitSync {
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
 
-        $gap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
-        if ($gap.HasRemote -and $gap.Ahead -gt 0) {
-            Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $gap.Ahead, $src.Branch) -ForegroundColor Yellow
+        $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+        if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+            Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
         }
 
         # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база

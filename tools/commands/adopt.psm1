@@ -93,6 +93,14 @@ function Invoke-KitAdopt {
         # бере його межею, тому обчислення не може лишатись усередині `if ($dirty.Count -gt 0)`.
         $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
 
+        # Версія трейлера — ДО Remove-Item/Copy-Item/git add -A нижче, не після (фінальне рев'ю,
+        # Critical): дешевий git-виклик, і якщо вершина дзеркала без трейлера Storage-Version
+        # (гілку писав не sync), команда мусить зупинитись, поки дерево джерела ще ЦІЛЕ — не
+        # після того, як воно вже замінене й застейджене, а відкат вимагав би саме тих команд,
+        # які CLAUDE.md забороняє в спільній робочій копії (git checkout --/restore/stash/clean).
+        # Той самий принцип, що verify.psm1:69–71: усі git-перевірки — до першої руйнівної дії.
+        $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
+
         # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у
         # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
@@ -117,7 +125,6 @@ function Invoke-KitAdopt {
         $add = Invoke-KitGitProcess -RepoRoot $root -Arguments @('add', '-A', '--', $src.RepoPath)
         if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
 
-        $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
         $message = "adopt: $($src.Key) ← $mirror (версія $version)"
         $commit  = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '--only', '-m', $message, '--', $src.RepoPath)
         if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }

@@ -24,8 +24,8 @@ Unica не вміє: сховища, дамп із живої бази, база
 |---|---|---|
 | «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:sync` | `kit.ps1 sync [-Apply]` |
 | «вивантаж конфігурацію з бази» | `v8storagekit:dump` | `kit.ps1 dump [-Apply]` |
-| «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `canon` → `adopt storage/*` у гілку задачі (заміна, з прев'ю обох списків) |
-| «закриваємо задачу», «готуй PR» | `v8storagekit:finish` | `sync` → `canon` → `verify` → артефакти → PR |
+| «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `canon` → `adopt storage/*` у гілку задачі (заміна, з прев'ю всіх списків) |
+| «закриваємо задачу», «готуй PR» | `v8storagekit:finish` | `sync` → `canon` → `adopt storage/*` → `verify` → артефакти → PR |
 | «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply] [-Force]` |
 | «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
 | «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit.ps1 check`, `kit.ps1 install-hooks [-Apply]` |

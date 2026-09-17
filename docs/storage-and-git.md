@@ -373,8 +373,9 @@ merge-base порожній (`<ref>` ніколи не зливав `storage/X`)
 Без `-Apply` — лише перелік цілей і причин пропуску. З `-Apply` дерево кожної цілі
 **стирається** (`Remove-Item -Recurse -Force`) перед тим, як платформа запише туди свій
 дамп — інакше лишились би файли, яких платформа вже не віддає. Перед самим видаленням —
-страховка: `Backup-KitCanonDirtyFiles` копіює все незакомічене й невідстежуване з дерева
-джерела (`git status --porcelain -z -uall`, розібраний `Get-KitCanonStatusRecords`) у
+страховка: `Backup-KitDirtyFiles` копіює все незакомічене й невідстежуване з дерева
+джерела (`git status --porcelain -z -uall`, розібраний `Get-KitDirtyRecords`; обидві функції —
+спільний `tools/lib/TreeBackup.psm1`, викликачі — `canon` і `adopt`) у
 `<воркспейс>/<workPath>/canon-backup/<ключ>-<yyyyMMdd-HHmmss>/` — гітігноровану теку поруч
 із базою агента. Це не заборона канонізувати брудне дерево (дерево на момент `canon`
 **завжди** потенційно брудне за задумом циклу: Unica щойно писала в нього, коміт іде
@@ -388,8 +389,8 @@ merge-base порожній (`<ref>` ніколи не зливав `storage/X`)
 
 | Тека | Власник | Що там |
 |---|---|---|
-| `<корінь репозиторію>/build/` | kit | `build/sync/<ключ>/wt` — worktree дзеркала на час `sync`; `build/sync/_main/wt` — тимчасовий worktree головної гілки для злиття; `build/verify/<ключ>/` — дампи й дерево `verify` (тимчасової ІБ там більше немає: після C1 дамп іде в базі агента воркспейсу); `build/session-check/<ключ>.json` — відбиток сховища; `build/build-ib/` — тимчасова ІБ команди `build` для `.epf`; `build/artifacts/` — зібрані `.epf`/`.cf`/`.cfe` для людини |
-| `<воркспейс>/<workPath>/` (типово `<воркспейс>/build/`, конфігуровано `workPath:` у `v8project.yaml`) | Unica | база агента (`infobase.connection: 'File=build/ib'`, шлях відносний від теки воркспейсу); `<workPath>/artifacts/` — запасний шлях, куди `operation=make` кладе `.cf`/`.cfe`, якщо Unica відмовляє в шляху виводу поза воркспейсом (`kit build` забирає звідти, `Copy-KitWorkspaceArtifacts`, `tools/commands/build.psm1`); `<workPath>/canon-backup/` — страховка `canon` (розділ вище) |
+| `<корінь репозиторію>/build/` | kit | `build/sync/<ключ>/wt` — worktree дзеркала на час `sync`; `build/sync/_main/wt` — тимчасовий worktree головної гілки для злиття; `build/verify/<ключ>/` — дампи й дерево `verify` (тимчасової ІБ там більше немає: після C1 дамп іде в базі агента воркспейсу); `build/adopt/<ключ>/mirror` — експорт дзеркала на час прев'ю/заміни `adopt`; `build/session-check/<ключ>.json` — відбиток сховища; `build/build-ib/` — тимчасова ІБ команди `build` для `.epf`; `build/artifacts/` — зібрані `.epf`/`.cf`/`.cfe` для людини |
+| `<воркспейс>/<workPath>/` (типово `<воркспейс>/build/`, конфігуровано `workPath:` у `v8project.yaml`) | Unica | база агента (`infobase.connection: 'File=build/ib'`, шлях відносний від теки воркспейсу); `<workPath>/artifacts/` — запасний шлях, куди `operation=make` кладе `.cf`/`.cfe`, якщо Unica відмовляє в шляху виводу поза воркспейсом (`kit build` забирає звідти, `Copy-KitWorkspaceArtifacts`, `tools/commands/build.psm1`); `<workPath>/canon-backup/` — страховка `canon` (розділ вище); `<workPath>/adopt-backup/` — та сама страховка для `adopt` |
 | `<воркспейс>/.build/unica` | Unica | власний кеш платформи, створюється автоматично при кожному використанні кореня воркспейсу — **поведінка Уніки, а не kit**: цей репозиторій не містить коду, що створює чи перевіряє цю теку (`grep -rn "\.build.unica" tools/` порожній); факт відомий лише з дослідження контракту Уніки (спека §2.1), звірити його `grep`-ом по цьому дереву неможливо |
 
 `.gitignore` репозиторія-споживача (шаблон `templates/gitignore`) ігнорує і `build/`, і

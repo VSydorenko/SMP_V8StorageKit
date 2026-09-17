@@ -23,7 +23,7 @@
 
 | Тека | Що це |
 |---|---|
-| `tools/` | Диспетчер `kit.ps1` з десятьма командами в `commands/`: `check`, `session-check`, `sync`, `dump`, `verify`, `canon`, `provision`, `build`, `install-hooks`, `rename-edt`; модулі `lib/*.psm1`; Pester-тести `tests/` |
+| `tools/` | Диспетчер `kit.ps1` з одинадцятьма командами в `commands/`: `check`, `session-check`, `sync`, `dump`, `verify`, `canon`, `adopt`, `provision`, `build`, `install-hooks`, `rename-edt`; модулі `lib/*.psm1`; Pester-тести `tests/` |
 | `skills/` | Вісім скілів — вступний `using-v8storagekit` (вантажить хук споживача) і по одному на намір: `onboarding`, `sync`, `dump`, `reconcile`, `finish`, `provision`, `verify`. `onboarding` — єдиний із підтекою `references/gitsync-migration.md` (деталі переходу старого gitsync-репо, винесені з `SKILL.md` 2026-09-10) |
 | `templates/` | Файли, які плагін копіює в репозиторій-споживач: `hooks/`, `githooks/`, зразки маніфесту й накладки |
 | `.claude/skills/` | Проєктні скіли розробника kit (не роздаються споживачам) — `kit-dev`: методика розробки самого плагіна за моментом застосування |
