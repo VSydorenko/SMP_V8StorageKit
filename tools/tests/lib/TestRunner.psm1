@@ -216,9 +216,13 @@ function Get-KitRunVerdict {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][object[]]$Summaries,
-        [Parameter(Mandatory)][string[]]$DispatchedFiles,
-        [Parameter(Mandatory)][int[]]$WorkerExitCodes
+        # AllowEmptyCollection навмисно: без нього PowerShell відмовляється прив'язати
+        # порожній масив до Mandatory-параметра ("Cannot bind argument... because it is an
+        # empty array") ще до першого рядка тіла функції — а порожній -Summaries (усі
+        # воркери не лишили підсумку) є реальним, документованим тут-таки випадком.
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Summaries,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$DispatchedFiles,
+        [Parameter(Mandatory)][AllowEmptyCollection()][int[]]$WorkerExitCodes
     )
 
     $reasons = [System.Collections.Generic.List[string]]::new()
@@ -234,19 +238,27 @@ function Get-KitRunVerdict {
         $reasons.Add("підсумків: $($Summaries.Count), воркерів: $($WorkerExitCodes.Count) — хтось не лишив підсумку")
     }
 
-    $containersSum = ($Summaries | Measure-Object -Property Containers -Sum).Sum
+    # "?." (null-conditional член, PS7+) навмисно замість звичайного ".Sum": на порожньому
+    # $Summaries Measure-Object повертає не об'єкт із Sum=$null, а буквально $null сам по
+    # собі. Set-StrictMode -Version Latest (вище) робить звичайне ".Sum" на такому $null
+    # помилкою PropertyNotFoundException ще до того, як нижній рядок нуль-безпеки встигне
+    # спрацювати (присвоєння падає, змінна лишається невстановленою — і сам рядок
+    # "if ($null -eq $x)" тоді теж падає, звертаючись до неоголошеної змінної). "?."
+    # коротко замикається на $null без помилки незалежно від StrictMode, і вираз коректно
+    # дає $null, який рядок нижче зводить до 0 — так, як і документовано в .DESCRIPTION.
+    $containersSum = ($Summaries | Measure-Object -Property Containers -Sum)?.Sum
     if ($null -eq $containersSum) { $containersSum = 0 }
     if ($containersSum -ne $DispatchedFiles.Count) {
         $reasons.Add("виконано контейнерів: $containersSum, роздано файлів: $($DispatchedFiles.Count)")
     }
 
-    $totalSum = ($Summaries | Measure-Object -Property TotalCount -Sum).Sum
+    $totalSum = ($Summaries | Measure-Object -Property TotalCount -Sum)?.Sum
     if ($null -eq $totalSum) { $totalSum = 0 }
     if ($totalSum -eq 0) {
         $reasons.Add('прогін не виконав жодного тесту')
     }
 
-    $failedSum = ($Summaries | Measure-Object -Property FailedCount -Sum).Sum
+    $failedSum = ($Summaries | Measure-Object -Property FailedCount -Sum)?.Sum
     if ($null -eq $failedSum) { $failedSum = 0 }
     if ($failedSum -gt 0) {
         $reasons.Add("впало тестів: $failedSum")
