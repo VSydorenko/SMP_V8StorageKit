@@ -118,6 +118,70 @@ Describe 'Run-Tests.ps1 — контракт паралельного ранне
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
         }
 
+        function script:Invoke-KitRunnerSandboxIsolated {
+            <#
+            .SYNOPSIS
+                Той самий підпроцес Run-Tests.ps1, але в ІЗОЛЬОВАНІЙ консолі (Start-Process
+                БЕЗ -NoNewWindow) — на відміну від Invoke-KitRunnerSandbox, який ділить
+                консоль із батьківським тестовим процесом через голий `&`.
+            .DESCRIPTION
+                Фікс-раунд 1 (рев'ю Task 4): [Console]::OutputEncoding — властивість самої
+                консолі, спільної для батька й дитини під -NoNewWindow (і під голим `&`, який
+                теж не створює нового вікна). Якщо предок (реальний Run-Tests.ps1, що виконує
+                -Only RunTests) уже виставив UTF-8 на спільній консолі своїми власними рядками
+                78-79, дитина успадкує вже виправлену консоль незалежно від того, що робить
+                мутація всередині пісочниці — тест тоді нічого не доводить. Нове (приховане)
+                вікно дає процесу типову кодову сторінку системи, не успадковану від предка.
+            #>
+            param([Parameter(Mandatory)]$Lab, [string[]]$Extra = @())
+            $outFile = Join-Path $Lab.Root 'isolated-stdout.log'
+            $errFile = Join-Path $Lab.Root 'isolated-stderr.log'
+            $argList = @('-NoProfile', '-File', $Lab.RunnerPath, '-ExcludeTag', 'Integration') + $Extra
+            $p = Start-Process -FilePath 'pwsh' -ArgumentList $argList -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+            $p.WaitForExit()
+            $out = ''
+            if (Test-Path -LiteralPath $outFile) { $out += (Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue) }
+            if (Test-Path -LiteralPath $errFile) { $out += (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue) }
+            [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out }
+        }
+
+        function script:Remove-KitEncodingLines {
+            <#
+            .SYNOPSIS
+                Мутація для доказу TDD: видаляє з копії файлу обидва рядки, що виставляють
+                UTF-8 консолі ([Console]::OutputEncoding і $OutputEncoding), і кидає, якщо
+                жодного не знайдено (мітка застаріла б мовчки без цього).
+            #>
+            param([Parameter(Mandatory)][string]$Path)
+            $before = Get-Content -LiteralPath $Path -Raw
+            $after  = $before.Replace('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8', '').
+                              Replace('$OutputEncoding = [System.Text.Encoding]::UTF8', '')
+            if ($after -eq $before) {
+                throw "рядки кодування UTF-8 не знайдено в '$Path' — перевір актуальність тесту"
+            }
+            Set-Content -LiteralPath $Path -Value $after -Encoding utf8NoBOM -NoNewline
+        }
+
+        # Синтетичний кириличний файл для гілки одного процесу (-Only) — captures вивід
+        # дочірнього git-процесу у власному тимчасовому репозиторії.
+        $script:ProbaKir = @'
+Describe 'ПробаКир — синтетична перевірка кирилиці з дочірнього git-процесу (Task 4)' {
+    It 'git log повертає кириличний підрядок коміту без спотворення' {
+        $repo = Join-Path $TestDrive 'cyr-repo'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        git -C $repo init -q
+        git -C $repo config user.email 'a@b.c'
+        git -C $repo config user.name 'Тест'
+        Set-Content -LiteralPath (Join-Path $repo 'f.txt') -Value 'x'
+        git -C $repo add -A
+        git -C $repo commit -q -m 'перевірка кирилиці'
+        $out = & git -C $repo log -1 --format=%s 2>&1 | Out-String
+        $out | Should -Match 'перевірка кирилиці'
+    }
+}
+'@
+
         # Синтетичні файли групи "Проба" з таблиці брифу — по одному тривіальному It.
         $script:ProbaA = @'
 Describe 'Проба.А — синтетичний файл лабораторної пісочниці Task 4' {
@@ -250,23 +314,8 @@ Describe 'Проба (точна назва) — синтетичний файл
         New-Item -ItemType Directory -Path $libDir -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $script:RealTestsDir 'lib/Invoke-TestWorker.ps1') -Destination (Join-Path $libDir 'Invoke-TestWorker.ps1')
 
-        $probaFile = Join-Path $root 'Проба.Кир.Tests.ps1'
-        Set-Content -LiteralPath $probaFile -Encoding utf8NoBOM -Value @'
-Describe 'Проба.Кир — синтетична перевірка кирилиці з дочірнього git-процесу (Task 4)' {
-    It 'git log повертає кириличний підрядок коміту без спотворення' {
-        $repo = Join-Path $TestDrive 'cyr-repo'
-        New-Item -ItemType Directory -Path $repo -Force | Out-Null
-        git -C $repo init -q
-        git -C $repo config user.email 'a@b.c'
-        git -C $repo config user.name 'Тест'
-        Set-Content -LiteralPath (Join-Path $repo 'f.txt') -Value 'x'
-        git -C $repo add -A
-        git -C $repo commit -q -m 'перевірка кирилиці'
-        $out = & git -C $repo log -1 --format=%s 2>&1 | Out-String
-        $out | Should -Match 'перевірка кирилиці'
-    }
-}
-'@
+        $probaFile = Join-Path $root 'ПробаКир.Tests.ps1'
+        Set-Content -LiteralPath $probaFile -Encoding utf8NoBOM -Value $script:ProbaKir
 
         $fileListPath = Join-Path $root 'files.txt'
         Set-Content -LiteralPath $fileListPath -Value $probaFile -Encoding utf8NoBOM
@@ -283,5 +332,32 @@ Describe 'Проба.Кир — синтетична перевірка кири
         $summary.Error | Should -BeNullOrEmpty -Because ($summary | ConvertTo-Json -Depth 6)
         $summary.FailedCount | Should -Be 0 -Because (@($summary.Failures) | ConvertTo-Json -Depth 6)
         $summary.TotalCount | Should -Be 1
+    }
+
+    It 'гілка одного процесу — кирилиця з дочірнього git-процесу читається правильно (Run-Tests.ps1, ізольована консоль)' {
+        # Фікс-раунд 1 (рев'ю Task 4): [Console]::OutputEncoding/$OutputEncoding у
+        # Run-Tests.ps1:78-79 несучі САМЕ для гілки одного процесу (-Only/-Serial) — там
+        # Pester виконується УСЕРЕДИНІ самого процесу Run-Tests.ps1, воркер не спавниться
+        # взагалі, тож рядки воркера (тест вище) на цю гілку не впливають.
+        #
+        # Виміряно окремо (три сценарії, в ізольованій консолі кожен):
+        #   (a) прибрати лише рядки РАННЕРА, гілка одного процесу — ЧЕРВОНО (Pester:
+        #       "Expected regular expression '...' to match 'перевірка кирилиці', but it
+        #       did not match" — шаблон зі скрипту читається спотвореним під кодовою
+        #       сторінкою хоста).
+        #   (b) прибрати лише рядки ВОРКЕРА, та сама гілка — ЗЕЛЕНО (контроль: воркер тут
+        #       узагалі не бере участі, тож його рядки не можуть щось тримати).
+        #   (c) прибрати ОБИДВА набори, паралельна гілка — теж ЧЕРВОНО.
+        # Разом це доводить: у паралельному шляху рядки раннера й воркера ВЗАЄМНО
+        # НАДЛИШКОВІ (кожен окремо покриває бойовий шлях, ловить лише видалення обох —
+        # тест вище це підтверджує зеленим на неушкодженому раннері), а в гілці одного
+        # процесу єдиний захист — САМЕ рядки раннера. Цей тест охороняє їх.
+        $lab = New-KitRunnerSandbox -Root (Join-Path $TestDrive 'single-process-cyr') -ExtraTestFiles @{
+            'ПробаКир.Tests.ps1' = $script:ProbaKir
+        }
+        $r = Invoke-KitRunnerSandboxIsolated -Lab $lab -Extra @('-Only', 'ПробаКир')
+
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output   | Should -BeLike '*Tests Passed: 1*' -Because $r.Output
     }
 }
