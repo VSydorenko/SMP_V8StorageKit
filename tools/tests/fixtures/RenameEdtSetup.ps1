@@ -1,6 +1,6 @@
 # Спільна підготовка для розрізаних файлів RenameEdt.Commit.Tests.ps1 і
 # RenameEdt.Rollback.Tests.ps1 (Task 8, "Швидкість набору тестів") — дослівний перенос тіла
-# BeforeAll ПЕРШОГО Describe з колишнього RenameEdt.Tests.ps1:23-230 (усі 14 хелперів:
+# BeforeAll ПЕРШОГО Describe з колишнього RenameEdt.Tests.ps1:23-230 (усі 10 хелперів:
 # Invoke-TestGit, Add-KitFakeEdtTree, Add-KitDuringPassPreCommitHook,
 # Add-KitDuringPassStagedEditHook, Get-TestGitStatus, Add-KitOccupyTargetHook,
 # Add-KitBreakRestoreHook, Repair-KitBrokenRestore, Invoke-KitRecipeFromOutput та ін. — ділити

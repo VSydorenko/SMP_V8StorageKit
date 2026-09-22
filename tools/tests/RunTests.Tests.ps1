@@ -146,23 +146,6 @@ Describe 'Run-Tests.ps1 — контракт паралельного ранне
             [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out }
         }
 
-        function script:Remove-KitEncodingLines {
-            <#
-            .SYNOPSIS
-                Мутація для доказу TDD: видаляє з копії файлу обидва рядки, що виставляють
-                UTF-8 консолі ([Console]::OutputEncoding і $OutputEncoding), і кидає, якщо
-                жодного не знайдено (мітка застаріла б мовчки без цього).
-            #>
-            param([Parameter(Mandatory)][string]$Path)
-            $before = Get-Content -LiteralPath $Path -Raw
-            $after  = $before.Replace('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8', '').
-                              Replace('$OutputEncoding = [System.Text.Encoding]::UTF8', '')
-            if ($after -eq $before) {
-                throw "рядки кодування UTF-8 не знайдено в '$Path' — перевір актуальність тесту"
-            }
-            Set-Content -LiteralPath $Path -Value $after -Encoding utf8NoBOM -NoNewline
-        }
-
         # Синтетичний кириличний файл для гілки одного процесу (-Only) — captures вивід
         # дочірнього git-процесу у власному тимчасовому репозиторії.
         $script:ProbaKir = @'
