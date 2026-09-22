@@ -104,7 +104,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-happy') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
         # script:-scoped, не локальна $content: Mock -ModuleName виконує -MockWith у
         # приватному столі НАЗВАНОГО модуля (verify), а не в лексичному оточенні It-блоку —
-        # той самий прийом, що Sync.Tests.ps1 уже застосовує через script:-функції
+        # той самий прийом, що Sync.Merge.Tests.ps1 уже застосовує через script:-функції
         # (New-KitFakeStorageVersion), тут просто дані, а не команда.
         $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
@@ -112,7 +112,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
 
         # Storage-шлях фіктурного джерела навмисно неіснуючий (KitFixtures.psm1) — Test-Path
         # у verify.psm1 упав би раніше, ніж дійшло б до мокованого платформного шару. Тому,
-        # як і в Sync.Tests.ps1 (мок платформи), підміняємо шлях накладкою на порожню, але
+        # як і в Sync.Merge.Tests.ps1 (мок платформи), підміняємо шлях накладкою на порожню, але
         # реальну теку.
         $storageDir = Join-Path $TestDrive 'mock-happy-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
@@ -138,7 +138,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $result.Results.Count | Should -Be 1
         $result.Results[0].Verdict | Should -Be 'equal'
         # Доказ, що платформа справді перехоплена, а не здогад із часу виконання (той самий
-        # прийом, що Sync.Tests.ps1): без цього тест міг би мовчки піти в реальний 1cv8.exe.
+        # прийом, що Sync.Merge.Tests.ps1): без цього тест міг би мовчки піти в реальний 1cv8.exe.
         # Це єдиний виклик у шляху verify, що справді пішов би в платформу — Enter-/Exit-
         # KitStorageBind теж моковані.
         Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1

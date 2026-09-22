@@ -274,7 +274,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         }
 
         It 'CONFIGURATION source-set truth: storage — повідомлення називає kit sync як дешевий варіант' {
-            # Той самий маніфестний прийом, що й Sync.Tests.ps1 («сховище КОНФІГУРАЦІЇ»):
+            # Той самий маніфестний прийом, що й Sync.Storage.Tests.ps1 («сховище КОНФІГУРАЦІЇ»):
             # New-KitFakeRepo сам ставить CONFIGURATION на truth: vendor, тож truth: storage
             # тут задаємо явним -ManifestText. Шлях сховища навмисно неіснуючий — provision
             # (на відміну від sync) до сховища не звертається.

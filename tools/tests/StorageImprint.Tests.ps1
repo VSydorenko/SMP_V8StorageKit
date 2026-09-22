@@ -6,8 +6,8 @@ Describe 'StorageImprint.psm1 — запис, читання і звірка в�
 
         # Фейкове сховище: 1cv8ddb.1CD + опційно файли в data/objects і/або data/pack, з явним
         # LastWriteTimeUtc. Той самий зразок, що StorageBranch.Tests.ps1 (New-FakeStorageDir) і
-        # SessionCheck.Tests.ps1 (New-FakeStorage) — тут окремо, бо цей файл модулів тестів не
-        # ділить між собою.
+        # tools/tests/fixtures/SessionCheckSetup.ps1 (New-FakeStorage) — тут окремо, бо цей файл
+        # модулів тестів не ділить між собою.
         function script:New-FakeStorageDir {
             param(
                 [Parameter(Mandatory)][string]$Path,

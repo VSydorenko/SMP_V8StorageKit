@@ -106,8 +106,9 @@ Describe 'Get-KitStorageActivity — mtime сховища без платфор�
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
 
         # Фейкове сховище: 1cv8ddb.1CD (за замовчуванням) + опційно файли в data/objects і/або
-        # data/pack, з явним LastWriteTimeUtc — той самий приклад, що SessionCheck.Tests.ps1
-        # (New-FakeStorage), тут локально, бо цей файл StorageBranch.psm1 не імпортує GitMerge.
+        # data/pack, з явним LastWriteTimeUtc — той самий приклад, що
+        # tools/tests/fixtures/SessionCheckSetup.ps1 (New-FakeStorage), тут локально, бо цей
+        # файл StorageBranch.psm1 не імпортує GitMerge.
         function script:New-FakeStorageDir {
             param(
                 [Parameter(Mandatory)][string]$Path,

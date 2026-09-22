@@ -118,7 +118,7 @@ function New-KitFakeRepo {
     # ризик, що застерігає коментар check.psm1 і docs/follow-ups.md §5). Читання самого файлу
     # без Import-Module цього ризику не несе: інакше фікстура й production-код розходяться
     # мовчки, щойно .claude-plugin/plugin.json підніме версію — і саме це мала ловити перевірка
-    # check.psm1 "версії збігаються" (Check.Tests.ps1).
+    # check.psm1 "версії збігаються" (Check.AgentBase.Tests.ps1).
     # Фолбек на літерал прибрано (бамп 1.0.1 → 1.1.0 показав, чому): він тихо підставляв
     # застарілу версію щоразу, коли plugin.json не прочитався, — і тест check.psm1 «версії
     # збігаються» порівнював вигадане число замість справжнього, тобто маскував саме те
@@ -291,13 +291,50 @@ function Add-KitFakeStorageCommit {
     Invoke-KitFakeGit -C $Repo worktree remove --force $wt | Out-Null
 }
 
+function Invoke-KitCommand {
+    <#
+    .SYNOPSIS
+        Спільний виклик kit.ps1 підпроцесом — та сама форма, що вже стояла в одинадцяти
+        файлах тестів (Invoke-Check, Invoke-Sync, Invoke-Provision, ...).
+    .DESCRIPTION
+        Task 5 ("Швидкість набору тестів"): один спільний виклик прибирає дублювання
+        локальних обгорток, але робить його ЄДИНОЮ точкою відмови всіх E2E-тестів набору —
+        якби він тихо ковтав ненульовий код виходу, зелено-завжди стали б усі відразу. Тому
+        функція має власний тест (KitFixtures.Tests.ps1), а не лише локальні обгортки, що
+        делегують сюди.
+
+        -Command і -Repo НЕОБОВ'ЯЗКОВІ: kit.ps1 без команди й без -RepoRoot теж треба вміти
+        покликати (напр., перевірка невідомої команди диспетчера) — токен команди й пара
+        '-RepoRoot <шлях>' додаються до аргументів лише тоді, коли відповідний параметр
+        переданий і непорожній.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Kit,
+        [string]$Command,
+        [string]$Repo,
+        [string[]]$More = @()
+    )
+    $cmdArgs = [System.Collections.Generic.List[string]]::new()
+    if ($Command) { $cmdArgs.Add($Command) }
+    # Асиметрія свідома, не недогляд: обгортки, які перевели виклик сюди, додавали
+    # '-RepoRoot $Repo' БЕЗУМОВНО, а тут — лише якщо $Repo непорожній. Сьогодні різниці
+    # немає (жоден виклик не передає порожній -Repo), але контракт відрізняється, і хто
+    # покличе цю функцію без -Repo, отримає kit.ps1 без -RepoRoot узагалі, а не з порожнім
+    # значенням параметра.
+    if ($Repo)    { $cmdArgs.Add('-RepoRoot'); $cmdArgs.Add($Repo) }
+    foreach ($m in $More) { $cmdArgs.Add($m) }
+    $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
+    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+}
+
 function Copy-KitTools {
     <#
     .SYNOPSIS
         Копія kit.ps1, lib/, commands/, assets/ і templates/githooks у тимчасову теку зі
         збереженням відносної розкладки — щоб тести запускали справжній диспетчер
-        підпроцесом, не чіпаючи робочої копії плагіна (той самий прийом, що в
-        Check.Tests.ps1, Kit.Tests.ps1 і Sync.Tests.ps1).
+        підпроцесом, не чіпаючи робочої копії плагіна (той самий прийом, що в групах
+        Check.*.Tests.ps1, Kit.Tests.ps1 і Sync.*.Tests.ps1).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
@@ -335,4 +372,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools, Invoke-KitCommand

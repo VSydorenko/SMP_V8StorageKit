@@ -159,7 +159,13 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
             # Заглушка друкує знахідку check і зависає — як повільне джерело після вже виданих рядків check.
             Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 `
                 -Value "'[!] хуків немає: kit install-hooks'", 'Start-Sleep -Seconds 30'
-            $env:V8KIT_SESSION_CHECK_TIMEOUT = '2'   # 2 с: заглушка встигає надрукувати рядок і скинути буфер у файл
+            # Стеля 6 с, не 2: заглушка мусить устигнути запустити pwsh (263 мс без завантаження),
+            # надрукувати рядок і скинути буфер у файл — під паралельним прогоном (кілька pwsh
+            # воркерів одночасно) 2 с інколи не вистачає, і тест падає на відсутньому
+            # install-hooks у виводі, що виглядає як флак від паралельності, а не як регрес.
+            # Заглушка все одно спить 30 с, тож властивість, яку тест перевіряє (частковий вивід
+            # до стелі), не міняється — росте лише запас на завантажену машину.
+            $env:V8KIT_SESSION_CHECK_TIMEOUT = '6'
             try { $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String }
             finally { Remove-Item Env:\V8KIT_SESSION_CHECK_TIMEOUT -ErrorAction SilentlyContinue }
             $out | Should -BeLike '*Частково*'
