@@ -48,6 +48,21 @@
     "воркер дійшов до кінця й записав підсумок" (0) чи "воркер зламався" (1, `Error` непорожнє).
     Без цього розділення `Get-KitRunVerdict` (Task 1) не міг би відрізнити мертвий воркер від
     звичайного червоного прогону — впалі тести й так видно через `FailedCount` підсумку.
+
+    ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.1 (діра в центральній властивості "хибне ЗЕЛЕНО неможливе"): файл,
+    що впав на дискавері (синтаксична помилка, битий `BeforeDiscovery`, битий `-ForEach`), дає
+    `$result.TotalCount = 0` і `$result.FailedCount = 0` — Pester не запускає ЖОДНОГО тесту, тож
+    старий код бачив порожній файл як "виконаний контейнер" і мовчав. Сам провал видно лише через
+    `$result.FailedContainersCount` (і докладно — через `$result.FailedContainers`, кожен елемент
+    якого несе `.Item` (шлях) і `.ErrorRecord` (текст помилки дискавері)). Тому нижче накопичується
+    окремий лічильник `$failedContainersCount`, а кожен провалений контейнер іде в той самий
+    список `$failures`, що й провалені тести (`Name = '(дискавері)'` — маркер, за яким
+    `Get-KitRunVerdict` відрізняє провал контейнера від провалу тесту). Перевірено емпірично
+    (Pester 6.1.0, `Invoke-Pester -PassThru`): і синтаксична помилка файлу, і `throw` в
+    `BeforeDiscovery` дають однаковий відбиток `FailedContainersCount = 1, FailedCount = 0,
+    TotalCount = 0`. Провал усередині `BeforeAll` — інша форма: Pester сам заводить синтетичний
+    провалений тест (`$result.Failed` непорожній, `FailedCount > 0`), і його вже ловить наявний
+    цикл `foreach ($test in $result.Failed)` нижче — окремої обробки не потребує.
 .PARAMETER FileListPath
     Текстовий файл з одним повним шляхом до файлу тестів на рядок.
 .PARAMETER SummaryPath
@@ -79,15 +94,16 @@ Import-Module Pester -MinimumVersion 5.0
 
 $ExcludeTag = @($ExcludeTag | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
-$containers   = 0
-$totalCount   = 0
-$passedCount  = 0
-$failedCount  = 0
-$skippedCount = 0
-$notRunCount  = 0
-$durations    = @{}
-$failures     = [System.Collections.Generic.List[pscustomobject]]::new()
-$errorText    = $null
+$containers            = 0
+$totalCount            = 0
+$passedCount           = 0
+$failedCount           = 0
+$skippedCount          = 0
+$notRunCount           = 0
+$failedContainersCount = 0
+$durations             = @{}
+$failures              = [System.Collections.Generic.List[pscustomobject]]::new()
+$errorText             = $null
 
 try {
     $files = @(
@@ -114,11 +130,12 @@ try {
         $result = Invoke-Pester -Configuration $config
 
         $containers++
-        $totalCount   += $result.TotalCount
-        $passedCount  += $result.PassedCount
-        $failedCount  += $result.FailedCount
-        $skippedCount += $result.SkippedCount
-        $notRunCount  += $result.NotRunCount
+        $totalCount            += $result.TotalCount
+        $passedCount           += $result.PassedCount
+        $failedCount           += $result.FailedCount
+        $skippedCount          += $result.SkippedCount
+        $notRunCount           += $result.NotRunCount
+        $failedContainersCount += $result.FailedContainersCount
         $durations[$leaf] = [math]::Round($result.Duration.TotalSeconds, 2)
 
         foreach ($test in $result.Failed) {
@@ -129,6 +146,20 @@ try {
                 Message = $message
             })
         }
+
+        # Провал контейнера (дискавері) — синтаксична помилка файлу чи throw у
+        # BeforeDiscovery: Pester не рахує це провалом ТЕСТУ ($result.Failed тут порожній),
+        # тому без цього циклу файл лишався б непоміченим (див. ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.1
+        # вище). Name = '(дискавері)' — маркер, за яким Get-KitRunVerdict відрізняє цей запис
+        # від провалу звичайного тесту.
+        foreach ($container in $result.FailedContainers) {
+            $message = ($container.ErrorRecord | ForEach-Object { $_.Exception.Message }) -join '; '
+            $failures.Add([pscustomobject]@{
+                File    = $leaf
+                Name    = '(дискавері)'
+                Message = $message
+            })
+        }
     }
 }
 catch {
@@ -136,15 +167,16 @@ catch {
 }
 finally {
     $summary = [pscustomobject]@{
-        Containers   = $containers
-        TotalCount   = $totalCount
-        PassedCount  = $passedCount
-        FailedCount  = $failedCount
-        SkippedCount = $skippedCount
-        NotRunCount  = $notRunCount
-        Durations    = $durations
-        Failures     = @($failures.ToArray())
-        Error        = $errorText
+        Containers            = $containers
+        TotalCount            = $totalCount
+        PassedCount           = $passedCount
+        FailedCount           = $failedCount
+        SkippedCount          = $skippedCount
+        NotRunCount           = $notRunCount
+        FailedContainersCount = $failedContainersCount
+        Durations             = $durations
+        Failures              = @($failures.ToArray())
+        Error                 = $errorText
     }
 
     $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $SummaryPath -Encoding utf8NoBOM

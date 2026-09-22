@@ -200,6 +200,36 @@ function Write-KitTestDurations {
     $ordered | ConvertTo-Json | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
 }
 
+function Get-KitOptionalCountSum {
+    <#
+    .SYNOPSIS
+        Безпечно підсумовує числове поле, якого може не бути на частині об'єктів.
+    .DESCRIPTION
+        Приватна допоміжна (не в Export-ModuleMember). На відміну від
+        `Measure-Object -Property X -Sum`, не пише нетермінальну помилку в error stream, коли
+        поле відсутнє на всіх чи частині об'єктів — таке трапляється в юніт-тестах
+        Get-KitRunVerdict, які будують pscustomobject вручну й не завжди задають кожне поле
+        (FailedContainersCount, NotRunCount тощо). Відсутнє поле важить 0, так само як
+        Measure-Object -Sum на порожньому наборі (задокументовано в Get-KitRunVerdict) зводиться
+        до 0 явно.
+    .EXAMPLE
+        Get-KitOptionalCountSum -Objects $Summaries -Name 'FailedContainersCount'
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Objects,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $sum = 0
+    foreach ($object in $Objects) {
+        $property = $object.PSObject.Properties[$Name]
+        if ($property -and $null -ne $property.Value) {
+            $sum += [double]$property.Value
+        }
+    }
+    return $sum
+}
+
 function Get-KitRunVerdict {
     <#
     .SYNOPSIS
@@ -208,9 +238,16 @@ function Get-KitRunVerdict {
         Зелено лише коли причин немає жодної. Причини збираються всі, не перша-ліпша:
         мертвий воркер (код виходу ≠ 0), брак підсумку (менше підсумків, ніж воркерів),
         розбіжність контейнерів із розданими файлами (хтось не виконався непоміченим),
-        нуль виконаних тестів (мовчазне "0 тестів" паралельної форми) і впалі тести.
+        нуль ВИКОНАНИХ тестів (TotalCount − NotRunCount; мовчазне "0 тестів" паралельної форми,
+        і так само мовчазне "тегом відфільтрувало все" — TotalCount > 0, але жоден тест не
+        виконався), впалі тести і провал контейнера дискавері (ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.1:
+        синтаксична помилка файлу чи throw у BeforeDiscovery дають TotalCount = 0 і
+        FailedCount = 0 одночасно — жодна з двох попередніх причин цього не ловить, бо файл
+        не порожній сам по собі, якщо СУСІДНІ файли того самого воркера виконались нормально).
         Measure-Object -Sum на порожньому наборі повертає $null — усі суми зводяться до 0
-        явно, інакше порівняння з числом дало б хибне "зелено".
+        явно, інакше порівняння з числом дало б хибне "зелено". FailedContainersCount і
+        NotRunCount можуть бути відсутні на об'єктах, зібраних вручну (юніт-тести) —
+        Get-KitOptionalCountSum трактує відсутнє поле як 0 без помилки в error stream.
     .EXAMPLE
         Get-KitRunVerdict -Summaries $summaries -DispatchedFiles $files -WorkerExitCodes $codes
     #>
@@ -254,7 +291,14 @@ function Get-KitRunVerdict {
 
     $totalSum = ($Summaries | Measure-Object -Property TotalCount -Sum)?.Sum
     if ($null -eq $totalSum) { $totalSum = 0 }
-    if ($totalSum -eq 0) {
+
+    # Виконано = TotalCount − NotRunCount (NotRunCount — відфільтровані тегом, не впалі й не
+    # пропущені). Перевірка саме TotalCount пропускала б випадок "тег відфільтрував усе":
+    # TotalCount > 0 (тести існують), NotRunCount = TotalCount (жоден не виконався),
+    # FailedCount = 0 — обидві попередні причини мовчали б, і прогін пройшов би як ЗЕЛЕНО.
+    $notRunSum = Get-KitOptionalCountSum -Objects $Summaries -Name 'NotRunCount'
+    $executedSum = $totalSum - $notRunSum
+    if ($executedSum -le 0) {
         $reasons.Add('прогін не виконав жодного тесту')
     }
 
@@ -262,6 +306,27 @@ function Get-KitRunVerdict {
     if ($null -eq $failedSum) { $failedSum = 0 }
     if ($failedSum -gt 0) {
         $reasons.Add("впало тестів: $failedSum")
+    }
+
+    # Провал контейнера дискавері (ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.1): TotalCount і FailedCount самого
+    # проваленого файлу — обидва 0, тож жодна з причин вище нічого не ловить, якщо в тому ж
+    # воркері є хоча б один справний файл (сума TotalCount по воркеру лишається > 0). Файли
+    # називає Invoke-TestWorker.ps1 через записи Failures з Name = '(дискавері)' — той самий
+    # список, що й провалені тести, з відмітним маркером замість імені тесту.
+    $failedContainersSum = Get-KitOptionalCountSum -Objects $Summaries -Name 'FailedContainersCount'
+    if ($failedContainersSum -gt 0) {
+        $containerFiles = [System.Collections.Generic.List[string]]::new()
+        foreach ($summary in $Summaries) {
+            $failuresProperty = $summary.PSObject.Properties['Failures']
+            if (-not $failuresProperty) { continue }
+            foreach ($failure in @($failuresProperty.Value)) {
+                if ($failure -and $failure.Name -eq '(дискавері)') {
+                    $containerFiles.Add([string]$failure.File)
+                }
+            }
+        }
+        $namesText = if ($containerFiles.Count -gt 0) { ": $($containerFiles -join ', ')" } else { '' }
+        $reasons.Add("провалено контейнерів дискавері: $failedContainersSum$namesText")
     }
 
     [pscustomobject]@{

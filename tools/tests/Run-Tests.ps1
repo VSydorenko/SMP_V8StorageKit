@@ -49,7 +49,7 @@
 .EXAMPLE
     pwsh tools/tests/Run-Tests.ps1                                       # усе, разом з Integration, паралельно
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration                # без запуску платформи, паралельно
-    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only Sync     # лише Sync.Tests.ps1, один процес
+    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only Sync     # група Sync.*.Tests.ps1 (5 файлів), один процес
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only Sync,Verify
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Serial        # усе послідовно, для діагностики
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Workers 4     # паралельно, але з 4 воркерами
@@ -204,13 +204,25 @@ $stopwatch.Stop()
 # ловиться тут, а сам шлях файлу йде в $summaryErrors, щоб причина називала конкретний
 # файл, а не тільки загальну розбіжність лічильників у Get-KitRunVerdict.
 $summaryErrors = [System.Collections.Generic.List[string]]::new()
+# ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.2: Invoke-TestWorker.ps1 пише причину власної смерті в поле
+# `Error` підсумку (виняток, спійманий у власному try/catch воркера — не лише "код виходу
+# ≠ 0", а й ЩО саме сталось), і до цього фіксу тут його ніхто не читав: людина бачила
+# "воркер 3 вийшов з кодом 1" без жодного тексту причини. $workerErrors збирається в тому
+# самому проході, що будує $summaries, — другий прохід по вже прочитаному JSON був би
+# зайвим.
+$workerErrors  = [System.Collections.Generic.List[string]]::new()
 $summaries = @(foreach ($w in $workerProcs) {
     if (Test-Path -LiteralPath $w.SummaryPath -PathType Leaf) {
         try {
-            Get-Content -LiteralPath $w.SummaryPath -Raw | ConvertFrom-Json
+            $parsedSummary = Get-Content -LiteralPath $w.SummaryPath -Raw | ConvertFrom-Json
         } catch {
             $summaryErrors.Add("воркер $($w.Index): підсумок '$($w.SummaryPath)' пошкоджено — $($_.Exception.Message)")
+            continue
         }
+        if ($parsedSummary.Error) {
+            $workerErrors.Add("воркер $($w.Index): $($parsedSummary.Error)")
+        }
+        $parsedSummary
     }
 })
 
@@ -238,6 +250,14 @@ if ($FullLog) {
         if (Test-Path -LiteralPath $w.StdoutPath -PathType Leaf) {
             Get-Content -LiteralPath $w.StdoutPath -Raw | Write-Host
         }
+        # ФІНАЛЬНЕ РЕВ'Ю ГІЛКИ, п.5: stderr не друкувався НІКОЛИ — а саме туди осідає смерть
+        # самого процесу (нативний крах pwsh, необроблений виняток до власного try/catch
+        # воркера), якої stdout не бачить. Друкується лише коли непорожній — щоб не
+        # засмічувати звичайний зелений прогін порожніми заголовками.
+        if ((Test-Path -LiteralPath $w.StderrPath -PathType Leaf) -and (Get-Item -LiteralPath $w.StderrPath).Length -gt 0) {
+            Write-Host "----- воркер $($w.Index): stderr -----"
+            Get-Content -LiteralPath $w.StderrPath -Raw | Write-Host
+        }
     }
 }
 
@@ -264,8 +284,8 @@ $executedCount = $verdict.TotalCount - $notRunSum
 # Причини Get-KitRunVerdict не знають про невдалий запуск процесу чи пошкоджений підсумок
 # (Get-KitRunVerdict читає лише те, що йому дали, — самих цих подій не бачить), тому
 # зводяться в одну причину поруч. Зелено лише коли немає жодної з усіх трьох джерел.
-$allReasons = @($verdict.Reasons) + @($launchErrors) + @($summaryErrors)
-$isGreen    = $verdict.Green -and ($launchErrors.Count -eq 0) -and ($summaryErrors.Count -eq 0)
+$allReasons = @($verdict.Reasons) + @($launchErrors) + @($summaryErrors) + @($workerErrors)
+$isGreen    = $verdict.Green -and ($launchErrors.Count -eq 0) -and ($summaryErrors.Count -eq 0) -and ($workerErrors.Count -eq 0)
 
 Write-Host ''
 Write-Host "файлів: $($verdict.Containers)/$($dispatchedFiles.Count), тестів: $($verdict.TotalCount) (виконано $executedCount, відфільтровано тегом $notRunSum), впало: $($verdict.FailedCount), час: $([math]::Round($stopwatch.Elapsed.TotalSeconds, 1)) с"

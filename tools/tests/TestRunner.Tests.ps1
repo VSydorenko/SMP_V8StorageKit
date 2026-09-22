@@ -367,6 +367,53 @@ Describe 'Get-KitRunVerdict' {
         ($verdict.Reasons -join '; ') | Should -BeLike '*впало тестів: 2*'
     }
 
+    It 'провал контейнера дискавері поруч зі справними тестами — не Green, навіть якщо TotalCount > 0 (ФІНАЛЬНЕ РЕВ''Ю, п.1)' {
+        # Відтворює точно той відбиток, який дає Pester 6.1.0 на файлі із синтаксичною
+        # помилкою чи throw у BeforeDiscovery: FailedContainersCount = 1, але FailedCount = 0
+        # і TotalCount > 0 (СУСІДНІ файли того самого воркера виконались нормально). Без фіксу
+        # ЖОДНА з наявних причин цього не ловить: Containers (2) = DispatchedFiles (2), TotalCount
+        # (5) > 0, FailedCount (0) — вердикт був би Green. Це і є дірка, яку знайшло фінальне
+        # рев'ю гілки.
+        $summaries = @(
+            [pscustomobject]@{ Containers = 2; TotalCount = 5; FailedCount = 0; FailedContainersCount = 1;
+                Failures = @([pscustomobject]@{ File = 'Зламаний.Tests.ps1'; Name = '(дискавері)'; Message = 'ParseException' }) }
+        )
+
+        $verdict = Get-KitRunVerdict -Summaries $summaries -DispatchedFiles @('a.Tests.ps1', 'b.Tests.ps1') -WorkerExitCodes @(0)
+
+        $verdict.Green | Should -BeFalse
+        # Дискримінуючий бік: причина називає і кількість, і файл — не загальне "щось не так".
+        ($verdict.Reasons -join '; ') | Should -BeLike '*дискавері*'
+        ($verdict.Reasons -join '; ') | Should -BeLike '*Зламаний.Tests.ps1*'
+    }
+
+    It 'FailedContainersCount відсутній на об''єкті (старий стиль юніт-тесту) — не помилка, причина не з''являється' {
+        # Дискримінуючий бік: без Get-KitOptionalCountSum звернення до відсутнього поля через
+        # Measure-Object -Property пише нетермінальну помилку в error stream (перевірено
+        # окремо) — тут перевіряється, що виклик взагалі не кидає і що причина «дискавері»
+        # не з'являється, коли самого поля немає (а не коли воно є й дорівнює 0).
+        $summaries = @(
+            [pscustomobject]@{ Containers = 1; TotalCount = 5; FailedCount = 0 }
+        )
+
+        { Get-KitRunVerdict -Summaries $summaries -DispatchedFiles @('a.Tests.ps1') -WorkerExitCodes @(0) } | Should -Not -Throw
+        $verdict = Get-KitRunVerdict -Summaries $summaries -DispatchedFiles @('a.Tests.ps1') -WorkerExitCodes @(0)
+        ($verdict.Reasons -join '; ') | Should -Not -BeLike '*дискавері*'
+    }
+
+    It 'весь набір відфільтровано тегом (TotalCount = NotRunCount > 0) — не Green, «нуль тестів», а не мовчазне ЗЕЛЕНО' {
+        # Дискримінуючий бік прямо: до фіксу перевірка дивилась лише на TotalCount (5, > 0) і
+        # FailedCount (0) — жодна причина не спрацьовувала б, хоча виконано рівно нуль тестів.
+        $summaries = @(
+            [pscustomobject]@{ Containers = 1; TotalCount = 5; FailedCount = 0; NotRunCount = 5 }
+        )
+
+        $verdict = Get-KitRunVerdict -Summaries $summaries -DispatchedFiles @('a.Tests.ps1') -WorkerExitCodes @(0)
+
+        $verdict.Green | Should -BeFalse
+        ($verdict.Reasons -join '; ') | Should -BeLike '*жодного тесту*'
+    }
+
     It 'порожній -Summaries — Measure-Object -Sum дає $null, вердикт не зелений, причина названа' {
         # DispatchedFiles і WorkerExitCodes теж порожні: реалістичний край "жоден воркер не
         # стартував" (0 файлів роздано, 0 воркерів запущено, 0 підсумків) — не штучний $null
