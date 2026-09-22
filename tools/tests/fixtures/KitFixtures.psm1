@@ -291,6 +291,38 @@ function Add-KitFakeStorageCommit {
     Invoke-KitFakeGit -C $Repo worktree remove --force $wt | Out-Null
 }
 
+function Invoke-KitCommand {
+    <#
+    .SYNOPSIS
+        Спільний виклик kit.ps1 підпроцесом — та сама форма, що вже стояла в одинадцяти
+        файлах тестів (Invoke-Check, Invoke-Sync, Invoke-Provision, ...).
+    .DESCRIPTION
+        Task 5 ("Швидкість набору тестів"): один спільний виклик прибирає дублювання
+        локальних обгорток, але робить його ЄДИНОЮ точкою відмови всіх E2E-тестів набору —
+        якби він тихо ковтав ненульовий код виходу, зелено-завжди стали б усі відразу. Тому
+        функція має власний тест (KitFixtures.Tests.ps1), а не лише локальні обгортки, що
+        делегують сюди.
+
+        -Command і -Repo НЕОБОВ'ЯЗКОВІ: kit.ps1 без команди й без -RepoRoot теж треба вміти
+        покликати (напр., перевірка невідомої команди диспетчера) — токен команди й пара
+        '-RepoRoot <шлях>' додаються до аргументів лише тоді, коли відповідний параметр
+        переданий і непорожній.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Kit,
+        [string]$Command,
+        [string]$Repo,
+        [string[]]$More = @()
+    )
+    $cmdArgs = [System.Collections.Generic.List[string]]::new()
+    if ($Command) { $cmdArgs.Add($Command) }
+    if ($Repo)    { $cmdArgs.Add('-RepoRoot'); $cmdArgs.Add($Repo) }
+    foreach ($m in $More) { $cmdArgs.Add($m) }
+    $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
+    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+}
+
 function Copy-KitTools {
     <#
     .SYNOPSIS
@@ -335,4 +367,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools, Invoke-KitCommand
