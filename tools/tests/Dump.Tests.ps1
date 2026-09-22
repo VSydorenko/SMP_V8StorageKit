@@ -46,12 +46,12 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
 
 Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe (рев''ю Task 5, Important 2)' {
     # dump лишалась єдиною командою блоку без покриття Apply-гілки платформним моком —
-    # Sync.Tests.ps1 і Verify.Tests.ps1 уже мають такий Describe для sync/verify (мок
+    # Sync.Merge.Tests.ps1 і Verify.Tests.ps1 уже мають такий Describe для sync/verify (мок
     # New-ExtensionInfobase/Invoke-V8Designer -ModuleName StoragePlatform чи verify). Тут той
     # самий прийом: lib-модулі в порядку module-order.txt, потім САМЕ commands/dump.psm1 у
     # ЦЬОМУ процесі (не підпроцесом kit.ps1) — лише так Mock -ModuleName бачить приватний
     # стіл команд саме dump (Mock -ModuleName діє лише в межах названого модуля — урок Task 1,
-    # повторений і в Sync.Tests.ps1, і в Verify.Tests.ps1).
+    # повторений і в Sync.Merge.Tests.ps1, і в Verify.Tests.ps1).
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
