@@ -142,6 +142,14 @@ foreach ($bucket in $buckets) {
 $excludeArg = if ($ExcludeTag) { $ExcludeTag -join ',' } else { $null }
 $workerScript = "$PSScriptRoot/lib/Invoke-TestWorker.ps1"
 
+# Причини, яких не бачить Get-KitRunVerdict (він не знає про сам факт запуску процесу чи
+# про читаність JSON) — збираються тут і йдуть у підсумковий вердикт поруч із його
+# причинами. Без цього невдалий Start-Process чи пошкоджений підсумок або впали б сирим
+# стеком (мета «зелено неможливе помилково, і причина названа» цього не переживе), або
+# затерлись би загальною фразою «хтось не лишив підсумку», яка не називає, який саме файл
+# і чому непридатний.
+$launchErrors = [System.Collections.Generic.List[string]]::new()
+
 $workerProcs = @(foreach ($bucket in $buckets) {
     $fileListPath = Join-Path $testRunRoot "worker-$($bucket.Index).files.txt"
     $summaryPath  = Join-Path $testRunRoot "worker-$($bucket.Index).summary.json"
@@ -153,9 +161,14 @@ $workerProcs = @(foreach ($bucket in $buckets) {
     $argumentList = @('-NoProfile', '-File', $workerScript, '-FileListPath', $fileListPath, '-SummaryPath', $summaryPath)
     if ($excludeArg) { $argumentList += @('-ExcludeTag', $excludeArg) }
 
-    # Різні файли для stdout і stderr — один файл на два потоки Start-Process не приймає.
-    $process = Start-Process -FilePath 'pwsh' -ArgumentList $argumentList -NoNewWindow -PassThru `
-        -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $process = $null
+    try {
+        # Різні файли для stdout і stderr — один файл на два потоки Start-Process не приймає.
+        $process = Start-Process -FilePath 'pwsh' -ArgumentList $argumentList -NoNewWindow -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    } catch {
+        $launchErrors.Add("воркер $($bucket.Index): не вдалося запустити процес — $($_.Exception.Message)")
+    }
 
     [pscustomobject]@{
         Index       = $bucket.Index
@@ -171,19 +184,33 @@ $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 # WaitForExit() на кожному — і лише ПОТІМ читати ExitCode. $null там означає збій
 # воркера (процес не завершився штатно), а не 0 — трактувати інакше було б мовчазним
-# "зелено" там, де насправді нема чим його підтвердити.
+# "зелено" там, де насправді нема чим його підтвердити. Процес, який не вдалось запустити
+# ($process лишився $null — причина вже названа в $launchErrors), так само рахується як 1:
+# інакше він мовчки випав би із суми кодів виходу.
 $exitCodes = foreach ($w in $workerProcs) {
-    $w.Process.WaitForExit()
-    $code = $w.Process.ExitCode
-    if ($null -eq $code) { $code = 1 }
-    $code
+    if ($null -eq $w.Process) {
+        1
+    } else {
+        $w.Process.WaitForExit()
+        $code = $w.Process.ExitCode
+        if ($null -eq $code) { $code = 1 }
+        $code
+    }
 }
 
 $stopwatch.Stop()
 
+# Пошкоджений чи обрізаний JSON (воркера вбито посеред запису) не має падати сирим стеком:
+# ловиться тут, а сам шлях файлу йде в $summaryErrors, щоб причина називала конкретний
+# файл, а не тільки загальну розбіжність лічильників у Get-KitRunVerdict.
+$summaryErrors = [System.Collections.Generic.List[string]]::new()
 $summaries = @(foreach ($w in $workerProcs) {
     if (Test-Path -LiteralPath $w.SummaryPath -PathType Leaf) {
-        Get-Content -LiteralPath $w.SummaryPath -Raw | ConvertFrom-Json
+        try {
+            Get-Content -LiteralPath $w.SummaryPath -Raw | ConvertFrom-Json
+        } catch {
+            $summaryErrors.Add("воркер $($w.Index): підсумок '$($w.SummaryPath)' пошкоджено — $($_.Exception.Message)")
+        }
     }
 })
 
@@ -225,13 +252,28 @@ foreach ($summary in $summaries) {
     }
 }
 
-Write-Host ''
-Write-Host "файлів: $($verdict.Containers)/$($dispatchedFiles.Count), тестів: $($verdict.TotalCount), впало: $($verdict.FailedCount), час: $([math]::Round($stopwatch.Elapsed.TotalSeconds, 1)) с"
+# NotRunCount — тести, відфільтровані тегом (-ExcludeTag), а не пропущені (-Skip) і не
+# впалі: Pester рахує їх у TotalCount, але не в SkippedCount, тому "тестів: $TotalCount"
+# сам по собі неоднозначний — один прогін уже прочитали як "загублено 15 тестів", хоча
+# насправді жоден не зник, вони просто відфільтровані. Той самий "?.Sum"-ідіом, що в
+# Get-KitRunVerdict (Task 1): Measure-Object -Sum на порожньому наборі повертає $null.
+$notRunSum = ($summaries | Measure-Object -Property NotRunCount -Sum)?.Sum
+if ($null -eq $notRunSum) { $notRunSum = 0 }
+$executedCount = $verdict.TotalCount - $notRunSum
 
-if ($verdict.Green) {
+# Причини Get-KitRunVerdict не знають про невдалий запуск процесу чи пошкоджений підсумок
+# (Get-KitRunVerdict читає лише те, що йому дали, — самих цих подій не бачить), тому
+# зводяться в одну причину поруч. Зелено лише коли немає жодної з усіх трьох джерел.
+$allReasons = @($verdict.Reasons) + @($launchErrors) + @($summaryErrors)
+$isGreen    = $verdict.Green -and ($launchErrors.Count -eq 0) -and ($summaryErrors.Count -eq 0)
+
+Write-Host ''
+Write-Host "файлів: $($verdict.Containers)/$($dispatchedFiles.Count), тестів: $($verdict.TotalCount) (виконано $executedCount, відфільтровано тегом $notRunSum), впало: $($verdict.FailedCount), час: $([math]::Round($stopwatch.Elapsed.TotalSeconds, 1)) с"
+
+if ($isGreen) {
     Write-Host "ЗЕЛЕНО. Логи: $testRunRoot"
     exit 0
 } else {
-    Write-Host "ЧЕРВОНО: $($verdict.Reasons -join '; '). Логи: $testRunRoot"
+    Write-Host "ЧЕРВОНО: $($allReasons -join '; '). Логи: $testRunRoot"
     exit 1
 }

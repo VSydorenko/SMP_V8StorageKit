@@ -61,6 +61,7 @@ $totalCount   = 0
 $passedCount  = 0
 $failedCount  = 0
 $skippedCount = 0
+$notRunCount  = 0
 $durations    = @{}
 $failures     = [System.Collections.Generic.List[pscustomobject]]::new()
 $errorText    = $null
@@ -94,6 +95,7 @@ try {
         $passedCount  += $result.PassedCount
         $failedCount  += $result.FailedCount
         $skippedCount += $result.SkippedCount
+        $notRunCount  += $result.NotRunCount
         $durations[$leaf] = [math]::Round($result.Duration.TotalSeconds, 2)
 
         foreach ($test in $result.Failed) {
@@ -116,6 +118,7 @@ finally {
         PassedCount  = $passedCount
         FailedCount  = $failedCount
         SkippedCount = $skippedCount
+        NotRunCount  = $notRunCount
         Durations    = $durations
         Failures     = @($failures.ToArray())
         Error        = $errorText
