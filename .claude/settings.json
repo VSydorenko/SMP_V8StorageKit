@@ -16,6 +16,9 @@
       "Bash(git bundle verify:*)",
       "Bash(pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration)",
       "Bash(pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only:*)",
+      "Bash(pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Serial:*)",
+      "Bash(pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Workers:*)",
+      "Bash(pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration -FullLog:*)",
       "Bash(pwsh -NoProfile -File tools/check-environment.ps1)",
       "Bash(pwsh -NoProfile -File tools/kit.ps1 check:*)"
     ],
