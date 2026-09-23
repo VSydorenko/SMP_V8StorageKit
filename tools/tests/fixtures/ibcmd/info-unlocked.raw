@@ -1,0 +1,12 @@
+name                         : "YAXUNIT"
+version                      : "25.12"
+active                       : yes
+purpose                      : add-on
+safe-mode                    : no
+security-profile-name        : 
+unsafe-action-protection     : no
+used-in-distributed-infobase : no
+scope                        : infobase
+hash-sum                     : "lra4BrMlENhV9lrqMu3kkKDdsoI="
+
+

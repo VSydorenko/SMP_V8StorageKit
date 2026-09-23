@@ -34,3 +34,7 @@ tools/assets/empty-extension/**/*.xml text eol=crlf
 # рядка ("command not found: exit\r"), а ці файли не пише платформа — вони мусять
 # бути LF у будь-якому клоні й у будь-якому кеші плагіна.
 templates/githooks/* text eol=lf
+
+# Сирий вивід ibcmd/1cv8 (вимір 2026-09-23, план D2): фікстури побайтові — змішане кодування
+# (UTF-8 без BOM, UTF-8 з BOM, cp866) і LF; конверсія на checkout зіпсувала б саме те, що тестується.
+tools/tests/fixtures/ibcmd/** -text

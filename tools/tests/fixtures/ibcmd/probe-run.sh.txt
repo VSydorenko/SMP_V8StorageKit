@@ -1,0 +1,7 @@
+# run.sh <крок> <команда...> — сирі байти в <крок>.raw, код у <крок>.exit, друк у cp866->utf8
+S="C:/Users/VSydorenko/AppData/Local/Temp/12/claude/R--github-SMP-SimplyConnect/42108cdd-b47a-4671-bebc-1a98c53bf963/scratchpad/ibprobe"
+step="$1"; shift
+MSYS_NO_PATHCONV=1 "$@" > "$S/$step.raw" 2>&1; rc=$?; echo "$rc" > "$S/$step.exit"
+echo "----- [$step] exit=$rc, $(stat -c%s "$S/$step.raw") байт -----"
+W=$(cygpath -w "$S/$step.raw")
+powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Text.Encoding]::GetEncoding(866).GetString([IO.File]::ReadAllBytes('$W'))"
