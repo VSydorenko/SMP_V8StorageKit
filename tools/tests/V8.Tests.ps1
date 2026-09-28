@@ -89,15 +89,19 @@ Describe 'ConvertFrom-V8Connection — єдиний розбір рядка пі
     }
 
     It 'кидає на Srvr= без Ref=' {
-        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;' } | Should -Throw
+        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;' } | Should -Throw '*бракує Ref=*'
     }
 
     It 'кидає на Ref= без Srvr=' {
-        { ConvertFrom-V8Connection -Connection 'Ref=DEMO_BASE;' } | Should -Throw
+        { ConvertFrom-V8Connection -Connection 'Ref=DEMO_BASE;' } | Should -Throw '*бракує Srvr=*'
     }
 
     It 'кидає, коли Srvr= і File= задано одночасно' {
-        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE;File=C:\x;' } | Should -Throw
+        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE;File=C:\x;' } | Should -Throw '*одночасно Srvr= і File=*'
+    }
+
+    It 'кидає на повтореному ключі — неоднозначний рядок, а не «останній виграє»' {
+        { ConvertFrom-V8Connection -Connection 'Srvr=A;Srvr=B;Ref=DEMO_BASE;' } | Should -Throw '*двічі*'
     }
 
     It 'кидає на невідомому ключі' {
@@ -105,11 +109,11 @@ Describe 'ConvertFrom-V8Connection — єдиний розбір рядка пі
     }
 
     It 'кидає на голому шляху без File=' {
-        { ConvertFrom-V8Connection -Connection 'C:\bases\demo' } | Should -Throw
+        { ConvertFrom-V8Connection -Connection 'C:\bases\demo' } | Should -Throw '*голий шлях без ключа*'
     }
 
     It 'кидає на порожньому значенні ключа' {
-        { ConvertFrom-V8Connection -Connection 'File=' } | Should -Throw
+        { ConvertFrom-V8Connection -Connection 'File=' } | Should -Throw '*порожнє значення для ключа*'
     }
 }
 
