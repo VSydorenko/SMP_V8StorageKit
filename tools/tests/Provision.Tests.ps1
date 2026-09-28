@@ -132,7 +132,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
 
     It 'серверна база агента — зупинка з поясненням (спайк §13), навіть із -Apply' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv') -WithHooks
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent"";'")
+        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=agent;'")
         $r = Invoke-Provision -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*Srvr*кластер*'
@@ -171,10 +171,10 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $cfg | Should -Exist
         }
 
-        It 'F5: infobase.connection = File="D:\" (за межами воркспейсу і репозиторію) — відмова, платформа не викликається' {
+        It 'F5: infobase.connection = File=D:\ (за межами воркспейсу і репозиторію) — відмова, платформа не викликається' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'outside-drive') -WithHooks
             Add-KitOwnerTree -Repo $repo
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=""D:\""'")
+            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=D:\'")
             $r = Invoke-Provision -Repo $repo -More @('-Apply')
             $r.ExitCode | Should -Not -Be 0
             Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist

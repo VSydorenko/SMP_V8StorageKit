@@ -164,7 +164,7 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
     It 'читає приклад зі спеки: дві дев-бази, перевизначення сховища, шаблон бази агента' {
         $o = Read-KitLocalOverlay -Path (Join-Path $script:Fixtures 'overlay-sample.yaml')
         $o.Infobases.Count | Should -Be 2
-        $o.Infobases['devUNFru'].Connection | Should -Be 'Srvr="VSDEV";Ref="SMP_ruUNF_sydorenko";'
+        $o.Infobases['devUNFru'].Connection | Should -Be 'Srvr=VSDEV;Ref=SMP_ruUNF_sydorenko;'
         $o.Infobases['devUNFru'].User | Should -Be 'Абдулов (директор)'
         $o.Storages['SMP_BankExchange_SMB'].Path | Should -Be 'D:\mirror\СМП_BankExchange_SMB'
         $o.Workspaces['SMP_BankExchange_SMB'].AgentBaseTemplate | Should -Be 'D:\dumps\UNF_demo.dt'

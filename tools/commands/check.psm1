@@ -89,8 +89,9 @@ function Invoke-KitCheck {
                 # Підстав для винятку кілька, і звужувати цей перелік назад до однієї НЕ треба
                 # (рев'ю C2 Task 11 спіймало саме таке звуження — тією ж помилкою, яку задача
                 # виправляла): (а) база агента збіглася з дев-базою людини — принцип 3;
-                # (б) підключення нерозбірне — ConvertTo-V8IbSwitch (V8.psm1) кидає на порожньому
-                # рядку, на Srvr= без Ref= і на невпізнаному форматі; (в) Test-KitSameInfobase
+                # (б) підключення нерозбірне — ConvertFrom-V8Connection (V8.psm1, issue #9) кидає на
+                # порожньому рядку, на лапках (kit більше не має подвійного режиму розбору), на
+                # голому шляху, на Srvr= без Ref= і на невідомому ключі; (в) Test-KitSameInfobase
                 # fail-closed і кидає й тоді, коли нерозбірне підключення дев-бази з накладки.
                 # Зупинка виправдана в усіх трьох, а текст самого винятку йде у повідомлення —
                 # тож людина бачить справжню причину, не наш здогад про неї.
@@ -171,6 +172,27 @@ function Invoke-KitCheck {
                 'v8storagekit.local.yaml вже закомічено в git — у ньому рядки підключення й користувачі ' +
                 'сховищ, а репозиторій публічний. Приберіть з індексу: git rm --cached -- v8storagekit.local.yaml. ' +
                 'Це не прибирає файл із ІСТОРІЇ попередніх комітів — лише зупиняє подальше витікання.')
+        }
+
+        # Задача 3 (issue #9) — підключення дев-бази з infobases: накладки досі розбиралось
+        # (ConvertFrom-V8Connection, V8.psm1) лише тоді, коли її звіряли з базою агента
+        # (гілка Resolve-KitAgentBase вище, truth: storage) — для воркспейсів лише з
+        # truth: dump/vendor або без бази агента нерозбірне підключення (стара форма в
+        # лапках, яку kit сам роздавав у templates/v8storagekit.local.yaml.example до цієї
+        # гілки) проходило check кодом 0 і падало лише на kit dump — мовчазна пастка при
+        # міграції старих накладок. Один раз на дев-базу, незалежно від кількості
+        # воркспейсів, — тому цикл тут, поза foreach ($src in $all) нижче. warn, не error:
+        # error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
+        # kit dump. Там, де та сама дев-база вже дала error 'agent-base-required' у гілці
+        # Resolve-KitAgentBase вище, ця знахідка законно дублюється — розводити їх
+        # ускладнило б код заради усунення дубля повідомлення.
+        if ($Context.Overlay) {
+            foreach ($human in $Context.Overlay.Infobases.Values) {
+                try { ConvertFrom-V8Connection -Connection $human.Connection | Out-Null }
+                catch {
+                    & $add warn overlay-connection "Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)"
+                }
+            }
         }
 
         foreach ($src in $all) {
@@ -415,11 +437,11 @@ function Invoke-KitCheck {
             if ($localConn -and $Context.Overlay) {
                 # F1 (рев'ю B4 Task 1): та сама формула ідентичності бази, що в
                 # Resolve-KitAgentBase (AgentBase.psm1) — текстова нормалізація (стара форма
-                # $norm) не бачила, що 'File="D:\x\"' і 'File=D:\x' та сама тека, і що
-                # 'Srvr="A";Ref="B";' та 'Ref="B";Srvr="A";' та сама база. Test-KitSameInfobase
-                # кидає, коли підключення не розбирається однозначно (fail-closed) — тут це
-                # ЗАБОРОНЕНО дати впасти check: перетворюємо на знахідку error, як і решта
-                # аудитів git нижче (Test-KitGitHooks).
+                # $norm) не бачила, що 'File=D:\x\' і 'File=D:\x' та сама тека, і що
+                # 'Srvr=A;Ref=B;' та 'Ref=B;Srvr=A;' та сама база. Test-KitSameInfobase
+                # кидає, коли підключення не розбирається однозначно (fail-closed, зокрема на
+                # значенні в лапках — issue #9) — тут це ЗАБОРОНЕНО дати впасти check:
+                # перетворюємо на знахідку error, як і решта аудитів git нижче (Test-KitGitHooks).
                 #
                 # Бік воркспейсу розв'язується до звірки (Resolve-KitAgentInfobasePath, чиста
                 # функція), тим самим прийомом, що в Resolve-KitAgentBase: відносний File=
@@ -427,7 +449,7 @@ function Invoke-KitCheck {
                 # б кидав — без цього check давав би error на кожному штатному File=build/ib.
                 try {
                     $localResolved = Resolve-KitAgentInfobasePath -Project $ws.Project -Connection $localConn
-                    $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File="{0}"' -f $localResolved.Path } else { $localConn }
+                    $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File={0}' -f $localResolved.Path } else { $localConn }
                     foreach ($human in $Context.Overlay.Infobases.Values) {
                         if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection) {
                             & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobase.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +

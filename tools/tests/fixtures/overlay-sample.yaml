@@ -1,9 +1,9 @@
 infobases:                          # живі бази, з яких kit ЛИШЕ читає
   devUNF:
-    connection: 'Srvr="VSDEV";Ref="SMP_UNF_sydorenko";'
+    connection: 'Srvr=VSDEV;Ref=SMP_UNF_sydorenko;'
     user: 'Администратор'
   devUNFru:
-    connection: 'Srvr="VSDEV";Ref="SMP_ruUNF_sydorenko";'
+    connection: 'Srvr=VSDEV;Ref=SMP_ruUNF_sydorenko;'
     user: 'Абдулов (директор)'
 
 storages:                           # перевизначення шляхів сховищ на цій машині

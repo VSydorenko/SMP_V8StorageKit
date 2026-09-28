@@ -275,7 +275,7 @@ function Resolve-KitInfobase {
 
     if ($null -eq $Overlay -or -not $Overlay.Infobases.ContainsKey($Name)) {
         throw ("Дев-базу '$Name' не описано в $OverlayPath під infobases: — додайте блок`n" +
-               "infobases:`n  ${Name}:`n    connection: 'Srvr=`"<сервер>`";Ref=`"<база>`";'   # або File=`"<шлях>`"`n    user: '<користувач>'")
+               "infobases:`n  ${Name}:`n    connection: 'Srvr=<сервер>;Ref=<база>;'   # або File=<шлях>`n    user: '<користувач>'")
     }
     $Overlay.Infobases[$Name]
 }

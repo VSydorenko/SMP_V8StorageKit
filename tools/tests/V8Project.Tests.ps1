@@ -69,15 +69,15 @@ Describe 'V8Project.psm1 — читання v8project.yaml Уніки' {
 
         It 'з devInfobase: (стара конвенція kit), але без infobase: — $null' {
             Set-Content -LiteralPath (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @(
-                'devInfobase:', "  connection: 'Srvr=""VSDEV"";Ref=""X"";'")
+                'devInfobase:', "  connection: 'Srvr=VSDEV;Ref=X;'")
             Read-V8ProjectLocalInfobase -Path (Join-Path $script:Ws 'v8project.local.yaml') | Should -BeNullOrEmpty
         }
 
         It 'з infobase.connection — повертає рядок як є' {
             Set-Content -LiteralPath (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @(
-                'infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent_ib"";'")
+                'infobase:', "  connection: 'Srvr=VSDEV;Ref=agent_ib;'")
             Read-V8ProjectLocalInfobase -Path (Join-Path $script:Ws 'v8project.local.yaml') |
-                Should -Be 'Srvr="VSDEV";Ref="agent_ib";'
+                Should -Be 'Srvr=VSDEV;Ref=agent_ib;'
         }
 
         It 'Resolve-V8AgentInfobase: накладка Уніки виграє у закоміченого конфіга й називає джерело' {
@@ -86,9 +86,9 @@ Describe 'V8Project.psm1 — читання v8project.yaml Уніки' {
             (Resolve-V8AgentInfobase -Project $p).Origin | Should -Be $p.Path
 
             Set-Content -LiteralPath (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @(
-                'infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent_ib"";'")
+                'infobase:', "  connection: 'Srvr=VSDEV;Ref=agent_ib;'")
             $r = Resolve-V8AgentInfobase -Project $p
-            $r.Connection | Should -Be 'Srvr="VSDEV";Ref="agent_ib";'
+            $r.Connection | Should -Be 'Srvr=VSDEV;Ref=agent_ib;'
             $r.Origin | Should -BeLike '*v8project.local.yaml'
         }
 
@@ -116,15 +116,15 @@ Describe 'V8Project.psm1 — шлях і ключ бази агента' {
         $r.IbSwitch | Should -Be ('/F "{0}"' -f $r.Path)
     }
     It 'абсолютний File= лишається як є' {
-        (Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'File="D:\ib\agent";').Path | Should -Be 'D:\ib\agent'
+        (Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'File=D:\ib\agent;').Path | Should -Be 'D:\ib\agent'
     }
     It 'Srvr= — server, ключ /S' {
-        $r = Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'Srvr="VSDEV";Ref="agent";'
+        $r = Resolve-KitAgentInfobasePath -Project $script:Project -Connection 'Srvr=VSDEV;Ref=agent;'
         $r.Kind | Should -Be 'server'
         $r.IbSwitch | Should -Be '/S "VSDEV\agent"'
     }
     It 'Resolve-V8AgentInfobase повертає user із накладки Уніки, коли він є' {
-        Set-Content (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent"";'", "  user: 'Агент'")
+        Set-Content (Join-Path $script:Ws 'v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=agent;'", "  user: 'Агент'")
         $r = Resolve-V8AgentInfobase -Project $script:Project
         $r.User | Should -Be 'Агент'
     }

@@ -27,33 +27,108 @@ function Get-V8Path {
     throw "Платформу 1С гілки 8.3.27.x не знайдено. Очікувався $candidate"
 }
 
-function ConvertTo-V8IbSwitch {
+function ConvertFrom-V8Connection {
+    <#
+    .SYNOPSIS
+        Єдиний розбір рядка підключення до інформаційної бази 1С (issue #9).
+    .DESCRIPTION
+        Одна форма на весь контур — без подвійного режиму: послідовність ключ=значення,
+        розділених ';', значення БЕЗ лапок (Srvr=SRV;Ref=BASE;, File=build/ib,
+        File=D:\Bases\X). Ключі не залежать від регістру, пробіли довкола ключа й
+        значення обрізаються, кінцева ';' необов'язкова, порядок ключів довільний.
+
+        Значення в лапках — не інший запис тієї самої форми, а помилка: Уніка
+        (v8-runner) на серверній базі з формою в лапках (Srvr="SRV";Ref="BASE";) не
+        підключається («Сервер 1С:Предприятия не обнаружен», спроба на порт 1542;
+        виміряно 2026-09-22, 8.3.27.1644) — і та сама база без лапок підключається.
+        Власна документація Уніки показує форму в лапках, вона хибна щодо поведінки.
+        Тому лапки тут — fail-closed: не знімаються мовчки (це й був би подвійний
+        режим), а зупиняють розбір із готовою виправленою формою в тексті.
+
+        Голий шлях без File= більше не приймається — так само зупинка.
+
+        Відома межа (документується, не лікується): без лапок шлях у File= не може
+        містити ';'.
+    .PARAMETER Connection
+        Сирий рядок підключення, як він записаний у v8project(.local).yaml чи
+        v8storagekit.local.yaml.
+    .OUTPUTS
+        [pscustomobject]@{ Kind = 'server'|'file'; Server; Ref; File }
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Connection)
 
     if ([string]::IsNullOrWhiteSpace($Connection)) {
-        throw 'Рядок підключення до інформаційної бази порожній'
+        throw 'Рядок підключення до інформаційної бази порожній.'
     }
 
     $value = $Connection.Trim()
 
-    if ($value -match '(?i)\bsrvr\s*=\s*"([^"]+)"') {
-        $server = $Matches[1]
-        if ($value -match '(?i)\bref\s*=\s*"([^"]+)"') {
-            return '/S "{0}\{1}"' -f $server, $Matches[1]
+    if ($value.Contains('"')) {
+        $fixed = ($value -replace '"', '').Trim()
+        throw ("Рядок підключення '$Connection' записано в лапках — Уніка (v8-runner) на серверній базі з " +
+               'такою формою не підключається (issue #9: «Сервер 1С:Предприятия не обнаружен»), хоча ' +
+               'документація Уніки саме її й показує. Kit не знімає лапки мовчки (це був би подвійний ' +
+               "режим) — запишіть без лапок: $fixed")
+    }
+
+    if ($value -notmatch '=') {
+        throw ("Рядок підключення '$Connection' — голий шлях без ключа. Голий шлях більше не приймається: " +
+               "вкажіть File=$value")
+    }
+
+    $fields = @{}
+    foreach ($part in ($value -split ';')) {
+        $piece = $part.Trim()
+        if (-not $piece) { continue }
+        if ($piece -notmatch '^(?<key>[^=]+)=(?<val>.*)$') {
+            throw "Рядок підключення '$Connection' містить елемент без '=': '$piece'."
         }
-        throw "У серверному рядку підключення відсутній Ref: $Connection"
+        $key = $Matches['key'].Trim()
+        $val = $Matches['val'].Trim()
+        if ([string]::IsNullOrWhiteSpace($val)) {
+            throw "Рядок підключення '$Connection' містить порожнє значення для ключа '$key'."
+        }
+        $lkey = $key.ToLowerInvariant()
+        if ($lkey -notin @('srvr', 'ref', 'file')) {
+            throw "Рядок підключення '$Connection' містить невідомий ключ '$key'. Дозволені ключі: Srvr, Ref, File."
+        }
+        if ($fields.ContainsKey($lkey)) {
+            throw "Рядок підключення '$Connection' містить ключ '$key' двічі."
+        }
+        $fields[$lkey] = $val
     }
 
-    if ($value -match '(?i)\bfile\s*=\s*"([^"]+)"') {
-        return '/F "{0}"' -f $Matches[1]
+    $hasSrvr = $fields.ContainsKey('srvr')
+    $hasRef  = $fields.ContainsKey('ref')
+    $hasFile = $fields.ContainsKey('file')
+
+    if ($hasSrvr -and $hasFile) {
+        throw "Рядок підключення '$Connection' містить одночасно Srvr= і File= — це два різні способи описати базу, разом вони суперечливі."
+    }
+    if ($hasSrvr -or $hasRef) {
+        if (-not ($hasSrvr -and $hasRef)) {
+            $missing = if ($hasSrvr) { 'Ref=' } else { 'Srvr=' }
+            throw "Рядок підключення '$Connection' — серверна база потребує і Srvr=, і Ref= разом; бракує $missing."
+        }
+        return [pscustomobject]@{ Kind = 'server'; Server = $fields['srvr']; Ref = $fields['ref']; File = $null }
+    }
+    if ($hasFile) {
+        return [pscustomobject]@{ Kind = 'file'; Server = $null; Ref = $null; File = $fields['file'] }
     }
 
-    if ($value -notmatch '[=;"]') {
-        return '/F "{0}"' -f $value
-    }
+    throw "Рядок підключення '$Connection' не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>."
+}
 
-    throw "Не вдалося розпізнати рядок підключення: $Connection"
+function ConvertTo-V8IbSwitch {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Connection)
+
+    $parsed = ConvertFrom-V8Connection -Connection $Connection
+    if ($parsed.Kind -eq 'server') {
+        return '/S "{0}\{1}"' -f $parsed.Server, $parsed.Ref
+    }
+    '/F "{0}"' -f $parsed.File
 }
 
 function Assert-NoLicenseProblem {
@@ -234,4 +309,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
+Export-ModuleMember -Function Get-V8Path, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy

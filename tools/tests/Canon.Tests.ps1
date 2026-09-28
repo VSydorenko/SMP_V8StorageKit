@@ -25,8 +25,8 @@ Describe 'kit canon — прев''ю і зупинки без платформи
     }
 
     It 'база агента = база людини з накладки — зупинка (принцип 3)' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  dev:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'" -WithHooks
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'")
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'" -WithHooks
+        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=SMP_UNF;'")
         $r = Invoke-Canon -Repo $repo
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*людини*'
