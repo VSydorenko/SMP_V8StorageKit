@@ -8,7 +8,7 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
             $out = & pwsh -NoProfile -File $script:Kit dump -RepoRoot $Repo @More 2>&1 | Out-String
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
         }
-        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=""C:\bases\demo"";'`n    user: 'Адмін'"
+        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;'`n    user: 'Адмін'"
     }
 
     It 'прев''ю: база, ціль і попередження про 20–40 хвилин; нічого не змінено' {
@@ -60,7 +60,7 @@ Describe 'kit dump — мок платформного шару: -Apply без �
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/dump.psm1").Path -Force
 
-        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=""C:\bases\demo"";'`n    user: 'Адмін'"
+        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;'`n    user: 'Адмін'"
     }
 
     It 'успіх із непорожньою текою — Dumped[0].Files рахує реально записані файли' {
@@ -136,7 +136,7 @@ Describe 'kit dump — жива дев-база (лише читання, 20–4
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
-        $overlay = "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF_sydorenko"";'`n    user: 'Администратор'"
+        $overlay = "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF_sydorenko;'`n    user: 'Администратор'"
         $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: BankExchange', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: devUNF } }', "      Alpha_SMB: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -ManifestText $manifest -OverlayText $overlay -WithHooks -WithGitattributes -WithGitignore

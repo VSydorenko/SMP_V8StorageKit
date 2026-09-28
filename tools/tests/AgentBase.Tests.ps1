@@ -18,7 +18,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
 
     It 'v8project.local.yaml перекриває на серверну; Origin — накладка Уніки' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'server')
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""agent_alpha"";'")
+        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=agent_alpha;'")
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         $ab = Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0]
         $ab.Kind | Should -Be 'server'
@@ -27,8 +27,8 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
     }
 
     It 'підключення бази агента збігається з дев-базою людини з накладки kit — зупинка (принцип 3)' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'")
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
+        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=SMP_UNF;'")
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         # Правка виконавця (обов'язкова, ухвалена заздалегідь): у брифі тест мав патерн
         # '*devUNF*людини*', але саме повідомлення функції несе зворотний порядок —
@@ -44,12 +44,12 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
     }
 
     It 'F1-регресія: кінцевий роздільник у File= — раніше текстовий $norm бачив розбіжність у тій самій теці, тепер зупинка' {
-        # Той самий сценарій, що я прогнав уручну проти старого $norm: 'File="D:\Bases\SMP_UNF\"'
+        # Той самий сценарій, що я прогнав уручну проти старого $norm: 'File=D:\Bases\SMP_UNF\'
         # (з кінцевим \) і 'File=D:\Bases\SMP_UNF' (без) — та сама тека, текстово різні рядки.
         # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — принцип 3
         # не спрацював би, і provision -Apply -Force стер би базу людини.
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'trailing-slash') -OverlayText "infobases:`n  devUNF:`n    connection: 'File=""D:\Bases\SMP_UNF\""'"
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=""D:\Bases\SMP_UNF""'")
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'trailing-slash') -OverlayText "infobases:`n  devUNF:`n    connection: 'File=D:\Bases\SMP_UNF\'"
+        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=D:\Bases\SMP_UNF'")
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*людини*devUNF*'
     }
@@ -62,7 +62,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         # регресія лишилась би непоміченою: Resolve-KitAgentBase МАЄ спершу розв'язати
         # File=build/ib до абсолютного шляху (Resolve-KitAgentInfobasePath) і звіряти вже
         # абсолютне підключення — не сирий відносний рядок.
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'relative-ok') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=""VSDEV"";Ref=""SMP_UNF"";'"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'relative-ok') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         # Виклик НАПРЯМУ, не всередині { } | Should -Not -Throw: скрипт-блок Pester
         # виконується у власній дочірній області видимості, і присвоєння $ab усередині
@@ -81,50 +81,58 @@ Describe 'AgentBase.psm1 — Test-KitSameInfobase (F1: ідентичність 
     }
 
     It 'кінцевий роздільник File= — та сама тека, збіг' {
-        Test-KitSameInfobase -Left 'File="D:\Bases\SMP_UNF\"' -Right 'File="D:\Bases\SMP_UNF"' | Should -BeTrue
+        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF\' -Right 'File=D:\Bases\SMP_UNF' | Should -BeTrue
     }
 
     It 'регістр File= — не залежить, збіг' {
-        Test-KitSameInfobase -Left 'File="D:\Bases\SMP_UNF"' -Right 'File="d:\bases\smp_unf"' | Should -BeTrue
+        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'File=d:\bases\smp_unf' | Should -BeTrue
     }
 
     It 'різні теки File= — не збіг' {
-        Test-KitSameInfobase -Left 'File="D:\Bases\SMP_UNF"' -Right 'File="D:\Bases\Other"' | Should -BeFalse
+        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'File=D:\Bases\Other' | Should -BeFalse
     }
 
     It 'порядок ключів Srvr/Ref — незалежний, збіг' {
-        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref="SMP_UNF";Srvr="VSDEV";' | Should -BeTrue
+        Test-KitSameInfobase -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Ref=SMP_UNF;Srvr=VSDEV;' | Should -BeTrue
     }
 
     It 'різний Ref на тому самому сервері — не збіг' {
-        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr="VSDEV";Ref="Other";' | Should -BeFalse
+        Test-KitSameInfobase -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
     }
 
     It 'різний Kind (file проти server) — безпечно не збіг, без зупинки: ми ЗНАЄМО, що бази різні' {
-        { Test-KitSameInfobase -Left 'File="D:\Bases\SMP_UNF"' -Right 'Srvr="VSDEV";Ref="SMP_UNF";' } | Should -Not -Throw
-        Test-KitSameInfobase -Left 'File="D:\Bases\SMP_UNF"' -Right 'Srvr="VSDEV";Ref="SMP_UNF";' | Should -BeFalse
+        { Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Not -Throw
+        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' | Should -BeFalse
     }
 
     It 'порожній рядок — кидає (fail-closed, не "не збігається")' {
-        { Test-KitSameInfobase -Left '' -Right 'File="D:\x"' } | Should -Throw
+        { Test-KitSameInfobase -Left '' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'Srvr= без Ref= — кидає' {
-        { Test-KitSameInfobase -Left 'Srvr="VSDEV";' -Right 'File="D:\x"' } | Should -Throw
+        { Test-KitSameInfobase -Left 'Srvr=VSDEV;' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'підключення не File= і не Srvr= — кидає' {
-        { Test-KitSameInfobase -Left 'щось незрозуміле' -Right 'File="D:\x"' } | Should -Throw
+        { Test-KitSameInfobase -Left 'щось незрозуміле' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'відносний File= — кидає (ця функція не знає бази відліку; викликач мусить розв''язати сам)' {
-        { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File="D:\x"' } | Should -Throw
+        { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'кидаючий виняток називає обидва підключення дослівно' {
         $err = $null
-        try { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File="D:\x"' } catch { $err = $_.Exception.Message }
+        try { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*build/ib*'
         $err | Should -BeLike '*D:\x*'
+    }
+
+    It 'значення в лапках — не еквівалент, а fail-closed (issue #9): лапки лише з ОДНОГО боку теж кидають' {
+        # До фіксу лапки й відсутність лапок читались як той самий запис (Get-KitInfobaseCanonicalForm
+        # знімала їх регекспом) — 'Srvr="VSDEV";Ref="SMP_UNF";' і 'Srvr=VSDEV;Ref=SMP_UNF;' збігались
+        # би. Тепер це подвійний режим, якого свідомо позбулись: лапки — сама по собі помилка розбору,
+        # незалежно від того, що на іншому боці.
+        { Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Throw '*лапк*'
     }
 }

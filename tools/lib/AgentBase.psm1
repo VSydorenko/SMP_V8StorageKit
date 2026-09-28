@@ -5,6 +5,11 @@ Set-StrictMode -Version Latest
 # (StorageReport.psm1, V8Project.psm1): не перезавантажувати вже наявний глобальний
 # V8Project. AgentBase бере звідти Resolve-V8AgentInfobase і Resolve-KitAgentInfobasePath.
 Import-Module "$PSScriptRoot/V8Project.psm1"
+# Так само без -Force (та сама конвенція, що в StoragePlatform.psm1): AgentBase напряму
+# кличе ConvertFrom-V8Connection (Get-KitInfobaseCanonicalForm, issue #9) — V8Project.psm1
+# уже вкладено імпортує V8.psm1, але явний імпорт тут потрібен для тестів, які вантажать
+# цей модуль окремо від диспетчера.
+Import-Module "$PSScriptRoot/V8.psm1"
 
 function Get-KitInfobaseCanonicalForm {
     <#
@@ -12,41 +17,39 @@ function Get-KitInfobaseCanonicalForm {
         Приватний розбір одного підключення на канонічну форму — не експортується.
     .DESCRIPTION
         Допоміжна функція для Test-KitSameInfobase: розбирає File= чи Srvr=;Ref= на
-        {Parsed; Kind; Identity; Reason}. Сама по собі fail-closed НЕ реалізує (не кидає) —
-        це робить Test-KitSameInfobase, маючи обидва боки одразу (щоб назвати обидва
-        підключення в одному повідомленні). Відносний File= тут ЗАВЖДИ Parsed=$false: ця
-        функція не знає бази відліку (тека воркспейсу для бази агента, спека §2.5) — той,
-        хто кличе Test-KitSameInfobase, мусить сам розв'язати відносний File= бази агента
-        до абсолютного шляху ДО звірки (Resolve-KitAgentBase так і робить).
+        {Parsed; Kind; Identity; Reason}. Сирий розбір — ConvertFrom-V8Connection
+        (V8.psm1, issue #9): значення в лапках, голий шлях, Srvr= без Ref=, невідомий
+        ключ і решта — виняток ConvertFrom-V8Connection, тут лише перехоплений і
+        перетворений на Parsed=$false з текстом винятку в Reason.
+
+        Сама по собі fail-closed НЕ реалізує (не кидає) — це робить Test-KitSameInfobase,
+        маючи обидва боки одразу (щоб назвати обидва підключення в одному повідомленні).
+        Відносний File= тут ЗАВЖДИ Parsed=$false: ця функція не знає бази відліку (тека
+        воркспейсу для бази агента, спека §2.5) — той, хто кличе Test-KitSameInfobase,
+        мусить сам розв'язати відносний File= бази агента до абсолютного шляху ДО звірки
+        (Resolve-KitAgentBase так і робить).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Connection)
 
-    $value = $Connection.Trim()
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'підключення порожнє' }
+    $parsed = $null
+    try {
+        $parsed = ConvertFrom-V8Connection -Connection $Connection
+    } catch {
+        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = $_.Exception.Message }
     }
 
-    if ($value -match '(?i)\bsrvr\s*=\s*"?(?<srvr>[^";]+)"?') {
-        $srvr = $Matches['srvr'].Trim()
-        if ($value -match '(?i)\bref\s*=\s*"?(?<ref>[^";]+)"?') {
-            $ref = $Matches['ref'].Trim()
-            $identity = 'server:' + $srvr.ToLowerInvariant() + '/' + $ref.ToLowerInvariant()
-            return [pscustomobject]@{ Parsed = $true; Kind = 'server'; Identity = $identity; Reason = '' }
-        }
-        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = "серверне підключення без Ref=: $value" }
+    if ($parsed.Kind -eq 'server') {
+        $identity = 'server:' + $parsed.Server.ToLowerInvariant() + '/' + $parsed.Ref.ToLowerInvariant()
+        return [pscustomobject]@{ Parsed = $true; Kind = 'server'; Identity = $identity; Reason = '' }
     }
 
-    if ($value -match '(?i)\bfile\s*=\s*"?(?<p>[^";]+)"?') {
-        $raw = $Matches['p'].Trim()
-        if (-not [System.IO.Path]::IsPathRooted($raw)) {
-            return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = "відносний File= '$raw' — kit звіряє лише абсолютні File=" }
-        }
-        $full = [System.IO.Path]::GetFullPath($raw).TrimEnd('\', '/')
-        return [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = '' }
+    $raw = $parsed.File
+    if (-not [System.IO.Path]::IsPathRooted($raw)) {
+        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = "відносний File=$raw — kit звіряє лише абсолютні File=" }
     }
-
-    [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = "'$value' не розпізнано ні як File=, ні як Srvr=" }
+    $full = [System.IO.Path]::GetFullPath($raw).TrimEnd('\', '/')
+    [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = '' }
 }
 
 function Test-KitSameInfobase {
@@ -54,13 +57,17 @@ function Test-KitSameInfobase {
     .SYNOPSIS
         Чи описують два підключення ТУ САМУ базу — а не той самий текст (принцип 3).
     .DESCRIPTION
-        Текстова нормалізація (пробіли/лапки/регістр) не досить: 'File="D:\Bases\SMP_UNF\"'
-        і 'File=D:\Bases\SMP_UNF' — та сама тека, текстово різні рядки; 'Srvr="VSDEV";Ref="SMP_UNF";'
-        і 'Ref="SMP_UNF";Srvr="VSDEV";' — та сама база, різний порядок ключів. Ця функція
+        Текстова нормалізація (пробіли/регістр) не досить: 'File=D:\Bases\SMP_UNF\'
+        і 'File=D:\Bases\SMP_UNF' — та сама тека, текстово різні рядки; 'Srvr=VSDEV;Ref=SMP_UNF;'
+        і 'Ref=SMP_UNF;Srvr=VSDEV;' — та сама база, різний порядок ключів. Ця функція
         порівнює РОЗІБРАНІ поля: для файлової — абсолютний шлях (GetFullPath), без кінцевого
         роздільника, без урахування регістру (файлова система Windows регістронезалежна); для
         серверної — сервер і Ref, кожен окремо знайдений незалежно від порядку в рядку, без
         урахування регістру.
+
+        Значення в лапках (Srvr="VSDEV";Ref="SMP_UNF";) — НЕ інший запис тієї самої форми:
+        ConvertFrom-V8Connection (V8.psm1, issue #9) кидає на них fail-closed, як і на будь-
+        якому іншому нерозбірному вводі, — kit більше не має подвійного режиму розбору.
 
         Fail-closed навмисно: коли ХОЧ ОДНЕ підключення не розбирається однозначно, функція
         КИДАЄ виняток (називаючи обидва підключення дослівно), а НЕ повертає $false.
@@ -105,7 +112,7 @@ function Test-KitSameInfobase {
     if (-not $l.Parsed -or -not $r.Parsed) {
         $reason = if (-not $l.Parsed) { $l.Reason } else { $r.Reason }
         throw ("Kit не може однозначно розібрати й звірити два підключення до бази: '$Left' і '$Right'. " +
-               "$reason. Очікується File=`"<абсолютний шлях>`" або Srvr=`"<сервер>`";Ref=`"<база>`";. " +
+               "$reason. Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. " +
                'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки (принцип 3).')
     }
     if ($l.Kind -ne $r.Kind) { return $false }
@@ -128,7 +135,9 @@ function Resolve-KitAgentBase {
         (Resolve-KitAgentInfobasePath, чиста функція — виклик до звірки нічого не змінює,
         аудит лишається "до будь-якої дії"): відносний File= бази агента законний (від теки
         воркспейсу, §2.5), а Test-KitSameInfobase кидає на відносному File= — те правило для
-        підключень з накладки kit, де бази відліку немає, не для бази агента.
+        підключень з накладки kit, де бази відліку немає, не для бази агента. Розв'язаний
+        шлях повторно серіалізується в 'File=<шлях>' БЕЗ лапок (issue #9) — форма з лапками
+        для Test-KitSameInfobase тепер сама по собі помилка, не еквівалент.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Workspace)
@@ -139,7 +148,7 @@ function Resolve-KitAgentBase {
     $resolved = Resolve-KitAgentInfobasePath -Project $Workspace.Project -Connection $ib.Connection
 
     if ($Context.Overlay) {
-        $agentConn = if ($resolved.Kind -eq 'file') { 'File="{0}"' -f $resolved.Path } else { $ib.Connection }
+        $agentConn = if ($resolved.Kind -eq 'file') { 'File={0}' -f $resolved.Path } else { $ib.Connection }
         foreach ($human in $Context.Overlay.Infobases.Values) {
             if (Test-KitSameInfobase -Left $agentConn -Right $human.Connection) {
                 throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit. " +

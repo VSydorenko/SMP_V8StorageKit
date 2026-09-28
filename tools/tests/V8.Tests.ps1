@@ -4,27 +4,112 @@ BeforeAll {
 
 Describe 'ConvertTo-V8IbSwitch' {
     It 'перетворює файловий рядок підключення на /F' {
-        ConvertTo-V8IbSwitch -Connection 'File="C:\bases\demo";' |
+        ConvertTo-V8IbSwitch -Connection 'File=C:\bases\demo;' |
             Should -Be '/F "C:\bases\demo"'
     }
 
     It 'перетворює серверний рядок підключення на /S' {
-        ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' |
+        ConvertTo-V8IbSwitch -Connection 'Srvr=SRV01;Ref=DEMO_BASE;' |
             Should -Be '/S "SRV01\DEMO_BASE"'
     }
 
     It 'не залежить від регістру ключів і зайвих пробілів' {
-        ConvertTo-V8IbSwitch -Connection '  srvr = "SRV01" ; ref = "DEMO_BASE" ; ' |
+        ConvertTo-V8IbSwitch -Connection '  srvr = SRV01 ; ref = DEMO_BASE ; ' |
             Should -Be '/S "SRV01\DEMO_BASE"'
     }
 
-    It 'приймає голий шлях як файлову базу' {
-        ConvertTo-V8IbSwitch -Connection 'C:\bases\demo' |
-            Should -Be '/F "C:\bases\demo"'
+    It 'не приймає голий шлях без File= (issue #9 — форма без ключа заборонена)' {
+        { ConvertTo-V8IbSwitch -Connection 'C:\bases\demo' } | Should -Throw '*File=*'
     }
 
     It 'кидає виняток на порожньому значенні' {
         { ConvertTo-V8IbSwitch -Connection '' } | Should -Throw
+    }
+
+    It 'кидає виняток на формі в лапках (Уніка на ній не підключається до серверної бази, issue #9)' {
+        { ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } | Should -Throw '*лапк*'
+    }
+}
+
+Describe 'ConvertFrom-V8Connection — єдиний розбір рядка підключення (issue #9)' {
+    It 'серверний рядок без лапок → Kind server, Server і Ref окремо' {
+        $r = ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE;'
+        $r.Kind | Should -Be 'server'
+        $r.Server | Should -Be 'SRV01'
+        $r.Ref | Should -Be 'DEMO_BASE'
+    }
+
+    It 'пробіли довкола ключа й значення обрізаються' {
+        $r = ConvertFrom-V8Connection -Connection 'Srvr = SRV01 ; Ref = DEMO_BASE ;'
+        $r.Server | Should -Be 'SRV01'
+        $r.Ref | Should -Be 'DEMO_BASE'
+    }
+
+    It 'кінцева ";" необов''язкова' {
+        $r = ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE'
+        $r.Kind | Should -Be 'server'
+    }
+
+    It 'зворотний порядок ключів дає той самий результат (незалежність від порядку)' {
+        $forward  = ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE;'
+        $backward = ConvertFrom-V8Connection -Connection 'Ref=DEMO_BASE;Srvr=SRV01;'
+        $forward.Server | Should -Be $backward.Server
+        $forward.Ref | Should -Be $backward.Ref
+        (ConvertTo-V8IbSwitch -Connection 'Ref=DEMO_BASE;Srvr=SRV01;') | Should -Be (ConvertTo-V8IbSwitch -Connection 'Srvr=SRV01;Ref=DEMO_BASE;')
+    }
+
+    It 'регістр ключів не важливий (SRVR, srvr, Srvr — той самий результат)' {
+        $r = ConvertFrom-V8Connection -Connection 'SRVR=SRV01;ref=DEMO_BASE;'
+        $r.Kind | Should -Be 'server'
+        $r.Server | Should -Be 'SRV01'
+    }
+
+    It 'File= абсолютний зберігається як є' {
+        (ConvertFrom-V8Connection -Connection 'File=C:\bases\demo').File | Should -Be 'C:\bases\demo'
+    }
+
+    It 'File= відносний зберігається як є (розв''язання — робота викликача, не цієї функції)' {
+        (ConvertFrom-V8Connection -Connection 'File=build/ib').File | Should -Be 'build/ib'
+    }
+
+    It 'кидає на порожньому рядку' {
+        { ConvertFrom-V8Connection -Connection '' } | Should -Throw
+    }
+
+    It 'кидає на значенні в лапках і показує виправлену форму без лапок' {
+        $err = $null
+        try { ConvertFrom-V8Connection -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } catch { $err = $_.Exception.Message }
+        $err | Should -Not -BeNullOrEmpty
+        $err | Should -BeLike '*лапк*'
+        $err | Should -BeLike '*Srvr=SRV01;Ref=DEMO_BASE;*'
+    }
+
+    It 'кидає на лапках і в File= теж' {
+        { ConvertFrom-V8Connection -Connection 'File="C:\bases\demo"' } | Should -Throw '*лапк*'
+    }
+
+    It 'кидає на Srvr= без Ref=' {
+        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;' } | Should -Throw
+    }
+
+    It 'кидає на Ref= без Srvr=' {
+        { ConvertFrom-V8Connection -Connection 'Ref=DEMO_BASE;' } | Should -Throw
+    }
+
+    It 'кидає, коли Srvr= і File= задано одночасно' {
+        { ConvertFrom-V8Connection -Connection 'Srvr=SRV01;Ref=DEMO_BASE;File=C:\x;' } | Should -Throw
+    }
+
+    It 'кидає на невідомому ключі' {
+        { ConvertFrom-V8Connection -Connection 'Usr=admin;File=C:\x;' } | Should -Throw '*Usr*'
+    }
+
+    It 'кидає на голому шляху без File=' {
+        { ConvertFrom-V8Connection -Connection 'C:\bases\demo' } | Should -Throw
+    }
+
+    It 'кидає на порожньому значенні ключа' {
+        { ConvertFrom-V8Connection -Connection 'File=' } | Should -Throw
     }
 }
 

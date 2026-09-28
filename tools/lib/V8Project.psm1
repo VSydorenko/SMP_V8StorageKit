@@ -4,8 +4,8 @@ Set-StrictMode -Version Latest
 # Без -Force — те саме застереження, що й довкола вкладених імпортів у StorageReport.psm1:
 # не перезавантажувати вже наявний глобальний Yaml.
 Import-Module "$PSScriptRoot/Yaml.psm1"
-# Так само без -Force, і з тієї ж причини (коментар у StorageReport.psm1): ConvertTo-V8IbSwitch
-# потрібен Resolve-KitAgentInfobasePath (B4) для серверного підключення бази агента.
+# Так само без -Force, і з тієї ж причини (коментар у StorageReport.psm1): ConvertFrom-V8Connection
+# потрібен Resolve-KitAgentInfobasePath (B4, issue #9) для розбору рядка підключення бази агента.
 Import-Module "$PSScriptRoot/V8.psm1"
 
 # Типи source-set, які kit уміє співставити з маніфестом. Інші (якби Unica їх додала)
@@ -164,18 +164,19 @@ function Resolve-KitAgentInfobasePath {
     .SYNOPSIS
         Підключення бази агента → тип, абсолютний шлях (для файлової), ключ платформи.
     .DESCRIPTION
-        Відносний File= розв'язується від теки конфіга (Project.Directory) — так само, як
-        це робить Unica (docs/unica-contract.md, A7).
+        Розбір рядка — через ConvertFrom-V8Connection (V8.psm1, issue #9): одна форма без
+        лапок на весь kit, голий шлях без File= більше не приймається. Відносний File=
+        розв'язується від теки конфіга (Project.Directory) — так само, як це робить Unica
+        (docs/unica-contract.md, A7); абсолютний лишається як є.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Project, [Parameter(Mandatory)][string]$Connection)
 
-    $value = $Connection.Trim()
-    if ($value -match '(?i)\bsrvr\s*=') {
-        return [pscustomobject]@{ Kind = 'server'; Path = $null; IbSwitch = (ConvertTo-V8IbSwitch -Connection $value) }
+    $parsed = ConvertFrom-V8Connection -Connection $Connection
+    if ($parsed.Kind -eq 'server') {
+        return [pscustomobject]@{ Kind = 'server'; Path = $null; IbSwitch = ('/S "{0}\{1}"' -f $parsed.Server, $parsed.Ref) }
     }
-    $raw = if ($value -match '(?i)\bfile\s*=\s*"?(?<p>[^";]+)"?') { $Matches['p'] } else { $value }
-    $path = if ([System.IO.Path]::IsPathRooted($raw)) { $raw } else { Join-Path $Project.Directory $raw }
+    $path = if ([System.IO.Path]::IsPathRooted($parsed.File)) { $parsed.File } else { Join-Path $Project.Directory $parsed.File }
     $path = [System.IO.Path]::GetFullPath($path)
     [pscustomobject]@{ Kind = 'file'; Path = $path; IbSwitch = ('/F "{0}"' -f $path) }
 }
