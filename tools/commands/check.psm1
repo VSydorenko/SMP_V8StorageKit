@@ -174,6 +174,27 @@ function Invoke-KitCheck {
                 'Це не прибирає файл із ІСТОРІЇ попередніх комітів — лише зупиняє подальше витікання.')
         }
 
+        # Задача 3 (issue #9) — підключення дев-бази з infobases: накладки досі розбиралось
+        # (ConvertFrom-V8Connection, V8.psm1) лише тоді, коли її звіряли з базою агента
+        # (гілка Resolve-KitAgentBase вище, truth: storage) — для воркспейсів лише з
+        # truth: dump/vendor або без бази агента нерозбірне підключення (стара форма в
+        # лапках, яку kit сам роздавав у templates/v8storagekit.local.yaml.example до цієї
+        # гілки) проходило check кодом 0 і падало лише на kit dump — мовчазна пастка при
+        # міграції старих накладок. Один раз на дев-базу, незалежно від кількості
+        # воркспейсів, — тому цикл тут, поза foreach ($src in $all) нижче. warn, не error:
+        # error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
+        # kit dump. Там, де та сама дев-база вже дала error 'agent-base-required' у гілці
+        # Resolve-KitAgentBase вище, ця знахідка законно дублюється — розводити їх
+        # ускладнило б код заради усунення дубля повідомлення.
+        if ($Context.Overlay) {
+            foreach ($human in $Context.Overlay.Infobases.Values) {
+                try { ConvertFrom-V8Connection -Connection $human.Connection | Out-Null }
+                catch {
+                    & $add warn overlay-connection "Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)"
+                }
+            }
+        }
+
         foreach ($src in $all) {
             $tag = "$($src.Workspace)/$($src.Key)"
 
