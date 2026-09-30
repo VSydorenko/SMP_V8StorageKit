@@ -110,6 +110,26 @@ function Invoke-KitAdopt {
         # Той самий принцип, що verify.psm1:69–71: усі git-перевірки — до першої руйнівної дії.
         $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
 
+        # Поставка вендора (спека 2026-09-30 §5.2) не має відстежуватись git — ДО будь-якого
+        # руйнівного кроку: відстежуваний .cf `add -A` застейджив би, а `commit --only` перечитав би
+        # з диска. Так само пробу check-ignore робимо тут: зламаний .gitignore зупиняє adopt до
+        # стирання дерева.
+        $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
+        $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-files', '--', $supplyRel)
+        if ($tracked.ExitCode -ne 0) { throw "git ls-files для '$supplyRel' завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)" }
+        if ($tracked.Stdout.Trim()) {
+            throw ("Поставка вендора відстежується git ('$supplyRel') — adopt зупиняється до стирання дерева: " +
+                   "її .cf не має потрапляти в коміт. Приберіть з індексу (файли на диску лишаться): git rm -r --cached -- '$supplyRel' — і повторіть adopt.")
+        }
+        # Проба — сама тека, не файл усередині: при правилі з негацією (`Ext/ParentConfigurations/*` +
+        # `!*.cf`) теку git не вважає ігнорованою, і exclude працює (перевірено, git 2.53); а якщо
+        # ігнорує цілком (`**/Ext/ParentConfigurations/`) — exclude дав би код 1. Проба «файл усередині»
+        # у випадку негації давала «ігнорується», exclude не додавався, add стейджив .cf, а
+        # merge --abort потім СТИРАВ його з диска (доведено тестом).
+        $supplyProbe = if (Test-Path -LiteralPath (Join-Path $src.FullPath (Get-KitSupplyRelativePath)) -PathType Container) { $supplyRel } else { "$supplyRel/" }
+        $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', $supplyProbe)
+        if ($ignored.ExitCode -gt 1) { throw "git check-ignore для '$supplyRel' завершився з кодом $($ignored.ExitCode): $($ignored.Stderr)" }
+
         # Guard критичного рев'ю C2 (Critical, спека §5 «Чотири умови», п.1) — ДО Remove-Item,
         # поки дерево ще ЦІЛЕ. Причина: нижче гілка задачі приймає версію сховища ЗЛИТТЯМ
         # (git merge -s ours), щоб зрушити ancestry, на якій тримається verify
@@ -210,13 +230,15 @@ function Invoke-KitAdopt {
             # ignored») від pathspec-виключення, що вказує на ігноровану теку, — а вона тоді й так
             # не стейджиться (перевірено: з exclude і без нього індекс той самий, різниця лише в
             # коді виходу).
-            $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
-            $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', "$supplyRel/probe")
-            if ($ignored.ExitCode -gt 1) { throw "git check-ignore для '$supplyRel' завершився з кодом $($ignored.ExitCode): $($ignored.Stderr)" }
             $addArgs = @('add', '-A', '--', $src.RepoPath)
             if ($ignored.ExitCode -ne 0) { $addArgs += ":(exclude)$supplyRel" }
             $add = Invoke-KitGitProcess -RepoRoot $root -Arguments $addArgs
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
+            # Властивість не залежить від форми .gitignore (негація !*.cf може обійти і пробу, і
+            # exclude): після add поставки в індексі бути не може. НЕ throw: виняток веде в catch із
+            # git merge --abort, а той СТИРАЄ застейджений .cf з диска (доведено тестом раунду 1).
+            # Тому поставку знімаємо з індексу (диск не чіпається) і йдемо далі.
+            Remove-KitSupplyFromIndex -RepoRoot $root -SupplyPath $supplyRel
 
             $message = "adopt: $($src.Key) ← $mirror (версія $version)"
             if ($viaMerge) {
@@ -264,6 +286,28 @@ function Invoke-KitAdopt {
     [pscustomobject]@{ ExitCode = 0; Adopted = $adopted.ToArray() }
 }
 
+function Remove-KitSupplyFromIndex {
+    <#
+    .SYNOPSIS
+        Знімає теку поставки вендора з індексу (файли на диску не чіпає) і друкує попередження.
+        Працює і в стані злиття (MERGE_HEAD), і без нього. Якщо після зняття поставка все ж в
+        індексі — виняток.
+    #>
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$SupplyPath)
+    $names = {
+        $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('diff', '--cached', '--name-only', '--', $SupplyPath)
+        if ($r.ExitCode -ne 0) { throw "git diff --cached для '$SupplyPath' завершився з кодом $($r.ExitCode): $($r.Stderr)" }
+        @($r.Stdout -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+    $staged = @(& $names)
+    if ($staged.Count -eq 0) { return @() }
+    $reset = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('reset', '-q', '--', $SupplyPath)
+    if ($reset.ExitCode -ne 0) { throw "git reset для '$SupplyPath' завершився з кодом $($reset.ExitCode): $($reset.Stderr)" }
+    $left = @(& $names)
+    if ($left.Count -gt 0) { throw "Поставка вендора лишилась в індексі після git reset: $($left -join ', ')." }
+    Write-Warning ("Поставка вендора потрапила в індекс (правило .gitignore з негацією?) — знято з індексу, файли на диску цілі: " + ($staged -join ', '))
+    $staged
+}
 function Write-KitAdoptList {
     param([string]$Title, [AllowEmptyCollection()][string[]]$Items, [switch]$Loud, [int]$Limit = 20)
     if ($Items.Count -eq 0) { return }
