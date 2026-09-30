@@ -299,18 +299,42 @@ function Invoke-KitSync {
             continue
         }
 
-        $unknown = Get-UnknownAuthors -Map $authors -StorageUsers ($pending.User)
-        if ($unknown) {
+        # Спека 2026-09-30 §6.8: автор може бути на логін АБО на конкретну версію. Спільний логін
+        # в AUTHORS не вноситься — тоді кожна його версія тут і зупиняє прогін готовим рядком.
+        # Форма виводу: рядок на логін, під ним ОКРЕМИЙ блок рядків версій підряд (щоб потрібний
+        # рядок не губився серед коментарів), а опис версій — окремим блоком після нього. Кожен
+        # рядок-заготовка — «<ключ>=Ім'я <пошта>» без хвоста: Complete-Authors (Sync.Storage.Tests.ps1)
+        # впізнає його за цим шаблоном, хвіст «# …» його б не пропустив.
+        # Без @(...) навколо виклику: функція повертає масив унарною комою (F7), і @() зробив би
+        # з нього масив із одного елемента-масиву — Group-Object тоді не бачить .User.
+        $unattributed = Get-KitUnattributedVersions -Map $authors -SourceKey $src.Key -Versions $pending
+        if ($unattributed.Count -gt 0) {
             Write-Host ''
-            Write-Host 'Невідомі автори — додайте їх у AUTHORS перед прогоном:' -ForegroundColor Yellow
-            $unknown | ForEach-Object { Write-Host "  $_=Ім'я <пошта>" }
+            Write-Host ('Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, ' +
+                'якщо під логіном різні люди):') -ForegroundColor Yellow
+            foreach ($g in ($unattributed | Group-Object { if ([string]::IsNullOrWhiteSpace($_.User)) { '' } else { $_.User } })) {
+                $login = $g.Name
+                Write-Host ("  логін «{0}» — версій {1}:" -f $(if ($login) { $login } else { '<порожній у звіті>' }), $g.Count)
+                if ($login) {
+                    Write-Host "    $login=Ім'я <пошта>"
+                    Write-Host '    якщо за цим логіном різні люди — замість рядка вище, по рядку на кожну версію:'
+                } else {
+                    Write-Host '    логін у звіті порожній — лише рядок на кожну версію:'
+                }
+                foreach ($v in $g.Group) { Write-Host "    $($src.Key)#$($v.Version)=Ім'я <пошта>" }
+                Write-Host '    що це за версії:'
+                foreach ($v in $g.Group) {
+                    $first = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+                    Write-Host ("      версія {0}, {1:yyyy-MM-dd HH:mm}{2}" -f $v.Version, $v.Timestamp, $(if ($first) { ", «$first»" } else { '' })) -ForegroundColor DarkGray
+                }
+            }
             throw 'Синхронізацію зупинено через невідомих авторів.'
         }
 
         Write-Host ''
         Write-Host "До перенесення версій: $($pending.Count)"
         foreach ($v in $pending) {
-            $author = Resolve-Author -Map $authors -StorageUser $v.User
+            $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
             $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
             if (-not $first) { $first = "Версія сховища $($v.Version)" }
             Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}" -f $v.Version, $v.Timestamp, $author.Name, $first)
@@ -333,7 +357,7 @@ function Invoke-KitSync {
         try {
             $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $agent.User
             foreach ($v in $pending) {
-                $author = Resolve-Author -Map $authors -StorageUser $v.User
+                $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
                 $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `

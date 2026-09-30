@@ -12,7 +12,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Read-KitManifest', 'Read-KitLocalOverlay', 'Resolve-KitInfobase', 'Save-KitOverlayAgentBase', 'New-KitFinding', 'Invoke-KitPreflight',
             'Select-KitSources', 'Test-KitBranchExists', 'Get-KitStorageBranchLastVersion', 'Test-KitStorageBranchInvariants',
             'Install-KitGitHooks', 'Test-KitGitHooks', 'Test-GitTextPolicy', 'Split-GitEolNoise', 'Read-AuthorMap',
-            'Resolve-Author', 'Get-UnknownAuthors', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
+            'Resolve-Author', 'Get-UnknownAuthors', 'Get-KitUnattributedVersions', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
             'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
             'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
