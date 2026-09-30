@@ -166,6 +166,20 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             $f[0].Message | Should -Not -BeLike '*pre-merge-commit*'
         }
 
+        It 'індекс 100755, у HEAD 100644 (git commit --only перечитав файл з диска, #16) — warn' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'hooks-head') -WithHooks
+            git -C $repo update-index --chmod=-x -- .githooks/pre-commit
+            git -C $repo commit -qm 'хук без біта (як після commit --only на Windows)'
+            git -C $repo update-index --chmod=+x -- .githooks/pre-commit
+            $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
+            @($f | Where-Object { $_.Message -like '*pre-commit*у коміті HEAD без біта виконання*' }).Count | Should -Be 1
+        }
+
+        It 'індекс і HEAD обидва 100755 — знахідки про HEAD немає' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'hooks-head-ok') -WithHooks
+            @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Where-Object { $_.Message -like '*у коміті HEAD*' }).Count | Should -Be 0
+        }
+
         It 'встановлені, але ще не закомічені хуки — про біт виконання знахідок немає' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-mode-untracked')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null

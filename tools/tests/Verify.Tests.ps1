@@ -146,6 +146,71 @@ Describe 'kit verify — мок платформного шару: щаслив�
         # дампить у базі агента (build/ib воркспейсу, не build/verify/<ключ>/ib).
         Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
     }
+
+    It 'клієнтська основна конфігурація: .cf у дампі не дає OnlyInDump — equal' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-supply') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        $script:Bin = 'bin-of-release-1-bytes-over-sixteen'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/base' -RepoPath 'Client_UNF/cf/src' -FileName 'Configuration.xml' -Content '<x/>' -Trailers @('Storage-Source: base', 'Storage-Version: 1')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/base' -RepoPath 'Client_UNF/cf/src' -FileName 'Ext/ParentConfigurations.bin' -Content $script:Bin -Trailers @('Storage-Source: base', 'Storage-Version: 2')
+        $storageDir = Join-Path $TestDrive 'verify-supply-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$storageDir'") -join "`n")
+
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path (Join-Path $Target 'Ext/ParentConfigurations') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value '<x/>' -Encoding UTF8 -NoNewline
+            Set-Content -LiteralPath (Join-Path $Target 'Ext/ParentConfigurations.bin') -Value $script:Bin -Encoding UTF8 -NoNewline
+            Set-Content -LiteralPath (Join-Path $Target 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding UTF8
+            3
+        }
+        $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'base' -Ref 'storage/base'
+        $r.Results[0].Diff.OnlyInDump | Should -Not -Contain 'Ext/ParentConfigurations/Vendor.cf'
+        $r.Results[0].Verdict | Should -Be 'equal'
+    }
+
+    It 'клієнтська основна конфігурація: змінений .bin — Content (ознаки підтримки порівнюються)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-supply-bin') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/base' -RepoPath 'Client_UNF/cf/src' -FileName 'Configuration.xml' -Content '<x/>' -Trailers @('Storage-Source: base', 'Storage-Version: 1')
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/base' -RepoPath 'Client_UNF/cf/src' -FileName 'Ext/ParentConfigurations.bin' -Content 'bin-of-release-1-bytes-over-sixteen' -Trailers @('Storage-Source: base', 'Storage-Version: 2')
+        $storageDir = Join-Path $TestDrive 'verify-supply-bin-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$storageDir'") -join "`n")
+
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path (Join-Path $Target 'Ext/ParentConfigurations') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value '<x/>' -Encoding UTF8 -NoNewline
+            Set-Content -LiteralPath (Join-Path $Target 'Ext/ParentConfigurations.bin') -Value 'bin-of-release-2-bytes-over-sixteen' -Encoding UTF8 -NoNewline
+            Set-Content -LiteralPath (Join-Path $Target 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding UTF8
+            3
+        }
+        $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'base' -Ref 'storage/base'
+        $r.Results[0].Diff.Content | Should -Contain 'Ext/ParentConfigurations.bin'
+        $r.Results[0].Diff.OnlyInDump | Should -Not -Contain 'Ext/ParentConfigurations/Vendor.cf'
+        $r.Results[0].Verdict | Should -Be 'ref-ahead'
+    }
+
+    It 'розширення клієнтського воркспейсу (Доработки) — equal, як і раніше' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-client-ext') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        $script:ExtXml = New-KitFakeConfigurationXml -Name 'Доработки'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Доработки' -RepoPath 'Client_UNF/cfe/Доработки/src' -FileName 'Configuration.xml' -Content $script:ExtXml -Trailers @('Storage-Source: Доработки', 'Storage-Version: 1')
+        $storageDir = Join-Path $TestDrive 'verify-client-ext-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Доработки: '$storageDir'") -join "`n")
+
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:ExtXml -Encoding UTF8 -NoNewline
+            1
+        }
+        $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Доработки' -Ref 'storage/Доработки'
+        $r.Results[0].Verdict | Should -Be 'equal'
+    }
 }
 
 Describe 'kit verify — живе сховище: рівні → сховище попереду → звірочний коміт → рівні' -Tag Integration {

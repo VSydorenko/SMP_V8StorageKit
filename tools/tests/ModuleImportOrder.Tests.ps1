@@ -12,8 +12,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Read-KitManifest', 'Read-KitLocalOverlay', 'Resolve-KitInfobase', 'Save-KitOverlayAgentBase', 'New-KitFinding', 'Invoke-KitPreflight',
             'Select-KitSources', 'Test-KitBranchExists', 'Get-KitStorageBranchLastVersion', 'Test-KitStorageBranchInvariants',
             'Install-KitGitHooks', 'Test-KitGitHooks', 'Test-GitTextPolicy', 'Split-GitEolNoise', 'Read-AuthorMap',
-            'Resolve-Author', 'Get-UnknownAuthors', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
-            'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions',
+            'Resolve-Author', 'Get-UnknownAuthors', 'Get-KitUnattributedVersions', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
+            'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions', 'Test-KitExtensionNotFound',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
             'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
@@ -21,7 +21,9 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
             'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitSameInfobase',
             'Convert-KitEdtPath', 'Get-KitEdtRenamePlan', 'Get-KitDirtyRecords', 'Backup-KitDirtyFiles',
-            'Get-KitOriginGap', 'Get-KitPluginVersion'
+            'Get-KitOriginGap', 'Get-KitPluginVersion',
+            'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
+            'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String

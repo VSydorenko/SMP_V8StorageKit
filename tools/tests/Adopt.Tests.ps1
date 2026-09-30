@@ -33,6 +33,18 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             git -C $repo commit -q -m 'sync: версія 7' -m 'Storage-Version: 7' 2>&1 | Out-Null
             Remove-Item Env:\V8KIT_SYNC
             git -C $repo checkout -q main 2>&1 | Out-Null
+            if ($MirrorIsAncestor) {
+                # Гілка без злиття: дзеркало вже предок HEAD («Already up to date»), а гілка задачі має роботу поверх.
+                git -C $repo merge -q --ff-only 'storage/base' 2>&1 | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cf/src/OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
+                git -C $repo add -- 'Client_UNF/cf/src/OnlyInBranch.xml' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'робота агента' 2>&1 | Out-Null
+            }
+            # Після дзеркала: у дзеркалі поставки бути не може (sync її не пише).
+            if ($TrackSupply) {
+                git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'поставка відстежується (помилково)' 2>&1 | Out-Null
+            }
             $repo
         }
     }
@@ -145,5 +157,230 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $r.Output   | Should -BeLike '*stray-outside.txt*'
         Join-Path $repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
         (Get-Content -LiteralPath $strayPath -Raw) | Should -BeLike '*чужа незакомічена робота*'
+    }
+}
+
+Describe 'kit adopt — основна конфігурація з поставкою вендора (спека 2026-09-30 §5.2)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        function script:New-SupplyAdoptRepo {
+            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor, [switch]$OldMirrorWithCf)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
+            if ($NoSupplyIgnoreLine) {
+                # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
+                $gi = Join-Path $repo '.gitignore'
+                (Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' }) | Set-Content -LiteralPath $gi -Encoding UTF8
+                git -C $repo commit -qam 'gitignore без рядка поставки' 2>&1 | Out-Null
+            }
+            if ($CrlfIgnore) {
+                # CRLF + порожній рядок + без рядка поставки: форма проби з кінцевою рискою хибила б «ігнорується».
+                [System.IO.File]::WriteAllText((Join-Path $repo '.gitignore'), "build/`r`n`r`n*.tmp`r`n")
+                git -C $repo commit -qam 'gitignore CRLF без рядка поставки' 2>&1 | Out-Null
+            }
+            if ($NegatedIgnore) {
+                # Правило з негацією: тека НЕ ігнорується цілком, .cf — «неігнорований» (рев'ю Task 4, Important 1).
+                $gi = Join-Path $repo '.gitignore'
+                $keep = @(Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' })
+                Set-Content -LiteralPath $gi -Encoding UTF8 -Value ($keep + '**/Ext/ParentConfigurations/*' + '!**/Ext/ParentConfigurations/*.cf')
+                git -C $repo commit -qam 'gitignore з негацією .cf' 2>&1 | Out-Null
+            }
+            # Дзеркало: той самий Configuration.xml, НОВИЙ .bin, без .cf (як пише sync після Task 2).
+            $env:V8KIT_SYNC = '1'
+            try {
+                git -C $repo checkout -q -b 'storage/base' 2>&1 | Out-Null
+                [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..48))
+                git -C $repo add -- 'Client_UNF/cf/src/Ext/ParentConfigurations.bin' 2>&1 | Out-Null
+                if ($OldMirrorWithCf) {
+                    # Дзеркало версії ≤1.2.0: .cf поставки вже в історії дзеркала, вмістом іншим за локальний.
+                    $oldCf = Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'
+                    [System.IO.File]::WriteAllBytes($oldCf, [byte[]](200..230))
+                    git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                }
+                git -C $repo commit -q -m 'sync: версія 3' -m 'Storage-Version: 3' 2>&1 | Out-Null
+            } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+            git -C $repo checkout -q main 2>&1 | Out-Null
+            if ($OldMirrorWithCf) {
+                # checkout main прибрав .cf дзеркала з диска (у main його немає) — повертаємо локальну поставку.
+                [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'), [byte[]](1..40))
+            }
+            if ($MirrorIsAncestor) {
+                # Гілка без злиття: дзеркало вже предок HEAD («Already up to date»), а гілка задачі має роботу поверх.
+                git -C $repo merge -q --ff-only 'storage/base' 2>&1 | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cf/src/OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
+                git -C $repo add -- 'Client_UNF/cf/src/OnlyInBranch.xml' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'робота агента' 2>&1 | Out-Null
+            }
+            # Після дзеркала: у дзеркалі поставки бути не може (sync її не пише).
+            if ($TrackSupply) {
+                git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'поставка відстежується (помилково)' 2>&1 | Out-Null
+            }
+            $repo
+        }
+    }
+
+    It 'прев''ю: .cf не в списку «ЗНИКНЕ», .bin — у «прийде зі сховища»' {
+        $repo = New-SupplyAdoptRepo 'supply-preview'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*Vendor.cf*'
+        $r.Output | Should -BeLike '*ParentConfigurations.bin*'
+    }
+
+    It '-Apply: .cf лишається на диску, новий .bin на місці, без Ext/Ext, робоча копія чиста' {
+        $repo = New-SupplyAdoptRepo 'supply-apply'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        Join-Path $cfg 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be 48
+        Join-Path $cfg 'Ext/Ext' | Should -Not -Exist
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+    }
+
+    It '-Apply: старе дзеркало з .cf в історії не перезаписує локальну поставку, .cf не в ls-files і не в HEAD' {
+        $repo = New-SupplyAdoptRepo 'supply-old-mirror-cf' -OldMirrorWithCf
+        $localCf = Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        [System.IO.File]::ReadAllBytes($localCf) | Should -Be ([byte[]](1..40))
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+    }
+
+    It '-Apply з CRLF-.gitignore (порожній рядок, без рядка поставки) — exclude додається: .cf не в індексі й не в HEAD, без попередження' {
+        $repo = New-SupplyAdoptRepo 'supply-crlf' -CrlfIgnore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*потрапила в індекс*'
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+    It '<Case>: рецепт БЕЗ коміту — зупинка до стирання, дерево й .cf на місці, текст із рецептом' -ForEach @(
+        @{ Case = 'гілка без злиття'; Ancestor = $true }
+        @{ Case = 'гілка зі злиттям'; Ancestor = $false }
+    ) {
+        $repo = if ($Ancestor) { New-SupplyAdoptRepo 'recipe-nocommit-a' -TrackSupply -MirrorIsAncestor } else { New-SupplyAdoptRepo 'recipe-nocommit-m' -TrackSupply }
+        git -C $repo rm -r -q --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations' 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*Поставка вендора відстежується git*'
+        $r.Output | Should -BeLike "*git rm -r --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations'*"
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        Join-Path $cfg 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be $(if ($Ancestor) { 48 } else { 32 }) -Because 'дерево не перезаписане'
+    }
+
+    It '<Case>: рецепт З комітом — adopt -Apply проходить, .cf на диску, не в ls-files і не в ls-tree HEAD' -ForEach @(
+        @{ Case = 'гілка без злиття'; Ancestor = $true }
+        @{ Case = 'гілка зі злиттям'; Ancestor = $false }
+    ) {
+        $repo = if ($Ancestor) { New-SupplyAdoptRepo 'recipe-commit-a' -TrackSupply -MirrorIsAncestor } else { New-SupplyAdoptRepo 'recipe-commit-m' -TrackSupply }
+        git -C $repo rm -r -q --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations' 2>&1 | Out-Null
+        git -C $repo commit -q -m 'поставка поза git' 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+    }
+    It '-Apply з .gitignore з негацією (!*.cf) — .cf ні в індексі, ні в HEAD, лишається на диску' {
+        $repo = New-SupplyAdoptRepo 'supply-negation' -NegatedIgnore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (git -C $repo rev-parse -q --verify MERGE_HEAD 2>$null) | Should -BeNullOrEmpty -Because 'відкат мусить прибрати незавершене злиття'
+    }
+
+    It '-Apply, коли поставку відстежує git — зупинка ДО стирання дерева з рецептом git rm --cached' {
+        $repo = New-SupplyAdoptRepo 'supply-tracked' -TrackSupply
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*Поставка вендора відстежується git*'
+        $r.Output | Should -BeLike "*git rm -r --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations'*"
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        Join-Path $cfg 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be 32 -Because 'дерево не перезаписане'
+        (git -C $repo rev-parse -q --verify MERGE_HEAD 2>$null) | Should -BeNullOrEmpty
+    }
+
+    It '-Apply у репозиторії без рядка ігнору поставки — .cf не потрапляє ні в індекс, ні в коміт' {
+        $repo = New-SupplyAdoptRepo 'supply-noignore' -NoSupplyIgnoreLine
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+
+    It 'розширення клієнтського воркспейсу (кирилиця в імені) — adopt -Apply працює як раніше' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-cyr') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore
+        $env:V8KIT_SYNC = '1'
+        try {
+            git -C $repo checkout -q -b 'storage/Доработки' 2>&1 | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cfe/Доработки/src/New.xml') -Value 'нове' -Encoding UTF8
+            git -C $repo add -A 2>&1 | Out-Null
+            git -C $repo commit -q -m 'sync: версія 2' -m 'Storage-Version: 2' 2>&1 | Out-Null
+        } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+        git -C $repo checkout -q main 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'Доработки', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Join-Path $repo 'Client_UNF/cfe/Доработки/src/New.xml' | Should -Exist
+    }
+}
+
+Describe 'Remove-KitSupplyFromIndex — страховка: поставка знімається з індексу, файл на диску цілий' {
+    BeforeAll {
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/adopt.psm1").Path -Force
+        function script:New-StagedSupplyRepo {
+            param([string]$Name, [switch]$Merge)
+            $repo = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path $repo -Force | Out-Null
+            git -C $repo init -q -b main 2>&1 | Out-Null
+            git -C $repo config user.email 'a@b.c'; git -C $repo config user.name 'n'
+            Set-Content -LiteralPath (Join-Path $repo 'a.txt') -Value 'a'
+            git -C $repo add -A 2>&1 | Out-Null; git -C $repo commit -q -m init 2>&1 | Out-Null
+            if ($Merge) {
+                git -C $repo checkout -q -b other 2>&1 | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'o.txt') -Value 'o'
+                git -C $repo add -A 2>&1 | Out-Null; git -C $repo commit -q -m other 2>&1 | Out-Null
+                git -C $repo checkout -q main 2>&1 | Out-Null
+                git -C $repo merge --no-commit --no-ff -s ours other 2>&1 | Out-Null
+            }
+            $dir = Join-Path $repo 'src/Ext/ParentConfigurations'
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'Vendor.cf') -Value 'cf'
+            Set-Content -LiteralPath (Join-Path $repo 'src/Other.xml') -Value 'x'
+            git -C $repo add -A 2>&1 | Out-Null
+            $repo
+        }
+    }
+
+    It '<Case>: знімає .cf з індексу, файл на диску, чужий застейджений файл лишається' -ForEach @(
+        @{ Case = 'без злиття'; Merge = $false }
+        @{ Case = 'у стані злиття (MERGE_HEAD)'; Merge = $true }
+    ) {
+        $repo = if ($Merge) { New-StagedSupplyRepo 'idx-merge' -Merge } else { New-StagedSupplyRepo 'idx-plain' }
+        @(git -C $repo diff --cached --name-only -- 'src/Ext/ParentConfigurations').Count | Should -Be 1 -Because 'передумова: .cf застейджено'
+        $removed = @(InModuleScope adopt -Parameters @{ R = $repo } { Remove-KitSupplyFromIndex -RepoRoot $R -SupplyPath 'src/Ext/ParentConfigurations' 3>$null })
+        $removed | Should -Contain 'src/Ext/ParentConfigurations/Vendor.cf'
+        @(git -C $repo diff --cached --name-only -- 'src/Ext/ParentConfigurations').Count | Should -Be 0
+        Join-Path $repo 'src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        @(git -C $repo diff --cached --name-only -- 'src/Other.xml').Count | Should -Be 1
+        if ($Merge) { (git -C $repo rev-parse -q --verify MERGE_HEAD) | Should -Not -BeNullOrEmpty -Because 'злиття не скасовано' }
+    }
+
+    It 'нічого не застейджено — порожній результат, без змін' {
+        $repo = New-StagedSupplyRepo 'idx-none'
+        git -C $repo reset -q 2>&1 | Out-Null
+        @(InModuleScope adopt -Parameters @{ R = $repo } { Remove-KitSupplyFromIndex -RepoRoot $R -SupplyPath 'src/Ext/ParentConfigurations' }).Count | Should -Be 0
     }
 }

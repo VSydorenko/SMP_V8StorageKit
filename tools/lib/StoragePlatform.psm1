@@ -35,12 +35,27 @@ function Get-KitExtensionArgument {
     ''
 }
 
+function Test-KitExtensionNotFound {
+    <#
+    .SYNOPSIS
+        Відповідь платформи «розширення з таким іменем не знайдено» (рос./укр.) — ЄДИНЕ місце
+        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу operation=build») і запасний шлях
+        sync (спека 2026-09-30 §6.9). Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
+    $Output -match '(?i)расширени\w+ .*не найдено|розширенн\w+ .*не знайдено'
+}
+
 function New-KitStorageInfobase {
     <#
     .SYNOPSIS
         Тимчасова ІБ під <WorkDir>/ib для читання сховища: розширення — зі стабом під іменем
         джерела (без нього сховище розширень відповідає «расширение … не найдено»);
         конфігурація — порожня ІБ.
+    .DESCRIPTION
+        Кличе лише запасний шлях sync для розширення, якого ще немає в базі агента (спека
+        2026-09-30 §6.9). Штатний шлях — Get-KitSourceInfobase.
     #>
     [CmdletBinding()]
     param(
@@ -60,16 +75,17 @@ function Get-KitSourceInfobase {
     <#
     .SYNOPSIS
         База, в якій виконуються всі платформні операції джерела: база агента воркспейсу
-        (спека 2026-09-17, §2, §3). Замінює New-KitStorageInfobase, яка створювала тимчасову
-        ІБ зі стабом.
+        (спека 2026-09-17, §2, §3). Штатний шлях замість тимчасової ІБ зі стабом
+        (New-KitStorageInfobase), яка лишилась лише запасним шляхом sync (спека 2026-09-30 §6.9).
     .DESCRIPTION
         Серіалізація розширення залежить від того, чи є в базі конфігурація-власник: дамп у
         ІБ зі стабом дає GUID у DesignTimeRef і явні дефолти форм, дамп у базі з власником —
         імена й опущені дефолти. Доки sync/verify дампили зі стаба, а canon — з бази агента,
         verify показував формат як зміст (ішузи #3 і #6).
 
-        Фолбеку на порожню ІБ тут немає НАВМИСНО: він повернув би другий формат у git —
-        рівно той розкол, який ця зміна закриває. Тому бази немає — зупинка з рецептом.
+        Фолбеку на порожню ІБ ТУТ немає навмисно: бази немає — зупинка з рецептом. Єдиний
+        виняток — розширення, якого ще немає в самій базі агента: це рішення приймає sync за
+        відповіддю платформи (спека 2026-09-30 §6.9), а не ця функція.
 
         Запобіжник «це не дев-база людини» лежить у Resolve-KitAgentBase (принцип 3) і
         спрацьовує саме тут: після цієї зміни викликач робить ConfigurationRepositoryUpdateCfg,
@@ -143,7 +159,7 @@ function Invoke-KitStorageCheckout {
         # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
         # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
         # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
-        if ($Source.Type -eq 'EXTENSION' -and $upd.Output -match '(?i)расширени\w+ .*не найдено|розширенн\w+ .*не знайдено') {
+        if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
             throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
                    "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
         }
@@ -172,4 +188,4 @@ function Invoke-KitStorageCheckout {
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
-Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, New-KitStorageInfobase, Get-KitSourceInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout
+Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, Test-KitExtensionNotFound, New-KitStorageInfobase, Get-KitSourceInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout

@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/Preflight.psm1"
 Import-Module "$PSScriptRoot/PathSafety.psm1"
+Import-Module "$PSScriptRoot/Supply.psm1"
 
 $script:BranchPrefix = 'storage/'
 # Get-KitPendingVersions (Task 2, рев'ю п. 9): поріг, після якого зупинка на -FromVersion
@@ -476,6 +477,8 @@ function Write-KitStorageVersion {
         застосував би core.autocrlf машини. -c core.autocrlf=false тримає байти платформи як є —
         та сама гарантія, яку в main дає -text. ConfigDumpInfo.xml і DumpFilesIndex.txt —
         службові файли платформи, у дзеркалі їх немає (у споживача вони й так у .gitignore).
+        Тека поставки вендора Ext/ParentConfigurations (.cf на сотні МБ і позначка .kit-bin-sha1) у
+        дзеркало не потрапляє: лишається лише .bin (спека 2026-09-30 §5.2, ліміт GitHub 100 МБ на файл).
         V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука B1), не механізм: в orphan-worktree дзеркала хука
         немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
         де хук є. Дати автора й
@@ -497,6 +500,12 @@ function Write-KitStorageVersion {
         $j = Join-Path $target $junk
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
+
+    # Поставка вендора (спека 2026-09-30 §5.2): у worktree дзеркала немає .gitignore, і
+    # `git add -A` нижче забрав би .cf на 0,5–1,1 ГБ у коміт storage/<ключ> — push на GitHub
+    # відмовить (ліміт 100 МБ на файл). У дзеркалі лишається лише .bin (ознаки підтримки).
+    # Для розширень і конфігурацій без підтримки теки немає — виклик нічого не робить.
+    Remove-KitSupplyDir -TreeRoot $target -MustBeUnder $WorktreePath
 
     # commit-message.txt лежить поруч із worktree (Split-Path -Parent $WorktreePath), не
     # всередині нього — `git worktree remove` чистить лише сам worktree, тож файл прибирає

@@ -194,6 +194,38 @@ Describe 'kit build — мок платформного шару: .epf чере�
     }
 }
 
+Describe 'Copy-KitWorkspaceArtifacts — попередній артефакт не губиться (#18)' {
+    BeforeAll {
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/build.psm1").Path -Force
+    }
+
+    It 'інший вміст — стара копія під іменем з sha8 (Ім''я_sha8.cfe), нова на місці' {
+        $wsDir = Join-Path $TestDrive 'ws'; $dest = Join-Path $TestDrive 'artifacts'
+        New-Item -ItemType Directory -Path (Join-Path $wsDir 'build/artifacts'), $dest -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dest 'Ext.cfe') -Value 'стара збірка' -Encoding UTF8
+        $sha8 = (Get-FileHash -LiteralPath (Join-Path $dest 'Ext.cfe') -Algorithm SHA1).Hash.Substring(0, 8).ToLowerInvariant()
+        Set-Content -LiteralPath (Join-Path $wsDir 'build/artifacts/Ext.cfe') -Value 'нова збірка' -Encoding UTF8
+        $ws = [pscustomobject]@{ FullPath = $wsDir; Project = [pscustomobject]@{ WorkPath = 'build' } }
+        $null = Copy-KitWorkspaceArtifacts -Workspaces @($ws) -Destination $dest
+        (Get-Content -LiteralPath (Join-Path $dest 'Ext.cfe') -Raw).Trim() | Should -Be 'нова збірка'
+        (Get-Content -LiteralPath (Join-Path $dest "Ext_$sha8.cfe") -Raw).Trim() | Should -Be 'стара збірка'
+    }
+
+    It 'той самий вміст — резервної копії немає' {
+        $wsDir = Join-Path $TestDrive 'ws2'; $dest = Join-Path $TestDrive 'artifacts2'
+        New-Item -ItemType Directory -Path (Join-Path $wsDir 'build/artifacts'), $dest -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dest 'Main.cf') -Value 'те саме' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $wsDir 'build/artifacts/Main.cf') -Value 'те саме' -Encoding UTF8
+        $ws = [pscustomobject]@{ FullPath = $wsDir; Project = [pscustomobject]@{ WorkPath = 'build' } }
+        $null = Copy-KitWorkspaceArtifacts -Workspaces @($ws) -Destination $dest
+        @(Get-ChildItem -LiteralPath $dest -File).Count | Should -Be 1
+    }
+}
+
 Describe 'kit build — .epf через платформу' -Tag Integration {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force

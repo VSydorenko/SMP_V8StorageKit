@@ -5,29 +5,64 @@ Set-StrictMode -Version Latest
 # Спільний платформний шар «версія сховища → дамп» (Get-KitSourceInfobase, Enter/Exit-KitStorageBind,
 # Invoke-KitStorageCheckout, Get-KitRepositoryArguments) — StoragePlatform.psm1 (B3 Task 1); ним же
 # користується verify. Після C1 (2026-09-17) дамп іде в базі агента воркспейсу, яку резолвить
-# Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync більше не кличе.
+# Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync кличе лише як запасний шлях
+# для розширення, якого ще немає в базі агента (спека 2026-09-30 §6.9).
+
+function Sort-KitSyncSources {
+    <#
+    .SYNOPSIS
+        Порядок sync (спека 2026-09-30 §5.4): усередині воркспейсу CONFIGURATION першим — після
+        нього в базі агента остання перенесена версія основної конфігурації, і розширення
+        вивантажуються на ній, а не на стані гілки задачі. Воркспейси й розширення — у порядку
+        маніфесту. Явний цикл, а не Sort-Object: стабільність тут — контракт, а не деталь.
+    #>
+    param([AllowEmptyCollection()][object[]]$Sources)
+    $wsOrder = [System.Collections.Generic.List[string]]::new()
+    foreach ($s in $Sources) { if (-not $wsOrder.Contains($s.Workspace)) { $wsOrder.Add($s.Workspace) } }
+    foreach ($ws in $wsOrder) {
+        $Sources | Where-Object { $_.Workspace -eq $ws -and $_.Type -eq 'CONFIGURATION' }
+        $Sources | Where-Object { $_.Workspace -eq $ws -and $_.Type -ne 'CONFIGURATION' }
+    }
+}
 
 function Invoke-KitMainMerge {
     <#
     .SYNOPSIS
-        Перше злиття дзеркала в головну гілку (§3.4). Невдача злиття не скасовує реплею:
-        дзеркало вже оновлено, і людина може повторити злиття командою з підказки.
+        Перше злиття дзеркала в цільову гілку (§3.4; типово головна, інша — -MergeInto). Невдача
+        злиття не скасовує реплею: дзеркало вже оновлено, і людина може повторити злиття
+        командою з підказки.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Source)
-    $main = $Context.MainBranch
-    if (-not (Test-KitBranchExists -RepoRoot $Context.RepoRoot -Branch $main)) {
-        Write-Host "  Головної гілки '$main' ще немає — злиття пропущено. Створіть перший коміт і повторіть: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][string]$Into)
+    $retry = "kit sync -Source $($Source.Key) -Apply -MergeMain"
+    if ($Into -ne $Context.MainBranch) { $retry += " -MergeInto $Into" }
+    if (-not (Test-KitBranchExists -RepoRoot $Context.RepoRoot -Branch $Into)) {
+        Write-Host "  Гілки '$Into' ще немає — злиття пропущено. Створіть її (перший коміт) і повторіть: $retry" -ForegroundColor Yellow
         return $false
     }
+    # Запобіжник #15 (спека 2026-09-30 §6.3.4): ПЕРШЕ злиття в гілку, де немає маніфесту, —
+    # майже напевно не та гілка (master gitsync-репозиторію до переходу, коли маніфест і
+    # перейменування лежать на гілці онбордингу). Там злиття проходить ЧИСТО — шляхи не
+    # перетинаються — і кладе Designer-дерево в master ДО коміту конверсії: той самий
+    # зворотний порядок, що обнуляє git blame (§9.2 спеки 2026-09-03).
+    if (-not (Test-KitBranchMergedInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into)) {
+        git -C $Context.RepoRoot cat-file -e "${Into}:v8storagekit.yaml" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            # Дужки навколо конкатенації — з тієї ж причини, що й у попередженні нижче (-f сильніший за +).
+            Write-Host (("  Злиття не виконано: у гілці '{0}' v8storagekit.yaml немає — це перше злиття {1}, і маніфест живе на іншій гілці. " +
+                "Злийте в гілку, де лежить маніфест: kit sync -Source {2} -Apply -MergeMain -MergeInto <гілка>.") -f $Into, $Source.Branch, $Source.Key) -ForegroundColor Yellow
+            Write-Host '  Дзеркало оновлено.' -ForegroundColor Yellow
+            return $false
+        }
+    }
     try {
-        $r = Merge-KitBranchInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $main `
-            -Message "sync: злиття $($Source.Branch) у $main" -AllowUnrelated
-        if ($r.Outcome -eq 'merged') { Write-Host "  Злито в $main ($($r.Via)): $($r.Sha.Substring(0, 7))" -ForegroundColor Green }
-        else { Write-Host "  $main уже містить $($Source.Branch)." -ForegroundColor DarkGray }
+        $r = Merge-KitBranchInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into `
+            -Message "sync: злиття $($Source.Branch) у $Into" -AllowUnrelated
+        if ($r.Outcome -eq 'merged') { Write-Host "  Злито в $Into ($($r.Via)): $($r.Sha.Substring(0, 7))" -ForegroundColor Green }
+        else { Write-Host "  $Into уже містить $($Source.Branch)." -ForegroundColor DarkGray }
         return $true
     } catch {
-        Write-Host "  Злиття в $main не виконано: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Host "  Дзеркало оновлено. Повторити злиття: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
+        Write-Host "  Злиття в $Into не виконано: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  Дзеркало оновлено. Повторити злиття: $retry" -ForegroundColor Yellow
         return $false
     }
 }
@@ -57,6 +92,15 @@ function Invoke-KitSync {
         не існує (гілки немає або вершина без трейлера, п. Get-KitStorageBranchLastVersion) —
         на непорожній гілці sync зупиняється з поясненням, а не тихо ігнорує ці параметри;
         дозаливку далі веде звичайний sync (за потреби — -MaxVersions). Параметри взаємовиключні.
+
+        Порядок (спека 2026-09-30 §5.4): усередині воркспейсу спершу джерела CONFIGURATION, далі
+        решта в порядку маніфесту; воркспейси — у порядку маніфесту. Коли вибірка містить
+        EXTENSION воркспейсу з CONFIGURATION під truth: storage, а саму CONFIGURATION до
+        вибірки не потрапило, друкується попередження (не зупинка) — один раз на воркспейс.
+
+        -MergeInto <гілка> — куди робити перше злиття й злиття -MergeMain (типово головна гілка
+        маніфесту). Запобіжник (#15): якщо дзеркало ще не злите в цільову гілку, а в ній немає
+        v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 2).
     #>
     [CmdletBinding()]
     param(
@@ -67,7 +111,8 @@ function Invoke-KitSync {
         [int]$MaxVersions = 0,
         [switch]$MergeMain,
         [Nullable[int]]$FromVersion = $null,
-        [switch]$FromLatest
+        [switch]$FromLatest,
+        [string]$MergeInto
     )
 
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
@@ -82,8 +127,10 @@ function Invoke-KitSync {
         throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
     }
 
+    $into    = if ($MergeInto) { $MergeInto } else { $Context.MainBranch }
     $root    = $Context.RepoRoot
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
+    $sources = @(Sort-KitSyncSources -Sources $sources)
     if ($sources.Count -eq 0) {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — синхронізувати нічого.'
         return [pscustomobject]@{ ExitCode = 0; Synced = @() }
@@ -110,6 +157,22 @@ function Invoke-KitSync {
         'fetch', '--quiet', '--no-tags', 'origin')
     if ($fetch.ExitCode -ne 0) {
         Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
+    }
+
+    # Попередження §5.4: розширення без основної конфігурації воркспейсу, що йде під storage, —
+    # вивантажуватимуться на тому стані, що зараз у базі агента. Не зупинка.
+    foreach ($wsName in @($sources.Workspace | Select-Object -Unique)) {
+        $ws = @($Context.Workspaces | Where-Object Path -eq $wsName)[0]
+        $cfg = @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })
+        $selectedHere = @($sources | Where-Object Workspace -eq $wsName)
+        if ($cfg.Count -gt 0 -and @($selectedHere | Where-Object Type -eq 'EXTENSION').Count -gt 0 -and
+            @($selectedHere | Where-Object Type -eq 'CONFIGURATION').Count -eq 0) {
+            # Дужки навколо конкатенації обов'язкові: -f зв'язує міцніше за +, і без них формат
+            # діяв би лише на другий рядок (ескіз брифа так і робив — {0} лишався в тексті).
+            Write-Host (("  УВАГА: основну конфігурацію '{0}' (truth: storage) у цьому прогоні не синхронізовано — " +
+                "контекст вивантаження розширень воркспейсу '{1}' той, що зараз у базі агента. Повний прогін: kit sync -Workspace {1}.") -f
+                ($cfg.Key -join ', '), $wsName) -ForegroundColor Yellow
+        }
     }
 
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
@@ -188,13 +251,30 @@ function Invoke-KitSync {
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        $ibSwitch = $agent.IbSwitch
+        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $fallback = $false
         Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
         Write-Host 'Читаю історію сховища...'
 
-        $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
-            -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $agent.User
+        try {
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
+                -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        } catch {
+            # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
+            # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
+            # порожній ІБ із заглушкою. Лише EXTENSION: для основної конфігурації «не знайдено»
+            # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
+            # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
+            if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
+            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+            $ibUser = ''
+            $fallback = $true
+            Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
+                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й operation=build ' +
+                'наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        }
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
 
@@ -232,23 +312,47 @@ function Invoke-KitSync {
             }
 
             $merged = $false
-            if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src; if (-not $merged) { $mergeFailed = $true } }
-            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged })
+            if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
+            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
             continue
         }
 
-        $unknown = Get-UnknownAuthors -Map $authors -StorageUsers ($pending.User)
-        if ($unknown) {
+        # Спека 2026-09-30 §6.8: автор може бути на логін АБО на конкретну версію. Спільний логін
+        # в AUTHORS не вноситься — тоді кожна його версія тут і зупиняє прогін готовим рядком.
+        # Форма виводу: рядок на логін, під ним ОКРЕМИЙ блок рядків версій підряд (щоб потрібний
+        # рядок не губився серед коментарів), а опис версій — окремим блоком після нього. Кожен
+        # рядок-заготовка — «<ключ>=Ім'я <пошта>» без хвоста: Complete-Authors (Sync.Storage.Tests.ps1)
+        # впізнає його за цим шаблоном, хвіст «# …» його б не пропустив.
+        # Без @(...) навколо виклику: функція повертає масив унарною комою (F7), і @() зробив би
+        # з нього масив із одного елемента-масиву — Group-Object тоді не бачить .User.
+        $unattributed = Get-KitUnattributedVersions -Map $authors -SourceKey $src.Key -Versions $pending
+        if ($unattributed.Count -gt 0) {
             Write-Host ''
-            Write-Host 'Невідомі автори — додайте їх у AUTHORS перед прогоном:' -ForegroundColor Yellow
-            $unknown | ForEach-Object { Write-Host "  $_=Ім'я <пошта>" }
+            Write-Host ('Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, ' +
+                'якщо під логіном різні люди):') -ForegroundColor Yellow
+            foreach ($g in ($unattributed | Group-Object { if ([string]::IsNullOrWhiteSpace($_.User)) { '' } else { $_.User } })) {
+                $login = $g.Name
+                Write-Host ("  логін «{0}» — версій {1}:" -f $(if ($login) { $login } else { '<порожній у звіті>' }), $g.Count)
+                if ($login) {
+                    Write-Host "    $login=Ім'я <пошта>"
+                    Write-Host '    якщо за цим логіном різні люди — замість рядка вище, по рядку на кожну версію:'
+                } else {
+                    Write-Host '    логін у звіті порожній — лише рядок на кожну версію:'
+                }
+                foreach ($v in $g.Group) { Write-Host "    $($src.Key)#$($v.Version)=Ім'я <пошта>" }
+                Write-Host '    що це за версії:'
+                foreach ($v in $g.Group) {
+                    $first = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+                    Write-Host ("      версія {0}, {1:yyyy-MM-dd HH:mm}{2}" -f $v.Version, $v.Timestamp, $(if ($first) { ", «$first»" } else { '' })) -ForegroundColor DarkGray
+                }
+            }
             throw 'Синхронізацію зупинено через невідомих авторів.'
         }
 
         Write-Host ''
         Write-Host "До перенесення версій: $($pending.Count)"
         foreach ($v in $pending) {
-            $author = Resolve-Author -Map $authors -StorageUser $v.User
+            $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
             $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
             if (-not $first) { $first = "Версія сховища $($v.Version)" }
             Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}" -f $v.Version, $v.Timestamp, $author.Name, $first)
@@ -269,13 +373,13 @@ function Invoke-KitSync {
         # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
         $bound = $false
         try {
-            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $agent.User
+            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $ibUser
             foreach ($v in $pending) {
-                $author = Resolve-Author -Map $authors -StorageUser $v.User
+                $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
                 $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $agent.User
+                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
                 $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
@@ -284,7 +388,7 @@ function Invoke-KitSync {
                 $done.Add($v.Version)
             }
         } finally {
-            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $agent.User
+            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
@@ -298,15 +402,19 @@ function Invoke-KitSync {
         # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
         # поведінка — мовчати про неї означало б, що наступний operation=syntax чи test побіжить
         # не на тому стані, який агент вважає своїм.
-        Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
-            $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+        if ($fallback) {
+            Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → operation=build Уніки — розширення з'явиться в базі агента." -ForegroundColor Yellow
+        } else {
+            Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+                $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+        }
 
         $merged = $false
         if ($wt.Created -or $MergeMain) {
-            $merged = Invoke-KitMainMerge -Context $Context -Source $src
+            $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
             if (-not $merged) { $mergeFailed = $true }
         }
-        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged })
+        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
     }
 
     Write-Host ''
