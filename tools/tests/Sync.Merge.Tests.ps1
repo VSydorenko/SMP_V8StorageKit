@@ -103,6 +103,51 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
+    It '-MergeInto гілка без v8storagekit.yaml (gitsync-master) — злиття не виконується, код 2, гілка не зрушила' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-legacy') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'merge-into-legacy-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+        # Гілка без маніфесту — так виглядає master gitsync-репозиторію до переходу (#15).
+        git -C $repo checkout -q --orphan legacy 2>&1 | Out-Null
+        git -C $repo rm -rqf . 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'gitsync' -Encoding UTF8
+        git -C $repo add README.md; git -C $repo commit -qm 'gitsync-стан' 2>&1 | Out-Null
+        git -C $repo checkout -q main 2>&1 | Out-Null
+        $legacyBefore = git -C $repo rev-parse legacy
+
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5) }
+
+        $ctx = New-KitTestContext -Repo $repo
+        $result = Invoke-KitSync -Context $ctx -Apply $true -MergeMain -MergeInto 'legacy' -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 2
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*legacy*v8storagekit.yaml немає*'
+        (git -C $repo rev-parse legacy) | Should -Be $legacyBefore
+    }
+
+    It '-MergeInto гілка онбордингу з маніфестом — злиття туди, main не зрушив' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-onb') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'merge-into-onb-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+        git -C $repo branch onboarding main
+        $mainBefore = git -C $repo rev-parse main
+
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5) }
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -MergeMain -MergeInto 'onboarding'
+        $result.ExitCode | Should -Be 0
+        git -C $repo merge-base --is-ancestor storage/Alpha_SMB onboarding; $LASTEXITCODE | Should -Be 0
+        (git -C $repo rev-parse main) | Should -Be $mainBefore
+    }
+
     It 'провал злиття після успішного реплею — ExitCode 2, підказка на повтор із -Apply, дзеркало вже оновлене' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-fails') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-fails-storage'

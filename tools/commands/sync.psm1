@@ -7,27 +7,61 @@ Set-StrictMode -Version Latest
 # користується verify. Після C1 (2026-09-17) дамп іде в базі агента воркспейсу, яку резолвить
 # Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync більше не кличе.
 
+function Sort-KitSyncSources {
+    <#
+    .SYNOPSIS
+        Порядок sync (спека 2026-09-30 §5.4): усередині воркспейсу CONFIGURATION першим — після
+        нього в базі агента остання перенесена версія основної конфігурації, і розширення
+        вивантажуються на ній, а не на стані гілки задачі. Воркспейси й розширення — у порядку
+        маніфесту. Явний цикл, а не Sort-Object: стабільність тут — контракт, а не деталь.
+    #>
+    param([AllowEmptyCollection()][object[]]$Sources)
+    $wsOrder = [System.Collections.Generic.List[string]]::new()
+    foreach ($s in $Sources) { if (-not $wsOrder.Contains($s.Workspace)) { $wsOrder.Add($s.Workspace) } }
+    foreach ($ws in $wsOrder) {
+        $Sources | Where-Object { $_.Workspace -eq $ws -and $_.Type -eq 'CONFIGURATION' }
+        $Sources | Where-Object { $_.Workspace -eq $ws -and $_.Type -ne 'CONFIGURATION' }
+    }
+}
+
 function Invoke-KitMainMerge {
     <#
     .SYNOPSIS
-        Перше злиття дзеркала в головну гілку (§3.4). Невдача злиття не скасовує реплею:
-        дзеркало вже оновлено, і людина може повторити злиття командою з підказки.
+        Перше злиття дзеркала в цільову гілку (§3.4; типово головна, інша — -MergeInto). Невдача
+        злиття не скасовує реплею: дзеркало вже оновлено, і людина може повторити злиття
+        командою з підказки.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Source)
-    $main = $Context.MainBranch
-    if (-not (Test-KitBranchExists -RepoRoot $Context.RepoRoot -Branch $main)) {
-        Write-Host "  Головної гілки '$main' ще немає — злиття пропущено. Створіть перший коміт і повторіть: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][string]$Into)
+    $retry = "kit sync -Source $($Source.Key) -Apply -MergeMain"
+    if ($Into -ne $Context.MainBranch) { $retry += " -MergeInto $Into" }
+    if (-not (Test-KitBranchExists -RepoRoot $Context.RepoRoot -Branch $Into)) {
+        Write-Host "  Гілки '$Into' ще немає — злиття пропущено. Створіть її (перший коміт) і повторіть: $retry" -ForegroundColor Yellow
         return $false
     }
+    # Запобіжник #15 (спека 2026-09-30 §6.3.4): ПЕРШЕ злиття в гілку, де немає маніфесту, —
+    # майже напевно не та гілка (master gitsync-репозиторію до переходу, коли маніфест і
+    # перейменування лежать на гілці онбордингу). Там злиття проходить ЧИСТО — шляхи не
+    # перетинаються — і кладе Designer-дерево в master ДО коміту конверсії: той самий
+    # зворотний порядок, що обнуляє git blame (§9.2 спеки 2026-09-03).
+    if (-not (Test-KitBranchMergedInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into)) {
+        git -C $Context.RepoRoot cat-file -e "${Into}:v8storagekit.yaml" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            # Дужки навколо конкатенації — з тієї ж причини, що й у попередженні нижче (-f сильніший за +).
+            Write-Host (("  Злиття не виконано: у гілці '{0}' v8storagekit.yaml немає — це перше злиття {1}, і маніфест живе на іншій гілці. " +
+                "Злийте в гілку, де лежить маніфест: kit sync -Source {2} -Apply -MergeMain -MergeInto <гілка>.") -f $Into, $Source.Branch, $Source.Key) -ForegroundColor Yellow
+            Write-Host '  Дзеркало оновлено.' -ForegroundColor Yellow
+            return $false
+        }
+    }
     try {
-        $r = Merge-KitBranchInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $main `
-            -Message "sync: злиття $($Source.Branch) у $main" -AllowUnrelated
-        if ($r.Outcome -eq 'merged') { Write-Host "  Злито в $main ($($r.Via)): $($r.Sha.Substring(0, 7))" -ForegroundColor Green }
-        else { Write-Host "  $main уже містить $($Source.Branch)." -ForegroundColor DarkGray }
+        $r = Merge-KitBranchInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into `
+            -Message "sync: злиття $($Source.Branch) у $Into" -AllowUnrelated
+        if ($r.Outcome -eq 'merged') { Write-Host "  Злито в $Into ($($r.Via)): $($r.Sha.Substring(0, 7))" -ForegroundColor Green }
+        else { Write-Host "  $Into уже містить $($Source.Branch)." -ForegroundColor DarkGray }
         return $true
     } catch {
-        Write-Host "  Злиття в $main не виконано: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Host "  Дзеркало оновлено. Повторити злиття: kit sync -Source $($Source.Key) -Apply -MergeMain" -ForegroundColor Yellow
+        Write-Host "  Злиття в $Into не виконано: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  Дзеркало оновлено. Повторити злиття: $retry" -ForegroundColor Yellow
         return $false
     }
 }
@@ -57,6 +91,15 @@ function Invoke-KitSync {
         не існує (гілки немає або вершина без трейлера, п. Get-KitStorageBranchLastVersion) —
         на непорожній гілці sync зупиняється з поясненням, а не тихо ігнорує ці параметри;
         дозаливку далі веде звичайний sync (за потреби — -MaxVersions). Параметри взаємовиключні.
+
+        Порядок (спека 2026-09-30 §5.4): усередині воркспейсу спершу джерела CONFIGURATION, далі
+        решта в порядку маніфесту; воркспейси — у порядку маніфесту. Коли вибірка містить
+        EXTENSION воркспейсу з CONFIGURATION під truth: storage, а саму CONFIGURATION до
+        вибірки не потрапило, друкується попередження (не зупинка) — один раз на воркспейс.
+
+        -MergeInto <гілка> — куди робити перше злиття й злиття -MergeMain (типово головна гілка
+        маніфесту). Запобіжник (#15): якщо дзеркало ще не злите в цільову гілку, а в ній немає
+        v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 2).
     #>
     [CmdletBinding()]
     param(
@@ -67,7 +110,8 @@ function Invoke-KitSync {
         [int]$MaxVersions = 0,
         [switch]$MergeMain,
         [Nullable[int]]$FromVersion = $null,
-        [switch]$FromLatest
+        [switch]$FromLatest,
+        [string]$MergeInto
     )
 
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
@@ -82,8 +126,10 @@ function Invoke-KitSync {
         throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
     }
 
+    $into    = if ($MergeInto) { $MergeInto } else { $Context.MainBranch }
     $root    = $Context.RepoRoot
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
+    $sources = @(Sort-KitSyncSources -Sources $sources)
     if ($sources.Count -eq 0) {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — синхронізувати нічого.'
         return [pscustomobject]@{ ExitCode = 0; Synced = @() }
@@ -110,6 +156,22 @@ function Invoke-KitSync {
         'fetch', '--quiet', '--no-tags', 'origin')
     if ($fetch.ExitCode -ne 0) {
         Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
+    }
+
+    # Попередження §5.4: розширення без основної конфігурації воркспейсу, що йде під storage, —
+    # вивантажуватимуться на тому стані, що зараз у базі агента. Не зупинка.
+    foreach ($wsName in @($sources.Workspace | Select-Object -Unique)) {
+        $ws = @($Context.Workspaces | Where-Object Path -eq $wsName)[0]
+        $cfg = @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })
+        $selectedHere = @($sources | Where-Object Workspace -eq $wsName)
+        if ($cfg.Count -gt 0 -and @($selectedHere | Where-Object Type -eq 'EXTENSION').Count -gt 0 -and
+            @($selectedHere | Where-Object Type -eq 'CONFIGURATION').Count -eq 0) {
+            # Дужки навколо конкатенації обов'язкові: -f зв'язує міцніше за +, і без них формат
+            # діяв би лише на другий рядок (ескіз брифа так і робив — {0} лишався в тексті).
+            Write-Host (("  УВАГА: основну конфігурацію '{0}' (truth: storage) у цьому прогоні не синхронізовано — " +
+                "контекст вивантаження розширень воркспейсу '{1}' той, що зараз у базі агента. Повний прогін: kit sync -Workspace {1}.") -f
+                ($cfg.Key -join ', '), $wsName) -ForegroundColor Yellow
+        }
     }
 
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
@@ -232,7 +294,7 @@ function Invoke-KitSync {
             }
 
             $merged = $false
-            if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src; if (-not $merged) { $mergeFailed = $true } }
+            if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
             $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged })
             continue
         }
@@ -303,7 +365,7 @@ function Invoke-KitSync {
 
         $merged = $false
         if ($wt.Created -or $MergeMain) {
-            $merged = Invoke-KitMainMerge -Context $Context -Source $src
+            $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
             if (-not $merged) { $mergeFailed = $true }
         }
         $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged })
