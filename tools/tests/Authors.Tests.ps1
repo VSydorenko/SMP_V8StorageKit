@@ -145,6 +145,12 @@ Describe 'AUTHORS: рядок на версію (спека 2026-09-30 §6.8)' {
         $err.Exception.Message | Should -BeLike '*<логін сховища>=Ім''я <пошта>*'
     }
 
+    It 'версія з ведучим нулем (base#069) — зупинка: такий рядок ніколи не збігся б із base#69' {
+        $p = Join-Path $TestDrive 'a-zerover.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#069=Іван Петренко <ivan@x.invalid>'
+        { Read-AuthorMap -Path $p } | Should -Throw '*<ключ джерела>#<версія>*'
+    }
+
     It 'ключ з # без числа після нього (base#) — теж зупинка' {
         $p = Join-Path $TestDrive 'a-emptyver.txt'
         Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#=Іван Петренко <ivan@x.invalid>'
