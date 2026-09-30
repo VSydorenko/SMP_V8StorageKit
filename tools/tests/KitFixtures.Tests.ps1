@@ -24,8 +24,12 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
     }
 
     It 'клієнтський воркспейс: CONFIGURATION + два EXTENSION під truth: storage, base не першим у маніфесті' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'client') -Workspaces (New-KitClientWorkspaces) -WithGitignore -WithSupply
-        $m = Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'client') -Workspaces (New-KitClientWorkspaces) -WithGitignore -WithSupply -WithGitattributes
+        $attrs = @(Get-Content -LiteralPath (Join-Path $repo '.gitattributes') -Encoding UTF8)
+        $attrs | Should -Contain 'Client_UNF/cf/src/** -text'
+        $attrs | Should -Contain 'Client_UNF/cfe/Доработки/src/** -text'
+        $attrs | Should -Contain 'Client_UNF/cfe/ExtA/src/** -text'
+        $m =Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw
         $m | Should -Not -Match 'truth: vendor'
         ([regex]::Matches($m, 'truth: storage')).Count | Should -Be 3
         $m.IndexOf('ExtA:') | Should -BeLessThan $m.IndexOf('base:')

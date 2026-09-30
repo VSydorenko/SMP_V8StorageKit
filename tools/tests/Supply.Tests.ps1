@@ -110,6 +110,12 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Configuration.xml' | Should -Exist
     }
 
+    It 'Remove-KitSupplyDir поза межею — зупинка, тека поставки лишається' {
+        $t = New-SupplyTree -Name 'remove-outside'
+        { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw
+        Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+
     It 'рецепт (ii)/(iii) називає головну гілку, verify, canon і operation=build' {
         $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'stale'
         $r | Should -BeLike '*main*'
