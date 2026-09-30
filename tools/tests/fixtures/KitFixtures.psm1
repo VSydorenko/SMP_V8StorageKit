@@ -66,6 +66,14 @@ function New-KitFakeConfigurationXml {
     ) -join "`r`n"
 }
 
+function Get-KitFakeSetTruth {
+    # Внутрішній хелпер фікстури (не експортується): truth source-set'а. Ключ Truth перекриває
+    # умовчання; без нього CONFIGURATION — vendor (як було), EXTENSION — storage.
+    param([Parameter(Mandatory)]$Set)
+    if ($Set.Contains('Truth')) { return [string]$Set.Truth }
+    if ($Set.Type -eq 'CONFIGURATION') { 'vendor' } else { 'storage' }
+}
+
 function New-KitFakeRepo {
     [CmdletBinding()]
     param(
@@ -79,7 +87,8 @@ function New-KitFakeRepo {
         [switch]$WithSessionHook,
         [switch]$NoSourceTrees,
         [switch]$NoCommit,
-        [switch]$WithAgentBase
+        [switch]$WithAgentBase,
+        [switch]$WithSupply
     )
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
@@ -168,15 +177,23 @@ function New-KitFakeRepo {
             $proj.Add("  - name: $($set.Name)"); $proj.Add("    type: $($set.Type)"); $proj.Add("    path: '$($set.Path)'")
             $setDir = Join-Path $wsDir $set.Path
             if (-not $NoSourceTrees) { New-Item -ItemType Directory -Path $setDir -Force | Out-Null }
+            $truth = Get-KitFakeSetTruth -Set $set
             switch ($set.Type) {
-                'CONFIGURATION' {
+                { $_ -eq 'CONFIGURATION' -and $truth -eq 'vendor' } {
                     # vendor: дерево лишається порожнім і в git не потрапляє — як у споживача без дампу.
                     $manifest.Add("      $($set.Name): { truth: vendor, dump: { from: dev } }")
                 }
-                'EXTENSION' {
+                # switch без break виконує ВСІ підходящі гілки — тому vendor тут виключено явно.
+                { $_ -in 'CONFIGURATION', 'EXTENSION' -and $truth -ne 'vendor' } {
                     if (-not $NoSourceTrees) {
                         Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
                             -Value (New-KitFakeConfigurationXml -Name $set.Name)
+                        if ($WithSupply -and $set.Type -eq 'CONFIGURATION') {
+                            # Ознаки підтримки основної конфігурації (32 байти > 16 — «описує поставку»).
+                            # Іде ДО коміту: .bin у git, .cf — після коміту (див. нижче).
+                            New-Item -ItemType Directory -Path (Join-Path $setDir 'Ext') -Force | Out-Null
+                            [System.IO.File]::WriteAllBytes((Join-Path $setDir 'Ext/ParentConfigurations.bin'), [byte[]](1..32))
+                        }
                     }
                     # Сховище навмисно неіснуюче: тести B1 до сховищ не звертаються, а перший
                     # же запуск sync упаде на «Каталог сховища не знайдено», не діставшись платформи.
@@ -207,7 +224,21 @@ function New-KitFakeRepo {
     }
     Set-Content -LiteralPath (Join-Path $Root 'AUTHORS') -Value 'gitbot=Test Bot <test@example.invalid>' -Encoding UTF8
 
-    if ($WithGitattributes) { Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes') }
+    if ($WithGitattributes) {
+        Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes')
+        # Шаблон знає лише маски **/cfe/src/** і **/epf/src/**; для решти дерев у git (CONFIGURATION
+        # не-vendor, EXTENSION із іншим шляхом) onboarding §3.4 дописує рядок під фактичний шлях —
+        # робимо те саме, інакше check дає error gitattributes на cf/src і cfe/<Ім'я>/src.
+        $attrLines = [System.Collections.Generic.List[string]]::new()
+        foreach ($wsName in @($Workspaces.Keys)) {
+            foreach ($set in $Workspaces[$wsName]['Sets']) {
+                if ($set.Type -notin 'CONFIGURATION', 'EXTENSION') { continue }
+                if ((Get-KitFakeSetTruth -Set $set) -eq 'vendor') { continue }
+                if ($set.Path -ne 'cfe/src') { $attrLines.Add("$wsName/$($set.Path)/** -text") }
+            }
+        }
+        if ($attrLines.Count -gt 0) { Add-Content -LiteralPath (Join-Path $Root '.gitattributes') -Value $attrLines -Encoding UTF8 }
+    }
     if ($WithGitignore) {
         Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore') -Destination (Join-Path $Root '.gitignore')
         # Task 6 (Step 2а): templates/gitignore більше не тримає загального **/cf/** — вендорські
@@ -218,7 +249,7 @@ function New-KitFakeRepo {
         $vendorLines = [System.Collections.Generic.List[string]]::new()
         foreach ($wsName in @($Workspaces.Keys)) {
             foreach ($set in $Workspaces[$wsName]['Sets']) {
-                if ($set.Type -eq 'CONFIGURATION') { $vendorLines.Add("$wsName/$($set.Path)/**") }
+                if ($set.Type -eq 'CONFIGURATION' -and (Get-KitFakeSetTruth -Set $set) -eq 'vendor') { $vendorLines.Add("$wsName/$($set.Path)/**") }
             }
         }
         if ($vendorLines.Count -gt 0) {
@@ -248,6 +279,23 @@ function New-KitFakeRepo {
             Invoke-KitFakeGit -C $Root update-index --chmod=+x -- .githooks/pre-commit .githooks/pre-merge-commit | Out-Null
         }
         Invoke-KitFakeGit -C $Root commit -q -m 'фікстура: репозиторій-споживач' | Out-Null
+    }
+    if ($WithSupply -and -not $NoSourceTrees) {
+        # ПІСЛЯ коміту, як на машині після canon: .cf і позначка лежать на диску, але поза git
+        # (їх ігнорує рядок **/Ext/ParentConfigurations/ шаблону gitignore) — у коміт їх не було
+        # б чого класти, навіть коли тест не бере -WithGitignore. Без Import-Module Supply.psm1:
+        # пастка вкладеного імпорту описана вище (коментар про Preflight.psm1).
+        foreach ($wsName in @($Workspaces.Keys)) {
+            foreach ($set in $Workspaces[$wsName]['Sets']) {
+                if ($set.Type -ne 'CONFIGURATION' -or (Get-KitFakeSetTruth -Set $set) -ne 'storage') { continue }
+                $setDir = Join-Path (Join-Path $Root $wsName) $set.Path
+                $supplyDir = Join-Path $setDir 'Ext/ParentConfigurations'
+                New-Item -ItemType Directory -Path $supplyDir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $supplyDir 'Vendor.cf') -Value 'cf' -Encoding ascii
+                $sha = (Get-FileHash -LiteralPath (Join-Path $setDir 'Ext/ParentConfigurations.bin') -Algorithm SHA1).Hash.ToLowerInvariant()
+                [System.IO.File]::WriteAllText((Join-Path $supplyDir '.kit-bin-sha1'), $sha)
+            }
+        }
     }
     $Root
 }
@@ -281,7 +329,10 @@ function Add-KitFakeStorageCommit {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     if ($FileName) {
         $body = if ($PSBoundParameters.ContainsKey('Content')) { $Content } else { "вміст $FileName" }
-        Set-Content -LiteralPath (Join-Path $dir $FileName) -Value $body -Encoding UTF8 -NoNewline
+        $filePath = Join-Path $dir $FileName
+        # -FileName може бути вкладеним (Ext/ParentConfigurations.bin) — тека файлу мусить існувати.
+        New-Item -ItemType Directory -Path (Split-Path -Parent $filePath) -Force | Out-Null
+        Set-Content -LiteralPath $filePath -Value $body -Encoding UTF8 -NoNewline
     }
     foreach ($rm in $RemoveFiles) { Remove-Item -LiteralPath (Join-Path $dir $rm) -Force -ErrorAction SilentlyContinue }
     Invoke-KitFakeGit -C $wt add -A | Out-Null
@@ -289,6 +340,25 @@ function Add-KitFakeStorageCommit {
     try { Invoke-KitFakeGit -C $wt commit -q -m ((@($Subject, '') + $Trailers) -join "`n") | Out-Null }
     finally { Remove-Item Env:V8KIT_SYNC -ErrorAction SilentlyContinue }
     Invoke-KitFakeGit -C $Repo worktree remove --force $wt | Out-Null
+}
+
+function New-KitClientWorkspaces {
+    <#
+    .SYNOPSIS
+        Клієнтський воркспейс (спека 2026-09-30 §1, §7): основна конфігурація + ДВА розширення,
+        усі під truth: storage. base навмисно ДРУГИМ — порядок sync (§5.4) мусить не залежати від
+        порядку маніфесту. Друге розширення з кирилицею в імені — шляхи cfe/<Ім'я>/src.
+    #>
+    [ordered]@{
+        'Client_UNF' = @{
+            Infobase = 'File=build/ib'
+            Sets     = @(
+                @{ Name = 'ExtA';      Type = 'EXTENSION';     Path = 'cfe/ExtA/src' }
+                @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+                @{ Name = 'Доработки'; Type = 'EXTENSION';     Path = 'cfe/Доработки/src' }
+            )
+        }
+    }
 }
 
 function Invoke-KitCommand {
@@ -372,4 +442,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools, Invoke-KitCommand
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
