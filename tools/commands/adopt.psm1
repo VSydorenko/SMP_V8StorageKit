@@ -188,15 +188,34 @@ function Invoke-KitAdopt {
             # що canon.psm1:83 — коментар вище каже «те саме, що робить canon», і межа guard'а
             # перед Remove-Item -Recurse -Force на дереві людини мусить це підтверджувати буквально.
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($src.Key)"
-            if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
-            New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
-            Copy-Item -Path (Join-Path $mirrorDir '*') -Destination $src.FullPath -Recurse -Force
+            # Поставка вендора (спека 2026-09-30 §5.2): у дзеркалі .cf немає — повне стирання
+            # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).
+            Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath
+            # Пофайлово, не Copy-Item <mirror>\* -Recurse: тека Ext тепер може вже існувати (у ній
+            # поставка), а рекурсивна копія теки в наявну теку кладе її ВСЕРЕДИНУ (Ext/Ext/…).
+            $mirrorFull = (Resolve-Path -LiteralPath $mirrorDir).Path
+            foreach ($f in @(Get-ChildItem -LiteralPath $mirrorFull -Recurse -File -Force)) {
+                $dest = Join-Path $src.FullPath $f.FullName.Substring($mirrorFull.Length).TrimStart('\', '/')
+                New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+                Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
+            }
 
             # -A обов'язковий і саме на ШЛЯХУ джерела: він фіксує і нові файли, і ВИДАЛЕННЯ тих,
             # яких у дзеркалі немає. Обмеження pathspec-ом тримає межу «точковий коміт у спільній
             # робочій копії» — чужі зміни поза цим шляхом не потраплять (а якщо йдемо через
             # merge — guard на початку кроку вже виключив їх до першого руйнівного кроку).
-            $add = Invoke-KitGitProcess -RepoRoot $root -Arguments @('add', '-A', '--', $src.RepoPath)
+            # :(exclude) — поставка не стейджиться НІКОЛИ, навіть у репозиторії, де рядка ігнору ще
+            # немає (до kitVersion 1.3.0): інакше -A забрав би .cf на сотні МБ у коміт.
+            # Але лише КОЛИ теку не ігнорує .gitignore: git add відмовляється (код 1, «paths are
+            # ignored») від pathspec-виключення, що вказує на ігноровану теку, — а вона тоді й так
+            # не стейджиться (перевірено: з exclude і без нього індекс той самий, різниця лише в
+            # коді виходу).
+            $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
+            $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', "$supplyRel/probe")
+            if ($ignored.ExitCode -gt 1) { throw "git check-ignore для '$supplyRel' завершився з кодом $($ignored.ExitCode): $($ignored.Stderr)" }
+            $addArgs = @('add', '-A', '--', $src.RepoPath)
+            if ($ignored.ExitCode -ne 0) { $addArgs += ":(exclude)$supplyRel" }
+            $add = Invoke-KitGitProcess -RepoRoot $root -Arguments $addArgs
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
 
             $message = "adopt: $($src.Key) ← $mirror (версія $version)"

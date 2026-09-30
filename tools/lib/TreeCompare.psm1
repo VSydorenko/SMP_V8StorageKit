@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
+Import-Module "$PSScriptRoot/Supply.psm1"
 
 $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
 
@@ -186,9 +187,12 @@ function Get-KitRelativeFiles {
     # Без коми: усі викликачі загортають результат у @(…) — див. F7.
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
+    # Поставка вендора — стан машини, не зміст дерева (спека 2026-09-30 §6.3.3); .bin порівнюється,
+    # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object.
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
         Where-Object { $script:PlatformJunk -notcontains $_.Name } |
-        ForEach-Object { $_.FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/' })
+        ForEach-Object { $_.FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/' } |
+        Where-Object { -not (Test-KitSupplyRelativePath -RelativePath $_) })
     $files
 }
 

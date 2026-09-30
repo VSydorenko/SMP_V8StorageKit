@@ -147,3 +147,73 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (Get-Content -LiteralPath $strayPath -Raw) | Should -BeLike '*чужа незакомічена робота*'
     }
 }
+
+Describe 'kit adopt — основна конфігурація з поставкою вендора (спека 2026-09-30 §5.2)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        function script:New-SupplyAdoptRepo {
+            param([string]$Name, [switch]$NoSupplyIgnoreLine)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
+            if ($NoSupplyIgnoreLine) {
+                # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
+                $gi = Join-Path $repo '.gitignore'
+                (Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' }) | Set-Content -LiteralPath $gi -Encoding UTF8
+                git -C $repo commit -qam 'gitignore без рядка поставки' 2>&1 | Out-Null
+            }
+            # Дзеркало: той самий Configuration.xml, НОВИЙ .bin, без .cf (як пише sync після Task 2).
+            $env:V8KIT_SYNC = '1'
+            try {
+                git -C $repo checkout -q -b 'storage/base' 2>&1 | Out-Null
+                [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..48))
+                git -C $repo add -- 'Client_UNF/cf/src/Ext/ParentConfigurations.bin' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'sync: версія 3' -m 'Storage-Version: 3' 2>&1 | Out-Null
+            } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+            git -C $repo checkout -q main 2>&1 | Out-Null
+            $repo
+        }
+    }
+
+    It 'прев''ю: .cf не в списку «ЗНИКНЕ», .bin — у «прийде зі сховища»' {
+        $repo = New-SupplyAdoptRepo 'supply-preview'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*Vendor.cf*'
+        $r.Output | Should -BeLike '*ParentConfigurations.bin*'
+    }
+
+    It '-Apply: .cf лишається на диску, новий .bin на місці, без Ext/Ext, робоча копія чиста' {
+        $repo = New-SupplyAdoptRepo 'supply-apply'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        Join-Path $cfg 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be 48
+        Join-Path $cfg 'Ext/Ext' | Should -Not -Exist
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+    }
+
+    It '-Apply у репозиторії без рядка ігнору поставки — .cf не потрапляє ні в індекс, ні в коміт' {
+        $repo = New-SupplyAdoptRepo 'supply-noignore' -NoSupplyIgnoreLine
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+
+    It 'розширення клієнтського воркспейсу (кирилиця в імені) — adopt -Apply працює як раніше' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-cyr') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore
+        $env:V8KIT_SYNC = '1'
+        try {
+            git -C $repo checkout -q -b 'storage/Доработки' 2>&1 | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cfe/Доработки/src/New.xml') -Value 'нове' -Encoding UTF8
+            git -C $repo add -A 2>&1 | Out-Null
+            git -C $repo commit -q -m 'sync: версія 2' -m 'Storage-Version: 2' 2>&1 | Out-Null
+        } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+        git -C $repo checkout -q main 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'Доработки', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Join-Path $repo 'Client_UNF/cfe/Доработки/src/New.xml' | Should -Exist
+    }
+}

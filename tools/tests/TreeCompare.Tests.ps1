@@ -196,3 +196,22 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $r.CrOnly | Should -Contain 'Ext/pic.png'
     }
 }
+
+Describe 'Get-KitRelativeFiles — тека поставки вендора' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path -Force
+    }
+
+    It 'Get-KitRelativeFiles пропускає теку поставки, .bin лишає (спека 2026-09-30 §6.3.3)' {
+        $root = Join-Path $TestDrive 'rel-supply'
+        New-Item -ItemType Directory -Path (Join-Path $root 'Ext/ParentConfigurations') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $root 'Configuration.xml') -Value 'x' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'Ext/ParentConfigurations.bin') -Value 'bin' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'Ext/ParentConfigurations/.kit-bin-sha1') -Value 's' -Encoding UTF8
+        $rel = @(Get-KitRelativeFiles -Root $root)
+        $rel | Should -Contain 'Configuration.xml'
+        $rel | Should -Contain 'Ext/ParentConfigurations.bin'
+        @($rel | Where-Object { $_ -like 'Ext/ParentConfigurations/*' }).Count | Should -Be 0
+    }
+}
