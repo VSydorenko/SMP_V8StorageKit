@@ -126,8 +126,13 @@ function Invoke-KitAdopt {
         # ігнорує цілком (`**/Ext/ParentConfigurations/`) — exclude дав би код 1. Проба «файл усередині»
         # у випадку негації давала «ігнорується», exclude не додавався, add стейджив .cf, а
         # merge --abort потім СТИРАВ його з диска (доведено тестом).
-        $supplyProbe = if (Test-Path -LiteralPath (Join-Path $src.FullPath (Get-KitSupplyRelativePath)) -PathType Container) { $supplyRel } else { "$supplyRel/" }
-        $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', $supplyProbe)
+        # Форма з КІНЦЕВОЮ рискою не годиться: при CRLF-.gitignore з порожнім рядком `check-ignore -q -- <шлях>/`
+        # повертає 0 на будь-який шлях (виміряно, git 2.53). Теки немає — стейджити нічого, exclude не потрібен.
+        if (Test-Path -LiteralPath (Join-Path $src.FullPath (Get-KitSupplyRelativePath)) -PathType Container) {
+            $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', $supplyRel)
+        } else {
+            $ignored = [pscustomobject]@{ ExitCode = 0; Stderr = '' }
+        }
         if ($ignored.ExitCode -gt 1) { throw "git check-ignore для '$supplyRel' завершився з кодом $($ignored.ExitCode): $($ignored.Stderr)" }
 
         # Guard критичного рев'ю C2 (Critical, спека §5 «Чотири умови», п.1) — ДО Remove-Item,
@@ -234,6 +239,16 @@ function Invoke-KitAdopt {
             if ($ignored.ExitCode -ne 0) { $addArgs += ":(exclude)$supplyRel" }
             $add = Invoke-KitGitProcess -RepoRoot $root -Arguments $addArgs
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
+            # Людина виконала рецепт «git rm -r --cached» (застейджене видалення поставки, а ls-files
+            # на початку кроку порожній) — але `git reset -- <RepoPath>` перед злиттям це видалення
+            # скасував. Поставка, що ще в HEAD, попри порожній ls-files до reset, — саме цей випадок:
+            # повторюємо видалення з індексу (файли на диску цілі), воно піде в коміт adopt.
+            $inHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-tree', '-r', '--name-only', 'HEAD', '--', $supplyRel)
+            if ($inHead.ExitCode -ne 0) { throw "git ls-tree HEAD для '$supplyRel' завершився з кодом $($inHead.ExitCode): $($inHead.Stderr)" }
+            if ($inHead.Stdout.Trim()) {
+                $rm = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rm', '-r', '-q', '--cached', '--', $supplyRel)
+                if ($rm.ExitCode -ne 0) { throw "git rm --cached для '$supplyRel' завершився з кодом $($rm.ExitCode): $($rm.Stderr)" }
+            }
             # Властивість не залежить від форми .gitignore (негація !*.cf може обійти і пробу, і
             # exclude): після add поставки в індексі бути не може. НЕ throw: виняток веде в catch із
             # git merge --abort, а той СТИРАЄ застейджений .cf з диска (доведено тестом раунду 1).
@@ -289,13 +304,13 @@ function Invoke-KitAdopt {
 function Remove-KitSupplyFromIndex {
     <#
     .SYNOPSIS
-        Знімає теку поставки вендора з індексу (файли на диску не чіпає) і друкує попередження.
+        Знімає з індексу ДОДАНЕ/ЗМІНЕНЕ (--diff-filter=AM) в теці поставки вендора (файли на диску не чіпає) і друкує попередження.
         Працює і в стані злиття (MERGE_HEAD), і без нього. Якщо після зняття поставка все ж в
         індексі — виняток.
     #>
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$SupplyPath)
     $names = {
-        $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('diff', '--cached', '--name-only', '--', $SupplyPath)
+        $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('diff', '--cached', '--name-only', '--diff-filter=AM', '--', $SupplyPath)
         if ($r.ExitCode -ne 0) { throw "git diff --cached для '$SupplyPath' завершився з кодом $($r.ExitCode): $($r.Stderr)" }
         @($r.Stdout -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     }

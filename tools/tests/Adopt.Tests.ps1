@@ -153,7 +153,7 @@ Describe 'kit adopt — основна конфігурація з постав�
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:New-SupplyAdoptRepo {
-            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply)
+            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore)
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
             if ($NoSupplyIgnoreLine) {
                 # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
@@ -161,7 +161,11 @@ Describe 'kit adopt — основна конфігурація з постав�
                 (Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' }) | Set-Content -LiteralPath $gi -Encoding UTF8
                 git -C $repo commit -qam 'gitignore без рядка поставки' 2>&1 | Out-Null
             }
-            if ($NegatedIgnore) {
+            if ($CrlfIgnore) {
+                # CRLF + порожній рядок + без рядка поставки: форма проби з кінцевою рискою хибила б «ігнорується».
+                [System.IO.File]::WriteAllText((Join-Path $repo '.gitignore'), "build/`r`n`r`n*.tmp`r`n")
+                git -C $repo commit -qam 'gitignore CRLF без рядка поставки' 2>&1 | Out-Null
+            }            if ($NegatedIgnore) {
                 # Правило з негацією: тека НЕ ігнорується цілком, .cf — «неігнорований» (рев'ю Task 4, Important 1).
                 $gi = Join-Path $repo '.gitignore'
                 $keep = @(Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' })
@@ -206,6 +210,24 @@ Describe 'kit adopt — основна конфігурація з постав�
         @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
     }
 
+    It '-Apply з CRLF-.gitignore (порожній рядок, без рядка поставки) — exclude додається: .cf не в індексі й не в HEAD, без попередження' {
+        $repo = New-SupplyAdoptRepo 'supply-crlf' -CrlfIgnore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*потрапила в індекс*'
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+    It '-Apply після рецепту «git rm -r --cached» (застейджене видалення поставки) — .cf на диску, не в індексі й не в HEAD, без хибного попередження' {
+        $repo = New-SupplyAdoptRepo 'supply-recipe' -TrackSupply
+        git -C $repo rm -r -q --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations' 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*потрапила в індекс*'
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
+    }
     It '-Apply з .gitignore з негацією (!*.cf) — .cf ні в індексі, ні в HEAD, лишається на диску' {
         $repo = New-SupplyAdoptRepo 'supply-negation' -NegatedIgnore
         $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
