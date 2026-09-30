@@ -1900,6 +1900,312 @@ git commit --only -m "1.3.0: поставка вендора основної к
 
 ---
 
+### Task 12: автор на конкретну версію сховища в `AUTHORS` (спека §6.8)
+
+Дописано після виконання Task 1–11 (план `238fa6a`, HEAD виконання `6a5390c`); спека — коміт
+**`bb9b685`**, §6.8, рішення власника. Версія лишається **1.3.0**. Пілот `interoptica_unf` стоїть
+на цій задачі (реплей основної конфігурації після v69).
+
+**Ризик:** спільний код (одне рев'ю на сильній моделі; окреме питання рев'юеру — «чи є шлях, яким
+версія без рядка ні на версію, ні на логін отримує автора мовчки»).
+
+**Files:**
+- Modify: `tools/lib/Authors.psm1` (`Read-AuthorMap`, `Resolve-Author`; нова `Get-KitUnattributedVersions`)
+- Modify: `tools/commands/sync.psm1` (блок «Невідомі автори» і два виклики `Resolve-Author`)
+- Modify: `templates/AUTHORS.example`, `skills/sync/SKILL.md`, `skills/onboarding/SKILL.md` (§5.3,
+  абзац «Один технічний логін сховища може стояти за різними людьми»), `docs/storage-and-git.md`
+  (розділ «AUTHORS — межа інструмента»)
+- Modify: `tools/tests/ModuleImportOrder.Tests.ps1` (`$RequiredCommands` + `Get-KitUnattributedVersions`)
+- Test: `tools/tests/Authors.Tests.ps1`, `tools/tests/Sync.Authors.Tests.ps1` (створити)
+
+**Interfaces:**
+- Produces:
+  - Формат рядка `AUTHORS`: `<ключ джерела>#<версія>=Ім'я <пошта>` поруч із `<логін>=Ім'я <пошта>`.
+    Ключ мапи — рядок `"<ключ>#<версія>"` у тому самому hashtable, що й логіни.
+  - `Read-AuthorMap -Path` — як зараз; додатково: ключ із `#`, що не має форми
+    `^.+#\d+$` (наприклад `base#v69`, `base#`), — зупинка з поясненням форми. Запобіжники «дубль
+    з різними особами» і «склеєні рядки» діють без змін (вони вже по ключу й імені).
+  - `Resolve-Author -Map -StorageUser [-SourceKey <string>] [-Version <int>]` — якщо передано
+    обидва й у мапі є `"$SourceKey#$Version"` — повертає його (**пріоритет над логіном**, навіть
+    коли `StorageUser` порожній); інакше — наявна поведінка.
+  - `Get-KitUnattributedVersions -Map <hashtable> -SourceKey <string> -Versions <object[]>` →
+    масив версій (ті самі об'єкти, що дає `Get-StorageVersions`: `.Version`, `.User`, `.Timestamp`,
+    `.Comment`), для яких немає ні рядка на версію, ні рядка на логін (порожній `User` — теж
+    «немає логіна»). Порожній масив, не `$null` (кома, F7).
+  - `Get-UnknownAuthors` лишається експортованою (є в `$RequiredCommands`), `sync` її більше не кличе.
+
+**Контракт (спека §6.8):**
+- Спільний логін в `AUTHORS` не вноситься — інакше всі його версії мовчки отримають одну особу.
+- `sync` до першого `UpdateCfg` (там, де зараз блок «Невідомі автори»: після звіту, до прев'ю
+  списку й до `-Apply`) перелічує **конкретні версії** без автора готовими рядками й
+  зупиняється тим самим текстом винятку `Синхронізацію зупинено через невідомих авторів.`
+  (на нього спирається `skills/sync/SKILL.md` і, можливо, тести — `grep` перед зміною).
+- Формат переліку — згруповано за логіном; для кожного логіна: рядок на логін (якщо за ним одна
+  людина) **і** рядки на кожну його версію (якщо різні):
+
+```
+Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, якщо під логіном різні люди):
+  логін «Робоча база» — версій 3:
+    Робоча база=Ім'я <пошта>
+    base#69=Ім'я <пошта>    # 2026-03-01 10:15, «Коментар версії»
+    base#71=Ім'я <пошта>    # 2026-03-02 09:00, «…»
+```
+
+  Рядок-заголовок починається з `Невідомі автори` — цього тримається `Skills.Tests.ps1`
+  (`Should -Match 'Невідомі автори'` по тексту скіла `sync`) і Integration-хелпер
+  `Complete-Authors` у `Sync.Storage.Tests.ps1` (він дописує в `AUTHORS` кожен рядок форми
+  `^\s+<щось>=Ім'я <пошта>\s*$`; хвіст `# …` після рядка версії цей шаблон **не** пропустить —
+  тому коментар версії друкувати на **окремому** рядку над рядком версії, а не в хвості). Остаточну
+  форму виконавець узгоджує з цими двома споживачами й називає в сумнівах.
+- Трейлер `Storage-User` (сирий логін) не змінюється — факт зі звіту лишається в коміті незалежно
+  від того, звідки взято автора.
+
+- [ ] **Step 1: `grep` перед зміною**
+
+```bash
+grep -rn "невідомих авторів\|Невідомі автори" tools/ skills/ templates/
+grep -rn "Get-UnknownAuthors\|Resolve-Author" tools/ skills/
+```
+
+Зафіксувати в звіті всіх споживачів тексту й функцій — кожен або лишається сумісним, або
+змінюється в цій задачі.
+
+- [ ] **Step 2: Модульні тести**
+
+У `Authors.Tests.ps1` (прийом — наявні `It` цього файлу з тимчасовим `AUTHORS` у `$TestDrive`):
+
+```powershell
+    It 'рядок на версію читається поруч із рядком на логін' {
+        $p = Join-Path $TestDrive 'a-ver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value @('Робоча база=Спільна Особа <s@x.invalid>', 'base#69=Іван Петренко <ivan@x.invalid>')
+        $m = Read-AuthorMap -Path $p
+        $m['base#69'].Name | Should -Be 'Іван Петренко'
+        $m['Робоча база'].Name | Should -Be 'Спільна Особа'
+    }
+
+    It 'ключ з # не у формі <ключ>#<число> — зупинка з поясненням форми' {
+        $p = Join-Path $TestDrive 'a-badver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#v69=Іван Петренко <ivan@x.invalid>'
+        { Read-AuthorMap -Path $p } | Should -Throw '*<ключ джерела>#<версія>*'
+    }
+
+    It 'той самий рядок на версію з різними особами — зупинка (наявний запобіжник дубля)' {
+        $p = Join-Path $TestDrive 'a-dupver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value @('base#69=Іван Петренко <ivan@x.invalid>', 'base#69=Олена Коваль <olena@x.invalid>')
+        { Read-AuthorMap -Path $p } | Should -Throw '*base#69*'
+    }
+
+    It 'Resolve-Author: рядок на версію важливіший за рядок на логін' {
+        $m = @{ 'Робоча база' = [pscustomobject]@{ Name = 'Спільна'; Email = 's@x' }; 'base#69' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        (Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 69).Name | Should -Be 'Іван'
+        (Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 70).Name | Should -Be 'Спільна'
+    }
+
+    It 'Resolve-Author: рядок на версію рятує версію з порожнім User' {
+        $m = @{ 'base#5' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        (Resolve-Author -Map $m -StorageUser '' -SourceKey 'base' -Version 5).Name | Should -Be 'Іван'
+    }
+
+    It 'Resolve-Author: рядок на версію ІНШОГО джерела не підходить' {
+        $m = @{ 'ExtA#69' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        { Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 69 } | Should -Throw '*Робоча база*'
+    }
+
+    It 'Get-KitUnattributedVersions: лише версії без рядка на версію і без рядка на логін' {
+        $m = @{ 'gitbot' = [pscustomobject]@{ Name = 'Бот'; Email = 'b@x' }; 'base#2' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        $v = @(
+            [pscustomobject]@{ Version = 1; User = 'Робоча база' }
+            [pscustomobject]@{ Version = 2; User = 'Робоча база' }
+            [pscustomobject]@{ Version = 3; User = 'gitbot' }
+            [pscustomobject]@{ Version = 4; User = '' }
+        )
+        $r = @(Get-KitUnattributedVersions -Map $m -SourceKey 'base' -Versions $v)
+        @($r.Version) | Should -Be @(1, 4)
+    }
+
+    It 'Get-KitUnattributedVersions: усі атрибутовані — порожній масив, не $null' {
+        $m = @{ 'gitbot' = [pscustomobject]@{ Name = 'Бот'; Email = 'b@x' } }
+        $r = Get-KitUnattributedVersions -Map $m -SourceKey 'base' -Versions @([pscustomobject]@{ Version = 1; User = 'gitbot' })
+        , $r | Should -BeOfType [object[]]
+        $r.Count | Should -Be 0
+    }
+```
+
+- [ ] **Step 3: Прогнати — має впасти.**
+
+- [ ] **Step 4: Реалізація `Authors.psm1`**
+
+- `Read-AuthorMap`: після розбору `$key`, до перевірки імені:
+
+```powershell
+            # Рядок на версію (спека 2026-09-30 §6.8): <ключ джерела>#<версія>. '#' у ключі без
+            # числа після — майже напевно описка (base#v69), а не логін сховища: мовчки прийнятий,
+            # такий рядок ніколи б не спрацював, і версія пішла б під логін.
+            if ($key.Contains('#') -and $key -notmatch '^.+#\d+$') {
+                throw "Рядок '$key' у $Path містить '#', але не має форми <ключ джерела>#<версія> (наприклад base#69). " +
+                      'Рядок на версію — ключ джерела з маніфесту, #, номер версії сховища.'
+            }
+```
+
+  Текст запобіжника дубля («Користувач сховища '$key' …») для ключа з `#` читається дивно —
+  дозволено уточнити формулювання («Ключ '$key' …»), не змінюючи умови.
+- `Resolve-Author`: параметри `[string]$SourceKey`, `[Nullable[int]]$Version`; **першим** рядком
+  тіла — `if ($SourceKey -and $null -ne $Version -and $Map.ContainsKey("$SourceKey#$Version")) { return $Map["$SourceKey#$Version"] }`; далі — наявний код.
+- `Get-KitUnattributedVersions`:
+
+```powershell
+function Get-KitUnattributedVersions {
+    <#
+    .SYNOPSIS
+        Версії без автора (спека 2026-09-30 §6.8): немає ні рядка <ключ>#<версія>, ні рядка на логін.
+        Спільний логін навмисно не вноситься в AUTHORS — тоді кожна його версія потрапляє сюди
+        й чекає рядка на версію, а не отримує одну особу мовчки.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Map,
+        [Parameter(Mandatory)][string]$SourceKey,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Versions
+    )
+    , @($Versions | Where-Object {
+        -not $Map.ContainsKey("$SourceKey#$($_.Version)") -and
+        ([string]::IsNullOrWhiteSpace($_.User) -or -not $Map.ContainsKey($_.User))
+    })
+}
+```
+
+  Дописати в `Export-ModuleMember` і в `$RequiredCommands`.
+
+- [ ] **Step 5: Прогнати — модульні тести зелені.**
+
+- [ ] **Step 6: Тести `sync` (мок платформи)**
+
+Створити `tools/tests/Sync.Authors.Tests.ps1` — `BeforeAll` дослівно як у `Sync.Merge.Tests.ps1`
+(модулі за `module-order.txt`, `sync.psm1` у процесі, `New-KitTestContext`,
+`New-KitFakeStorageVersion`). Спільна підготовка:
+
+```powershell
+        function script:New-AuthorsRepo {
+            param([string]$Name, [string[]]$AuthorsLines)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore -WithAgentBase
+            $storageDir = Join-Path $TestDrive "$Name-storage"; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+            Set-Content -LiteralPath (Join-Path $repo 'AUTHORS') -Encoding UTF8 -Value $AuthorsLines
+            $repo
+        }
+```
+
+Тести:
+
+```powershell
+    It 'спільний логін без рядка — зупинка на прев''ю, перелік конкретних версій, платформа не викликана' {
+        $repo = New-AuthorsRepo 'shared-stop' @('gitbot=Test Bot <test@example.invalid>', 'Alpha_SMB#2=Іван Петренко <ivan@example.invalid>')
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { throw 'платформа не мала викликатись' }
+        Mock -ModuleName sync Get-StorageVersions { , @(
+            (New-KitFakeStorageVersion -Version 1 -User 'Робоча база'),
+            (New-KitFakeStorageVersion -Version 2 -User 'Робоча база'),
+            (New-KitFakeStorageVersion -Version 3 -User 'Робоча база')) }
+        # Один виклик: виняток — у змінну, Write-Host — через 6>&1 (той самий прийом, що в Sync.Order.Tests.ps1).
+        $script:SyncError = $null
+        $text = & { try { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) } catch { $script:SyncError = $_.Exception.Message } } 6>&1 | Out-String
+        $script:SyncError | Should -BeLike '*невідомих авторів*'
+        $text | Should -BeLike '*Невідомі автори*'
+        $text | Should -BeLike '*Alpha_SMB#1=*'
+        $text | Should -BeLike '*Alpha_SMB#3=*'
+        $text | Should -Not -BeLike '*Alpha_SMB#2=*'
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+    }
+
+    It '-Apply: версія з рядком на версію — під цією особою, решта — під логіном; Storage-User — сирий логін' {
+        $repo = New-AuthorsRepo 'shared-apply' @('gitbot=Test Bot <test@example.invalid>', 'Робоча база=Спільна Особа <shared@example.invalid>', 'Alpha_SMB#2=Іван Петренко <ivan@example.invalid>')
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(
+            (New-KitFakeStorageVersion -Version 1 -User 'Робоча база'),
+            (New-KitFakeStorageVersion -Version 2 -User 'Робоча база')) }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+        $r = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true
+        $r.ExitCode | Should -Be 0
+        $log = @(git -C $repo log --reverse --format='%an|%(trailers:key=Storage-Version,valueonly)|%(trailers:key=Storage-User,valueonly)' storage/Alpha_SMB | Where-Object { $_ })
+        $log[0] | Should -BeLike 'Спільна Особа|1|Робоча база*'
+        $log[1] | Should -BeLike 'Іван Петренко|2|Робоча база*'
+    }
+```
+
+(Якщо `-Apply` з мокованою платформою впирається в місце, яке тут не передбачене, —
+узяти за зразок наявний `-Apply`-тест `Sync.*` (`grep -rn "Apply \$true" tools/tests/Sync.*`) і
+назвати відхилення. Трейлер `Storage-User` пише `New-KitStorageCommitMessage`
+(`StorageBranch.psm1`, рядок `$out.Add("Storage-User: …")` — перевірено автором плану).)
+
+- [ ] **Step 7: Прогнати — має впасти.**
+
+- [ ] **Step 8: Реалізація в `sync.psm1`**
+
+Блок «Невідомі автори» (після `$pending`, до прев'ю-списку) замінити:
+
+```powershell
+        # Спека 2026-09-30 §6.8: автор може бути на логін АБО на конкретну версію. Спільний логін
+        # в AUTHORS не вноситься — тоді кожна його версія тут і зупиняє прогін готовим рядком.
+        $unattributed = @(Get-KitUnattributedVersions -Map $authors -SourceKey $src.Key -Versions $pending)
+        if ($unattributed.Count -gt 0) {
+            Write-Host ''
+            Write-Host ("Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, " +
+                'якщо під логіном різні люди):') -ForegroundColor Yellow
+            foreach ($g in ($unattributed | Group-Object { if ([string]::IsNullOrWhiteSpace($_.User)) { '' } else { $_.User } })) {
+                $login = $g.Name
+                Write-Host ("  логін «{0}» — версій {1}:" -f $(if ($login) { $login } else { '<порожній у звіті>' }), $g.Count)
+                if ($login) { Write-Host "    $login=Ім'я <пошта>" }
+                foreach ($v in $g.Group) {
+                    $first = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+                    Write-Host ("    # версія {0}, {1:yyyy-MM-dd HH:mm}{2}" -f $v.Version, $v.Timestamp, $(if ($first) { ", «$first»" } else { '' })) -ForegroundColor DarkGray
+                    Write-Host "    $($src.Key)#$($v.Version)=Ім'я <пошта>"
+                }
+            }
+            throw 'Синхронізацію зупинено через невідомих авторів.'
+        }
+```
+
+Обидва виклики `Resolve-Author` у `sync.psm1` — з `-SourceKey $src.Key -Version $v.Version`.
+
+- [ ] **Step 9: Прогнати — має пройти** (повний набір; `Skills.Tests.ps1` зелений).
+
+- [ ] **Step 10: Мутації (на копії дерева)**
+
+(а) у `Resolve-Author` прибрати гілку рядка на версію — червоний тест пріоритету й `-Apply`;
+(б) у `Get-KitUnattributedVersions` прибрати умову рядка на версію — червоний тест переліку
+(`Alpha_SMB#2` з'явиться); (в) прибрати перевірку форми ключа в `Read-AuthorMap` — червоний тест
+`base#v69`. Тексти падінь — у звіт.
+
+- [ ] **Step 11: Тексти**
+
+- `templates/AUTHORS.example`: формат рядка на версію з прикладом-заповнювачем і правилом
+  «спільний логін не вносити — рядок на кожну його версію; рядок на версію важливіший за логін».
+- `skills/sync/SKILL.md`: штатна зупинка «Невідомі автори» — тепер і версії спільного логіна;
+  як обрати між рядком на логін і рядками на версію.
+- `skills/onboarding/SKILL.md` §5.3, абзац «Один технічний логін сховища може стояти за різними
+  людьми…»: твердження «`AUTHORS` … виразити це не може **за побудовою**» і спосіб «різати реплей
+  `-MaxVersions` по межах, правлячи `AUTHORS` між скибками» — замінити рядками на версію (§6.8);
+  нарізку лишити лише як запасний спосіб, якщо взагалі. Абзац про трейлер `Storage-User` — лишити.
+- `docs/storage-and-git.md`, розділ «AUTHORS — межа інструмента»: рішення 2026-09-10 «kit цього не
+  автоматизує … межа, яку обрали свідомо» **переглянуто** рішенням власника 2026-09-30 (спека §6.8,
+  знахідка пілота `interoptica_unf`). Переписати причину, не лише крок (kit-dev, case 25): модель —
+  «логін → особа» плюс «версія джерела → особа» з пріоритетом другого; щоденний `sync` під спільним
+  логіном тепер зупиняється, а не бере автора мовчки. Без чисел пілота (правило «Зміст постійної
+  документації») — посилання на спеку §6.8.
+- Пошук залишків: `grep -rn "за побудовою\|межа, яку обрали\|не автоматизує" skills/ docs/storage-and-git.md templates/`
+  — кожен збіг про `AUTHORS` переписати.
+
+- [ ] **Step 12: Коміт** (контролер)
+
+```bash
+git add tools/lib/Authors.psm1 tools/commands/sync.psm1 tools/tests/Authors.Tests.ps1 tools/tests/Sync.Authors.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1 templates/AUTHORS.example skills/sync/SKILL.md skills/onboarding/SKILL.md docs/storage-and-git.md
+git commit --only -m "AUTHORS: автор на конкретну версію сховища (<ключ>#<версія>), sync перелічує версії без автора (спека §6.8)" -- tools/lib/Authors.psm1 tools/commands/sync.psm1 tools/tests/Authors.Tests.ps1 tools/tests/Sync.Authors.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1 templates/AUTHORS.example skills/sync/SKILL.md skills/onboarding/SKILL.md docs/storage-and-git.md
+```
+
+Якщо в `upgrades.md` розділ `1.2.0 → 1.3.0` перелічує «що змінилось» — дописати туди один рядок
+про рядки на версію в `AUTHORS` і додати файл до коміту.
+
+---
+
 ## Трасування «пункт спеки → задача плану»
 
 Вимога глобального `CLAUDE.md` («Кілька сесій»): архітектор звіряє цю таблицю до старту
@@ -1946,3 +2252,8 @@ git commit --only -m "1.3.0: поставка вендора основної к
 | §7 — `adopt`/`verify`/`canon` на кожному з трьох джерел | — | `canon` — Task 5 (усі три одним прогоном); `verify` — Task 4 (`base`, `Доработки`); `adopt` — Task 4 (`base`, `Доработки`); `ExtA` окремо не перевіряється — той самий шлях коду, що `Доработки` |
 | §7 — живий прогін, пілот (i) і (ii), час `UpdateCfg` | `Integration` | Task 11 Step 8 (за підтвердженням) |
 | §8 — питання для пілота | не блокують | Task 11 Step 8 |
+| §6.4 (`fe4e716`) — `canon` у рецептах на гілці без роботи агента; `verify`/`canon` лише `-Source` основної конфігурації | текст | Task 10 (вкладено виконавцем, коміт `b6773bb`) |
+| §6.5 (`a26d294`) — три відхилення реалізації прийнято | — | Task 4, Task 6 (виконано) |
+| §6.7 (`02fe0d5`) — кирилиця в іменах не ризик | текст | хвіст, коміт `6a5390c` |
+| §6.8 (`bb9b685`) — автор на конкретну версію сховища | `AUTHORS` `<ключ>#<версія>`, перелік версій без автора | **Task 12** |
+| §6.6 (`d2877c7`) — наявна серверна база агента, автентифікація ОС (#26) | коду не вимагає | поза планом; текст — після пілота |
