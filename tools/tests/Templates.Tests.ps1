@@ -171,6 +171,15 @@ Describe 'templates/v8storagekit*.example — зразки проходять в
         $raw | Should -Not -Match '(?m)^\*\*/cf/\*\*\s*$'
         $raw | Should -Not -Match '(?m)^!\*\*/cf/README\.md\s*$'
     }
+
+    It 'шаблон gitignore ігнорує поставку вендора, але не .bin ознак підтримки (спека 2026-09-30 §5.2)' {
+        $lines = @(Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Encoding UTF8 | ForEach-Object { $_.Trim() })
+        $lines | Should -Contain '**/Ext/ParentConfigurations/'
+        # Форма «тека» (скісна риска в кінці) — контракт: правило без '/' ловило б і файл з тим
+        # самим іменем, а форма з '*' — ще й Ext/ParentConfigurations.bin, який мусить бути в git.
+        $lines | Should -Not -Contain '**/Ext/ParentConfigurations'
+        $lines | Should -Not -Contain '**/Ext/ParentConfigurations*'
+    }
 }
 
 Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {

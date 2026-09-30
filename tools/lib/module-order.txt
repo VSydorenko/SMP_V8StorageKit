@@ -11,9 +11,11 @@
 # ConvertFrom-V8Connection — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1, issue #9);
 # TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
 # C2 Task 1); GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess,
-# C2 Task 5). Рядки з # ігноруються.
+# C2 Task 5); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
+# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1). Рядки з # ігноруються.
 RepoRoot
 PathSafety
+Supply
 Yaml
 V8Project
 AgentBase

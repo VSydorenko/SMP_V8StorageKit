@@ -22,4 +22,24 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*v8storagekit.yaml*onboarding*'
     }
+
+    It 'клієнтський воркспейс: CONFIGURATION + два EXTENSION під truth: storage, base не першим у маніфесті' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'client') -Workspaces (New-KitClientWorkspaces) -WithGitignore -WithSupply -WithGitattributes
+        $attrs = @(Get-Content -LiteralPath (Join-Path $repo '.gitattributes') -Encoding UTF8)
+        $attrs | Should -Contain 'Client_UNF/cf/src/** -text'
+        $attrs | Should -Contain 'Client_UNF/cfe/Доработки/src/** -text'
+        $attrs | Should -Contain 'Client_UNF/cfe/ExtA/src/** -text'
+        $m =Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw
+        $m | Should -Not -Match 'truth: vendor'
+        ([regex]::Matches($m, 'truth: storage')).Count | Should -Be 3
+        $m.IndexOf('ExtA:') | Should -BeLessThan $m.IndexOf('base:')
+        # .bin — у git, .cf і позначка — на диску, поза git (як на машині після canon).
+        $cfg = 'Client_UNF/cf/src'
+        @(git -C $repo ls-files -- "$cfg/Ext/ParentConfigurations.bin").Count | Should -Be 1
+        @(git -C $repo ls-files -- "$cfg/Ext/ParentConfigurations").Count | Should -Be 0
+        Join-Path $repo "$cfg/Ext/ParentConfigurations/Vendor.cf" | Should -Exist
+        Join-Path $repo "$cfg/Ext/ParentConfigurations/.kit-bin-sha1" | Should -Exist
+        Join-Path $repo 'Client_UNF/cfe/Доработки/src/Configuration.xml' | Should -Exist
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+    }
 }

@@ -273,23 +273,34 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         }
 
-        It 'CONFIGURATION source-set truth: storage — повідомлення називає kit sync як дешевий варіант' {
-            # Той самий маніфестний прийом, що й Sync.Storage.Tests.ps1 («сховище КОНФІГУРАЦІЇ»):
-            # New-KitFakeRepo сам ставить CONFIGURATION на truth: vendor, тож truth: storage
-            # тут задаємо явним -ManifestText. Шлях сховища навмисно неіснуючий — provision
-            # (на відміну від sync) до сховища не звертається.
-            $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
-            $manifest = @(
-                'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
-                '  - path: Alpha_SMB', '    sources:',
-                '      base:', '        truth: storage', "        storage: { path: 'R:\no-such-storage-base' }"
-            ) -join "`n"
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-storage-truth') -Workspaces $ws -ManifestText $manifest -WithHooks
+        It 'CONFIGURATION під truth: storage без дерева — не зупинка, а підказка рецепта (i): sync, потім canon (спека 2026-09-30 §5.3)' {
+            $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-storage-truth') -Workspaces $ws -WithHooks -NoSourceTrees
+            # Прев'ю, не -Apply: -Apply створив би файлову ІБ справжньою платформою.
+            $r = Invoke-Provision -Repo $repo
+            $r.ExitCode | Should -Be 0 -Because $r.Output
+            $r.Output | Should -Not -BeLike '*бракує власника*'
+            $r.Output | Should -BeLike "*Основна конфігурація 'base'*"
+            $r.Output | Should -BeLike '*kit sync -Source base*-FromLatest*'
+            $r.Output | Should -BeLike '*kit canon -Source base -Apply*'
+        }
+
+        It 'змішаний воркспейс: порожня CONFIGURATION під vendor — зупинка лишається' {
+            # Типова фікстура: base — truth: vendor, дерево порожнє. Зупинка — до будь-якого
+            # виклику платформи (throw у Invoke-KitProvision стоїть до гілки -Apply).
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-vendor-still') -WithHooks
             $r = Invoke-Provision -Repo $repo -More @('-Apply')
             $r.ExitCode | Should -Not -Be 0
-            $r.Output | Should -BeLike '*власника*'
-            $r.Output | Should -BeLike '*kit sync*'
+            $r.Output | Should -BeLike '*бракує власника*'
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
+        }
+
+        It 'клієнтський воркспейс, поставка застаріла — попередження з рецептом, не зупинка' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'prov-stale') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
+            [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..77))
+            $r = Invoke-Provision -Repo $repo
+            $r.ExitCode | Should -Be 0 -Because $r.Output
+            $r.Output | Should -BeLike '*поставка вендора застаріла*'
         }
 
         It 'непорожній cf/src (власник є) — «порожня» проходить як і раніше, попри Adopted-об''єкти в розширенні' {

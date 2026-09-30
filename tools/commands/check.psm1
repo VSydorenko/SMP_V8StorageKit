@@ -232,6 +232,53 @@ function Invoke-KitCheck {
                 }
             }
 
+            # Поставка вендора основної конфігурації (спека 2026-09-30 §5.2, §6.3.8–9). Для vendor
+            # дерево ігнороване цілком — інваріант інший (нижче). Для розширень і конфігурацій без
+            # підтримки .bin поставки не описує, і перевірки мовчать.
+            # Проба ігнору теки — питанням про вигаданий файл у ній, НЕ про теку з кінцевою скісною
+            # рискою: на git 2.53.0.windows.1 у .gitignore з CRLF порожній рядок ("\r") змушує
+            # check-ignore відповідати 0 на будь-який шлях із кінцевою рискою, і відсутність правила
+            # лишилась би непоміченою. Проба файлом перевірена: правило є → 0, немає → 1, з CRLF теж.
+            if ($src.Type -eq 'CONFIGURATION' -and $src.Truth -ne 'vendor') {
+                $supplyRel = "$($src.RepoPath)/$(Get-KitSupplyRelativePath)"
+                $binRel    = "$supplyRel.bin"
+                if (Test-Path -LiteralPath (Join-Path $root $binRel) -PathType Leaf) {
+                    git -C $root check-ignore --no-index -q -- $binRel 2>$null | Out-Null
+                    $code = $LASTEXITCODE
+                    if ($code -eq 0) {
+                        & $add error gitignore ("$tag`: ознаки підтримки (замки об'єктів) '$binRel' гітігноровано — вони мусять лежати в git. " +
+                            'Приберіть правило, яке його ловить (перевірка: git check-ignore -v).')
+                    } elseif ($code -gt 1) { & $add error gitignore "$tag`: git check-ignore завершився з кодом $code." }
+                }
+                if (Test-KitSupplyDescribed -TreeRoot $src.FullPath) {
+                    # Дві проби: .cf і позначка .kit-bin-sha1 (стан машини, теж не для git) — правило
+                    # лише на `*.cf` чи з винятком для позначки ловило б одну з двох.
+                    $code = 0
+                    foreach ($probe in @('probe.cf', '.kit-bin-sha1')) {
+                        git -C $root check-ignore --no-index -q -- "$supplyRel/$probe" 2>$null | Out-Null
+                        if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE; break }
+                    }
+                    if ($code -eq 1) {
+                        & $add error gitignore ("$tag`: тека поставки вендора '$supplyRel/' не гітігнорована — .cf на сотні МБ потрапив би в git " +
+                            "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/' " +
+                            '(оновлення до kitVersion 1.3.0 — скіл v8storagekit:onboarding, references/upgrades.md).')
+                    } elseif ($code -gt 1) { & $add error gitignore "$tag`: git check-ignore завершився з кодом $code." }
+                }
+                $trackedSupply = @(git -c core.quotepath=false -C $root ls-files -- $supplyRel 2>$null)
+                if ($LASTEXITCODE -ne 0) {
+                    & $add error gitignore "$tag`: git ls-files завершився з кодом $LASTEXITCODE."
+                } elseif ($trackedSupply.Count -gt 0) {
+                    & $add error gitignore ("$tag`: поставка вендора відстежується git ($($trackedSupply.Count) файл(ів) у '$supplyRel') — " +
+                        "приберіть з індексу й закомітьте окремим комітом (файли на диску лишаться): git rm -r --cached -- '$supplyRel', потім git commit.")
+                }
+                if ($src.Truth -eq 'storage') {
+                    $state = Get-KitSupplyState -TreeRoot $src.FullPath
+                    if ($state -in 'missing', 'stale') {
+                        & $add warn supply ("$tag`: " + (Get-KitSupplyRecipe -SourceKey $src.Key -MainBranch $Context.MainBranch -State $state))
+                    }
+                }
+            }
+
             switch ($src.Truth) {
                 'vendor' {
                     # Vendor — два РІЗНІ питання, не одне. До --no-index вони випадково

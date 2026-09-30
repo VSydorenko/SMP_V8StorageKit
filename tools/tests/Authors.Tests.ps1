@@ -129,6 +129,80 @@ Describe 'Resolve-Author' {
     }
 }
 
+Describe 'AUTHORS: рядок на версію (спека 2026-09-30 §6.8)' {
+    It 'рядок на версію читається поруч із рядком на логін' {
+        $p = Join-Path $TestDrive 'a-ver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value @('Робоча база=Спільна Особа <s@x.invalid>', 'base#69=Іван Петренко <ivan@x.invalid>')
+        $m = Read-AuthorMap -Path $p
+        $m['base#69'].Name | Should -Be 'Іван Петренко'
+        $m['Робоча база'].Name | Should -Be 'Спільна Особа'
+    }
+
+    It 'ключ з # не у формі «ключ#число» — зупинка з поясненням обох законних форм' {
+        $p = Join-Path $TestDrive 'a-badver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#v69=Іван Петренко <ivan@x.invalid>'
+        $err = { Read-AuthorMap -Path $p } | Should -Throw '*<ключ джерела>#<версія>*' -PassThru
+        $err.Exception.Message | Should -BeLike '*<логін сховища>=Ім''я <пошта>*'
+    }
+
+    It 'версія з ведучим нулем (base#069) — зупинка: такий рядок ніколи не збігся б із base#69' {
+        $p = Join-Path $TestDrive 'a-zerover.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#069=Іван Петренко <ivan@x.invalid>'
+        { Read-AuthorMap -Path $p } | Should -Throw '*<ключ джерела>#<версія>*'
+    }
+
+    It 'ключ з # без числа після нього (base#) — теж зупинка' {
+        $p = Join-Path $TestDrive 'a-emptyver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value 'base#=Іван Петренко <ivan@x.invalid>'
+        { Read-AuthorMap -Path $p } | Should -Throw '*<ключ джерела>#<версія>*'
+    }
+
+    It 'той самий рядок на версію з різними особами — зупинка (наявний запобіжник дубля)' {
+        $p = Join-Path $TestDrive 'a-dupver.txt'
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value @('base#69=Іван Петренко <ivan@x.invalid>', 'base#69=Олена Коваль <olena@x.invalid>')
+        { Read-AuthorMap -Path $p } | Should -Throw '*base#69*'
+    }
+
+    It 'Resolve-Author: рядок на версію важливіший за рядок на логін' {
+        $m = @{ 'Робоча база' = [pscustomobject]@{ Name = 'Спільна'; Email = 's@x' }; 'base#69' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        (Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 69).Name | Should -Be 'Іван'
+        (Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 70).Name | Should -Be 'Спільна'
+    }
+
+    It 'Resolve-Author: рядок на версію рятує версію з порожнім User' {
+        $m = @{ 'base#5' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        (Resolve-Author -Map $m -StorageUser '' -SourceKey 'base' -Version 5).Name | Should -Be 'Іван'
+    }
+
+    It 'Resolve-Author: рядок на версію ІНШОГО джерела не підходить' {
+        $m = @{ 'ExtA#69' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        { Resolve-Author -Map $m -StorageUser 'Робоча база' -SourceKey 'base' -Version 69 } | Should -Throw '*Робоча база*'
+    }
+
+    It 'Get-KitUnattributedVersions: лише версії без рядка на версію і без рядка на логін' {
+        $m = @{ 'gitbot' = [pscustomobject]@{ Name = 'Бот'; Email = 'b@x' }; 'base#2' = [pscustomobject]@{ Name = 'Іван'; Email = 'i@x' } }
+        $v = @(
+            [pscustomobject]@{ Version = 1; User = 'Робоча база' }
+            [pscustomobject]@{ Version = 2; User = 'Робоча база' }
+            [pscustomobject]@{ Version = 3; User = 'gitbot' }
+            [pscustomobject]@{ Version = 4; User = '' }
+        )
+        # Без @(...) навколо виклику — так його кличе sync: елементи мусять бути самими версіями.
+        $r = Get-KitUnattributedVersions -Map $m -SourceKey 'base' -Versions $v
+        $r.Count | Should -Be 2
+        $r[0].Version | Should -Be 1
+        $r[1].Version | Should -Be 4
+    }
+
+    It 'Get-KitUnattributedVersions: усі атрибутовані — порожній масив, не $null' {
+        Set-StrictMode -Version Latest
+        $m = @{ 'gitbot' = [pscustomobject]@{ Name = 'Бот'; Email = 'b@x' } }
+        $r = Get-KitUnattributedVersions -Map $m -SourceKey 'base' -Versions @([pscustomobject]@{ Version = 1; User = 'gitbot' })
+        , $r | Should -BeOfType [object[]]
+        $r.Count | Should -Be 0
+    }
+}
+
 Describe 'Get-UnknownAuthors' {
     It 'повертає лише тих, кого немає в мапі, без повторів' {
         $map = Read-AuthorMap -Path $script:MapFile
