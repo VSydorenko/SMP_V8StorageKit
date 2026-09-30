@@ -62,8 +62,20 @@ function Copy-KitWorkspaceArtifacts {
         $dir = Join-Path $ws.FullPath $ws.Project.WorkPath 'artifacts'
         if (-not (Test-Path -LiteralPath $dir)) { continue }
         foreach ($f in Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Extension -in @('.cf', '.cfe') }) {
-            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $Destination $f.Name) -Force
-            $copied.Add((Join-Path $Destination $f.Name))
+            $target = Join-Path $Destination $f.Name
+            # #18 (спека 2026-09-30 §6.3.7): чек-лист задачі посилається на хеш артефакту — мовчазний
+            # перезапис робив той хеш посиланням у нікуди. Стару копію зберігаємо під sha8 її вмісту.
+            if (Test-Path -LiteralPath $target -PathType Leaf) {
+                $old = (Get-FileHash -LiteralPath $target -Algorithm SHA1).Hash.ToLowerInvariant()
+                $new = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA1).Hash.ToLowerInvariant()
+                if ($old -ne $new) {
+                    $backup = Join-Path $Destination ('{0}_{1}{2}' -f $f.BaseName, $old.Substring(0, 8), $f.Extension)
+                    if (-not (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $target -Destination $backup }
+                    Write-Host "  попередній $($f.Name) збережено як $(Split-Path -Leaf $backup)" -ForegroundColor DarkGray
+                }
+            }
+            Copy-Item -LiteralPath $f.FullName -Destination $target -Force
+            $copied.Add($target)
         }
     }
     # Кома навмисно: викликач робить foreach ($c in (Copy-KitWorkspaceArtifacts …)) — (…), НЕ @(…) — див. F7.
