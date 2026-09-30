@@ -466,6 +466,27 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $rawId
     }
 
+    It 'Write-KitStorageVersion: .bin іде в дзеркало, тека поставки (.cf, позначка) — ні (спека 2026-09-30 §5.2)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mirror-supply') -Workspaces (New-KitClientWorkspaces)
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/base' -Path (Join-Path $repo 'build/sync/base/wt')
+        $src = Join-Path $wt.Path 'Client_UNF/cf/src'
+        New-Item -ItemType Directory -Path (Join-Path $src 'Ext/ParentConfigurations') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'Configuration.xml') -Value '<x/>' -Encoding UTF8
+        [System.IO.File]::WriteAllBytes((Join-Path $src 'Ext/ParentConfigurations.bin'), [byte[]](1..32))
+        Set-Content -LiteralPath (Join-Path $src 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding ascii
+        Set-Content -LiteralPath (Join-Path $src 'Ext/ParentConfigurations/.kit-bin-sha1') -Value 'abc' -Encoding ascii
+        try {
+            $null = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Client_UNF/cf/src' `
+                -Message "v1`n`nStorage-Source: base`nStorage-Version: 1" -AuthorName 'Test Bot' `
+                -AuthorEmail 'test@example.invalid' -Timestamp ([datetime]'2026-01-01T09:00:00')
+        } finally {
+            Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
+        }
+        $files = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/base)
+        $files | Should -Contain 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'
+        @($files | Where-Object { $_ -like 'Client_UNF/cf/src/Ext/ParentConfigurations/*' }).Count | Should -Be 0
+    }
+
     It 'залишок перерваного прогону (тека worktree є) — прибирається, новий worktree створюється' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'leftover') -WithHooks
         $path = Join-Path $repo 'build/sync/Alpha_SMB/wt'
