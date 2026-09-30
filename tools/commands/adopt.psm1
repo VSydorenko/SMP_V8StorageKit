@@ -117,9 +117,20 @@ function Invoke-KitAdopt {
         $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
         $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-files', '--', $supplyRel)
         if ($tracked.ExitCode -ne 0) { throw "git ls-files для '$supplyRel' завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)" }
-        if ($tracked.Stdout.Trim()) {
+        # Поставка в індексі АБО в HEAD — зупинка. adopt видалення поставки не комітить взагалі: на
+        # гілці без merge `commit --only -- <RepoPath>` перечитав би відстежуваний .cf з диска й
+        # скасував би застейджене видалення, а на гілці з merge його скасовує reset перед злиттям.
+        $inHeadOut = ''
+        if ((Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'HEAD')).ExitCode -eq 0) {
+            $inHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-tree', '-r', '--name-only', 'HEAD', '--', $supplyRel)
+            if ($inHead.ExitCode -ne 0) { throw "git ls-tree HEAD для '$supplyRel' завершився з кодом $($inHead.ExitCode): $($inHead.Stderr)" }
+            $inHeadOut = $inHead.Stdout
+        }
+        if ($tracked.Stdout.Trim() -or $inHeadOut.Trim()) {
             throw ("Поставка вендора відстежується git ('$supplyRel') — adopt зупиняється до стирання дерева: " +
-                   "її .cf не має потрапляти в коміт. Приберіть з індексу (файли на диску лишаться): git rm -r --cached -- '$supplyRel' — і повторіть adopt.")
+                   "її .cf не має потрапляти в коміт, а видалення поставки adopt не комітить. Зніміть її з відстеження " +
+                   "ОКРЕМИМ комітом до adopt (файли на диску лишаться): git rm -r --cached -- '$supplyRel' , потім " +
+                   "git commit -m <повідомлення> (без шляхів; якщо в індексі застейджено ще щось — спершу розберіться з цим), і повторіть adopt.")
         }
         # Проба — сама тека, не файл усередині: при правилі з негацією (`Ext/ParentConfigurations/*` +
         # `!*.cf`) теку git не вважає ігнорованою, і exclude працює (перевірено, git 2.53); а якщо
@@ -239,16 +250,6 @@ function Invoke-KitAdopt {
             if ($ignored.ExitCode -ne 0) { $addArgs += ":(exclude)$supplyRel" }
             $add = Invoke-KitGitProcess -RepoRoot $root -Arguments $addArgs
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
-            # Людина виконала рецепт «git rm -r --cached» (застейджене видалення поставки, а ls-files
-            # на початку кроку порожній) — але `git reset -- <RepoPath>` перед злиттям це видалення
-            # скасував. Поставка, що ще в HEAD, попри порожній ls-files до reset, — саме цей випадок:
-            # повторюємо видалення з індексу (файли на диску цілі), воно піде в коміт adopt.
-            $inHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-tree', '-r', '--name-only', 'HEAD', '--', $supplyRel)
-            if ($inHead.ExitCode -ne 0) { throw "git ls-tree HEAD для '$supplyRel' завершився з кодом $($inHead.ExitCode): $($inHead.Stderr)" }
-            if ($inHead.Stdout.Trim()) {
-                $rm = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rm', '-r', '-q', '--cached', '--', $supplyRel)
-                if ($rm.ExitCode -ne 0) { throw "git rm --cached для '$supplyRel' завершився з кодом $($rm.ExitCode): $($rm.Stderr)" }
-            }
             # Властивість не залежить від форми .gitignore (негація !*.cf може обійти і пробу, і
             # exclude): після add поставки в індексі бути не може. НЕ throw: виняток веде в catch із
             # git merge --abort, а той СТИРАЄ застейджений .cf з диска (доведено тестом раунду 1).

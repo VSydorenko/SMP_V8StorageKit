@@ -33,6 +33,18 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             git -C $repo commit -q -m 'sync: версія 7' -m 'Storage-Version: 7' 2>&1 | Out-Null
             Remove-Item Env:\V8KIT_SYNC
             git -C $repo checkout -q main 2>&1 | Out-Null
+            if ($MirrorIsAncestor) {
+                # Гілка без злиття: дзеркало вже предок HEAD («Already up to date»), а гілка задачі має роботу поверх.
+                git -C $repo merge -q --ff-only 'storage/base' 2>&1 | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cf/src/OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
+                git -C $repo add -- 'Client_UNF/cf/src/OnlyInBranch.xml' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'робота агента' 2>&1 | Out-Null
+            }
+            # Після дзеркала: у дзеркалі поставки бути не може (sync її не пише).
+            if ($TrackSupply) {
+                git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'поставка відстежується (помилково)' 2>&1 | Out-Null
+            }
             $repo
         }
     }
@@ -153,7 +165,7 @@ Describe 'kit adopt — основна конфігурація з постав�
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:New-SupplyAdoptRepo {
-            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore)
+            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor)
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
             if ($NoSupplyIgnoreLine) {
                 # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
@@ -165,16 +177,13 @@ Describe 'kit adopt — основна конфігурація з постав�
                 # CRLF + порожній рядок + без рядка поставки: форма проби з кінцевою рискою хибила б «ігнорується».
                 [System.IO.File]::WriteAllText((Join-Path $repo '.gitignore'), "build/`r`n`r`n*.tmp`r`n")
                 git -C $repo commit -qam 'gitignore CRLF без рядка поставки' 2>&1 | Out-Null
-            }            if ($NegatedIgnore) {
+            }
+            if ($NegatedIgnore) {
                 # Правило з негацією: тека НЕ ігнорується цілком, .cf — «неігнорований» (рев'ю Task 4, Important 1).
                 $gi = Join-Path $repo '.gitignore'
                 $keep = @(Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' })
                 Set-Content -LiteralPath $gi -Encoding UTF8 -Value ($keep + '**/Ext/ParentConfigurations/*' + '!**/Ext/ParentConfigurations/*.cf')
                 git -C $repo commit -qam 'gitignore з негацією .cf' 2>&1 | Out-Null
-            }
-            if ($TrackSupply) {
-                git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
-                git -C $repo commit -q -m 'поставка відстежується (помилково)' 2>&1 | Out-Null
             }
             # Дзеркало: той самий Configuration.xml, НОВИЙ .bin, без .cf (як пише sync після Task 2).
             $env:V8KIT_SYNC = '1'
@@ -185,6 +194,18 @@ Describe 'kit adopt — основна конфігурація з постав�
                 git -C $repo commit -q -m 'sync: версія 3' -m 'Storage-Version: 3' 2>&1 | Out-Null
             } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
             git -C $repo checkout -q main 2>&1 | Out-Null
+            if ($MirrorIsAncestor) {
+                # Гілка без злиття: дзеркало вже предок HEAD («Already up to date»), а гілка задачі має роботу поверх.
+                git -C $repo merge -q --ff-only 'storage/base' 2>&1 | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'Client_UNF/cf/src/OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
+                git -C $repo add -- 'Client_UNF/cf/src/OnlyInBranch.xml' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'робота агента' 2>&1 | Out-Null
+            }
+            # Після дзеркала: у дзеркалі поставки бути не може (sync її не пише).
+            if ($TrackSupply) {
+                git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                git -C $repo commit -q -m 'поставка відстежується (помилково)' 2>&1 | Out-Null
+            }
             $repo
         }
     }
@@ -218,12 +239,30 @@ Describe 'kit adopt — основна конфігурація з постав�
         @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
         Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
-    It '-Apply після рецепту «git rm -r --cached» (застейджене видалення поставки) — .cf на диску, не в індексі й не в HEAD, без хибного попередження' {
-        $repo = New-SupplyAdoptRepo 'supply-recipe' -TrackSupply
+    It '<Case>: рецепт БЕЗ коміту — зупинка до стирання, дерево й .cf на місці, текст із рецептом' -ForEach @(
+        @{ Case = 'гілка без злиття'; Ancestor = $true }
+        @{ Case = 'гілка зі злиттям'; Ancestor = $false }
+    ) {
+        $repo = if ($Ancestor) { New-SupplyAdoptRepo 'recipe-nocommit-a' -TrackSupply -MirrorIsAncestor } else { New-SupplyAdoptRepo 'recipe-nocommit-m' -TrackSupply }
         git -C $repo rm -r -q --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations' 2>&1 | Out-Null
         $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*Поставка вендора відстежується git*'
+        $r.Output | Should -BeLike "*git rm -r --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations'*"
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        Join-Path $cfg 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+        (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be $(if ($Ancestor) { 48 } else { 32 }) -Because 'дерево не перезаписане'
+    }
+
+    It '<Case>: рецепт З комітом — adopt -Apply проходить, .cf на диску, не в ls-files і не в ls-tree HEAD' -ForEach @(
+        @{ Case = 'гілка без злиття'; Ancestor = $true }
+        @{ Case = 'гілка зі злиттям'; Ancestor = $false }
+    ) {
+        $repo = if ($Ancestor) { New-SupplyAdoptRepo 'recipe-commit-a' -TrackSupply -MirrorIsAncestor } else { New-SupplyAdoptRepo 'recipe-commit-m' -TrackSupply }
+        git -C $repo rm -r -q --cached -- 'Client_UNF/cf/src/Ext/ParentConfigurations' 2>&1 | Out-Null
+        git -C $repo commit -q -m 'поставка поза git' 2>&1 | Out-Null
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
-        $r.Output | Should -Not -BeLike '*потрапила в індекс*'
         Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' | Should -Exist
         @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
         @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0 -Because $r.Output
