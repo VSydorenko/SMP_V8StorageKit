@@ -101,6 +101,50 @@ Describe 'kit canon — мок платформного шару: лічильн
         Should -Invoke -ModuleName canon Invoke-V8Designer -Times 1
     }
 
+    It 'CONFIGURATION з поставкою: після дампу — позначка з SHA-1 .bin; розширення — без позначки' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'canon-supply') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithAgentBase
+        Mock -ModuleName canon Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User)
+            if (($Arguments -join ' ') -match '/DumpConfigToFiles "(?<p>[^"]+)"(?<ext> -Extension)?') {
+                $dir = $Matches.p
+                Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Value '<x/>' -Encoding UTF8
+                if (-not $Matches.ext) {
+                    New-Item -ItemType Directory -Path (Join-Path $dir 'Ext/ParentConfigurations') -Force | Out-Null
+                    [System.IO.File]::WriteAllBytes((Join-Path $dir 'Ext/ParentConfigurations.bin'), [byte[]](1..64))
+                    Set-Content -LiteralPath (Join-Path $dir 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding ascii
+                }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        $result = Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $cfg = Join-Path $repo 'Client_UNF/cf/src'
+        $expected = (Get-FileHash -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin') -Algorithm SHA1).Hash.ToLowerInvariant()
+        [System.IO.File]::ReadAllText((Join-Path $cfg 'Ext/ParentConfigurations/.kit-bin-sha1')) | Should -BeExactly $expected
+        ($result.Canonized | Where-Object Key -eq 'base').SupplyMarker | Should -Be $expected
+        Join-Path $repo 'Client_UNF/cfe/ExtA/src/Ext/ParentConfigurations' | Should -Not -Exist
+        ($result.Canonized | Where-Object Key -eq 'ExtA').SupplyMarker | Should -BeNullOrEmpty
+    }
+
+    It 'CONFIGURATION, знята з підтримки (.bin 16 байт) — позначки немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'canon-supply-16') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithAgentBase
+        Mock -ModuleName canon Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User)
+            if (($Arguments -join ' ') -match '/DumpConfigToFiles "(?<p>[^"]+)"(?<ext> -Extension)?') {
+                $dir = $Matches.p
+                Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Value '<x/>' -Encoding UTF8
+                if (-not $Matches.ext) {
+                    New-Item -ItemType Directory -Path (Join-Path $dir 'Ext/ParentConfigurations') -Force | Out-Null
+                    [System.IO.File]::WriteAllBytes((Join-Path $dir 'Ext/ParentConfigurations.bin'), [byte[]](1..16))
+                    Set-Content -LiteralPath (Join-Path $dir 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding ascii
+                }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        $result = Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/.kit-bin-sha1' | Should -Not -Exist
+        ($result.Canonized | Where-Object Key -eq 'base').SupplyMarker | Should -BeNullOrEmpty
+    }
+
     It 'git status упав ПІСЛЯ дампу (пошкоджений git-індекс) — canon кидає, а не звітує "змінено файлів: 0" (C1)' {
         # Той самий симптом, що дає конкурентний .git/index.lock (kit sync чи редактор
         # тримають індекс): git status завершується ненульовим кодом. Без явної перевірки

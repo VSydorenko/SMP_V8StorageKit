@@ -102,12 +102,19 @@ function Invoke-KitCanon {
                 Assert-V8InfobaseNotBusy -Output $r.Output -Infobase "агента ($($ws.Path))"
                 throw "Канонізація $($t.Key) не вдалася: $($r.Output)"
             }
+            # Позначка поставки (спека 2026-09-30 §5.2, §5.3): canon — єдине місце, де .cf
+            # з'являється на машині, тож саме тут фіксуємо, з яким .bin його вивантажено.
+            $supplyMarker = $null
+            if ($t.Type -eq 'CONFIGURATION') {
+                $supplyMarker = Write-KitSupplyMarker -TreeRoot $t.FullPath
+                if ($supplyMarker) { Write-Host "  $($t.Key): поставку вендора вивантажено, позначка .kit-bin-sha1 записана." -ForegroundColor DarkGray }
+            }
             $files = @(Get-ChildItem -LiteralPath $t.FullPath -Recurse -File).Count
             $changed = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $t.RepoPath).Count
             $summary = "  $($t.Key): файлів $files, змінено файлів: $changed"
             if ($backupDir) { $summary += " (резервна копія до canon: $backupDir)" }
             Write-Host $summary -ForegroundColor Green
-            $done.Add([pscustomobject]@{ Key = $t.Key; Files = $files; Changed = $changed; Backup = $backupDir })
+            $done.Add([pscustomobject]@{ Key = $t.Key; Files = $files; Changed = $changed; Backup = $backupDir; SupplyMarker = $supplyMarker })
         }
     }
     [pscustomobject]@{ ExitCode = 0; Canonized = $done.ToArray() }
