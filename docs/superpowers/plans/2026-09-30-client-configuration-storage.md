@@ -20,12 +20,13 @@
 коміту **`d2f8582`** (§6.3 — уточнення архітектора на питання автора плану). Архітектор рішення —
 сесія `configuration-storage-spec`; уточнення до спеки — через неї, не самостійно.
 
-**Відкрите питання (не входить у жодну задачу цього плану):** бутстрап розширення під
-`truth: storage`, дерева якого ще немає (новий репозиторій над наявними сховищами розширень), —
-питання 10 автора плану, передане власникові 2026-09-30. Архітектор рекомендує включити його в
-обсяг зі спайком. Коли рішення прийде з хешем коміту спеки, план доповниться окремою задачею;
-до того Task 10 **не** стверджує в текстах скілів, що рецепт (i) працює для розширень без
-дерева.
+**Питання 10 — закрито** (раніше відкрите): бутстрап розширення під `truth: storage`, дерева
+якого ще немає, вирішено рішенням власника в спеці §6.9 (коміт `712baa6`) — запасний шлях `sync`
+у тимчасовій ІБ із заглушкою, **Task 13**. Обмеження, яке Task 10 до того тримав у текстах («рецепт
+(i) не покриває розширення без дерева»), Task 13 знімає.
+
+Пізніші редакції спеки, від яких іде план: `fe4e716` (§6.4), `a26d294` (§6.5), `02fe0d5` (§6.7),
+`bb9b685` (§6.8 → Task 12), `712baa6` (§6.9 → Task 13).
 
 ## Global Constraints
 
@@ -2206,6 +2207,259 @@ git commit --only -m "AUTHORS: автор на конкретну версію �
 
 ---
 
+### Task 13: запасний шлях `sync` для розширення, якого ще немає в базі агента (спека §6.9)
+
+Закриває відкрите питання 10. Спека — коміт **`712baa6`**, §6.9, рішення власника. Виконувати
+**після Task 12** (обидві чіпають `Invoke-KitSync`). Версія лишається **1.3.0**.
+
+**Ризик:** спільний код (одне рев'ю на сильній моделі; окреме питання рев'юеру — «чи може
+запасний шлях увімкнутись для CONFIGURATION або на іншій помилці звіту, і чи може він змінити
+базу агента»).
+
+**Files:**
+- Modify: `tools/lib/StoragePlatform.psm1` (нова `Test-KitExtensionNotFound`; `Invoke-KitStorageCheckout` бере її замість власної регулярки)
+- Modify: `tools/commands/sync.psm1` (звіт сховища і цикл версій — через змінні `$ibSwitch`/`$ibUser`, перемикання на тимчасову ІБ)
+- Modify: `tools/tests/ModuleImportOrder.Tests.ps1` (`$RequiredCommands` + `Test-KitExtensionNotFound`)
+- Modify: `docs/storage-and-git.md` (розділ «Особливості платформи…», абзац «Розширення має існувати в ІБ…»; розділ про `sync`), `docs/follow-ups.md` §9 (режим сумісності стаба), `skills/onboarding/SKILL.md` (рецепт (i) — абзац «Для розширень без дерева рецепт (i) не описано»), `skills/sync/SKILL.md`, `skills/onboarding/references/upgrades.md` (розділ `1.2.0 → 1.3.0`, «що змінилось»)
+- Test: `tools/tests/StoragePlatform.Tests.ps1`, `tools/tests/Sync.Fallback.Tests.ps1` (створити)
+
+**Interfaces:**
+- Consumes: `New-KitStorageInfobase -Source -WorkDir [-StubPath]` → рядок `IbSwitch` (`StoragePlatform.psm1`,
+  сьогодні без викликачів; створює `<WorkDir>/ib`, вантажить заглушку `tools/assets/empty-extension`
+  під іменем джерела через `New-ExtensionInfobase`); `Get-StorageVersions` (`StorageReport.psm1`:
+  на збої кидає `Не вдалося побудувати звіт сховища <шлях> : <вивід платформи>`).
+- Produces: `Test-KitExtensionNotFound -Output <string>` → `[bool]` — єдине місце розпізнавання
+  відповіді «розширення не знайдено» (рос./укр.). Результат `Invoke-KitSync` — у записі джерела
+  поле `Fallback` (`[bool]`).
+
+**Контракт (спека §6.9):**
+1. Лише `EXTENSION`. Ознака — виняток `Get-StorageVersions` у базі агента, чий текст
+   `Test-KitExtensionNotFound` визнає за «не знайдено». Будь-яка інша помилка звіту (автентифікація
+   сховища, зайнята база) — як зараз, без перемикання.
+2. Тоді **весь прогін цього джерела** — звіт і кожна версія (`UpdateCfg`, дамп) — у тимчасовій
+   порожній файловій ІБ `build/sync/<ключ>/ib` із заглушкою (`New-KitStorageInfobase`), користувач
+   ІБ — порожній (у тимчасовій ІБ користувачів немає). Нових платформних операцій немає.
+3. Попередження, не зупинка (друкується одразу при перемиканні): розширення вивантажено без
+   власника — формат історичних комітів може відрізнятися; після злиття й `operation=build` наступні
+   версії підуть у базі агента.
+4. База агента для цього джерела не змінюється: рядок «База агента воркспейсу … тепер містить
+   версію N» у запасному шляху **не** друкується — замість нього «база агента не змінювалась; далі:
+   злиття → `operation=build` Уніки».
+5. Для `CONFIGURATION` перемикання не вмикається ніколи — навіть на тому самому тексті.
+6. `verify` не змінюється (на «не знайдено» — наявний рецепт «спершу злиття й `operation=build`»).
+7. Прев'ю (без `-Apply`) теж перемикається: воно й так запускає платформу заради звіту, а звіт у базі
+   агента для такого джерела неможливий.
+
+- [ ] **Step 1: `grep` перед новою перевіркою (kit-dev, case 5)**
+
+```bash
+grep -rn "не найдено\|не знайдено" tools/lib tools/commands
+grep -rn "New-KitStorageInfobase\|New-ExtensionInfobase" tools/lib tools/commands
+```
+
+Очікування: регулярка «не найдено» — лише в `Invoke-KitStorageCheckout`; `New-KitStorageInfobase`
+— без викликачів у `tools/commands`. Інше — зафіксувати в звіті.
+
+- [ ] **Step 2: Тести `Test-KitExtensionNotFound`**
+
+У `StoragePlatform.Tests.ps1`:
+
+```powershell
+    It 'Test-KitExtensionNotFound: російський і український тексти платформи — так, інші помилки — ні' {
+        Test-KitExtensionNotFound -Output 'Расширение конфигурации с указанным именем не найдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Не вдалося побудувати звіт сховища R:\x : Расширение конфигурации ExtA не найдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Розширення конфігурації з вказаним ім''ям не знайдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Ошибка аутентификации в хранилище конфигурации' | Should -BeFalse
+        Test-KitExtensionNotFound -Output 'Информационная база используется другим пользователем' | Should -BeFalse
+        Test-KitExtensionNotFound -Output '' | Should -BeFalse
+    }
+```
+
+- [ ] **Step 3: Тести запасного шляху**
+
+Створити `tools/tests/Sync.Fallback.Tests.ps1` — `BeforeAll` дослівно як у `Sync.Merge.Tests.ps1`
+(модулі за `module-order.txt`, `sync.psm1` у процесі, `New-KitTestContext`,
+`New-KitFakeStorageVersion`). Спільна підготовка й моки:
+
+```powershell
+        function script:New-FallbackRepo {
+            param([string]$Name, [System.Collections.IDictionary]$Workspaces)
+            $p = @{ Root = (Join-Path $TestDrive $Name); WithHooks = $true; WithGitignore = $true; WithAgentBase = $true }
+            if ($Workspaces) { $p.Workspaces = $Workspaces }
+            $repo = New-KitFakeRepo @p
+            $ctx0 = Invoke-KitPreflight -RepoRoot $repo
+            $keys = @($ctx0.Workspaces | ForEach-Object { $_.Sources } | Where-Object Truth -eq 'storage' | ForEach-Object Key)
+            $lines = @('storages:') + @(foreach ($k in $keys) {
+                $d = Join-Path $TestDrive "$Name-storage-$k"; New-Item -ItemType Directory -Path $d -Force | Out-Null; "  ${k}: '$d'" })
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value ($lines -join "`n")
+            $repo
+        }
+        $script:TmpIb = '/F "fallback-temp-ib"'
+        $script:NotFound = 'Не вдалося побудувати звіт сховища R:\s : Расширение конфигурации с указанным именем не найдено'
+```
+
+```powershell
+    BeforeEach {
+        $script:DesignerIb = [System.Collections.Generic.List[string]]::new()
+        $script:ReportUsers = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName sync New-KitStorageInfobase { $script:TmpIb }
+        Mock -ModuleName sync Get-StorageVersions {
+            param($IbSwitch, $StoragePath, $ExtensionName, $StorageUser, $StoragePassword, $WorkDir, $User)
+            if ($IbSwitch -ne $script:TmpIb) { throw $script:NotFound }
+            $script:ReportUsers.Add([string]$User)
+            , @((New-KitFakeStorageVersion -Version 1), (New-KitFakeStorageVersion -Version 2))
+        }
+        Mock -ModuleName StoragePlatform Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User)
+            $script:DesignerIb.Add($IbSwitch)
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        Mock -ModuleName sync Invoke-KitMainMerge { $true }
+    }
+
+    It 'розширення «не знайдено» в базі агента — прогін у тимчасовій ІБ, попередження, коміти, база агента не чіпана' {
+        $repo = New-FallbackRepo 'fb-ext'
+        $out = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true 6>&1 | Out-String
+        $r = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true   # другий прогін: нових версій немає
+        $out | Should -BeLike '*без власника*'
+        $out | Should -Not -BeLike '*тепер містить версію*'
+        @(git -C $repo log --format=%H storage/Alpha_SMB).Count | Should -Be 2
+        @($script:DesignerIb | Where-Object { $_ -ne $script:TmpIb }).Count | Should -Be 0
+        @($script:ReportUsers | Where-Object { $_ }).Count | Should -Be 0
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It -ParameterFilter { $true }
+    }
+```
+
+(Другий виклик у тесті — ескіз для перевірки ідемпотентності; якщо він заважає лічильникам моків,
+прибрати й назвати. `Should -Invoke … New-KitStorageInfobase` рахує виклики **обох** прогонів —
+виконавець узгоджує `-Times` з фактичною формою тесту.)
+
+```powershell
+    It 'CONFIGURATION на тому самому тексті — зупинка, як зараз, без тимчасової ІБ' {
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
+        $repo = New-FallbackRepo 'fb-cfg' -Workspaces $ws
+        { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) } | Should -Throw '*не найдено*'
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0
+    }
+
+    It 'розширення, інша помилка звіту (автентифікація) — зупинка, без тимчасової ІБ' {
+        $repo = New-FallbackRepo 'fb-auth'
+        Mock -ModuleName sync Get-StorageVersions { throw 'Не вдалося побудувати звіт сховища R:\s : Ошибка аутентификации в хранилище конфигурации' }
+        { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) } | Should -Throw '*аутентификации*'
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0
+    }
+
+    It 'розширення, яке Є в базі агента — запасний шлях не вмикається' {
+        $repo = New-FallbackRepo 'fb-present'
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 1) }
+        $null = Invoke-KitSync -Context (New-KitTestContext -Repo $repo)
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0
+    }
+```
+
+Перед тестами — три питання kit-dev case 21 (особливо (б): чи дійде виконання до звіту — база
+агента мусить існувати, `-WithAgentBase`; сховище — реальна тека з накладки). Фрази `'*без власника*'`
+і `'*тепер містить версію*'` — `grep`-ом на унікальність по `tools/commands` і `tools/lib`
+(друга вже є в `sync.psm1` і `verify.psm1` — тест дивиться лише вивід `sync`, це допустимо, назвати).
+
+- [ ] **Step 4: Прогнати — має впасти.**
+
+- [ ] **Step 5: Реалізація**
+
+`StoragePlatform.psm1`:
+
+```powershell
+function Test-KitExtensionNotFound {
+    <#
+    .SYNOPSIS
+        Відповідь платформи «розширення з таким іменем не знайдено» (рос./укр.) — ЄДИНЕ місце
+        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу operation=build») і запасний шлях
+        sync (спека 2026-09-30 §6.9). Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
+    $Output -match '(?i)расширени\w+ .*не найдено|розширенн\w+ .*не знайдено'
+}
+```
+
+В `Invoke-KitStorageCheckout` умову `$upd.Output -match '…'` замінити на
+`(Test-KitExtensionNotFound -Output $upd.Output)`. Дописати в `Export-ModuleMember` і `$RequiredCommands`.
+
+`sync.psm1`, у циклі джерел: звіт і цикл версій працюють через `$ibSwitch`/`$ibUser` (зараз —
+`$agent.IbSwitch`/`$agent.User`), ініціалізовані з бази агента. Виклик `Get-StorageVersions`:
+
+```powershell
+        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $fallback = $false
+        try {
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
+                -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        } catch {
+            # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
+            # дерева), — не зупинка, а весь прогін джерела в тимчасовій порожній ІБ із заглушкою
+            # (шлях до 1.1.0). Лише EXTENSION: для основної конфігурації «не знайдено» означає
+            # інше, і база агента для неї — єдиний законний контекст.
+            if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
+            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+            $ibUser = ''
+            $fallback = $true
+            Write-Host ("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
+                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й operation=build ' +
+                'наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.' -f $src.Key) -ForegroundColor Yellow
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        }
+```
+
+- `Enter-KitStorageBind`, `Invoke-KitStorageCheckout`, `Exit-KitStorageBind` у циклі версій — з
+  `-IbSwitch $ibSwitch -User $ibUser`.
+- Рядок «База агента воркспейсу … тепер містить версію …» — лише коли `-not $fallback`; інакше —
+  `Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → operation=build Уніки — розширення з'явиться в базі агента."`.
+- `$results.Add(...)` — поле `Fallback = $fallback` в обох гілках (і «нових версій немає», і після реплею).
+- Перевірити, що `New-KitStorageInfobase` пише ІБ під `$workDir` (`<WorkDir>/ib`), а `$workDir`
+  стирається на початку кожного прогону — осиротілих ІБ між прогонами не лишається.
+
+- [ ] **Step 6: Прогнати — має пройти** (повний набір, наявні `Sync.*` зелені).
+
+- [ ] **Step 7: Мутації (на копії дерева)**
+
+(а) вирізати перемикання (лишити `throw` у `catch`) — перший тест червоний на тексті «не найдено»
+(спека §6.9 називає саме цю мутацію); (б) прибрати умову `$src.Type -ne 'EXTENSION'` — тест
+CONFIGURATION червоний; (в) передати в цикл версій `$agent.IbSwitch` замість `$ibSwitch` — перший
+тест червоний на `DesignerIb`. Тексти падінь — у звіт.
+
+- [ ] **Step 8: Тексти** (без чисел пілота — правило «Зміст постійної документації»)
+
+- `docs/storage-and-git.md`, «Особливості платформи…», абзац «Розширення має існувати в ІБ до
+  звернення до сховища розширень»: «Після C1 конвеєр цим шляхом не ходить … видалення окреме
+  рішення» — **переглянуто** §6.9: стаб і `New-ExtensionInfobase` знову в обігу як запасний шлях
+  `sync` для розширення без бази агента; причина (послаблення власника: історичний формат без
+  власника прийнятний, вирівнюється наступними версіями й `canon`) і чому не `.cfe` зі сховища.
+  Розділ про `sync` — одне речення про запасний шлях і попередження.
+- `docs/follow-ups.md` §9 (режим сумісності стаба): позначка «стаб знову в обігу (1.3.0, спека
+  §6.9) — лише в тимчасовій порожній ІБ, де основної конфігурації немає, тож конфлікт режимів тут
+  не виникає; ризик для бази з основною конфігурацією лишається неперевіреним» — текст розділу не
+  видаляти.
+- `skills/onboarding/SKILL.md`, рецепт (i): абзац «Для розширень без дерева рецепт (i) не описано…»
+  замінити кроками: `sync` основної конфігурації → `canon -Source <cfg>` → `sync` розширення (для
+  нового розширення — запасний шлях із попередженням, штатно) → злиття → `operation=build` →
+  наступні версії в базі агента.
+- `skills/sync/SKILL.md`: попередження запасного шляху — що означає, що не зупинка, що робити далі.
+- `upgrades.md` розділ `1.2.0 → 1.3.0`, «що змінилось»: один рядок.
+- Пошук залишків: `grep -rn "не описано\|не ходить\|без викликачів\|вийшов з обігу" skills/ docs/storage-and-git.md docs/follow-ups.md tools/lib`
+  — кожен збіг про стаб/заглушку переписати (коментарі в коді теж: `StoragePlatform.psm1`
+  `New-KitStorageInfobase`/`Get-KitSourceInfobase`, `sync.psm1` шапка «New-KitStorageInfobase … sync
+  більше не кличе»).
+
+- [ ] **Step 9: Коміт** (контролер)
+
+```bash
+git add tools/lib/StoragePlatform.psm1 tools/commands/sync.psm1 tools/tests/StoragePlatform.Tests.ps1 tools/tests/Sync.Fallback.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1 docs/storage-and-git.md docs/follow-ups.md skills/onboarding/SKILL.md skills/sync/SKILL.md skills/onboarding/references/upgrades.md
+git commit --only -m "sync: запасний шлях для розширення без бази агента — тимчасова ІБ із заглушкою (спека §6.9, питання 10)" -- tools/lib/StoragePlatform.psm1 tools/commands/sync.psm1 tools/tests/StoragePlatform.Tests.ps1 tools/tests/Sync.Fallback.Tests.ps1 tools/tests/ModuleImportOrder.Tests.ps1 docs/storage-and-git.md docs/follow-ups.md skills/onboarding/SKILL.md skills/sync/SKILL.md skills/onboarding/references/upgrades.md
+```
+
+---
+
 ## Трасування «пункт спеки → задача плану»
 
 Вимога глобального `CLAUDE.md` («Кілька сесій»): архітектор звіряє цю таблицю до старту
@@ -2257,3 +2511,4 @@ git commit --only -m "AUTHORS: автор на конкретну версію �
 | §6.7 (`02fe0d5`) — кирилиця в іменах не ризик | текст | хвіст, коміт `6a5390c` |
 | §6.8 (`bb9b685`) — автор на конкретну версію сховища | `AUTHORS` `<ключ>#<версія>`, перелік версій без автора | **Task 12** |
 | §6.6 (`d2877c7`) — наявна серверна база агента, автентифікація ОС (#26) | коду не вимагає | поза планом; текст — після пілота |
+| §6.9 (`712baa6`) — розширення без бази агента: запасний шлях `sync` у тимчасовій ІБ із заглушкою (питання 10) | `Test-KitExtensionNotFound`, перемикання в `sync` | **Task 13**; знімає рядок «розширення без дерева — відкрите питання» у §1 успіх п.1 |
