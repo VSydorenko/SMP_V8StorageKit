@@ -27,6 +27,15 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         Enter-KitStorageBind -IbSwitch '/F "x"' -Source $script:Ext | Should -BeFalse
     }
 
+    It 'Test-KitExtensionNotFound: російський і український тексти платформи — так, інші помилки — ні' {
+        Test-KitExtensionNotFound -Output 'Расширение конфигурации с указанным именем не найдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Не вдалося побудувати звіт сховища R:\x : Расширение конфигурации ExtA не найдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Розширення конфігурації з вказаним ім''ям не знайдено' | Should -BeTrue
+        Test-KitExtensionNotFound -Output 'Ошибка аутентификации в хранилище конфигурации' | Should -BeFalse
+        Test-KitExtensionNotFound -Output 'Информационная база используется другим пользователем' | Should -BeFalse
+        Test-KitExtensionNotFound -Output '' | Should -BeFalse
+    }
+
     Context 'Get-KitSourceInfobase — база джерела' {
         BeforeAll {
             $script:Ctx = [pscustomobject]@{

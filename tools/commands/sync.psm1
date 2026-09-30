@@ -5,7 +5,8 @@ Set-StrictMode -Version Latest
 # Спільний платформний шар «версія сховища → дамп» (Get-KitSourceInfobase, Enter/Exit-KitStorageBind,
 # Invoke-KitStorageCheckout, Get-KitRepositoryArguments) — StoragePlatform.psm1 (B3 Task 1); ним же
 # користується verify. Після C1 (2026-09-17) дамп іде в базі агента воркспейсу, яку резолвить
-# Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync більше не кличе.
+# Get-KitSourceInfobase; New-KitStorageInfobase із того ж модуля sync кличе лише як запасний шлях
+# для розширення, якого ще немає в базі агента (спека 2026-09-30 §6.9).
 
 function Sort-KitSyncSources {
     <#
@@ -250,13 +251,30 @@ function Invoke-KitSync {
         if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        $ibSwitch = $agent.IbSwitch
+        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $fallback = $false
         Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
         Write-Host 'Читаю історію сховища...'
 
-        $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
-            -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-            -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $agent.User
+        try {
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
+                -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        } catch {
+            # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
+            # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
+            # порожній ІБ із заглушкою. Лише EXTENSION: для основної конфігурації «не знайдено»
+            # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
+            # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
+            if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
+            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+            $ibUser = ''
+            $fallback = $true
+            Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
+                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й operation=build ' +
+                'наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
+            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+        }
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
 
@@ -295,7 +313,7 @@ function Invoke-KitSync {
 
             $merged = $false
             if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
-            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged })
+            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
             continue
         }
 
@@ -355,13 +373,13 @@ function Invoke-KitSync {
         # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
         $bound = $false
         try {
-            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $agent.User
+            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $ibUser
             foreach ($v in $pending) {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
                 $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $agent.User
+                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
                 $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
@@ -370,7 +388,7 @@ function Invoke-KitSync {
                 $done.Add($v.Version)
             }
         } finally {
-            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $agent.User
+            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
             Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
         }
         Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
@@ -384,15 +402,19 @@ function Invoke-KitSync {
         # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
         # поведінка — мовчати про неї означало б, що наступний operation=syntax чи test побіжить
         # не на тому стані, який агент вважає своїм.
-        Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
-            $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+        if ($fallback) {
+            Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → operation=build Уніки — розширення з'явиться в базі агента." -ForegroundColor Yellow
+        } else {
+            Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+                $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+        }
 
         $merged = $false
         if ($wt.Created -or $MergeMain) {
             $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
             if (-not $merged) { $mergeFailed = $true }
         }
-        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged })
+        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
     }
 
     Write-Host ''
