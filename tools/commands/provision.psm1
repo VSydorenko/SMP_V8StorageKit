@@ -88,8 +88,8 @@ function New-KitOwnerMissingMessage {
     .DESCRIPTION
         Приватний хелпер, винесений з Invoke-KitProvision лише заради читабельності виклику.
         Називає всі варіанти й ціну кожного (Крок 1 брифа задачі): дамп (20–40 хв, 1–2 ГБ),
-        .dt, серверна база від людини; sync — лише коли CONFIGURATION джерело під truth:
-        storage (для vendor/dump sync нічого не дає — там немає сховища конфігурацій).
+        .dt, серверна база від людини. Зупинка кидається лише для порожньої CONFIGURATION не під
+        truth: storage (під storage порожня база законна — рецепт (i)), тож sync тут не пропонується.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Workspace)
@@ -108,17 +108,11 @@ function New-KitOwnerMissingMessage {
     } else {
         "Розширення цього воркспейсу не позичає жодного об'єкта, але це не рятує: заглушка (tools/assets/empty-extension) не тримає типи власника (наприклад, УНФ), і operation=build без нього так само не проходить."
     }
-    $syncHint = if (@($Workspace.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' }).Count -gt 0) {
-        ' або kit sync -RepoRoot . — якщо конфігурація власника під сховищем (truth: storage).'
-    } else {
-        '.'
-    }
-
     "Воркспейсу '$($Workspace.Path)' бракує власника: $configLabel на диску порожнє або відсутнє. $why " +
     "«Порожня» база агента наповнюється operation=build Уніки, а build спершу вантажить власника з цього дерева — без нього збірка впаде на першому ж об'єкті. " +
     'Звідки взяти власника: дамп із дев-бази — kit dump -RepoRoot . -Apply (20–40 хв, 1–2 ГБ, за накладкою infobases:); ' +
     "файл .dt із конфігурацією власника — kit provision -RepoRoot . -Workspace $($Workspace.Path) -Apply -Template <шлях>.dt -Remember; " +
-    "серверна база, яку створює людина в кластері$syncHint " +
+    "серверна база, яку створює людина в кластері. " +
     'Kit не пропонує порожню базу без власника — виберіть варіант і повторіть запуск.'
 }
 
@@ -198,8 +192,8 @@ function Invoke-KitProvision {
             # закриває коло «provision радить sync, sync вимагає базу».
             if (@($missing | Where-Object Truth -ne 'storage').Count -gt 0) { throw (New-KitOwnerMissingMessage -Workspace $ws) }
             foreach ($m in $missing) {
-                Write-Host ("  Основна конфігурація '{0}' (truth: storage) ще без дерева — порожня база законна (рецепт (i)). " +
-                    'Після створення бази: kit sync -Source {0} -FromLatest -Apply (або -FromVersion N) → kit canon -Source {0} -Apply → operation=build Уніки.' -f $m.Key) -ForegroundColor Cyan
+                Write-Host (("  Основна конфігурація '{0}' (truth: storage) ще без дерева — порожня база законна (рецепт (i)). " +
+                    'Після створення бази: kit sync -Source {0} -FromLatest -Apply (або -FromVersion N) → kit canon -Source {0} -Apply → operation=build Уніки.') -f $m.Key) -ForegroundColor Cyan
             }
         }
         foreach ($cfgSrc in @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })) {

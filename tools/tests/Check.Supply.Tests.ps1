@@ -30,6 +30,16 @@ Describe 'kit check — поставка вендора основної кон�
         $r.Output | Should -BeLike '*`*`*/Ext/ParentConfigurations/*'
     }
 
+    It 'ігнор лише `*.cf` без рядка теки поставки — позначка .kit-bin-sha1 не ігнорується, error' {
+        $repo = New-ClientRepo 'supply-cf-only'
+        $gi = Join-Path $repo '.gitignore'
+        (Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' }) | Set-Content -LiteralPath $gi -Encoding UTF8
+        Add-Content -LiteralPath $gi -Encoding UTF8 -Value '*.cf'
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*не гітігнорована*'
+    }
+
     It '.bin під ігнором — error' {
         $repo = New-ClientRepo 'supply-bin-ignored'
         Add-Content -LiteralPath (Join-Path $repo '.gitignore') -Encoding UTF8 -Value '**/Ext/ParentConfigurations.bin'

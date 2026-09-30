@@ -251,8 +251,13 @@ function Invoke-KitCheck {
                     } elseif ($code -gt 1) { & $add error gitignore "$tag`: git check-ignore завершився з кодом $code." }
                 }
                 if (Test-KitSupplyDescribed -TreeRoot $src.FullPath) {
-                    git -C $root check-ignore --no-index -q -- "$supplyRel/probe.cf" 2>$null | Out-Null
-                    $code = $LASTEXITCODE
+                    # Дві проби: .cf і позначка .kit-bin-sha1 (стан машини, теж не для git) — правило
+                    # лише на `*.cf` чи з винятком для позначки ловило б одну з двох.
+                    $code = 0
+                    foreach ($probe in @('probe.cf', '.kit-bin-sha1')) {
+                        git -C $root check-ignore --no-index -q -- "$supplyRel/$probe" 2>$null | Out-Null
+                        if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE; break }
+                    }
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: тека поставки вендора '$supplyRel/' не гітігнорована — .cf на сотні МБ потрапив би в git " +
                             "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/' " +

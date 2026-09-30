@@ -117,7 +117,8 @@ function Get-KitSupplyRecipe {
     }
     "$what. Відновлення — лише на гілці ${MainBranch}, не на гілці задачі (canon переписує все дерево): " +
     "база агента є (інакше kit provision) → kit verify -Source $SourceKey (очікувано equal — він наповнює базу версією з дерева) → " +
-    "kit canon -Source $SourceKey -Apply (вивантажує .cf і пише позначку) → operation=build Уніки. Ніколи canon на порожній базі: порожній дамп стирає дерево."
+    "kit canon -Source $SourceKey -Apply (вивантажує .cf і пише позначку) → operation=build Уніки. Ніколи canon на порожній базі: порожній дамп стирає дерево. " +
+    "У рецепті (i) (новий репозиторій, онбординг на гілці через sync -MergeInto) canon -Source $SourceKey виконується на гілці онбордингу до PR, а verify там не потрібен."
 }
 
 Export-ModuleMember -Function Get-KitSupplyRelativePath, Test-KitSupplyRelativePath, Test-KitSupplyDescribed, Get-KitSupplyState, Write-KitSupplyMarker, Remove-KitSupplyDir, Clear-KitTreeExceptSupply, Get-KitSupplyRecipe

@@ -280,6 +280,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r = Invoke-Provision -Repo $repo
             $r.ExitCode | Should -Be 0 -Because $r.Output
             $r.Output | Should -Not -BeLike '*бракує власника*'
+            $r.Output | Should -BeLike "*Основна конфігурація 'base'*"
             $r.Output | Should -BeLike '*kit sync -Source base*-FromLatest*'
             $r.Output | Should -BeLike '*kit canon -Source base -Apply*'
         }

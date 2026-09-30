@@ -165,7 +165,7 @@ Describe 'kit adopt — основна конфігурація з постав�
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:New-SupplyAdoptRepo {
-            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor)
+            param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor, [switch]$OldMirrorWithCf)
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
             if ($NoSupplyIgnoreLine) {
                 # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
@@ -191,9 +191,19 @@ Describe 'kit adopt — основна конфігурація з постав�
                 git -C $repo checkout -q -b 'storage/base' 2>&1 | Out-Null
                 [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..48))
                 git -C $repo add -- 'Client_UNF/cf/src/Ext/ParentConfigurations.bin' 2>&1 | Out-Null
+                if ($OldMirrorWithCf) {
+                    # Дзеркало версії ≤1.2.0: .cf поставки вже в історії дзеркала, вмістом іншим за локальний.
+                    $oldCf = Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'
+                    [System.IO.File]::WriteAllBytes($oldCf, [byte[]](200..230))
+                    git -C $repo add -f -- 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf' 2>&1 | Out-Null
+                }
                 git -C $repo commit -q -m 'sync: версія 3' -m 'Storage-Version: 3' 2>&1 | Out-Null
             } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
             git -C $repo checkout -q main 2>&1 | Out-Null
+            if ($OldMirrorWithCf) {
+                # checkout main прибрав .cf дзеркала з диска (у main його немає) — повертаємо локальну поставку.
+                [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'), [byte[]](1..40))
+            }
             if ($MirrorIsAncestor) {
                 # Гілка без злиття: дзеркало вже предок HEAD («Already up to date»), а гілка задачі має роботу поверх.
                 git -C $repo merge -q --ff-only 'storage/base' 2>&1 | Out-Null
@@ -227,6 +237,16 @@ Describe 'kit adopt — основна конфігурація з постав�
         (Get-Item -LiteralPath (Join-Path $cfg 'Ext/ParentConfigurations.bin')).Length | Should -Be 48
         Join-Path $cfg 'Ext/Ext' | Should -Not -Exist
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+        @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
+    }
+
+    It '-Apply: старе дзеркало з .cf в історії не перезаписує локальну поставку, .cf не в ls-files і не в HEAD' {
+        $repo = New-SupplyAdoptRepo 'supply-old-mirror-cf' -OldMirrorWithCf
+        $localCf = Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations/Vendor.cf'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'adopt' -Repo $repo -More @('-Source', 'base', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        [System.IO.File]::ReadAllBytes($localCf) | Should -Be ([byte[]](1..40))
         @(git -C $repo ls-files -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
         @(git -C $repo ls-tree -r --name-only HEAD -- 'Client_UNF/cf/src/Ext/ParentConfigurations').Count | Should -Be 0
     }

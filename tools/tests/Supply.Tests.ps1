@@ -123,4 +123,9 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         $r | Should -BeLike '*kit canon -Source base -Apply*'
         $r | Should -BeLike '*operation=build*'
     }
+
+    It 'рецепт застерігає, що в (i) canon іде на гілці онбордингу без verify' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'missing'
+        $r | Should -BeLike '*У рецепті (i)*canon -Source base виконується на гілці онбордингу до PR*verify там не потрібен*'
+    }
 }

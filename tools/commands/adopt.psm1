@@ -231,7 +231,11 @@ function Invoke-KitAdopt {
             # поставка), а рекурсивна копія теки в наявну теку кладе її ВСЕРЕДИНУ (Ext/Ext/…).
             $mirrorFull = (Resolve-Path -LiteralPath $mirrorDir).Path
             foreach ($f in @(Get-ChildItem -LiteralPath $mirrorFull -Recurse -File -Force)) {
-                $dest = Join-Path $src.FullPath $f.FullName.Substring($mirrorFull.Length).TrimStart('\', '/')
+                $relInMirror = $f.FullName.Substring($mirrorFull.Length).TrimStart('\', '/')
+                # Дзеркало, записане версією ≤1.2.0, може нести .cf поставки в історії: локальну
+                # поставку воно перезаписати не має.
+                if (Test-KitSupplyRelativePath -RelativePath $relInMirror) { continue }
+                $dest = Join-Path $src.FullPath $relInMirror
                 New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
                 Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
             }
