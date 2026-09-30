@@ -148,6 +148,43 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         (git -C $repo rev-parse main) | Should -Be $mainBefore
     }
 
+    It '-MergeInto: реплей (pending не порожній) зливає в задану гілку, а не в main — справжній Invoke-KitMainMerge' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-replay') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'merge-into-replay-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        git -C $repo branch onboarding main
+        $mainBefore = git -C $repo rev-parse main
+
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -MergeInto 'onboarding'
+        $result.ExitCode | Should -Be 0
+        Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 7
+        git -C $repo merge-base --is-ancestor storage/Alpha_SMB onboarding; $LASTEXITCODE | Should -Be 0
+        (git -C $repo rev-parse main) | Should -Be $mainBefore
+    }
+
+    It '-MergeInto у неіснуючу гілку — код 2, «Гілки … ще немає» з -MergeInto у рецепті, гілку не створено' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-missing') -WithHooks -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'merge-into-missing-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+        $mainBefore = git -C $repo rev-parse main
+
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5) }
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -MergeMain -MergeInto 'nope' -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 2
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike "*Гілки 'nope' ще немає*-Source Alpha_SMB -Apply -MergeMain -MergeInto nope*"
+        git -C $repo rev-parse --verify --quiet refs/heads/nope; $LASTEXITCODE | Should -Not -Be 0
+        (git -C $repo rev-parse main) | Should -Be $mainBefore
+    }
+
     It 'провал злиття після успішного реплею — ExitCode 2, підказка на повтор із -Apply, дзеркало вже оновлене' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-fails') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-fails-storage'
