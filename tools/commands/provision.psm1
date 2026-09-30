@@ -35,12 +35,24 @@ function Test-KitConfigurationOwnerPresent {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Workspace)
 
-    $configSources = @($Workspace.Sources | Where-Object Type -eq 'CONFIGURATION')
-    if ($configSources.Count -eq 0) { return $true }
-    foreach ($src in $configSources) {
-        if (@(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File -ErrorAction SilentlyContinue).Count -eq 0) { return $false }
+    @(Get-KitMissingOwnerSources -Workspace $Workspace).Count -eq 0
+}
+
+function Get-KitMissingOwnerSources {
+    <#
+    .SYNOPSIS
+        CONFIGURATION source-set'и воркспейсу з порожнім або відсутнім деревом на диску.
+    .DESCRIPTION
+        Єдине місце логіки «порожнє»: Test-KitConfigurationOwnerPresent — це «таких немає», а
+        Invoke-KitProvision дивиться на самі джерела, щоб відрізнити законний старт рецепта (i)
+        (усі порожні під truth: storage, спека 2026-09-30 §5.3) від зупинки.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Workspace)
+
+    foreach ($src in @($Workspace.Sources | Where-Object Type -eq 'CONFIGURATION')) {
+        if (@(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File -ErrorAction SilentlyContinue).Count -eq 0) { $src }
     }
-    $true
 }
 
 function Get-KitAdoptedObjectCount {
@@ -179,7 +191,22 @@ function Invoke-KitProvision {
         # CONFIGURATION source-set порожній. Шаблон (.dt) чи серверна база несуть власника
         # інакше, тож перевірка їх не стосується.
         if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
-            throw (New-KitOwnerMissingMessage -Workspace $ws)
+            $missing = @(Get-KitMissingOwnerSources -Workspace $ws)
+            # Спека 2026-09-30 §5.3: основна конфігурація під сховищем без дерева — законний
+            # старт нового репозиторію (рецепт (i)). Порожню базу наповнить sync (UpdateCfg на
+            # порожній ІБ працює — спайк B2, спека 2026-09-03 §14), дерево — canon з неї. Це
+            # закриває коло «provision радить sync, sync вимагає базу».
+            if (@($missing | Where-Object Truth -ne 'storage').Count -gt 0) { throw (New-KitOwnerMissingMessage -Workspace $ws) }
+            foreach ($m in $missing) {
+                Write-Host ("  Основна конфігурація '{0}' (truth: storage) ще без дерева — порожня база законна (рецепт (i)). " +
+                    'Після створення бази: kit sync -Source {0} -FromLatest -Apply (або -FromVersion N) → kit canon -Source {0} -Apply → operation=build Уніки.' -f $m.Key) -ForegroundColor Cyan
+            }
+        }
+        foreach ($cfgSrc in @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })) {
+            $state = Get-KitSupplyState -TreeRoot $cfgSrc.FullPath
+            if ($state -in 'missing', 'stale') {
+                Write-Host ('  УВАГА: ' + (Get-KitSupplyRecipe -SourceKey $cfgSrc.Key -MainBranch $Context.MainBranch -State $state)) -ForegroundColor Yellow
+            }
         }
 
         # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу
