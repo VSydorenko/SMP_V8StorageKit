@@ -264,7 +264,7 @@ function Invoke-KitCheck {
                     & $add error gitignore "$tag`: git ls-files завершився з кодом $LASTEXITCODE."
                 } elseif ($trackedSupply.Count -gt 0) {
                     & $add error gitignore ("$tag`: поставка вендора відстежується git ($($trackedSupply.Count) файл(ів) у '$supplyRel') — " +
-                        "приберіть з індексу: git rm -r --cached -- '$supplyRel'.")
+                        "приберіть з індексу й закомітьте окремим комітом (файли на диску лишаться): git rm -r --cached -- '$supplyRel', потім git commit.")
                 }
                 if ($src.Truth -eq 'storage') {
                     $state = Get-KitSupplyState -TreeRoot $src.FullPath
