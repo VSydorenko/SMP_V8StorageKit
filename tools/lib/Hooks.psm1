@@ -121,6 +121,18 @@ function Test-KitGitHooks {
                     "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
                     "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
             }
+            # #16: git commit --only <шляхи> НЕ бере індекс — перечитує файл із диска, і на Windows
+            # (core.filemode=false) пише 100644, хоч в індексі лишається 100755. Індекс тоді бреше
+            # про те, що отримає клон, — питаємо сам коміт.
+            if ($Matches.mode -eq '100755') {
+                $head = git -c core.quotepath=false -C $RepoRoot ls-tree HEAD -- "$script:HooksDirName/$name" 2>$null
+                if ($LASTEXITCODE -eq 0 -and "$head" -match '^100644\s') {
+                    $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
+                        "Хук $script:HooksDirName/$name у коміті HEAD без біта виконання (100644), хоч в індексі 100755 — так буває після " +
+                        'git commit --only (перечитує файл з диска). Клон на Linux/macOS тихо проігнорує хук. Полагодити: закомітьте індекс ' +
+                        'командою git commit без --only і без шляхів (індекс уже правильний).')))
+                }
+            }
         } else {
             # S2 (живий прогін задачі 11) — порожній вивід git ls-files -s означає, що файл
             # не бачить ні ІНДЕКС, ні дерево: хук скопійовано на диск (Install-KitGitHooks

@@ -185,7 +185,8 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .
 `install-hooks` кладе `.githooks/` + `core.hooksPath`, шим `hooks/session-start.ps1` → `.claude/hooks/session-start.ps1` і `.claude/settings.json` (якщо ще немає), і **стейджить хуки з режимом 100755** — інакше клон на
 Linux/macOS дістав би їх без біта виконання, і git мовчки їх ігнорував би. `check` має завершитись
 без `[-]`; `[!]` про недоступне сховище чи відсутню накладку — прийнятно, але назвати людині.
-Приймальна перевірка: `git ls-files -s .githooks/` → `100755` для обох файлів.
+Приймальна перевірка стейджу: `git ls-files -s .githooks/` → `100755` для обох файлів. Це лише індекс
+до коміту — остаточне приймання з **коміту** (`git ls-tree HEAD`) у §3.6.
 
 ### 3.6 Перший коміт — окремо, до будь-якого `-Apply`
 
@@ -210,13 +211,19 @@ git add v8storagekit.yaml <ws>/v8project.yaml .gitattributes .gitignore .claude/
 git add <ws>/cf/README.md
 git commit -m "onboarding: <ws> — маніфест, воркспейс Уніки, політики git, хуки"
 # .githooks уже застейджено install-hooks з режимом 100755 — не перестейджувати через `git add -A` без потреби:
-# сам `git add` режим не змінює, але `git ls-files -s .githooks/` після коміту має показати 100755.
+# сам `git add` режим не змінює, але `git ls-tree HEAD .githooks/` після коміту має показати 100755
+# (`ls-files -s` дивиться в індекс, а той може брехати про коміт — див. заборону нижче).
 ```
+
+**Хуки не комітити через `git commit --only <шляхи>`.** На Windows (`core.filemode=false`) вона
+перечитує файл із диска й скидає режим на `100644`, хоч в індексі лишається `100755` (#16) —
+клон на Linux/macOS тоді тихо проігнорує хук. Комітьте їх окремою командою `git commit` без
+шляхів одразу після `install-hooks -Apply`.
 
 Накладку `v8storagekit.local.yaml` не комітити — вона гітігнорована навмисно.
 
 Приймальна перевірка одразу після коміту (вікно «хуки є на диску, але не в git» має закритись тут, і саме тому
-коміт іде **до** будь-якого `-Apply`): `git ls-files -s .githooks/` → два рядки `100755`;
+коміт іде **до** будь-якого `-Apply`): `git ls-tree HEAD .githooks/` → два рядки `100755` (з **коміту**, не з індексу);
 `kit check` — без `[-]` і без `[!]` про хуки.
 
 ## 4. Далі
