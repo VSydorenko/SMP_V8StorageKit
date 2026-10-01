@@ -42,9 +42,10 @@ function Get-V8Path {
     if ($PSBoundParameters.ContainsKey('Version')) {
         # Явна версія (спека 1.3.1 §6.1.6) — точний збіг у будь-якому корені, x64 першим. Типовий
         # пошук нижче (без -Version) лишається як був: лише x64, гілка 8.3.27.
-        $exact = @(Get-KitInstalledPlatforms -Roots $Roots | Where-Object Version -eq $Version) | Select-Object -First 1
+        $installed = @(Get-KitInstalledPlatforms -Roots $Roots)
+        $exact = @($installed | Where-Object Version -eq $Version) | Select-Object -First 1
         if ($exact) { return $exact.Path }
-        $have = @(Get-KitInstalledPlatforms -Roots $Roots | ForEach-Object { "$($_.Version) ($($_.Arch))" })
+        $have = @($installed | ForEach-Object { "$($_.Version) ($($_.Arch))" })
         throw "Платформи $Version в оточенні немає. Встановлено: $(if ($have) { $have -join ', ' } else { 'жодної' })."
     }
 

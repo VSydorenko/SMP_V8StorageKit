@@ -260,20 +260,25 @@ Describe 'Get-KitInstalledPlatforms — платформи оточення (с�
         New-FakePlatform -Root $script:X86 -Version '8.3.25.1445'
         New-FakePlatform -Root $script:X86 -Version '8.3.24.1000'
         New-FakePlatform -Root $script:X64 -Version '8.3.23.9999' -NoExe          # тека без 1cv8.exe — не платформа
-        New-Item -ItemType Directory -Path (Join-Path $script:X64 'common') -Force | Out-Null   # не версія
-        $script:Roots = [ordered]@{ x64 = $script:X64; x86 = $script:X86 }
+        # не версія за іменем, хоча exe є: відсікається саме фільтром імені, не перевіркою exe
+        New-FakePlatform -Root $script:X64 -Version 'common'
+        # [version] ≠ рядковий порядок: 8.3.10.1 новіша за 8.3.9.1
+        New-FakePlatform -Root $script:X64 -Version '8.3.9.1'
+        New-FakePlatform -Root $script:X64 -Version '8.3.10.1'
+        # x86 першим ключем: вторинний ключ «x64 перед x86» не може випливти з порядку обходу
+        $script:Roots = [ordered]@{ x86 = $script:X86; x64 = $script:X64 }
     }
 
-    It 'лише теки-версії з фактичним bin\1cv8.exe; обидві розрядності; за спаданням версії, x64 першим' {
+    It 'лише теки-версії з фактичним bin\1cv8.exe; обидві розрядності; за спаданням версії як [version], x64 першим' {
         $p = @(Get-KitInstalledPlatforms -Roots $script:Roots)
-        @($p | ForEach-Object { "$($_.Version)/$($_.Arch)" }) | Should -Be @('8.3.27.1644/x64', '8.3.25.1445/x64', '8.3.25.1445/x86', '8.3.24.1000/x86')
+        @($p | ForEach-Object { "$($_.Version)/$($_.Arch)" }) | Should -Be @('8.3.27.1644/x64', '8.3.25.1445/x64', '8.3.25.1445/x86', '8.3.24.1000/x86', '8.3.10.1/x64', '8.3.9.1/x64')
         $p[0].Path | Should -Be (Join-Path $script:X64 '8.3.27.1644\bin\1cv8.exe')
     }
 
-    It 'коренів немає — порожній масив, не $null і не виняток' {
-        $p = @(Get-KitInstalledPlatforms -Roots ([ordered]@{ x64 = (Join-Path $TestDrive 'none'); x86 = (Join-Path $TestDrive 'none86') }))
-        , $p | Should -BeOfType [object[]]
-        $p.Count | Should -Be 0
+    It 'коренів немає — нічого не повертає й не кидає' {
+        $none = [ordered]@{ x64 = (Join-Path $TestDrive 'none'); x86 = (Join-Path $TestDrive 'none86') }
+        { Get-KitInstalledPlatforms -Roots $none } | Should -Not -Throw
+        @(Get-KitInstalledPlatforms -Roots $none).Count | Should -Be 0
     }
 
     It 'Get-V8Path з явною версією знаходить її в x86, коли в x64 її немає' {
