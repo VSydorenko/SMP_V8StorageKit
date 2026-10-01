@@ -244,3 +244,47 @@ Describe 'V8.psm1 — розпізнавання «база зайнята» (с
         { Assert-V8InfobaseNotBusy -Output 'усе гаразд' -Infobase 'devUNF' } | Should -Not -Throw
     }
 }
+
+Describe 'Get-KitInstalledPlatforms — платформи оточення (спека 1.3.1 §4.2)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        function script:New-FakePlatform {
+            param([string]$Root, [string]$Version, [switch]$NoExe)
+            $bin = Join-Path $Root "$Version\bin"
+            New-Item -ItemType Directory -Path $bin -Force | Out-Null
+            if (-not $NoExe) { Set-Content -LiteralPath (Join-Path $bin '1cv8.exe') -Value 'stub' -Encoding ascii }
+        }
+        $script:X64 = Join-Path $TestDrive 'pf'; $script:X86 = Join-Path $TestDrive 'pf86'
+        New-FakePlatform -Root $script:X64 -Version '8.3.27.1644'
+        New-FakePlatform -Root $script:X64 -Version '8.3.25.1445'
+        New-FakePlatform -Root $script:X86 -Version '8.3.25.1445'
+        New-FakePlatform -Root $script:X86 -Version '8.3.24.1000'
+        New-FakePlatform -Root $script:X64 -Version '8.3.23.9999' -NoExe          # тека без 1cv8.exe — не платформа
+        New-Item -ItemType Directory -Path (Join-Path $script:X64 'common') -Force | Out-Null   # не версія
+        $script:Roots = [ordered]@{ x64 = $script:X64; x86 = $script:X86 }
+    }
+
+    It 'лише теки-версії з фактичним bin\1cv8.exe; обидві розрядності; за спаданням версії, x64 першим' {
+        $p = @(Get-KitInstalledPlatforms -Roots $script:Roots)
+        @($p | ForEach-Object { "$($_.Version)/$($_.Arch)" }) | Should -Be @('8.3.27.1644/x64', '8.3.25.1445/x64', '8.3.25.1445/x86', '8.3.24.1000/x86')
+        $p[0].Path | Should -Be (Join-Path $script:X64 '8.3.27.1644\bin\1cv8.exe')
+    }
+
+    It 'коренів немає — порожній масив, не $null і не виняток' {
+        $p = @(Get-KitInstalledPlatforms -Roots ([ordered]@{ x64 = (Join-Path $TestDrive 'none'); x86 = (Join-Path $TestDrive 'none86') }))
+        , $p | Should -BeOfType [object[]]
+        $p.Count | Should -Be 0
+    }
+
+    It 'Get-V8Path з явною версією знаходить її в x86, коли в x64 її немає' {
+        Get-V8Path -Version '8.3.24.1000' -Roots $script:Roots | Should -Be (Join-Path $script:X86 '8.3.24.1000\bin\1cv8.exe')
+    }
+
+    It 'Get-V8Path з явною версією, яка є в обох — x64' {
+        Get-V8Path -Version '8.3.25.1445' -Roots $script:Roots | Should -Be (Join-Path $script:X64 '8.3.25.1445\bin\1cv8.exe')
+    }
+
+    It 'Get-V8Path з явною відсутньою версією — зупинка з переліком наявних' {
+        { Get-V8Path -Version '8.3.22.1' -Roots $script:Roots } | Should -Throw '*8.3.25.1445*'
+    }
+}
