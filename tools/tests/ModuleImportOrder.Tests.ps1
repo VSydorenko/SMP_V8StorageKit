@@ -24,7 +24,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitOriginGap', 'Get-KitPluginVersion',
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
-            'Get-KitInstalledPlatforms'
+            'Get-KitInstalledPlatforms', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
