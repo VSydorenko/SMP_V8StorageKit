@@ -392,6 +392,25 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
             $m = New-KitStorageCommitMessage -Version (New-Version -Version 9 -Comment "`nТема`nДругий рядок`n  третій  ") -SourceKey 'SMP_X' -SourceType EXTENSION
             $m | Should -BeLike "Тема`n`nДругий рядок`n  третій`n`nStorage-Source: SMP_X*"
         }
+        It '-DumpPlatform: рядок пояснення й трейлер Storage-Dump-Platform; git читає його як трейлер' {
+            $v = [pscustomobject]@{ Version = 34; User = 'u'; Comment = 'Додата форма'; ConfigVersion = '' }
+            $m = New-KitStorageCommitMessage -Version $v -SourceKey 'base' -SourceType 'CONFIGURATION' -DumpPlatform '8.3.25.1445' -MainPlatform '8.3.27.1644'
+            $m | Should -BeLike '*вивантажено платформою 8.3.25.1445: основна платформа 8.3.27.1644 цю версію не вивантажує*'
+            ($m | git interpret-trailers --parse) | Should -Contain 'Storage-Dump-Platform: 8.3.25.1445'
+            ($m | git interpret-trailers --parse) | Should -Contain 'Storage-Version: 34'
+        }
+        It '-SkippedVersion: рядок пояснення й трейлер Storage-Skipped' {
+            $v = [pscustomobject]@{ Version = 35; User = 'u'; Comment = 'Відновив стандартну форму'; ConfigVersion = '' }
+            $m = New-KitStorageCommitMessage -Version $v -SourceKey 'base' -SourceType 'CONFIGURATION' -SkippedVersion 34
+            $m | Should -BeLike '*версію 34 пропущено: жодна платформа не вивантажує*'
+            ($m | git interpret-trailers --parse) | Should -Contain 'Storage-Skipped: 34'
+        }
+        It 'без нових параметрів — без нових рядків (поведінка не змінилась)' {
+            $v = [pscustomobject]@{ Version = 7; User = 'u'; Comment = 'x'; ConfigVersion = '' }
+            $m = New-KitStorageCommitMessage -Version $v -SourceKey 'base' -SourceType 'CONFIGURATION'
+            $m | Should -Not -BeLike '*Storage-Dump-Platform*'
+            $m | Should -Not -BeLike '*Storage-Skipped*'
+        }
     }
 }
 

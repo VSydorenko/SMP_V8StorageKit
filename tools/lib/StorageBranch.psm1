@@ -357,7 +357,10 @@ function New-KitStorageCommitMessage {
     param(
         [Parameter(Mandatory)]$Version,
         [Parameter(Mandatory)][string]$SourceKey,
-        [Parameter(Mandatory)][ValidateSet('CONFIGURATION', 'EXTENSION')][string]$SourceType
+        [Parameter(Mandatory)][ValidateSet('CONFIGURATION', 'EXTENSION')][string]$SourceType,
+        [string]$DumpPlatform,
+        [string]$MainPlatform,
+        [int[]]$SkippedVersion = @()
     )
 
     $lines   = @(([string]$Version.Comment) -split "`r?`n" | ForEach-Object { $_.TrimEnd() })
@@ -371,6 +374,13 @@ function New-KitStorageCommitMessage {
         $out.Add('')
         foreach ($b in $body) { $out.Add($b) }
     }
+    if ($DumpPlatform -or $SkippedVersion.Count -gt 0) {
+        $out.Add('')
+        if ($DumpPlatform) {
+            $out.Add("вивантажено платформою ${DumpPlatform}: основна платформа $MainPlatform цю версію не вивантажує")
+        }
+        foreach ($n in $SkippedVersion) { $out.Add("версію $n пропущено: жодна платформа не вивантажує") }
+    }
     $out.Add('')
     $out.Add("Storage-Source: $SourceKey")
     $out.Add("Storage-Version: $($Version.Version)")
@@ -379,6 +389,8 @@ function New-KitStorageCommitMessage {
         $out.Add("${key}: $($Version.ConfigVersion)")
     }
     $out.Add("Storage-User: $($Version.User)")
+    if ($DumpPlatform) { $out.Add("Storage-Dump-Platform: $DumpPlatform") }
+    foreach ($n in $SkippedVersion) { $out.Add("Storage-Skipped: $n") }
     $out -join "`n"
 }
 
