@@ -273,6 +273,9 @@ function Invoke-KitStorageCheckoutViaPlatform {
         Assert-V8InfobaseNotBusy -Output $dumpCf.Output -Infobase 'агента'
         throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не вдався: $($dumpCf.Output)"
     }
+    if (-not (Test-Path -LiteralPath $cf -PathType Leaf)) {
+        throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не створив файл $cf, хоча повернув код 0: $($dumpCf.Output)"
+    }
 
     # Крок 3: обрана платформа створює тимчасову ІБ.
     $altIbPath = Join-Path $WorkDir 'alt-ib'
