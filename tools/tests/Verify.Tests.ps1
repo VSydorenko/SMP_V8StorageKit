@@ -147,6 +147,38 @@ Describe 'kit verify — мок платформного шару: щаслив�
         Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
     }
 
+    It 'основна платформа не вивантажує версію (розпізнаваний виняток) — власний текст verify, без порад sync' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-dumpfail') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        $storageDir = Join-Path $TestDrive 'mock-dumpfail-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            $ex = [System.InvalidOperationException]::new('Вивантаження версії 1 не вдалося: ПЛАТФОРМА-ВІДПОВІДЬ')
+            $ex.Data['KitDumpFailure'] = $true
+            $ex.Data['Version'] = 1
+            $ex.Data['PlatformPath'] = 'C:\Program Files\1cv8\8.3.27.1644\bin\1cv8.exe'
+            $ex.Data['Output'] = 'ПЛАТФОРМА-ВІДПОВІДЬ'
+            throw $ex
+        }
+
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $script:VerifyError = $null
+        try { $null = Invoke-KitVerify -Context $ctx -Ref 'storage/Alpha_SMB' 6>$null } catch { $script:VerifyError = $_.Exception.Message }
+        $script:VerifyError | Should -BeLike '*Версію 1 основна платформа 8.3.27.1644 не вивантажує*'
+        $script:VerifyError | Should -BeLike '*verify на ній неможливий*'
+        $script:VerifyError | Should -BeLike '*ПЛАТФОРМА-ВІДПОВІДЬ*'
+        # Поради sync (§6.1.1) у verify недоречні: він нічого не переносить.
+        $script:VerifyError | Should -Not -BeLike '*-DumpPlatform*'
+        $script:VerifyError | Should -Not -BeLike '*-SkipVersion*'
+        Should -Invoke -ModuleName verify Exit-KitStorageBind -Times 1 -Exactly
+    }
+
     It 'клієнтська основна конфігурація: .cf у дампі не дає OnlyInDump — equal' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'verify-supply') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
         $script:Bin = 'bin-of-release-1-bytes-over-sixteen'

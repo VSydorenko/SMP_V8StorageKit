@@ -84,6 +84,18 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r.Output | Should -Not -BeLike '*PROBE*'
     }
 
+    It 'sync -ForVersion без значення — зупинка «потребує значення» (Nullable[int] не [switch]), без запуску команди' {
+        $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-ForVersion')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-ForVersion потребує значення*'
+    }
+
+    It 'sync -SkipVersion abc — зупинка на прив''язці, не тиха конверсія в число' {
+        $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-SkipVersion', 'abc')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*SkipVersion*'
+    }
+
     It 'команда кидає виняток усередині — код 1, повідомлення показано, не сирий стек' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Throw')
         $r.ExitCode | Should -Be 1
