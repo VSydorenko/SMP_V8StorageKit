@@ -111,6 +111,18 @@ function Invoke-KitVerify {
         try {
             $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
             $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -User $agent.User
+        } catch {
+            # Спека 1.3.1 §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
+            # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,
+            # а звірка на версії, яку основна платформа не вивантажує, неможлива.
+            if (Test-KitDumpFailure -ErrorRecord $_) {
+                $d = $_.Exception.Data
+                $pv = Get-KitPlatformVersionFromPath -Path ([string]$d['PlatformPath'])
+                throw ("Версію $ver основна платформа $pv не вивантажує — verify на ній неможливий. " +
+                       'Звірте наступну версію (-Version) або вершину, вивантажену основною платформою. ' +
+                       "Платформа відповіла: $($d['Output'])")
+            }
+            throw
         } finally {
             Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
         }

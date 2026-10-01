@@ -6,9 +6,58 @@ Set-StrictMode -Version Latest
 # PathSafety і не ховати його експорти від глобальної області.
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 
+$script:DefaultPlatformRoots = [ordered]@{ x64 = 'C:\Program Files\1cv8'; x86 = 'C:\Program Files (x86)\1cv8' }
+
+function Get-KitInstalledPlatforms {
+    <#
+    .SYNOPSIS
+        Платформи 1С, фактично встановлені в оточенні (спека 1.3.1 §4.2): теки-версії під x64- і
+        x86-коренем, у яких існує bin\1cv8.exe. Тека без exe — залишок деінсталяції, не платформа.
+    #>
+    [CmdletBinding()]
+    param([System.Collections.IDictionary]$Roots = $script:DefaultPlatformRoots)
+    $found = [System.Collections.Generic.List[object]]::new()
+    foreach ($arch in @($Roots.Keys)) {
+        $root = $Roots[$arch]
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+            if ($d.Name -notmatch '^\d+\.\d+\.\d+\.\d+$') { continue }
+            $exe = Join-Path $d.FullName 'bin\1cv8.exe'
+            if (Test-Path -LiteralPath $exe -PathType Leaf) {
+                $found.Add([pscustomobject]@{ Version = $d.Name; Arch = $arch; Path = $exe })
+            }
+        }
+    }
+    $archRank = @{ x64 = 0; x86 = 1 }
+    @($found | Sort-Object @{ Expression = { [version]$_.Version }; Descending = $true }, @{ Expression = { $archRank[$_.Arch] } })
+}
+
+function Get-KitPlatformVersionFromPath {
+    <#
+    .SYNOPSIS
+        <корінь>\<версія>\bin\1cv8.exe → <версія>. Єдине місце цієї формули (sync і verify).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $Path))
+}
+
 function Get-V8Path {
     [CmdletBinding()]
-    param([string]$Version = '8.3.27.1644')
+    param(
+        [string]$Version = '8.3.27.1644',
+        [System.Collections.IDictionary]$Roots = $script:DefaultPlatformRoots
+    )
+
+    if ($PSBoundParameters.ContainsKey('Version')) {
+        # Явна версія (спека 1.3.1 §6.1.6) — точний збіг у будь-якому корені, x64 першим. Типовий
+        # пошук нижче (без -Version) лишається як був: лише x64, гілка 8.3.27.
+        $installed = @(Get-KitInstalledPlatforms -Roots $Roots)
+        $exact = @($installed | Where-Object Version -eq $Version) | Select-Object -First 1
+        if ($exact) { return $exact.Path }
+        $have = @($installed | ForEach-Object { "$($_.Version) ($($_.Arch))" })
+        throw "Платформи $Version в оточенні немає. Встановлено: $(if ($have) { $have -join ', ' } else { 'жодної' })."
+    }
 
     $candidate = "C:\Program Files\1cv8\$Version\bin\1cv8.exe"
     if (Test-Path -LiteralPath $candidate) { return $candidate }
@@ -309,4 +358,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
+Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
