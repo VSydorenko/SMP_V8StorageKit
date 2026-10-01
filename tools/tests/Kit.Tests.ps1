@@ -84,6 +84,28 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r.Output | Should -Not -BeLike '*PROBE*'
     }
 
+    It 'sync: -ForVersion і -SkipVersion оголошені як [Nullable[int]], а не [switch] — тому диспетчер вимагає в них значення' {
+        # Текст «потребує значення» диспетчер видає й для НЕвідомого параметра, тож сам він
+        # нічого не доводить — доводить оголошений тип у справжній команді.
+        $kitDir = Split-Path $script:Kit -Parent
+        $out = & pwsh -NoProfile -Command ('Import-Module "{0}" -Force; $p = (Get-Command Invoke-KitSync).Parameters; "ForVersion=$($p[''ForVersion''].ParameterType.FullName)"; "SkipVersion=$($p[''SkipVersion''].ParameterType.FullName)"' -f (Join-Path $kitDir 'commands/sync.psm1')) 2>&1 | Out-String
+        $out | Should -Match 'ForVersion=System\.Nullable`1\[\[System\.Int32'
+        $out | Should -Match 'SkipVersion=System\.Nullable`1\[\[System\.Int32'
+        $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-ForVersion')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-ForVersion потребує значення*'
+    }
+
+    It 'sync -SkipVersion abc — помилка конверсії саме в Int32 (параметр існує), не тиха конверсія' {
+        $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-SkipVersion', 'abc')
+        $r.ExitCode | Should -Be 1
+        # Без англійського речення (локаль PowerShell): ім'я параметра й назва типу Int32 є в
+        # будь-якій локалізації, а для невідомого параметра назви типу в тексті немає.
+        $r.Output | Should -BeLike '*SkipVersion*'
+        $r.Output | Should -BeLike '*System.Int32*'
+    }
+
+
     It 'команда кидає виняток усередині — код 1, повідомлення показано, не сирий стек' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Throw')
         $r.ExitCode | Should -Be 1

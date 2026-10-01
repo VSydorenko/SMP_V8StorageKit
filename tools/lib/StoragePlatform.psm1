@@ -131,6 +131,47 @@ function Exit-KitStorageBind {
     if ($r.ExitCode -ne 0) { Write-Host "УВАГА: не вдалося зняти прив'язку тимчасової ІБ до сховища ($($Source.StoragePath)): $($r.Output)" -ForegroundColor Red }
 }
 
+function Invoke-KitStorageUpdate {
+    <#
+    .SYNOPSIS
+        ConfigurationRepositoryUpdateCfg -v N [-Extension] в базі агента — спільний крок
+        Invoke-KitStorageCheckout і Invoke-KitStorageCheckoutViaPlatform (одна копія, не дві).
+        Приватна: не експортується.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$IbSwitch,
+        [Parameter(Mandatory)]$Source,
+        [Parameter(Mandatory)][int]$Version,
+        [string]$User = ''
+    )
+    $ext = Get-KitExtensionArgument -Source $Source
+    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+        @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
+    if ($upd.ExitCode -ne 0) {
+        Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
+        # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
+        # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
+        # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
+        if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
+            throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
+                   "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
+        }
+        throw "Оновлення до версії $Version не вдалося: $($upd.Output)"
+    }
+}
+
+function Test-KitDumpFailure {
+    <#
+    .SYNOPSIS
+        Чи це розпізнаваний виняток збою вивантаження з Invoke-KitStorageCheckout (UpdateCfg
+        пройшов, /DumpConfigToFiles — ні). ЄДИНЕ місце розпізнавання для sync і verify.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()][System.Management.Automation.ErrorRecord]$ErrorRecord)
+    $null -ne $ErrorRecord -and $ErrorRecord.Exception.Data.Contains('KitDumpFailure') -and [bool]$ErrorRecord.Exception.Data['KitDumpFailure']
+}
+
 function Invoke-KitStorageCheckout {
     <#
     .SYNOPSIS
@@ -152,19 +193,7 @@ function Invoke-KitStorageCheckout {
         [string]$User = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
-        @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
-    if ($upd.ExitCode -ne 0) {
-        Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
-        # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
-        # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
-        # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
-        if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
-            throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
-                   "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
-        }
-        throw "Оновлення до версії $Version не вдалося: $($upd.Output)"
-    }
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
@@ -172,7 +201,18 @@ function Invoke-KitStorageCheckout {
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
     $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
-    if ($dump.ExitCode -ne 0) { throw "Вивантаження версії $Version не вдалося: $($dump.Output)" }
+    if ($dump.ExitCode -ne 0) {
+        Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
+        # Спека 1.3.1 §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний
+        # виняток; текст для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion,
+        # verify — без них). Повідомлення лишається тим самим, що й до 1.3.1.
+        $ex = [System.InvalidOperationException]::new("Вивантаження версії $Version не вдалося: $($dump.Output)")
+        $ex.Data['KitDumpFailure'] = $true
+        $ex.Data['Version'] = $Version
+        $ex.Data['PlatformPath'] = (Get-V8Path)
+        $ex.Data['Output'] = $dump.Output
+        throw $ex
+    }
 
     foreach ($junk in $script:PlatformJunk) {
         $j = Join-Path $Target $junk
@@ -188,4 +228,82 @@ function Invoke-KitStorageCheckout {
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
-Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, Test-KitExtensionNotFound, New-KitStorageInfobase, Get-KitSourceInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout
+function Invoke-KitStorageCheckoutViaPlatform {
+    <#
+    .SYNOPSIS
+        Версія сховища → порожня тека іншою (обраною) платформою: основна платформа робить
+        UpdateCfg і /DumpCfg у базі агента, обрана — /LoadCfg того .cf у тимчасову файлову ІБ і
+        /DumpConfigToFiles. Повертає кількість файлів у дампі (як Invoke-KitStorageCheckout).
+    .DESCRIPTION
+        Чому .cf, а не сховище обраною платформою: клієнт іншої версії не підключиться до
+        кластера основної, а сховище читає лише основна платформа. Тому обрана платформа
+        отримує лише готовий .cf і власну тимчасову ІБ (<WorkDir>\alt-ib) — ніколи ні базу
+        агента (IbSwitch), ні аргументи сховища, ні користувача.
+
+        Службові файли платформи (PlatformJunk) прибираються тут; поставку прибирає далі
+        Write-KitStorageVersion — тут це не дублюється. Лише CONFIGURATION: для розширення
+        кидає виняток (спека 1.3.1 §4.3; захист другого рівня, перший — у sync).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$IbSwitch,
+        [Parameter(Mandatory)]$Source,
+        [Parameter(Mandatory)][int]$Version,
+        [Parameter(Mandatory)][string]$Target,
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [Parameter(Mandatory)][string]$WorkDir,
+        [Parameter(Mandatory)][string]$AltV8Path,
+        [string]$User = ''
+    )
+    if ($Source.Type -eq 'EXTENSION') {
+        throw "Вивантаження іншою платформою для EXTENSION не підтримується в 1.3.1 (джерело '$($Source.Key)')."
+    }
+
+    # Крок 1: основна платформа, той самий UpdateCfg.
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
+
+    # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
+    $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
+    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -Description "файл .cf версії $Version"
+    New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
+    if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
+    $mainPath = Get-V8Path
+    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpCfg "{0}"' -f $cf))
+    if ($dumpCf.ExitCode -ne 0) {
+        Assert-V8InfobaseNotBusy -Output $dumpCf.Output -Infobase 'агента'
+        throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не вдався: $($dumpCf.Output)"
+    }
+    if (-not (Test-Path -LiteralPath $cf -PathType Leaf)) {
+        throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не створив файл $cf, хоча повернув код 0: $($dumpCf.Output)"
+    }
+
+    # Крок 3: обрана платформа створює тимчасову ІБ.
+    $altIbPath = Join-Path $WorkDir 'alt-ib'
+    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -Description 'тимчасова ІБ обраної платформи'
+    $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -V8Path $AltV8Path
+    $altSwitch = '/F "{0}"' -f $altIbPath
+
+    # Крок 4: обрана платформа, без користувача: LoadCfg, потім DumpConfigToFiles у спорожнену теку.
+    $load = Invoke-V8Designer -IbSwitch $altSwitch -Arguments @(('/LoadCfg "{0}"' -f $cf)) -V8Path $AltV8Path
+    if ($load.ExitCode -ne 0) {
+        throw "Крок LoadCfg платформи $AltV8Path для версії $Version не вдався: $($load.Output)"
+    }
+
+    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
+    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+    New-Item -ItemType Directory -Path $Target -Force | Out-Null
+
+    $dump = Invoke-V8Designer -IbSwitch $altSwitch -Arguments @(('/DumpConfigToFiles "{0}"' -f $Target)) -V8Path $AltV8Path
+    if ($dump.ExitCode -ne 0) {
+        throw "Крок DumpConfigToFiles платформи $AltV8Path для версії $Version не вдався: $($dump.Output)"
+    }
+
+    # Крок 5: службові файли платформи.
+    foreach ($junk in $script:PlatformJunk) {
+        $j = Join-Path $Target $junk
+        if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
+    }
+    @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
+}
+
+Export-ModuleMember -Function Get-KitRepositoryArguments, Get-KitExtensionArgument, Test-KitExtensionNotFound, New-KitStorageInfobase, Get-KitSourceInfobase, Enter-KitStorageBind, Exit-KitStorageBind, Invoke-KitStorageCheckout, Test-KitDumpFailure, Invoke-KitStorageCheckoutViaPlatform

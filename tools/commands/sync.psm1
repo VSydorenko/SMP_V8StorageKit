@@ -67,6 +67,73 @@ function Invoke-KitMainMerge {
     }
 }
 
+function Format-KitPlatformList {
+    <#
+    .SYNOPSIS
+        Рядки «  x64: 8.3.27.1644 (основна), 8.3.25.1445» — по рядку на розрядність. «Основна» —
+        за збігом шляху з MainPath (не за версією: x86 тієї самої версії основною не є).
+    #>
+    param([AllowEmptyCollection()][object[]]$Platforms = @(), [string]$MainPath)
+    if ($Platforms.Count -eq 0) { return @('  (жодної)') }
+    foreach ($arch in @($Platforms.Arch | Select-Object -Unique | Sort-Object)) {
+        $items = @($Platforms | Where-Object { $_.Arch -eq $arch } | ForEach-Object {
+            if ($MainPath -and $_.Path -ieq $MainPath) { "$($_.Version) (основна)" } else { [string]$_.Version }
+        })
+        "  ${arch}: $($items -join ', ')"
+    }
+}
+
+function New-KitDumpStopMessage {
+    <#
+    .SYNOPSIS
+        Текст зупинки спеки 1.3.1 §4.1: основна платформа не вивантажує версію. Версія платформи —
+        з Data.PlatformPath (та, що справді впала); перелік платформ і команди виходу — з оточення.
+    #>
+    param(
+        [Parameter(Mandatory)]$Source,
+        [Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord,
+        [AllowNull()][Nullable[int]]$LastCommitted,
+        [AllowNull()][Nullable[int]]$PendingSkip = $null
+    )
+    $d = $ErrorRecord.Exception.Data
+    $n = [int]$d['Version']
+    $mainPath = [string]$d['PlatformPath']
+    $mainVer = Get-KitPlatformVersionFromPath -Path $mainPath
+    # Збій переліку платформ не має ховати відповідь платформи: текст §4.1 виходить усе одно.
+    $installed = @()
+    $listError = $null
+    try { $installed = @(Get-KitInstalledPlatforms) } catch { $listError = $_.Exception.Message }
+    $key = $Source.Key
+    $mirror = if ($null -ne $LastCommitted) { "лишається на версії $LastCommitted" } else { 'лишається без версій' }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("Версію $n основної конфігурації '$key' основна платформа $mainVer не вивантажує.")
+    $lines.Add("Дзеркало $($Source.Branch) $mirror; часткового коміту немає.")
+    $lines.Add("Платформа відповіла: $($d['Output'])")
+    if ($null -ne $listError) {
+        $lines.Add("(перелік платформ недоступний: $listError)")
+    } else {
+        $lines.Add('Встановлені платформи:')
+        foreach ($l in (Format-KitPlatformList -Platforms $installed -MainPath $mainPath)) { $lines.Add($l) }
+    }
+    if ($null -ne $PendingSkip) {
+        # Спека 1.3.1 §6.2: пропуск N активний і коміту в цьому прогоні ще не було — стандартні
+        # команди для N+1 відхилила б §6.1.2/§6.1.5, тож їх не радимо; рішення — за людиною.
+        $lines.Add("Пропуск версії $PendingSkip активний, але версія $n у цьому ж прогоні теж не вивантажується: поєднання пропуску $PendingSkip з вивантаженням іншою платформою чи з пропуском $n у 1.3.1 не підтримується.")
+        $lines.Add("Пропуск версії $PendingSkip не відбувся (коміту з Storage-Skipped немає); дзеркало лишилось на версії $LastCommitted. Рішення — за людиною.")
+        return ($lines -join "`n")
+    }
+    $others = @($installed | Where-Object { $_.Version -ne $mainVer } | ForEach-Object Version | Select-Object -Unique)
+    if ($others.Count -gt 0) {
+        $lines.Add('Вивантажити цю версію іншою платформою (зі згоди людини):')
+        foreach ($o in $others) { $lines.Add("  kit sync -RepoRoot . -Source $key -Apply -DumpPlatform $o -ForVersion $n") }
+    } elseif ($null -eq $listError) {
+        $lines.Add('Інших платформ в оточенні немає — встановіть іншу версію або пропустіть версію.')
+    }
+    $lines.Add('Якщо жодна платформа не вивантажує — пропустити версію явно:')
+    $lines.Add("  kit sync -RepoRoot . -Source $key -Apply -SkipVersion $n")
+    $lines -join "`n"
+}
+
 function Invoke-KitSync {
     <#
     .SYNOPSIS
@@ -101,6 +168,13 @@ function Invoke-KitSync {
         -MergeInto <гілка> — куди робити перше злиття й злиття -MergeMain (типово головна гілка
         маніфесту). Запобіжник (#15): якщо дзеркало ще не злите в цільову гілку, а в ній немає
         v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 2).
+
+        -DumpPlatform <версія> -ForVersion N (спека 1.3.1 §4.3) — версію N основної конфігурації
+        вивантажує інша встановлена платформа (через .cf), коміт несе трейлер
+        Storage-Dump-Platform. -SkipVersion N (§4.4) — версію N не переносити зовсім; наступний
+        коміт несе Storage-Skipped. Обидва — лише для першої неперенесеної версії, лише з -Source;
+        -DumpPlatform — лише для CONFIGURATION; -DumpPlatform/-ForVersion і -SkipVersion взаємовиключні. Усі
+        перевірки — до першого UpdateCfg; у прев'ю обрана платформа не викликається.
     #>
     [CmdletBinding()]
     param(
@@ -112,7 +186,10 @@ function Invoke-KitSync {
         [switch]$MergeMain,
         [Nullable[int]]$FromVersion = $null,
         [switch]$FromLatest,
-        [string]$MergeInto
+        [string]$MergeInto,
+        [string]$DumpPlatform,
+        [Nullable[int]]$ForVersion = $null,
+        [Nullable[int]]$SkipVersion = $null
     )
 
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
@@ -127,6 +204,39 @@ function Invoke-KitSync {
         throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
     }
 
+    # Параметри спеки 1.3.1 (§4.3, §4.4, §6.1) — теж до Select-KitSources; «дешеве першим».
+    $hasDump = -not [string]::IsNullOrWhiteSpace($DumpPlatform)
+    $hasFor  = $null -ne $ForVersion
+    $hasSkip = $null -ne $SkipVersion
+    if ($hasDump -xor $hasFor) {
+        throw 'Параметри -DumpPlatform і -ForVersion вживаються лише разом: платформа і версія, яку вона вивантажує.'
+    }
+    if ($hasFor -and $ForVersion -le 0) {
+        throw "Значення -ForVersion має бути додатним номером версії сховища, отримано: $ForVersion."
+    }
+    if ($hasSkip -and $SkipVersion -le 0) {
+        throw "Значення -SkipVersion має бути додатним номером версії сховища, отримано: $SkipVersion."
+    }
+    if ($hasSkip -and $hasDump) {
+        throw 'Параметри -SkipVersion і -DumpPlatform/-ForVersion взаємовиключні: версію або вивантажує інша платформа, або її пропущено.'
+    }
+    if (($hasDump -or $hasSkip) -and -not $Source) {
+        throw 'Параметри -DumpPlatform/-ForVersion і -SkipVersion діють на одне джерело — вкажіть -Source <ключ>.'
+    }
+    $mainPlatformVersion = $null
+    if ($hasDump) {
+        $installed = @(Get-KitInstalledPlatforms)
+        $mainPath = Get-V8Path
+        if (@($installed | Where-Object { $_.Version -eq $DumpPlatform }).Count -eq 0) {
+            throw ("Платформи $DumpPlatform в оточенні немає.`nВстановлені платформи:`n" +
+                (@(Format-KitPlatformList -Platforms $installed -MainPath $mainPath) -join "`n"))
+        }
+        $mainPlatformVersion = Get-KitPlatformVersionFromPath -Path $mainPath
+        if ($DumpPlatform -eq $mainPlatformVersion) {
+            throw "-DumpPlatform $DumpPlatform — це і є основна платформа: вона цю версію й не вивантажила. Оберіть іншу встановлену платформу."
+        }
+    }
+
     $into    = if ($MergeInto) { $MergeInto } else { $Context.MainBranch }
     $root    = $Context.RepoRoot
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
@@ -139,6 +249,9 @@ function Invoke-KitSync {
     foreach ($src in $sources) {
         if ($src.Type -notin @('CONFIGURATION', 'EXTENSION')) {
             throw "Джерело '$($src.Key)' має тип $($src.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION."
+        }
+        if ($hasDump -and $src.Type -ne 'CONFIGURATION') {
+            throw "-DumpPlatform для розширення '$($src.Key)' не підтримується в 1.3.1: вивантаження іншою платформою — лише для основної конфігурації."
         }
     }
 
@@ -293,9 +406,41 @@ function Invoke-KitSync {
             }
         }
 
-        $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions `
-            -FromVersion $FromVersion -FromLatest:$FromLatest
-        $gap = Get-KitVersionGapNote -Pending $pending -LastVersion $last
+        $skipShow = $null
+        if ($hasFor -or $hasSkip) {
+            # §4.3/§6.1.2: і -ForVersion, і -SkipVersion — лише для ПЕРШОЇ неперенесеної версії, тож
+            # дивимось на перелік без -MaxVersions (він пропущену не рахує, §4.4). Усі зупинки —
+            # до першого UpdateCfg і до перевірки авторів (для пропущеної автор не потрібен).
+            $pendingAll = Get-KitPendingVersions -AllVersions $all -LastVersion $last `
+                -FromVersion $FromVersion -FromLatest:$FromLatest
+            $optName = if ($hasFor) { "-ForVersion $ForVersion" } else { "-SkipVersion $SkipVersion" }
+            $wanted = if ($hasFor) { $ForVersion } else { $SkipVersion }
+            if ($pendingAll.Count -eq 0) {
+                throw "${optName}: неперенесених версій немає — застосувати нічого."
+            }
+            if ($pendingAll[0].Version -ne $wanted) {
+                throw ("${optName}: це не перша неперенесена версія — вона $($pendingAll[0].Version). " +
+                       'Версію можна вивантажити іншою платформою чи пропустити лише тоді, коли вона наступна в черзі дзеркала.')
+            }
+            if ($hasSkip) {
+                if ($pendingAll.Count -lt 2) {
+                    throw "-SkipVersion ${SkipVersion}: пропуск можливий, лише коли у звіті є версія після ${SkipVersion} — дочекайтесь її."
+                }
+                $skipShow = $pendingAll[0]
+                $pending = @($pendingAll | Select-Object -Skip 1)
+                if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+            } else {
+                $pending = $pendingAll
+                if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+            }
+        } else {
+            $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions `
+                -FromVersion $FromVersion -FromLatest:$FromLatest
+        }
+        # Без if-виразу: порожній $pending розгорнувся б у $null (і Pending зв'язався б із null).
+        $gapPending = @($pending)
+        if ($null -ne $skipShow) { $gapPending = @($skipShow) + $gapPending }
+        $gap = Get-KitVersionGapNote -Pending $gapPending -LastVersion $last
         if ($gap) { Write-Host "  $gap" -ForegroundColor DarkGray }
 
         if ($pending.Count -eq 0) {
@@ -313,7 +458,7 @@ function Invoke-KitSync {
 
             $merged = $false
             if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
-            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
+            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $null; Skipped = [int[]]@() })
             continue
         }
 
@@ -351,11 +496,16 @@ function Invoke-KitSync {
 
         Write-Host ''
         Write-Host "До перенесення версій: $($pending.Count)"
-        foreach ($v in $pending) {
-            $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
+        foreach ($v in @(if ($null -ne $skipShow) { $skipShow }) + @($pending)) {
+            $isSkipped = $null -ne $skipShow -and $v.Version -eq $skipShow.Version
+            # Для пропущеної версії автор не потрібен (§4.4) — Resolve-Author на ній міг би зупинити.
+            $authorName = if ($isSkipped) { '—' } else { (Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version).Name }
             $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
             if (-not $first) { $first = "Версія сховища $($v.Version)" }
-            Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}" -f $v.Version, $v.Timestamp, $author.Name, $first)
+            $mark = if ($isSkipped) { '  ← буде пропущено' }
+                    elseif ($hasFor -and $v.Version -eq $ForVersion) { "  ← платформою $DumpPlatform" }
+                    else { '' }
+            Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}{4}" -f $v.Version, $v.Timestamp, $authorName, $first, $mark)
         }
 
         if (-not $Apply) {
@@ -363,6 +513,11 @@ function Invoke-KitSync {
             Write-Host 'Це попередній перегляд. Для виконання додайте -Apply.' -ForegroundColor Cyan
             continue
         }
+
+        # Шлях обраної платформи — до worktree й до першого UpdateCfg: відсутня платформа зупиняє дешево.
+        $altV8Path = if ($hasDump) { Get-V8Path -Version $DumpPlatform } else { $null }
+        $skipNoted = $false
+        $dumpedVia = $null
 
         $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
         $done  = [System.Collections.Generic.List[int]]::new()
@@ -378,11 +533,35 @@ function Invoke-KitSync {
                 $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                 Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
-                $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser
+                # Зупинка спеки 1.3.1 §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
+                # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
+                # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
+                # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
+                $msgArgs = @{}
+                try {
+                    if ($hasFor -and $v.Version -eq $ForVersion) {
+                        # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
+                        $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir `
+                            -AltV8Path $altV8Path -User $ibUser
+                        $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
+                        $dumpedVia = $DumpPlatform
+                    } else {
+                        $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser
+                    }
+                } catch {
+                    if (Test-KitDumpFailure -ErrorRecord $_) {
+                        $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
+                        $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
+                        throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
+                    }
+                    throw
+                }
+                if ($hasSkip -and -not $skipNoted) { $msgArgs.SkippedVersion = @([int]$SkipVersion); $skipNoted = $true }
 
-                $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type
-                $commit  = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
+                $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
+                $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
                     -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp
                 if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
                 $done.Add($v.Version)
@@ -414,7 +593,7 @@ function Invoke-KitSync {
             $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
             if (-not $merged) { $mergeFailed = $true }
         }
-        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback })
+        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }) })
     }
 
     Write-Host ''

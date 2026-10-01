@@ -147,4 +147,123 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $err | Should -Not -BeLike '*operation=build*'
         }
     }
+
+    Context 'збій вивантаження після успішного UpdateCfg — розпізнаваний виняток (спека 1.3.1 §6.1.1)' {
+        It 'UpdateCfg 0, DumpConfigToFiles 1 — виняток із Data: версія, платформа, вивід; Test-KitDumpFailure = $true' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                if (($Arguments -join ' ') -match 'DumpConfigToFiles') { return [pscustomobject]@{ ExitCode = 1; Output = 'Неправильный путь к файлу. Схема не зарегистрирована' } }
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            Mock -ModuleName StoragePlatform Get-V8Path { 'C:\pf\8.3.27.1644\bin\1cv8.exe' }
+            $rec = $null
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34') -MustBeUnder $TestDrive }
+            catch { $rec = $_ }
+            Test-KitDumpFailure -ErrorRecord $rec | Should -BeTrue
+            $rec.Exception.Message | Should -BeLike '*Вивантаження версії 34 не вдалося*Схема не зарегистрирована*'
+            $rec.Exception.Data['Version'] | Should -Be 34
+            $rec.Exception.Data['PlatformPath'] | Should -BeLike '*8.3.27.1644*'
+            $rec.Exception.Data['Output'] | Should -BeLike '*Схема не зарегистрирована*'
+        }
+
+        It 'збій UpdateCfg — НЕ розпізнаваний виняток вивантаження' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 1; Output = 'Внутренняя ошибка' } }
+            $rec = $null
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34u') -MustBeUnder $TestDrive } catch { $rec = $_ }
+            $rec | Should -Not -BeNullOrEmpty
+            Test-KitDumpFailure -ErrorRecord $rec | Should -BeFalse
+        }
+
+        It 'дамп упав, бо база зайнята — зупинка «зайнята», не розпізнаваний виняток' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments)
+                if (($Arguments -join ' ') -match 'DumpConfigToFiles') { return [pscustomobject]@{ ExitCode = 1; Output = 'Ошибка блокировки информационной базы для конфигурирования' } }
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $rec = $null
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34b') -MustBeUnder $TestDrive } catch { $rec = $_ }
+            $rec.Exception.Message | Should -BeLike '*зайнята*'
+            Test-KitDumpFailure -ErrorRecord $rec | Should -BeFalse
+        }
+    }
+
+    Context 'Invoke-KitStorageCheckoutViaPlatform — вивантаження обраною платформою (спека 1.3.1 §4.3)' {
+        It 'послідовність: основна UpdateCfg і DumpCfg у базі агента → обрана CREATEINFOBASE, LoadCfg, DumpConfigToFiles у тимчасовій ІБ' {
+            $script:Calls = [System.Collections.Generic.List[string]]::new()
+            Mock -ModuleName StoragePlatform Get-V8Path { 'MAIN' }
+            Mock -ModuleName StoragePlatform New-V8FileInfobase {
+                param($Path, $MustBeUnder, $TemplatePath, $V8Path)
+                $script:Calls.Add("CREATEINFOBASE|$V8Path|$Path"); New-Item -ItemType Directory -Path $Path -Force | Out-Null; $Path
+            }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                $a = $Arguments -join ' '
+                $verb = if ($a -match 'UpdateCfg') { 'UpdateCfg' } elseif ($a -match '/DumpCfg') { 'DumpCfg' } elseif ($a -match '/LoadCfg') { 'LoadCfg' } elseif ($a -match 'DumpConfigToFiles') { 'DumpConfigToFiles' } else { $a }
+                $who = if ($V8Path) { $V8Path } else { 'MAIN' }
+                $script:Calls.Add("$verb|$who|$IbSwitch|u=$User")
+                if ($a -match '/DumpCfg "(?<f>[^"]+)"') { Set-Content -LiteralPath $Matches.f -Value 'cf' -Encoding ascii }
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $work = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $work -Force | Out-Null
+            # Залишок попередньої версії в Target: дамп іде в спорожнену теку (спека §4.5).
+            $tree = Join-Path $work 'tree'; New-Item -ItemType Directory -Path $tree -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $tree 'stale.xml') -Value 'old' -Encoding ascii
+            $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/S "srv\agent"' -Source $script:Cfg -Version 34 `
+                -Target $tree -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' -User 'agent'
+            $altIb = '/F "{0}"' -f (Join-Path $work 'alt-ib')
+            @($script:Calls) | Should -Be @(
+                'UpdateCfg|MAIN|/S "srv\agent"|u=agent'
+                'DumpCfg|MAIN|/S "srv\agent"|u=agent'
+                "CREATEINFOBASE|ALT|$(Join-Path $work 'alt-ib')"
+                "LoadCfg|ALT|$altIb|u="
+                "DumpConfigToFiles|ALT|$altIb|u=")
+            # Обрана платформа ніколи не бачить ні бази агента, ні аргументів сховища.
+            @($script:Calls | Where-Object { $_ -like '*|ALT|*srv*' }).Count | Should -Be 0
+            # ...ні користувача бази агента.
+            @($script:Calls | Where-Object { $_ -like '*|ALT|*|u=agent' }).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $tree 'stale.xml') | Should -BeFalse
+        }
+
+        It 'DumpCfg повернув 0, але .cf не з''явився — зупинка на кроці DumpCfg, LoadCfg не кликався' {
+            $script:Calls = [System.Collections.Generic.List[string]]::new()
+            Mock -ModuleName StoragePlatform Get-V8Path { 'MAIN' }
+            Mock -ModuleName StoragePlatform New-V8FileInfobase { param($Path) New-Item -ItemType Directory -Path $Path -Force | Out-Null; $Path }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                $script:Calls.Add(($Arguments -join ' '))
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $work = Join-Path $TestDrive 'via-nocf'; New-Item -ItemType Directory -Path $work -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $work 'v34.cf') -Value 'stale' -Encoding ascii
+            { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 `
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*DumpCfg*не створив*'
+            @($script:Calls | Where-Object { $_ -match 'LoadCfg' }).Count | Should -Be 0
+        }
+
+        It 'EXTENSION — «не підтримується в 1.3.1», жодного виклику платформи' {
+            $script:Calls = [System.Collections.Generic.List[string]]::new()
+            Mock -ModuleName StoragePlatform Get-V8Path { 'MAIN' }
+            Mock -ModuleName StoragePlatform New-V8FileInfobase { $script:Calls.Add('CREATEINFOBASE'); 'x' }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer { $script:Calls.Add('designer'); [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            $work = Join-Path $TestDrive 'via-ext'; New-Item -ItemType Directory -Path $work -Force | Out-Null
+            { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Ext -Version 34 `
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*EXTENSION не підтримується в 1.3.1*'
+            @($script:Calls).Count | Should -Be 0
+        }
+
+        It 'обрана платформа впала на LoadCfg — зупинка з назвою кроку й платформи' {
+            Mock -ModuleName StoragePlatform Get-V8Path { 'MAIN' }
+            Mock -ModuleName StoragePlatform New-V8FileInfobase { param($Path) New-Item -ItemType Directory -Path $Path -Force | Out-Null; $Path }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                param($IbSwitch, $Arguments, $User, $Password, $V8Path)
+                $a = $Arguments -join ' '
+                if ($a -match '/DumpCfg "(?<f>[^"]+)"') { Set-Content -LiteralPath $Matches.f -Value 'cf' -Encoding ascii }
+                if ($a -match '/LoadCfg') { return [pscustomobject]@{ ExitCode = 1; Output = 'файл пошкоджено' } }
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            $work = Join-Path $TestDrive 'via-fail'; New-Item -ItemType Directory -Path $work -Force | Out-Null
+            { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 `
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*LoadCfg*ALT*файл пошкоджено*'
+        }
+    }
 }
