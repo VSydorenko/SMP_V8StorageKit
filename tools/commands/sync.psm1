@@ -172,8 +172,8 @@ function Invoke-KitSync {
         -DumpPlatform <версія> -ForVersion N (спека 1.3.1 §4.3) — версію N основної конфігурації
         вивантажує інша встановлена платформа (через .cf), коміт несе трейлер
         Storage-Dump-Platform. -SkipVersion N (§4.4) — версію N не переносити зовсім; наступний
-        коміт несе Storage-Skipped. Обидва — лише для першої неперенесеної версії, лише з -Source,
-        лише для CONFIGURATION; -DumpPlatform/-ForVersion і -SkipVersion взаємовиключні. Усі
+        коміт несе Storage-Skipped. Обидва — лише для першої неперенесеної версії, лише з -Source;
+        -DumpPlatform — лише для CONFIGURATION; -DumpPlatform/-ForVersion і -SkipVersion взаємовиключні. Усі
         перевірки — до першого UpdateCfg; у прев'ю обрана платформа не викликається.
     #>
     [CmdletBinding()]
