@@ -307,8 +307,15 @@ function Invoke-KitStorageCheckoutViaPlatform {
     # Крок 6: проміжні .cf і тимчасова ІБ своє відслужили. .cf живої конфігурації — порядку
     # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону (пілот 1.3.1).
     # На збої вище не прибираємо: лишаються для діагностики, наступний прогін їх перезапише.
-    Remove-Item -LiteralPath $cf -Force
-    if (Test-Path -LiteralPath $altIbPath) { Remove-Item -LiteralPath $altIbPath -Recurse -Force }
+    # Прибирання непринципове: файл, який ще тримає процес платформи, не має зірвати коміт
+    # успішно вивантаженої версії — лише попередження.
+    foreach ($leftover in @($cf, $altIbPath)) {
+        try {
+            if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Recurse -Force -ErrorAction Stop }
+        } catch {
+            Write-Warning "Не вдалося прибрати $leftover після вивантаження версії $Version (прибере наступний прогін): $($_.Exception.Message)"
+        }
+    }
 
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
