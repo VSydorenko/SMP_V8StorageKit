@@ -195,7 +195,7 @@ Describe 'kit sync — версія, яку основна платформа н
         $shas.Count | Should -Be 3
         Get-Trailer -Repo $repo -Sha $shas[1] -Key 'Storage-Dump-Platform' | Should -Be '8.3.25.1445'
         Get-Trailer -Repo $repo -Sha $shas[2] -Key 'Storage-Dump-Platform' | Should -BeNullOrEmpty
-        (git -C $repo log -1 --format=%B $shas[1]) -join "`n" | Should -BeLike '*основна платформа 8.3.27.1644 цю версію не вивантажує*'
+        (git -C $repo log -1 --format=%B $shas[1]) -join "`n" | Should -BeLike '*вивантажено платформою 8.3.25.1445 за рішенням людини; основна платформа — 8.3.27.1644*'
         $script:SyncResult.Synced[0].DumpedVia | Should -Be '8.3.25.1445'
     }
 
