@@ -377,7 +377,10 @@ function New-KitStorageCommitMessage {
     if ($DumpPlatform -or $SkippedVersion.Count -gt 0) {
         $out.Add('')
         if ($DumpPlatform) {
-            $out.Add("вивантажено платформою ${DumpPlatform}: основна платформа $MainPlatform цю версію не вивантажує")
+            # Лише те, що kit знає: з -DumpPlatform основна платформа на цій версії не запускається,
+            # тож «основна не вивантажує» було б неперевіреним твердженням (людина могла обрати
+            # іншу платформу й для єдиного формату діапазону).
+            $out.Add("вивантажено платформою $DumpPlatform за рішенням людини; основна платформа — $MainPlatform")
         }
         foreach ($n in $SkippedVersion) { $out.Add("версію $n пропущено: жодна платформа не вивантажує") }
     }

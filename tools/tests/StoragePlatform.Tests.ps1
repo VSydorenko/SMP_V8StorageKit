@@ -222,6 +222,9 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             # ...ні користувача бази агента.
             @($script:Calls | Where-Object { $_ -like '*|ALT|*|u=agent' }).Count | Should -Be 0
             Test-Path -LiteralPath (Join-Path $tree 'stale.xml') | Should -BeFalse
+            # Проміжні .cf (порядку гігабайта на живій конфігурації) і тимчасова ІБ після успіху прибрані.
+            Test-Path -LiteralPath (Join-Path $work 'v34.cf') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $work 'alt-ib') | Should -BeFalse
         }
 
         It 'DumpCfg повернув 0, але .cf не з''явився — зупинка на кроці DumpCfg, LoadCfg не кликався' {

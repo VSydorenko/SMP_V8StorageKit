@@ -303,6 +303,13 @@ function Invoke-KitStorageCheckoutViaPlatform {
         $j = Join-Path $Target $junk
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
+
+    # Крок 6: проміжні .cf і тимчасова ІБ своє відслужили. .cf живої конфігурації — порядку
+    # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону (пілот 1.3.1).
+    # На збої вище не прибираємо: лишаються для діагностики, наступний прогін їх перезапише.
+    Remove-Item -LiteralPath $cf -Force
+    if (Test-Path -LiteralPath $altIbPath) { Remove-Item -LiteralPath $altIbPath -Recurse -Force }
+
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
