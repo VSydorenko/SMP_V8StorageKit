@@ -126,6 +126,28 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:SyncError | Should -BeLike '*-SkipVersion 34*'
     }
 
+    It 'зупинка §4.1, коли перелік платформ недоступний — відповідь платформи й вихід -SkipVersion все одно в тексті' {
+        $repo = New-DumpRepo 'stop41-nolist'
+        $script:FailVersion = 34
+        Mock -ModuleName sync Get-KitInstalledPlatforms { throw 'ПЕРЕЛІК-ЗЛАМАНО' }
+        $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true }
+        $script:SyncError | Should -BeLike '*не вивантажує*'
+        $script:SyncError | Should -BeLike '*ПЛАТФОРМА-ВІДПОВІДЬ*'
+        $script:SyncError | Should -BeLike '*(перелік платформ недоступний: ПЕРЕЛІК-ЗЛАМАНО)*'
+        $script:SyncError | Should -BeLike '*-SkipVersion 34*'
+        $script:SyncError | Should -Not -BeLike '*Інших платформ в оточенні немає*'
+    }
+
+    It '-SkipVersion 34: пропущена версія не потребує автора — невідомий автор v34 не зупиняє, коміт v35 є' {
+        $repo = New-DumpRepo 'skip-unattributed'
+        Mock -ModuleName sync Get-StorageVersions { , @((New-KitFakeStorageVersion -Version 34 -User 'stranger'), (New-KitFakeStorageVersion -Version 35)) }
+        $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; SkipVersion = 34 }
+        $script:SyncError | Should -BeNullOrEmpty
+        $shas = @(git -C $repo log --reverse --format=%H storage/base)
+        $shas.Count | Should -Be 2
+        Get-Trailer -Repo $repo -Sha $shas[1] -Key 'Storage-Version' | Should -Be '35'
+    }
+
     It '-DumpPlatform 8.3.25.1445 -ForVersion 34 -Apply: v34 — через обрану платформу (x64), v35 — основною; трейлер лише в v34' {
         $repo = New-DumpRepo 'dump-for'
         $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; DumpPlatform = '8.3.25.1445'; ForVersion = 34 }

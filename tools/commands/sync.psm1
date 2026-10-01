@@ -67,12 +67,6 @@ function Invoke-KitMainMerge {
     }
 }
 
-function Get-KitPlatformVersionFromPath {
-    # <корінь>\<версія>\bin\1cv8.exe → <версія>.
-    param([Parameter(Mandatory)][string]$Path)
-    Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $Path))
-}
-
 function Format-KitPlatformList {
     <#
     .SYNOPSIS
@@ -104,20 +98,27 @@ function New-KitDumpStopMessage {
     $n = [int]$d['Version']
     $mainPath = [string]$d['PlatformPath']
     $mainVer = Get-KitPlatformVersionFromPath -Path $mainPath
-    $installed = @(Get-KitInstalledPlatforms)
+    # Збій переліку платформ не має ховати відповідь платформи: текст §4.1 виходить усе одно.
+    $installed = @()
+    $listError = $null
+    try { $installed = @(Get-KitInstalledPlatforms) } catch { $listError = $_.Exception.Message }
     $key = $Source.Key
     $mirror = if ($null -ne $LastCommitted) { "лишається на версії $LastCommitted" } else { 'лишається без версій' }
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("Версію $n основної конфігурації '$key' основна платформа $mainVer не вивантажує.")
     $lines.Add("Дзеркало $($Source.Branch) $mirror; часткового коміту немає.")
     $lines.Add("Платформа відповіла: $($d['Output'])")
-    $lines.Add('Встановлені платформи:')
-    foreach ($l in (Format-KitPlatformList -Platforms $installed -MainPath $mainPath)) { $lines.Add($l) }
+    if ($null -ne $listError) {
+        $lines.Add("(перелік платформ недоступний: $listError)")
+    } else {
+        $lines.Add('Встановлені платформи:')
+        foreach ($l in (Format-KitPlatformList -Platforms $installed -MainPath $mainPath)) { $lines.Add($l) }
+    }
     $others = @($installed | Where-Object { $_.Version -ne $mainVer } | ForEach-Object Version | Select-Object -Unique)
     if ($others.Count -gt 0) {
         $lines.Add('Вивантажити цю версію іншою платформою (зі згоди людини):')
         foreach ($o in $others) { $lines.Add("  kit sync -RepoRoot . -Source $key -Apply -DumpPlatform $o -ForVersion $n") }
-    } else {
+    } elseif ($null -eq $listError) {
         $lines.Add('Інших платформ в оточенні немає — встановіть іншу версію або пропустіть версію.')
     }
     $lines.Add('Якщо жодна платформа не вивантажує — пропустити версію явно:')

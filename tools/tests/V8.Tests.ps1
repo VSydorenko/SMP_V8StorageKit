@@ -245,6 +245,13 @@ Describe 'V8.psm1 — розпізнавання «база зайнята» (с
     }
 }
 
+Describe 'Get-KitPlatformVersionFromPath' {
+    It 'версія — тека над bin\1cv8.exe' {
+        Get-KitPlatformVersionFromPath -Path 'C:\Program Files\1cv8\8.3.27.1644\bin\1cv8.exe' | Should -Be '8.3.27.1644'
+        Get-KitPlatformVersionFromPath -Path 'C:\pf86\8.3.25.1445\bin\1cv8.exe' | Should -Be '8.3.25.1445'
+    }
+}
+
 Describe 'Get-KitInstalledPlatforms — платформи оточення (спека 1.3.1 §4.2)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force

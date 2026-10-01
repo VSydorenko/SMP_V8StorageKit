@@ -32,6 +32,16 @@ function Get-KitInstalledPlatforms {
     @($found | Sort-Object @{ Expression = { [version]$_.Version }; Descending = $true }, @{ Expression = { $archRank[$_.Arch] } })
 }
 
+function Get-KitPlatformVersionFromPath {
+    <#
+    .SYNOPSIS
+        <корінь>\<версія>\bin\1cv8.exe → <версія>. Єдине місце цієї формули (sync і verify).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $Path))
+}
+
 function Get-V8Path {
     [CmdletBinding()]
     param(
@@ -348,4 +358,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
+Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy

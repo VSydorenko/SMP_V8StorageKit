@@ -117,7 +117,7 @@ function Invoke-KitVerify {
             # а звірка на версії, яку основна платформа не вивантажує, неможлива.
             if (Test-KitDumpFailure -ErrorRecord $_) {
                 $d = $_.Exception.Data
-                $pv = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent ([string]$d['PlatformPath'])))
+                $pv = Get-KitPlatformVersionFromPath -Path ([string]$d['PlatformPath'])
                 throw ("Версію $ver основна платформа $pv не вивантажує — verify на ній неможливий. " +
                        'Звірте наступну версію (-Version) або вершину, вивантажену основною платформою. ' +
                        "Платформа відповіла: $($d['Output'])")
