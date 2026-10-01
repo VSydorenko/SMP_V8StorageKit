@@ -92,7 +92,8 @@ function New-KitDumpStopMessage {
     param(
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord,
-        [AllowNull()][Nullable[int]]$LastCommitted
+        [AllowNull()][Nullable[int]]$LastCommitted,
+        [AllowNull()][Nullable[int]]$PendingSkip = $null
     )
     $d = $ErrorRecord.Exception.Data
     $n = [int]$d['Version']
@@ -113,6 +114,13 @@ function New-KitDumpStopMessage {
     } else {
         $lines.Add('Встановлені платформи:')
         foreach ($l in (Format-KitPlatformList -Platforms $installed -MainPath $mainPath)) { $lines.Add($l) }
+    }
+    if ($null -ne $PendingSkip) {
+        # Спека 1.3.1 §6.2: пропуск N активний і коміту в цьому прогоні ще не було — стандартні
+        # команди для N+1 відхилила б §6.1.2/§6.1.5, тож їх не радимо; рішення — за людиною.
+        $lines.Add("Пропуск версії $PendingSkip активний, але версія $n у цьому ж прогоні теж не вивантажується: поєднання пропуску $PendingSkip з вивантаженням іншою платформою чи з пропуском $n у 1.3.1 не підтримується.")
+        $lines.Add("Пропуск версії $PendingSkip не відбувся (коміту з Storage-Skipped немає); дзеркало лишилось на версії $LastCommitted. Рішення — за людиною.")
+        return ($lines -join "`n")
     }
     $others = @($installed | Where-Object { $_.Version -ne $mainVer } | ForEach-Object Version | Select-Object -Unique)
     if ($others.Count -gt 0) {
@@ -545,7 +553,8 @@ function Invoke-KitSync {
                 } catch {
                     if (Test-KitDumpFailure -ErrorRecord $_) {
                         $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
-                        throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted)
+                        $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
+                        throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
                     }
                     throw
                 }

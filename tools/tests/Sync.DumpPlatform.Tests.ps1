@@ -126,6 +126,42 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:SyncError | Should -BeLike '*-SkipVersion 34*'
     }
 
+    It '§6.2: пропуск v34 активний, коміту ще не було, v35 падає — «не підтримується», дзеркало на v33, стандартних команд для v35 немає' {
+        $repo = New-DumpRepo 'skip-then-fail'
+        $script:FailVersion = 35
+        $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; SkipVersion = 34 }
+        $script:SyncError | Should -BeLike '*не вивантажує*'
+        $script:SyncError | Should -BeLike '*ПЛАТФОРМА-ВІДПОВІДЬ*'
+        $script:SyncError | Should -BeLike '*x86*8.3.25.1445*'
+        $script:SyncError | Should -BeLike '*у 1.3.1 не підтримується*'
+        $script:SyncError | Should -BeLike '*лишилось на версії 33*'
+        $script:SyncError | Should -Not -BeLike '*-ForVersion 35*'
+        $script:SyncError | Should -Not -BeLike '*-SkipVersion 35*'
+        @(git -C $repo log --format=%H storage/base).Count | Should -Be 1
+        Get-Trailer -Repo $repo -Sha 'storage/base' -Key 'Storage-Version' | Should -Be '33'
+    }
+
+    It '§6.2, суміжний випадок: -DumpPlatform … -ForVersion 34 закомітила v34, v35 падає — стандартні команди для v35' {
+        $repo = New-DumpRepo 'dump-then-fail'
+        $script:FailVersion = 35
+        $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; DumpPlatform = '8.3.25.1445'; ForVersion = 34 }
+        @(git -C $repo log --format=%H storage/base).Count | Should -Be 2
+        Get-Trailer -Repo $repo -Sha 'storage/base' -Key 'Storage-Version' | Should -Be '34'
+        $script:SyncError | Should -BeLike '*-DumpPlatform 8.3.25.1445 -ForVersion 35*'
+        $script:SyncError | Should -BeLike '*-SkipVersion 35*'
+        $script:SyncError | Should -Not -BeLike '*не підтримується*'
+    }
+
+    It '§6.2: пропуск v34 уже ліг у коміт v35, v36 падає — стандартні команди для v36 (гілка лише «ще не закомічено»)' {
+        $repo = New-DumpRepo 'skip-commit-then-fail'
+        Mock -ModuleName sync Get-StorageVersions { , @((New-KitFakeStorageVersion -Version 34), (New-KitFakeStorageVersion -Version 35), (New-KitFakeStorageVersion -Version 36)) }
+        $script:FailVersion = 36
+        $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; SkipVersion = 34 }
+        $script:SyncError | Should -BeLike '*-ForVersion 36*'
+        $script:SyncError | Should -Not -BeLike '*не підтримується*'
+        Get-Trailer -Repo $repo -Sha 'storage/base' -Key 'Storage-Skipped' | Should -Be '34'
+    }
+
     It 'зупинка §4.1, коли перелік платформ недоступний — відповідь платформи й вихід -SkipVersion все одно в тексті' {
         $repo = New-DumpRepo 'stop41-nolist'
         $script:FailVersion = 34

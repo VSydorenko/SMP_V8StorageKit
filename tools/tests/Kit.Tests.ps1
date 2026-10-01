@@ -99,7 +99,10 @@ Export-ModuleMember -Function Invoke-KitProbe
     It 'sync -SkipVersion abc — помилка конверсії саме в Int32 (параметр існує), не тиха конверсія' {
         $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-SkipVersion', 'abc')
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*SkipVersion*Cannot convert value "abc" to type "System.Int32"*'
+        # Без англійського речення (локаль PowerShell): ім'я параметра й назва типу Int32 є в
+        # будь-якій локалізації, а для невідомого параметра назви типу в тексті немає.
+        $r.Output | Should -BeLike '*SkipVersion*'
+        $r.Output | Should -BeLike '*System.Int32*'
     }
 
 
