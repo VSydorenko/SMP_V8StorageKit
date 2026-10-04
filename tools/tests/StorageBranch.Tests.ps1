@@ -93,6 +93,23 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         @($f | Where-Object Message -like '*поза шляхом джерела*').Count | Should -Be 0
     }
 
+    It 'вершина з кириличною парою регістру — error з групою; кириличні шляхи не дають хибних «поза шляхом джерела»' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'inv-case')
+        # Хештеблиці PowerShell нечутливі до регістру (юнікодно): літерал із такою парою — ParseException,
+        # присвоєння в [ordered]@{} мовчки затирає перший ключ. Тому Ordinal-словник.
+        $files = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+        $files['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'x'
+        $files['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'x'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files $files | Out-Null
+        # Контроль даних: пара справді в дереві (інакше тест міг би тихо втратити її).
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only 'storage/Alpha_SMB' -- 'Alpha_SMB/cfe/src/T') |
+            Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/Образецанализ.xml')
+        $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
+        $f | Should -HaveCount 1
+        $f[0].Level | Should -Be 'error'
+        $f[0].Message | Should -BeLike '*різняться лише регістром*T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
+    }
+
     It 'Storage-Source іншого джерела — помилка' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'wrongsource')
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Beta', 'Storage-Version: 1')
@@ -558,6 +575,49 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         { New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt') } |
             Should -Throw '*storage/Alpha_SMB*вибрана*'
         git -C $repo checkout -q main
+    }
+
+    It '<Case>: перейменування лише регістром — у коміті дзеркала лише новий регістр, без фантома (#31)' -ForEach @(
+        @{ Case = 'кирилиця'; Old = 'Образецанализ'; New = 'ОбразецАнализ' }
+        @{ Case = 'ASCII';    Old = 'Sampleabc';     New = 'SampleaBc' }
+    ) {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "case-$Case") -WithHooks
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            "Alpha_SMB/cfe/src/T/$Old.xml" = 'xml'; "Alpha_SMB/cfe/src/T/$Old/Ext/T.bin" = 'bin'
+        }) | Out-Null
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        try {
+            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+            New-Item -ItemType Directory -Path (Join-Path $target "T/$New/Ext") -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $target "T/$New.xml") -Value 'xml' -NoNewline
+            Set-Content -LiteralPath (Join-Path $target "T/$New/Ext/T.bin") -Value 'bin' -NoNewline
+            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
+                -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
+        } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
+        $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
+        $paths | Should -BeExactly @("Alpha_SMB/cfe/src/T/$New.xml", "Alpha_SMB/cfe/src/T/$New/Ext/T.bin")
+    }
+
+    It 'глобальний конфіг за порадою ГітКонвертера (autocrlf=true, safecrlf=true) — байти платформи в blob як є' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'gitconverter-global') -WithHooks
+        # Фікстура ставить локальний core.autocrlf=false (детермінованість) — він перекрив би глобальний
+        # конфіг, і тест не міг би впасти. Знімаємо, щоб діяв саме глобальний.
+        git -C $repo config --unset core.autocrlf
+        $cfg = Join-Path $TestDrive 'gitconverter.gitconfig'
+        Set-Content -LiteralPath $cfg -Value "[core]`n`tautocrlf = true`n`tsafecrlf = true" -Encoding ascii
+        $env:GIT_CONFIG_GLOBAL = $cfg
+        try {
+            $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+            try {
+                $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+                $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
+                [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
+                $rawId = (git -C $repo hash-object --no-filters (Join-Path $target 'Form.xml')).Trim()
+                Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
+                    -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
+            } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
+        } finally { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }
+        (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $rawId
     }
 
     It 'шлях worktree поза build/sync — відмова (Assert-SafeWorkPath)' {

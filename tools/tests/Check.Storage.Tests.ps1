@@ -117,6 +117,26 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*аудит інваріантів гілки*впав*'
     }
 
+    It 'HEAD з кириличною парою регістру під шляхом джерела — error case-collision, код 1' {
+        $repo = New-GoodRepo 'head-case'
+        # Ordinal-словник: хештеблиця PowerShell злила б пару регістру в один ключ (див. StorageBranch.Tests).
+        $files = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+        foreach ($p in @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD)) {
+            $files[$p] = [string](git -C $repo show "HEAD:$p" | Out-String)
+        }
+        $files['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'x'
+        $files['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'x'
+        $sha = Set-KitFakeBranchTree -Repo $repo -Branch 'case-branch' -Parent (git -C $repo rev-parse HEAD) -Message 'пара регістру' -Files $files
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only 'case-branch' -- 'Alpha_SMB/cfe/src/T') |
+            Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/Образецанализ.xml')
+        # HEAD → нова гілка без checkout робочої копії: check читає лише дерево HEAD.
+        git -C $repo symbolic-ref HEAD refs/heads/case-branch
+        git -C $repo read-tree $sha
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*у HEAD*різняться лише регістром*'
+    }
+
     It 'check нічого не змінює: статус робочої копії й HEAD ті самі' {
         $repo = New-GoodRepo 'readonly'
         $head = git -C $repo rev-parse HEAD

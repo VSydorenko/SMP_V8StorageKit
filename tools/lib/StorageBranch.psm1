@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot/Preflight.psm1"
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/Supply.psm1"
+Import-Module "$PSScriptRoot/CaseGuard.psm1"
 
 $script:BranchPrefix = 'storage/'
 # Get-KitPendingVersions (Task 2, рев'ю п. 9): поріг, після якого зупинка на -FromVersion
@@ -214,15 +215,11 @@ function Test-KitStorageBranchInvariants {
         $prev = $v
     }
 
-    # -c core.quotepath=false: git ls-tree за замовчуванням (core.quotepath=true) друкує
-    # non-ASCII шляхи в лапках з октальним екрануванням — "\320\221...".xml замість
-    # Банки.xml, ЛАПКА на початку зламала б StartsWith($prefix) нижче й дала б хибну
-    # знахідку "поза шляхом джерела" на кожному кириличному імені (норма для 1С, не
-    # виняток). Форсуємо прапорець за виклик — репозиторій-споживач чи машина можуть
-    # мати будь-яке налаштування core.quotepath, kit на нього не покладається.
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/') + '/'
-    $tree = git -c core.quotepath=false -C $RepoRoot ls-tree -r --name-only $Branch 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git ls-tree $Branch завершився з кодом ${LASTEXITCODE}: $($tree -join "`n")" }
+    # Get-KitTreePaths (CaseGuard): ls-tree -r -z через Invoke-KitGitProcess — UTF-8 незалежно від
+    # консолі й без квотування не-ASCII. Колишній голий конвеєр `git ls-tree | …` декодував вивід за
+    # кодуванням консолі: на cp866 кирилиця ламалась, і групування регістру нижче давало б хибні 0.
+    $tree = @(Get-KitTreePaths -RepoRoot $RepoRoot -Ref $Branch)
     $stray = @($tree | Where-Object { $_ -and -not $_.StartsWith($prefix) })
     if ($stray.Count -gt 0) {
         # Один запис на весь перелік, а не на кожен файл (той самий прийом, що
@@ -234,6 +231,16 @@ function Test-KitStorageBranchInvariants {
         $detail = ($shown -join ', ') + $(if ($more -gt 0) { ", …і ще $more" } else { '' })
         $findings.Add((New-KitFinding -Level error -Check 'storage-branch' -Message (
             "$Branch`: у дереві $($stray.Count) файл(ів) поза шляхом джерела '$RepoPath': $detail.")))
+    }
+
+    $groups = @(Get-KitCaseCollisions -Paths $tree)
+    if ($groups.Count -gt 0) {
+        $shown = @($groups | Select-Object -First 5 | ForEach-Object { $_ -join ' | ' })
+        $more  = $groups.Count - $shown.Count
+        $findings.Add((New-KitFinding -Level error -Check 'storage-branch' -Message (
+            "$Branch`: у вершині $($groups.Count) груп(и) шляхів, що різняться лише регістром (на Windows — один файл; " +
+            "злиття в робочу гілку впаде): $($shown -join '; ')$(if ($more -gt 0) { "; …і ще $more" } else { '' }). " +
+            'Розбір: docs/storage-and-git.md, «Перейменування регістром».')))
     }
 
     # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
@@ -496,7 +503,8 @@ function Write-KitStorageVersion {
         дзеркало не потрапляє: лишається лише .bin (спека 2026-09-30 §5.2, ліміт GitHub 100 МБ на файл).
         V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука B1), не механізм: в orphan-worktree дзеркала хука
         немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
-        де хук є. Дати автора й
+        де хук є. Індекс піддерева знімається (`rm --cached`) перед `add -A` і звіряється з диском до
+        коміту — перейменування лише регістром (спека 2026-10-04 §4.1). Дати автора й
         комітера — дата версії сховища. --allow-empty: сусідні версії можуть дати однаковий дамп,
         а коміт — єдиний носій автора, дати й коментаря версії.
     #>
@@ -530,8 +538,17 @@ function Write-KitStorageVersion {
     Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
 
     try {
+        # Індекс піддерева — наново з того, що вивантажила платформа (спека 2026-10-04 §4.1). Без
+        # цього `add -A` при core.ignorecase=true лишає запис старого регістру: git складає регістр
+        # лише ASCII (memihash), а lstat старого шляху на NTFS успішний — кирилична зміна регістру
+        # дає фантом поруч із новим шляхом, ASCII — губить новий регістр. Clear-KitWorktreeSource
+        # уже лишив на диску рівно дамп, тож нічого живого цим не втрачається.
+        $rmOut = git -C $WorktreePath rm -r -q --cached --ignore-unmatch -- $RepoPath 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "git rm --cached у worktree завершився з кодом ${LASTEXITCODE}: $($rmOut -join "`n")" }
+
         $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
+        Assert-KitIndexMatchesDisk -RepoRoot $WorktreePath -RepoPath $RepoPath
 
         # switch із default { throw } — той самий патерн, що Test-KitBranchMergedInto (GitMerge.psm1):
         # код 1 у --quiet штатно означає "є різниця", а не збій, тож лише він поруч із 0 — не
