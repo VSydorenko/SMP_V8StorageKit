@@ -208,6 +208,45 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         $err.Exception.Message | Should -Not -BeLike '*незавершеному*'
     }
 
+    It 'перше злиття (unrelated) приносить об''єкт з новим регістром, у main закомічено старий — зупинка, main і копія ті самі (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-new') -WithHooks -WithGitattributes -WithGitignore
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/T'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'Образецанализ.xml') -Value 'xml' -NoNewline
+        git -C $repo add -A; git -C $repo commit -q -m 'main зі старим регістром'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml' = 'xml'
+        }) | Out-Null
+        $before = (git -C $repo rev-parse main).Trim()
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*шляхи, що різняться лише регістром*Нічого не змінено*'
+        $err.Exception.Message | Should -BeLikeExactly '*Alpha_SMB/cfe/src/T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
+        $err.Exception.Message | Should -BeLike '*git rm --cached*'
+        (git -C $repo rev-parse main).Trim() | Should -Be $before
+        @(git -C $repo status --porcelain) | Should -HaveCount 0
+    }
+
+    It 'група регістру, що вже є в цільовій гілці й не змінюється, злиття не блокує (Via=ref) (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-old') -WithHooks -WithGitattributes -WithGitignore
+        $f = Join-Path $repo 'Alpha_SMB/cfe/src/T'
+        New-Item -ItemType Directory -Path $f -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $f 'ОбразецАнализ.xml') -Value 'xml' -NoNewline
+        git -C $repo add -A
+        $sha = (git -C $repo hash-object -w -- (Join-Path $f 'ОбразецАнализ.xml')).Trim()
+        git -C $repo -c core.ignorecase=false update-index --add --cacheinfo "100644,$sha,Alpha_SMB/cfe/src/T/Образецанализ.xml"
+        # --no-verify: хук pre-commit якраз відхиляє такий коміт, а нам потрібна стара зіпсована гілка.
+        git -C $repo commit -q --no-verify -m 'main з давньою групою регістру'
+        $old = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only main -- Alpha_SMB/cfe/src/T)
+        $old | Should -HaveCount 2
+        git -C $repo switch -q -c task
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/b.xml' = 'B'
+        }) | Out-Null
+        $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated
+        $r.Outcome | Should -Be 'merged'
+        $r.Via | Should -Be 'ref'
+    }
+
     It 'головної гілки ще немає — зупинка з підказкою' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-main')
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')

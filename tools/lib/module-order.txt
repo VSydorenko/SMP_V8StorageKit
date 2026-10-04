@@ -15,7 +15,7 @@
 # C2 Task 5); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
 # беруть з нього шлях поставки (спека 2026-09-30 §6.3.1); CaseGuard — після TreeCompare
 # (Invoke-KitGitProcess, Get-KitRelativeFiles, Test-KitComparableRelativePath; StorageBranch
-# імпортує його вкладено, як AgentBase — V8). Рядки з # ігноруються.
+# і GitMerge імпортують його вкладено, як AgentBase — V8). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Supply

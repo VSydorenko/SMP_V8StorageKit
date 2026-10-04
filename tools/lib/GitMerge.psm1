@@ -5,6 +5,8 @@ Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/StorageBranch.psm1"
 # Потрібен Invoke-KitGitProcess. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
 Import-Module "$PSScriptRoot/TreeCompare.psm1"
+# Get-KitTreePaths, Get-KitCaseCollisions — перевірка груп регістру в дереві злиття (як у StorageBranch, вкладено).
+Import-Module "$PSScriptRoot/CaseGuard.psm1"
 
 function Test-KitBranchMergedInto {
     [CmdletBinding()]
@@ -117,6 +119,24 @@ function Merge-KitBranchInto {
         default { throw "git merge-tree $Branch → $Into завершився з кодом $($mt.ExitCode): $($mt.Stderr)" }
     }
     $tree = $fields[0].Trim()
+
+    # Групи регістру в дереві злиття (спека 2026-10-04 §4.2, крок 3, фінальне рев'ю H1): merge-tree віддає код 0 і
+    # дерево з ОБОМА шляхами, коли перше злиття (--allow-unrelated-histories) приносить об'єкт з іншим регістром,
+    # ніж у <Into>; після read-tree --reset -u копія була б брудною. Блокують лише групи, яких не було в <Into>
+    # (порівняння за НАБОРОМ шляхів): стара зіпсована гілка не мусить блокувати злиття назавжди — її ловить check.
+    # Перевірка до будь-якої зміни стану й для Via=ref, і для in-place.
+    $oldGroups = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($g in @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $old))) { [void]$oldGroups.Add($g -join "`0") }
+    $newGroups = @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $tree) | Where-Object { -not $oldGroups.Contains($_ -join "`0") })
+    if ($newGroups.Count -gt 0) {
+        $shown = @($newGroups | Select-Object -First 5 | ForEach-Object { $_ -join ' | ' })
+        $more  = $newGroups.Count - $shown.Count
+        $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
+        throw ("Злиття $Branch → $Into дало б у гілці '$Into' шляхи, що різняться лише регістром (на NTFS це один файл — виходить фантом). " +
+               "Нічого не змінено — гілка '$Into' і робоча копія ті самі. Групи:`n$detail`n" +
+               "Рецепт: у гілці '$Into' зніміть старий регістр з індексу — git rm --cached -- <старий шлях> (диск не чіпається, " +
+               "на NTFS це той самий файл), закомітьте БЕЗ --only і повторіть команду (docs/storage-and-git.md, «Перейменування регістром»).")
+    }
 
     if ($here) {
         # read-tree --reset -u мовчки перезаписує невідстежуваний ІГНОРОВАНИЙ файл, якщо злиття додає закомічений
