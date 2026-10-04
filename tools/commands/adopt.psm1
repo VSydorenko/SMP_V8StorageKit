@@ -121,7 +121,11 @@ function Invoke-KitAdopt {
 
         # Поставка вендора (спека 2026-09-30 §5.2) не має відстежуватись git — ДО будь-якого
         # руйнівного кроку: відстежуваний .cf `add -A` застейджив би, і коміт індексу забрав би його
-        # в історію.
+        # в історію. Цей ls-files — ще й перевірка, що git читає індекс, до стирання дерева (той самий
+        # інваріант «усі git-перевірки — до першого руйнівного кроку»). Окремої проби check-ignore тут
+        # немає свідомо: на зламаних ігнор-правилах вона коду >1 не дає (виміряно, git 2.53: тека
+        # .gitignore, нечитабельний .gitignore, core.excludesFile на теку чи неіснуючий файл — 0 або 1),
+        # а після `add -A -f` нижче ігнор-правила на відмову не впливають.
         $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
         $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-files', '--', $supplyRel)
         if ($tracked.ExitCode -ne 0) { throw "git ls-files для '$supplyRel' завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)" }
