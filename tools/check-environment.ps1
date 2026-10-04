@@ -46,8 +46,8 @@ $checks.Add((New-EnvironmentCheck -Name 'PowerShell 7+' -Category 'Конвеє�
     -Detail "$($PSVersionTable.PSVersion) — скрипти оголошують #Requires -Version 7"))
 
 $git = Get-GitAvailability
-$checks.Add((New-EnvironmentCheck -Name 'git' -Category 'Конвеєр' -Ok $git.Available `
-    -Detail $(if ($git.Available) { $git.Version } else { $git.Reason })))
+$checks.Add((New-EnvironmentCheck -Name "git ≥ $($git.Minimum)" -Category 'Конвеєр' -Ok ($git.Available -and $git.Supported) `
+    -Detail $(if (-not $git.Available) { $git.Reason } elseif (-not $git.Supported) { "$($git.Version) — замало: злиття дзеркала потребує git ≥ $($git.Minimum) (merge-tree --write-tree)" } else { $git.Version })))
 
 try {
     $v8 = Get-V8Path
