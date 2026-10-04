@@ -65,11 +65,11 @@ Describe 'CaseGuard.psm1 — шляхи, що різняться лише рег
         $err.Exception.Message | Should -BeLike '*T/Образецанализ.xml*'
     }
 
-    It 'Assert-KitIndexMatchesDisk: файл, який git ігнорує, на диску не рахується' {
+    It 'Assert-KitIndexMatchesDisk: файл, який git ігнорує, на диску рахується — виняток (спека §4.1, H2)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ignored')
         Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Value '*.bak' -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/local.bak') -Value 'b'
-        { Assert-KitIndexMatchesDisk -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' } | Should -Not -Throw
+        { Assert-KitIndexMatchesDisk -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' } | Should -Throw '*local.bak*'
     }
 
     It 'Assert-KitIndexMatchesDisk: файл на диску, якого немає в індексі — виняток' {

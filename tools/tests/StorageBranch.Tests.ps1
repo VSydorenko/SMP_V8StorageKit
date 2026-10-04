@@ -598,6 +598,27 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $paths | Should -BeExactly @("Alpha_SMB/cfe/src/T/$New.xml", "Alpha_SMB/cfe/src/T/$New/Ext/T.bin")
     }
 
+    It 'exclude машини (.git/info/exclude: *.bin) не знімає з відстеження .bin, який нова версія вивантажує знову (H2)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mirror-machine-exclude') -WithHooks
+        $bin = 'Alpha_SMB/cfe/src/Ext/Template.bin'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            $bin = 'old'
+        }) | Out-Null
+        # info/exclude спільний для всіх worktree репозиторію — діє й у worktree дзеркала.
+        Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value '*.bin' -Encoding ascii
+        $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
+        try {
+            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+            New-Item -ItemType Directory -Path (Join-Path $target 'Ext') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $target 'Ext/Template.bin') -Value 'new' -NoNewline
+            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
+                -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
+        } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
+        $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
+        ($paths -ccontains $bin) | Should -BeTrue -Because "у переліку: $($paths -join ', ')"
+        (git -C $repo show "storage/Alpha_SMB:$bin").Trim() | Should -BeExactly 'new'
+    }
+
     It 'глобальний конфіг за порадою ГітКонвертера (autocrlf=true, safecrlf=true) — байти платформи в blob як є' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'gitconverter-global') -WithHooks
         # Фікстура ставить локальний core.autocrlf=false (детермінованість) — він перекрив би глобальний

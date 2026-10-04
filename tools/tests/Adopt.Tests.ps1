@@ -214,7 +214,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (git -C $repo rev-parse HEAD) | Should -Be $head
     }
 
-    It 'дзеркало несе файл, який споживач ігнорує, — інваріант «індекс ≡ диск» не зупиняє adopt' {
+    It 'дзеркало несе файл, який споживач ігнорує, — він потрапляє в гілку (add -f; гілка ≡ дзеркало)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-ignored-file') -WithHooks -WithGitignore -WithGitattributes
         Add-Content -LiteralPath (Join-Path $repo '.gitignore') -Value '*.bak' -Encoding UTF8
         git -C $repo add .gitignore 2>&1 | Out-Null; git -C $repo commit -q -m 'ігнор *.bak' 2>&1 | Out-Null
@@ -225,8 +225,26 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $r = Invoke-Adopt -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
         $tree = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- 'Alpha_SMB/cfe/src')
-        ($tree -ccontains 'Alpha_SMB/cfe/src/local.bak') | Should -BeFalse -Because "у переліку: $($tree -join ', ')"
+        ($tree -ccontains 'Alpha_SMB/cfe/src/local.bak') | Should -BeTrue -Because "у переліку: $($tree -join ', ')"
         ($tree -ccontains 'Alpha_SMB/cfe/src/New.xml') | Should -BeTrue -Because "у переліку: $($tree -join ', ')"
+    }
+
+    It 'exclude машини (.git/info/exclude: *.bin) не знімає відстежуваний .bin, який дзеркало несе — файл у HEAD (H2)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-machine-exclude') -WithHooks -WithGitignore -WithGitattributes
+        $bin = 'Alpha_SMB/cfe/src/Ext/Template.bin'
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src/Ext') -Force | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $repo $bin), 'old')
+        git -C $repo add -- $bin 2>&1 | Out-Null; git -C $repo commit -q -m 'відстежуваний .bin' 2>&1 | Out-Null
+        Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value '*.bin' -Encoding ascii
+        $conf = [System.IO.File]::ReadAllText((Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'))
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "sync: версія 7`n`nStorage-Source: Alpha_SMB`nStorage-Version: 7" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/Configuration.xml' = $conf; $bin = 'new'
+        }) | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $tree = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- 'Alpha_SMB/cfe/src')
+        ($tree -ccontains $bin) | Should -BeTrue -Because "у переліку: $($tree -join ', ')"
+        (git -C $repo show "HEAD:$bin").Trim() | Should -BeExactly 'new'
     }
 
     It 'глобальний конфіг ГітКонвертера (autocrlf=true, safecrlf=true): змішаний файл із дзеркала — blob побайтово' {

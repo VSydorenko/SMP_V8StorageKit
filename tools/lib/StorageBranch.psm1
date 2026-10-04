@@ -546,7 +546,11 @@ function Write-KitStorageVersion {
         $rmOut = git -C $WorktreePath rm -r -q --cached --ignore-unmatch -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git rm --cached у worktree завершився з кодом ${LASTEXITCODE}: $($rmOut -join "`n")" }
 
-        $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -- $RepoPath 2>&1
+        # -f: файл дерева платформи мусить потрапити в індекс, навіть якщо його ігнорує .git/info/exclude
+        # (спільний для всіх worktree) чи core.excludesFile користувача: інакше rm --cached вище мовчки
+        # знімає з відстеження відстежуваний раніше файл (спека 2026-10-04 §4.1, фінальне рев'ю, H2).
+        # Службові файли й поставка прибрані з диска раніше, тож -f їх не втягне.
+        $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -f -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
         Assert-KitIndexMatchesDisk -RepoRoot $WorktreePath -RepoPath $RepoPath
 

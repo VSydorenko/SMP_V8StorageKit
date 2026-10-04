@@ -63,7 +63,9 @@ function Assert-KitIndexMatchesDisk {
     .DESCRIPTION
         Ловить фантом (старий регістр лишився в індексі), загублений ASCII-регістр і будь-яку іншу
         евристику git, яка розводить індекс із диском. Службові файли й поставку не рахує
-        (Test-KitComparableRelativePath — той самий фільтр, що в verify). Кидає до коміту.
+        (Test-KitComparableRelativePath — той самий фільтр, що в verify). Ігнорованих файлів з диска
+        не віднімає: обидва викликачі додають із -f, тож файл на диску поза індексом — розбіжність.
+        Кидає до коміту.
     #>
     [CmdletBinding()]
     param(
@@ -81,14 +83,9 @@ function Assert-KitIndexMatchesDisk {
     }
     $disk = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@(Get-KitRelativeFiles -Root (Join-Path $RepoRoot $prefix)), [System.StringComparer]::Ordinal)
-    # Файли, які git ігнорує, у дерево за визначенням не входять — їх не рахуємо (інакше дзеркало з
-    # файлом, який споживач ігнорує, зупиняло б adopt уже після стирання дерева). У worktree дзеркала
-    # .gitignore немає — перелік порожній.
-    $ign = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--', $prefix)
-    if ($ign.ExitCode -ne 0) { throw "git ls-files --ignored -- $prefix завершився з кодом $($ign.ExitCode): $($ign.Stderr)" }
-    foreach ($p in ($ign.Stdout -split "`0")) {
-        if ($p) { [void]$disk.Remove($p.Substring($prefix.Length).TrimStart('/')) }
-    }
+    # Ігноровані файли з диска НЕ віднімаємо (спека 2026-10-04 §4.1, фінальне рев'ю, H2): обидва викликачі
+    # додають із -f, тож будь-який файл на диску поза індексом — розбіжність (інакше rm --cached + add без -f,
+    # що мовчки зняв з відстеження файл під ігнором машини, лишився б непоміченим).
     $onlyIndex = @($index | Where-Object { -not $disk.Contains($_) } | Sort-Object -CaseSensitive)
     $onlyDisk  = @($disk  | Where-Object { -not $index.Contains($_) } | Sort-Object -CaseSensitive)
     if ($onlyIndex.Count -eq 0 -and $onlyDisk.Count -eq 0) { return }

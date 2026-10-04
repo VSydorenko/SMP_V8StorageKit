@@ -177,9 +177,14 @@ function Invoke-KitVerify {
         Write-KitDiffList -Title 'лише регістр шляху (дамп ↔ дерево)' -Items @($diff.CaseOnly | ForEach-Object {
             "$($_.Dump) ↔ $($_.Tree)" + $(if ($_.ContentEqual) { '' } else { ' (вміст теж різниться)' })
         })
-        if ($diff.CaseCollisions.Count -gt 0 -or $diff.CaseOnly.Count -gt 0) {
-            Write-Host ("  Увага: розбіжності регістру — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
-                        "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
+        if ($diff.CaseCollisions.Count -gt 0) {
+            Write-Host ("  Увага: регістр-дублікати — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
+                        "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 або ручний git add -A після dump/canon " +
+                        "(docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
+        }
+        if ($diff.CaseOnly.Count -gt 0) {
+            Write-Host ("  Увага: у дереві git шлях має старий регістр імені порівняно зі сховищем — це розбіжність імені, а не вмісту; " +
+                        "робота для сховища тут не потрібна (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
         }
         if ($diff.OnlyInDump.Count -gt 0) {
             # -f поза дужками PowerShell зв'язав би як -ForegroundColor (P4 префлайту B3) — оператор формату всередині.
