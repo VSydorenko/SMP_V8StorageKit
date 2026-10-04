@@ -129,6 +129,22 @@ function Invoke-KitVerify {
         $treeDir = Join-Path $workDir 'tree'
         $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
         Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
+        # Групи регістру — з ПЕРЕЛІКУ git, не з диска (спека 2026-10-04 §4.3): на NTFS члени групи вже
+        # злились в один файл при експорті. Запобіжник лічильника: інша розбіжність між переліком і
+        # текою дерева — файлова система з'їла шляхи з невідомої причини, і вердикт був би неправдою.
+        $prefix = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
+        $treeRel = @(Get-KitTreePaths -RepoRoot $root -Ref $ref -Path $prefix |
+            ForEach-Object { $_.Substring($prefix.Length).TrimStart('/') } |
+            Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
+        $collisions = @(Get-KitCaseCollisions -Paths $treeRel)
+        $collapsed = 0
+        foreach ($g in $collisions) { $collapsed += $g.Count - 1 }
+        $onDisk = @(Get-KitRelativeFiles -Root $treeDir).Count
+        if ($onDisk -ne ($treeRel.Count - $collapsed)) {
+            throw ("Дерево '$ref' після експорту має $onDisk файл(ів), а з переліку git очікувалось $($treeRel.Count - $collapsed) " +
+                   "(з поправкою на $($collisions.Count) груп(и) регістр-дублікатів) — файлова система втратила шляхи з невідомої причини; " +
+                   'verify не ручається за звірку.')
+        }
         Write-Host ("  База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
             $agent.Workspace, $ver) -ForegroundColor Yellow
 
@@ -141,9 +157,9 @@ function Invoke-KitVerify {
         foreach ($rel in (@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir))) { $relSet.Add($rel) | Out-Null }
         $allRel = [string[]]$relSet
         $binary = Get-KitBinaryPaths -RepoRoot $root -RepoPath $src.RepoPath -RelativePaths $allRel
-        $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary
+        $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary -CaseCollisions $collisions -ClassifyCase
 
-        $differs = ($diff.CrOnly.Count + $diff.Content.Count + $diff.OnlyInDump.Count + $diff.OnlyInTree.Count) -gt 0
+        $differs = ($diff.CrOnly.Count + $diff.Content.Count + $diff.OnlyInDump.Count + $diff.OnlyInTree.Count + $diff.CaseCollisions.Count + $diff.CaseOnly.Count) -gt 0
         $verdict = if (-not $differs -and $vv.NewerVersions.Count -eq 0) { 'equal' }
                    elseif (-not $differs) { 'storage-ahead' }
                    elseif ($vv.NewerVersions.Count -eq 0) { 'ref-ahead' }
@@ -154,6 +170,17 @@ function Invoke-KitVerify {
         Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
         Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
         Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
+        Write-KitDiffList -Title "регістр-дублікати в дереві '$ref' (на Windows — один файл)" -Items @($diff.CaseCollisions | ForEach-Object {
+            $real = $_.InDump
+            ($_.Paths | ForEach-Object { if ($_ -ceq $real) { "$_ (як у дампі)" } else { "$_ (фантом)" } }) -join ' | '
+        })
+        Write-KitDiffList -Title 'лише регістр шляху (дамп ↔ дерево)' -Items @($diff.CaseOnly | ForEach-Object {
+            "$($_.Dump) ↔ $($_.Tree)" + $(if ($_.ContentEqual) { '' } else { ' (вміст теж різниться)' })
+        })
+        if ($diff.CaseCollisions.Count -gt 0 -or $diff.CaseOnly.Count -gt 0) {
+            Write-Host ("  Увага: розбіжності регістру — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
+                        "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
+        }
         if ($diff.OnlyInDump.Count -gt 0) {
             # -f поза дужками PowerShell зв'язав би як -ForegroundColor (P4 префлайту B3) — оператор формату всередині.
             Write-Host (("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +

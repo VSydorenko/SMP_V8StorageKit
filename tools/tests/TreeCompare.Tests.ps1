@@ -154,6 +154,39 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $r.Total | Should -Be 6
     }
 
+    It 'CaseCollisions: член групи, що є в дампі, — справжній; група не потрапляє в OnlyIn*/Equal' {
+        $d = Join-Path $TestDrive 'cc-dump'; $t = Join-Path $TestDrive 'cc-tree'
+        New-Item -ItemType Directory -Path (Join-Path $d 'T'), (Join-Path $t 'T') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'T/ОбразецАнализ.xml') -Value 'x' -NoNewline
+        Set-Content -LiteralPath (Join-Path $t 'T/Образецанализ.xml') -Value 'x' -NoNewline   # NTFS: обидва члени — один файл
+        $groups = @(, [string[]]@('T/ОбразецАнализ.xml', 'T/Образецанализ.xml'))
+        $r = Compare-KitTrees -DumpDir $d -TreeDir $t -BinaryPaths ([System.Collections.Generic.HashSet[string]]::new()) -CaseCollisions $groups
+        $r.CaseCollisions | Should -HaveCount 1
+        $r.CaseCollisions[0].InDump | Should -BeExactly 'T/ОбразецАнализ.xml'
+        $r.OnlyInDump | Should -HaveCount 0
+        $r.OnlyInTree | Should -HaveCount 0
+        $r.Equal | Should -Be 0
+    }
+
+    It 'CaseOnly лише з -ClassifyCase: пара «дамп/дерево» різниться тільки регістром' {
+        $d = Join-Path $TestDrive 'co-dump'; $t = Join-Path $TestDrive 'co-tree'
+        New-Item -ItemType Directory -Path $d, $t -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'SampleaBc.xml') -Value 'same' -NoNewline
+        Set-Content -LiteralPath (Join-Path $t 'Sampleabc.xml') -Value 'same' -NoNewline
+        $empty = [System.Collections.Generic.HashSet[string]]::new()
+        $plain = Compare-KitTrees -DumpDir $d -TreeDir $t -BinaryPaths $empty
+        $plain.CaseOnly | Should -HaveCount 0
+        ($plain.OnlyInDump -join '|') | Should -BeExactly 'SampleaBc.xml'
+        ($plain.OnlyInTree -join '|') | Should -BeExactly 'Sampleabc.xml'
+        $cls = Compare-KitTrees -DumpDir $d -TreeDir $t -BinaryPaths $empty -ClassifyCase
+        $cls.CaseOnly | Should -HaveCount 1
+        $cls.CaseOnly[0].Dump | Should -BeExactly 'SampleaBc.xml'
+        $cls.CaseOnly[0].Tree | Should -BeExactly 'Sampleabc.xml'
+        $cls.CaseOnly[0].ContentEqual | Should -BeTrue
+        $cls.OnlyInDump | Should -HaveCount 0
+        $cls.OnlyInTree | Should -HaveCount 0
+    }
+
     It 'Get-KitRelativeFiles: шляхи з /, без ConfigDumpInfo.xml і DumpFilesIndex.txt' {
         $files = @(Get-KitRelativeFiles -Root $script:Dump)
         $files | Should -Contain 'Ext/pic.png'
