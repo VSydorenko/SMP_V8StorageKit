@@ -107,7 +107,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         $f = @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src')
         $f | Should -HaveCount 1
         $f[0].Level | Should -Be 'error'
-        $f[0].Message | Should -BeLike '*різняться лише регістром*T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
+        $f[0].Message | Should -BeLikeExactly '*різняться лише регістром*T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
     }
 
     It 'Storage-Source іншого джерела — помилка' {
