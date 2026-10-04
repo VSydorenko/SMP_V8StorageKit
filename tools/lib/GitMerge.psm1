@@ -125,18 +125,30 @@ function Merge-KitBranchInto {
         if ($da.ExitCode -ne 0) { throw "git diff-tree завершився з кодом $($da.ExitCode): $($da.Stderr)" }
         $added = @($da.Stdout -split "`0" | Where-Object { $_ })
         if ($added.Count -gt 0) {
-            $tops = @($added | ForEach-Object { $i = $_.IndexOf('/'); if ($i -gt 0) { $_.Substring(0, $i) } else { $_ } } | Sort-Object -Unique)
-            $lsArgs = @('-c', 'core.quotepath=false', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--') + @($tops | ForEach-Object { ":(literal)$_" })
-            $ig = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments $lsArgs
-            if ($ig.ExitCode -ne 0) { throw "git ls-files --others --ignored завершився з кодом $($ig.ExitCode): $($ig.Stderr)" }
-            $ignored = [System.Collections.Generic.HashSet[string]]::new([string[]]@($ig.Stdout -split "`0" | Where-Object { $_ }), [System.StringComparer]::Ordinal)
+            # Перетин — OrdinalIgnoreCase (спека 2026-10-04 §4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
+            # x.bin — один файл, і read-tree перезапише його. Хибної зупинки на кириличному перейменуванні
+            # регістром це не дає: старий файл відстежуваний, у переліку ігнорованих його немає.
+            # Верхні теки для pathspec — фактичні імена в корені, зіставлені OrdinalIgnoreCase: магія icase у
+            # pathspec git складає лише ASCII (виміряно: ':(literal,icase)т' не знаходить теку 'Т').
+            $topsAdded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($a in $added) { $slash = $a.IndexOf('/'); [void]$topsAdded.Add($(if ($slash -gt 0) { $a.Substring(0, $slash) } else { $a })) }
+            $tops = @(Get-ChildItem -LiteralPath $RepoRoot -Force -Name | Where-Object { $topsAdded.Contains($_) })
+            $ignored = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            if ($tops.Count -gt 0) {
+                $lsArgs = @('-c', 'core.quotepath=false', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--') + @($tops | ForEach-Object { ":(literal)$_" })
+                $ig = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments $lsArgs
+                if ($ig.ExitCode -ne 0) { throw "git ls-files --others --ignored завершився з кодом $($ig.ExitCode): $($ig.Stderr)" }
+                foreach ($p in ($ig.Stdout -split "`0")) { if ($p) { $ignored[$p] = $p } }
+            }
             $clash = [System.Collections.Generic.List[string]]::new()
             foreach ($path in $added) {
-                if (-not $ignored.Contains($path)) { continue }
+                if (-not $ignored.ContainsKey($path)) { continue }
+                # Вміст рахуємо з ФАКТИЧНОГО шляху ігнорованого файлу, порівнюємо з blob доданого шляху в дереві злиття.
+                $actual = $ignored[$path]
                 $theirs = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', "${tree}:$path")
-                $mine   = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('hash-object', '--no-filters', '--', $path)
+                $mine   = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('hash-object', '--no-filters', '--', $actual)
                 if ($theirs.ExitCode -eq 0 -and $mine.ExitCode -eq 0 -and $theirs.Stdout.Trim() -eq $mine.Stdout.Trim()) { continue }
-                $clash.Add($path)
+                $clash.Add($(if ($actual -ceq $path) { $path } else { "$actual (дзеркало приносить $path)" }))
             }
             if ($clash.Count -gt 0) {
                 $shown = @($clash | Select-Object -First 5)

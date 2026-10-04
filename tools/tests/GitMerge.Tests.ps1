@@ -16,16 +16,18 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         }
 
         function script:New-RepoWithIgnoredClash {
-            param([string]$Name, [string]$LocalContent)
+            # -LocalName відмінне від -MirrorName лише регістром — ігнорований файл на диску й доданий шлях на NTFS один файл.
+            param([string]$Name, [string]$LocalContent, [string]$LocalName = 'x.bin', [string]$MirrorName = 'x.bin')
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitattributes -WithGitignore
             Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'проєкт' -Encoding UTF8
             git -C $repo add -A; git -C $repo commit -q -m 'README'
-            Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value '*.bin'
+            # Обидва регістри розширення — щоб ігнорування не залежало від core.ignorecase машини.
+            Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value @('*.bin', '*.BIN')
             Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
-                'Alpha_SMB/cfe/src/x.bin' = 'mirror'; 'Alpha_SMB/cfe/src/a.xml' = 'A1'
+                "Alpha_SMB/cfe/src/$MirrorName" = 'mirror'; 'Alpha_SMB/cfe/src/a.xml' = 'A1'
             }) | Out-Null
             New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/x.bin') -Value $LocalContent -NoNewline
+            Set-Content -LiteralPath (Join-Path $repo "Alpha_SMB/cfe/src/$LocalName") -Value $LocalContent -NoNewline
             $repo
         }
 
@@ -159,6 +161,15 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         (git -C $repo rev-parse main) | Should -Be $before
         (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/x.bin') -Raw) | Should -BeExactly 'precious'
         Join-Path $repo 'Alpha_SMB/cfe/src/a.xml' | Should -Not -Exist
+    }
+
+    It 'ігнорований файл відрізняється від доданого шляху лише регістром (кирилиця) — на NTFS той самий файл: зупинка, вміст цілий' {
+        $repo = New-RepoWithIgnoredClash 'ignored-case-clash' 'precious' -LocalName 'Ф.BIN' -MirrorName 'ф.bin'
+        $before = git -C $repo rev-parse main
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLikeExactly '*ігноровані невідстежувані файли*Нічого не змінено*Alpha_SMB/cfe/src/Ф.BIN (дзеркало приносить Alpha_SMB/cfe/src/ф.bin)*'
+        (git -C $repo rev-parse main) | Should -Be $before
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Ф.BIN') -Raw) | Should -BeExactly 'precious'
     }
 
     It 'ігнорований невідстежуваний файл із тим самим вмістом, що в дзеркалі — не втрата, merged' {
