@@ -43,6 +43,10 @@
   `SMB_ukr_vendor`, `checkout` коміту перейменувань `c85e32a18` з попереднього `74c022c2e`).
 - Не допомагають: `-c core.ignorecase=false`, `switch --discard-changes`, явний `git mv`
   (тека — `Permission denied`, файл — `destination exists`).
+- Магія pathspec `:(icase)` теж складає лише ASCII (виміряно виконавцем задачі 4, 2026-10-05:
+  `ls-files --others --ignored -- ':(literal,icase)x.bin' ':(literal,icase)т'` знайшла `x.BIN`, але
+  не теку `Т`). Загальне правило kit: жодного механізму регістронечутливості git не використовувати;
+  складання регістру — лише в PowerShell (`OrdinalIgnoreCase`), фактичні імена — з диска.
 - Проходять: `git merge-tree --write-tree` (без робочої копії; з `--allow-unrelated-histories` для
   першого злиття) і примусові `read-tree --reset -u`, `reset --hard`, `checkout -f`.
 - `read-tree --reset -u HEAD` на клоні `SMB_ukr_vendor` (16 812 файлів, 6 543 зміни): 13 с,
