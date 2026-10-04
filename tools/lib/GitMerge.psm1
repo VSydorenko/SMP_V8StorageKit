@@ -3,6 +3,8 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/StorageBranch.psm1"
+# Потрібен Invoke-KitGitProcess. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
+Import-Module "$PSScriptRoot/TreeCompare.psm1"
 
 function Test-KitBranchMergedInto {
     [CmdletBinding()]
@@ -18,13 +20,21 @@ function Test-KitBranchMergedInto {
 function Merge-KitBranchInto {
     <#
     .SYNOPSIS
-        Зливає гілку дзеркала в головну (спека §3.4, рішення Q4).
+        Зливає гілку дзеркала в головну гілку чи гілку задачі (спека §3.4, рішення Q4) — без робочої копії.
     .DESCRIPTION
-        Три випадки: HEAD = Into і чисто — на місці; HEAD = Into і брудно — зупинка (у брудний
-        main не зливаємо); HEAD — інша гілка — тимчасовий worktree під build/sync/_main. Завжди
-        --no-ff: main ніколи не є предком storage/X, але fast-forward тут перетворив би main
-        на дзеркало, і краще, щоб git це навіть не розглядав. Конфлікт — abort і зупинка з
-        командою для ручного розбору; стан гілки не змінюється.
+        Злиття рахує git merge-tree --write-tree (той самий ort, що git merge), коміт — commit-tree з
+        двома батьками, гілку пересуває update-ref з перевіркою старого значення. Робочу копію
+        оновлює лише одна команда — read-tree --reset -u HEAD — і лише коли <Into> вибрана тут.
+        Причина (спека 2026-10-04 §2, §4.2): git на Windows не переводить робочу копію через
+        перейменування лише регістром не-ASCII імені — merge/checkout/reset --keep/read-tree -m
+        відмовляють з «untracked working tree files would be overwritten», навіть на чистому коміті.
+        Проходять лише merge-tree і примусове read-tree --reset -u.
+        Випадки: <Into> вибрана тут і чиста — злиття на місці (Via=in-place); вибрана тут і брудна
+        (зокрема невідстежувані файли — read-tree --reset їх не захищає) — зупинка; вибрана в іншому
+        worktree — зупинка (update-ref пересунув би гілку під чужою копією); не вибрана ніде —
+        пересувається лише гілка (Via=ref). Конфлікт — зупинка, НІЧОГО не змінено, merge --abort не
+        потрібен. Хуки pre-merge-commit/post-merge не викликаються: перший охороняв лише storage/* —
+        тепер це перевірка нижче.
     #>
     [CmdletBinding()]
     param(
@@ -32,10 +42,12 @@ function Merge-KitBranchInto {
         [Parameter(Mandatory)][string]$Branch,
         [Parameter(Mandatory)][string]$Into,
         [Parameter(Mandatory)][string]$Message,
-        [switch]$AllowUnrelated,
-        [string]$WorkDir = (Join-Path $RepoRoot 'build/sync/_main/wt')
+        [switch]$AllowUnrelated
     )
 
+    if ($Into -like 'storage/*') {
+        throw "У гілку '$Into' нічого не зливають — це дзеркало сховища (гілки storage/* пише лише kit sync). Зливають storage/* у головну гілку чи гілку задачі."
+    }
     if (-not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Into)) {
         throw "Гілки '$Into' немає — нема куди зливати $Branch. Створіть перший коміт у головній гілці (скіл onboarding робить це першим)."
     }
@@ -43,100 +55,125 @@ function Merge-KitBranchInto {
         return [pscustomobject]@{ Outcome = 'already'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'none' }
     }
 
-    $mergeArgs = @('merge', '--no-ff', '--no-edit', '-m', $Message)
-    if ($AllowUnrelated) { $mergeArgs += '--allow-unrelated-histories' }
-    $mergeArgs += $Branch
+    # Залишок тимчасового worktree kit ≤ 1.3.1 (build/sync/_main/wt) — прибрати, якщо є: нова схема його не створює.
+    $legacy = Join-Path $RepoRoot 'build/sync/_main/wt'
+    if (Test-Path -LiteralPath $legacy) {
+        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'залишок worktree головної гілки'
+        git -C $RepoRoot worktree remove --force $legacy 2>$null | Out-Null
+        if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Recurse -Force }
+        git -C $RepoRoot worktree prune 2>$null | Out-Null
+    }
 
-    # 2>$null, не 2>&1: $current нижче читається як ім'я гілки (і в булевій перевірці, і в
-    # тексті зупинки нижче) — попередження git на stderr при коді виходу 0 (наприклад
-    # safe.directory) інакше потрапило б у це ім'я. Той самий принцип, що й у $dirty нижче
-    # (уже 2>$null, B2) і в StorageBranch.psm1:270 (той самий рядок, той самий фікс).
+    # 2>$null, не 2>&1: $current читається як ім'я гілки (той самий принцип, що StorageBranch.psm1).
     $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}." }
-    if ($current -eq $Into) {
-        # -c core.quotepath=false: без цього git status квотує non-ASCII шляхи (\320\221...)
-        # у списку брудних файлів нижче — той самий дефект, що StorageBranch.psm1:
-        # kit форсує прапорець за виклик, а не покладається на налаштування репозиторію.
-        # 2>$null, не 2>&1: $dirty нижче читається як перелік брудних ШЛЯХІВ (і в булевій
-        # перевірці, і в тексті зупинки) — попередження git на stderr при коді виходу 0
-        # (наприклад про safe.directory чи локаль) інакше потрапило б у цей перелік як
-        # нібито незакомічений шлях.
+    $here = ($current -eq $Into)
+    if ($here) {
+        # -c core.quotepath=false і 2>$null — див. історію в коментарях попередньої редакції (B2):
+        # перелік має бути шляхами, не попередженнями git.
         $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>$null
         if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}." }
         if ($dirty) {
-            # Повідомлення зупинки має бути діагностовним само по собі (той самий принцип, що
-            # ASCII-якір у решті блоку) — раніше воно називало лише ФАКТ "не чиста", і розбір
-            # причини (яка саме тека забруднена) вимагав окремого git status руками. Перелік —
-            # до п'яти шляхів; решта — рахунком, не текстом.
             $lines = @($dirty)
             $shown = @($lines | Select-Object -First 5)
             $more  = $lines.Count - $shown.Count
             $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
             throw ("Гілка '$Into' вибрана, але робоча копія не чиста — у брудний '$Into' не зливаємо. Незакомічені шляхи:`n$detail`n" +
-                   "Закомітьте або сховайте зміни (git stash) і повторіть, або перейдіть на гілку задачі — тоді злиття піде через тимчасовий worktree.")
+                   "Закомітьте або сховайте зміни (git stash) і повторіть, або перейдіть на гілку задачі — тоді злиття лише пересуне '$Into'.")
         }
-        $out = git -C $RepoRoot @mergeArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            # Аборт теж перевіряємо кодом виходу: без цього повідомлення нижче стверджувало б
-            # «стан відкочено», навіть якщо сам git merge --abort не впорався — а це вже
-            # твердження про стан репозиторію, якого код не перевірив.
-            $abortOut = git -C $RepoRoot merge --abort 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), і відкіт (git merge --abort) ТЕЖ не " +
-                       "вдався (код ${LASTEXITCODE}: $($abortOut -join "`n")) — репозиторій лишається в незавершеному " +
-                       "стані злиття, розберіться вручну: git status`n$($out -join "`n")")
+    } else {
+        $wl = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('worktree', 'list', '--porcelain')
+        if ($wl.ExitCode -ne 0) { throw "git worktree list завершився з кодом $($wl.ExitCode): $($wl.Stderr)" }
+        if (@($wl.Stdout -split "`n" | Where-Object { $_.Trim() -eq "branch refs/heads/$Into" }).Count -gt 0) {
+            throw ("Гілка '$Into' вибрана в іншому worktree — kit не пересуває гілку під чужою робочою копією. " +
+                   "Повторіть злиття там, де '$Into' вибрана, або приберіть той worktree.")
+        }
+    }
+
+    $old = Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into
+    # Гілку дзеркала фіксуємо в SHA один раз: merge-tree і commit-tree -p мусять бачити той самий коміт,
+    # навіть якщо паралельний sync допише версію між ними.
+    $branchSha = Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Branch
+    $mtArgs = @('-c', 'core.quotepath=false', 'merge-tree', '--write-tree', '--name-only', '-z')
+    if ($AllowUnrelated) { $mtArgs += '--allow-unrelated-histories' }
+    $mtArgs += @($old, $branchSha)
+    $mt = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments $mtArgs
+    $fields = @($mt.Stdout -split "`0")
+    switch ($mt.ExitCode) {
+        0 { }
+        1 {
+            # -z --name-only: <дерево>\0<шлях>\0…\0\0<повідомлення> — конфліктні шляхи до першого порожнього поля.
+            $conflicts = [System.Collections.Generic.List[string]]::new()
+            for ($i = 1; $i -lt $fields.Count -and $fields[$i]; $i++) { $conflicts.Add($fields[$i]) }
+            $shown = @($conflicts | Select-Object -First 5)
+            $more  = $conflicts.Count - $shown.Count
+            $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
+            throw ("Злиття $Branch → $Into не вдалося: конфлікт. Нічого не змінено — гілка '$Into' і робоча копія ті самі. " +
+                   "Конфліктні шляхи:`n$detail`nРозв'яжіть вручну: git merge $Branch. Увага: якщо серед змін є перейменування " +
+                   'лише регістром не-ASCII імен, ручний git merge на Windows сам відмовить з «would be overwritten» ' +
+                   '(docs/storage-and-git.md, «Перейменування регістром»).')
+        }
+        129 { throw "git merge-tree не розпізнав --write-tree — потрібен git ≥ 2.38. Оновіть git і повторіть. git: $($mt.Stderr)" }
+        default { throw "git merge-tree $Branch → $Into завершився з кодом $($mt.ExitCode): $($mt.Stderr)" }
+    }
+    $tree = $fields[0].Trim()
+
+    if ($here) {
+        # read-tree --reset -u мовчки перезаписує невідстежуваний ІГНОРОВАНИЙ файл, якщо злиття додає закомічений
+        # файл за тим самим шляхом; status --porcelain такого файлу не показує. Перевіряємо до update-ref.
+        $da = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'diff-tree', '-r', '-z', '--name-only', '--no-renames', '--diff-filter=A', $old, $tree)
+        if ($da.ExitCode -ne 0) { throw "git diff-tree завершився з кодом $($da.ExitCode): $($da.Stderr)" }
+        $added = @($da.Stdout -split "`0" | Where-Object { $_ })
+        if ($added.Count -gt 0) {
+            $tops = @($added | ForEach-Object { $i = $_.IndexOf('/'); if ($i -gt 0) { $_.Substring(0, $i) } else { $_ } } | Sort-Object -Unique)
+            $lsArgs = @('-c', 'core.quotepath=false', 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--') + @($tops | ForEach-Object { ":(literal)$_" })
+            $ig = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments $lsArgs
+            if ($ig.ExitCode -ne 0) { throw "git ls-files --others --ignored завершився з кодом $($ig.ExitCode): $($ig.Stderr)" }
+            $ignored = [System.Collections.Generic.HashSet[string]]::new([string[]]@($ig.Stdout -split "`0" | Where-Object { $_ }), [System.StringComparer]::Ordinal)
+            $clash = [System.Collections.Generic.List[string]]::new()
+            foreach ($path in $added) {
+                if (-not $ignored.Contains($path)) { continue }
+                $theirs = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', "${tree}:$path")
+                $mine   = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('hash-object', '--no-filters', '--', $path)
+                if ($theirs.ExitCode -eq 0 -and $mine.ExitCode -eq 0 -and $theirs.Stdout.Trim() -eq $mine.Stdout.Trim()) { continue }
+                $clash.Add($path)
             }
-            throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
-                   "git merge $Branch`n$($out -join "`n")")
+            if ($clash.Count -gt 0) {
+                $shown = @($clash | Select-Object -First 5)
+                $more  = $clash.Count - $shown.Count
+                $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
+                throw ("Гілка '$Into' вибрана, але робоча копія не чиста: злиття $Branch → $Into перезаписало б ігноровані невідстежувані файли, " +
+                       "які дзеркало приносить закоміченими. Нічого не змінено. Шляхи:`n$detail`n" +
+                       "Перенесіть ці файли (або перейдіть на гілку задачі — тоді злиття лише пересуне '$Into') і повторіть.")
+            }
         }
-        return [pscustomobject]@{ Outcome = 'merged'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'in-place' }
     }
 
-    Assert-SafeWorkPath -Path $WorkDir -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree головної гілки'
-    if (Test-Path -LiteralPath $WorkDir) {
-        git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$WorkDir' (прибирання залишку) завершився кодом ${LASTEXITCODE} — прибираю теку напряму." }
-        if (Test-Path -LiteralPath $WorkDir) { Remove-Item -LiteralPath $WorkDir -Recurse -Force }
-    }
-    git -C $RepoRoot worktree prune 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune (прибирання залишку) завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
-    $add = git -C $RepoRoot worktree add -q $WorkDir $Into 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Не вдалося створити worktree для '$Into' (вибрана в іншому worktree?): $($add -join "`n")" }
-
+    $msgFile = Join-Path $RepoRoot "build/sync/merge-message-$([guid]::NewGuid().ToString('N')).txt"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $msgFile) -Force | Out-Null
     try {
-        $out = git -C $WorkDir @mergeArgs 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            # Той самий запобіжник, що у гілці in-place вище: аборт перевіряємо кодом виходу,
-            # інакше повідомлення стверджувало б відкіт, якого могло й не відбутись.
-            $abortOut = git -C $WorkDir merge --abort 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), і відкіт (git merge --abort) ТЕЖ не " +
-                       "вдався (код ${LASTEXITCODE}: $($abortOut -join "`n")) — worktree '$WorkDir' лишається в незавершеному " +
-                       "стані злиття, розберіться вручну: git -C $WorkDir status`n$($out -join "`n")")
-            }
-            throw ("Злиття $Branch → $Into не вдалося (конфлікт або помилка git), стан відкочено. Розв'яжіть вручну: " +
-                   "git merge $Branch`n$($out -join "`n")")
-        }
-        $sha = Get-KitCommitSha -RepoRoot $WorkDir -Ref HEAD
-    } finally {
-        # Симетрично до прибирання залишку перед створенням (вище і в New-KitStorageWorktree):
-        # --force теж може не впоратись (заблокований файл — антивірус, індексатор на Windows),
-        # тож перевіряємо Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо —
-        # без цього виклик повернув би Outcome='merged' без жодного сліду незібраного worktree.
-        # Обидва виклики нижче лишаються без throw навмисно (Blocker 1, StorageBranch.psm1
-        # Remove-KitStorageWorktree): виняток із finally замінив би собою той, що вже в польоті.
-        git -C $RepoRoot worktree remove --force $WorkDir 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$WorkDir' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
-        if (Test-Path -LiteralPath $WorkDir) {
-            Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $WorkDir) {
-                Write-Warning "Не вдалося прибрати тимчасовий worktree '$WorkDir' — приберіть вручну (git worktree remove --force) перед наступним злиттям."
-            }
-        }
-        git -C $RepoRoot worktree prune 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
+        [System.IO.File]::WriteAllText($msgFile, $Message, [System.Text.UTF8Encoding]::new($false))
+        $ct = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('commit-tree', $tree, '-p', $old, '-p', $branchSha, '-F', $msgFile)
+        if ($ct.ExitCode -ne 0) { throw "git commit-tree завершився з кодом $($ct.ExitCode): $($ct.Stderr)" }
+    } finally { Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue }
+    $new = $ct.Stdout.Trim()
+
+    $ur = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('update-ref', '-m', "kit: $Message", "refs/heads/$Into", $new, $old)
+    if ($ur.ExitCode -ne 0) {
+        throw ("Гілку '$Into' пересунули, поки kit рахував злиття (update-ref з перевіркою старого значення відмовив) — " +
+               "нічого не змінено. Повторіть команду. git: $($ur.Stderr)")
     }
-    [pscustomobject]@{ Outcome = 'merged'; Sha = $sha; Via = 'worktree' }
+
+    if ($here) {
+        $rt = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('read-tree', '--reset', '-u', 'HEAD')
+        if ($rt.ExitCode -ne 0) {
+            throw ("Коміт злиття $($new.Substring(0, 7)) уже створено і гілку '$Into' пересунуто, але робоча копія не оновилась " +
+                   "(git read-tree --reset -u HEAD, код $($rt.ExitCode): $($rt.Stderr)). Відновлення — та сама команда: " +
+                   'git read-tree --reset -u HEAD (робоча копія була чистою до злиття, тож нічого не втрачається).')
+        }
+        return [pscustomobject]@{ Outcome = 'merged'; Sha = $new; Via = 'in-place' }
+    }
+    [pscustomobject]@{ Outcome = 'merged'; Sha = $new; Via = 'ref' }
 }
 
 Export-ModuleMember -Function Test-KitBranchMergedInto, Merge-KitBranchInto
