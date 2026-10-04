@@ -14,7 +14,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             param([string]$Name)
             # -WithGitignore обов'язковий: adopt пише в <корінь>/build/adopt/<ключ>/mirror, і без
             # шаблонного .gitignore асерція «git status порожній» впаде на робочому смітті самої команди.
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore -WithGitattributes
             $src  = Join-Path $repo 'Alpha_SMB/cfe/src'
             Set-Content -LiteralPath (Join-Path $src 'Shared.xml') -Value 'версія гілки' -Encoding UTF8
             Set-Content -LiteralPath (Join-Path $src 'OnlyInBranch.xml') -Value 'лише в гілці' -Encoding UTF8
@@ -62,7 +62,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
     }
 
     It 'дзеркала немає — зупинка з іменем гілки' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-no-mirror') -WithHooks
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-no-mirror') -WithHooks -WithGitattributes
         $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB')
         $r.ExitCode | Should -Not -Be 0
         $r.Output   | Should -BeLike '*storage/Alpha_SMB*'
@@ -101,7 +101,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         # дерево, що різниться з дзеркалом лише кінцями рядків, виглядало як «вже збігається»,
         # хоча CRLF/LF-розбіжність — підпис зламаної політики тексту (docs/text-policy.md), а
         # не шум, і verify.psm1 на тому самому дереві доповів би протилежне.
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-cronly') -WithHooks -WithGitignore
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-cronly') -WithHooks -WithGitignore -WithGitattributes
         $src  = Join-Path $repo 'Alpha_SMB/cfe/src'
         Set-Content -LiteralPath (Join-Path $src 'CrOnly.xml') -Value "рядок`r`n" -Encoding UTF8 -NoNewline
         git -C $repo add -A 2>&1 | Out-Null
@@ -158,6 +158,94 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Join-Path $repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
         (Get-Content -LiteralPath $strayPath -Raw) | Should -BeLike '*чужа незакомічена робота*'
     }
+
+    It 'кириличне перейменування регістром, шлях зі злиттям — у коміті adopt лише новий регістр' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-case-merge') -WithHooks -WithGitignore -WithGitattributes
+        $src = Join-Path $repo 'Alpha_SMB/cfe/src'
+        New-Item -ItemType Directory -Path (Join-Path $src 'T/Образецанализ/Ext') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'T/Образецанализ.xml') -Value 'xml' -NoNewline
+        Set-Content -LiteralPath (Join-Path $src 'T/Образецанализ/Ext/T.bin') -Value 'bin' -NoNewline
+        git -C $repo add -A 2>&1 | Out-Null; git -C $repo commit -q -m 'робота зі старим регістром' 2>&1 | Out-Null
+        $conf = [System.IO.File]::ReadAllText((Join-Path $src 'Configuration.xml'))
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "sync: версія 7`n`nStorage-Source: Alpha_SMB`nStorage-Version: 7" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/Configuration.xml' = $conf
+            'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml' = 'xml'; 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin' = 'bin'
+        }) | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $tree = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- 'Alpha_SMB/cfe/src/T')
+        # -BeExactly: Should -Be порівнює рядки нечутливо до регістру й пройшов би і зі старим.
+        $tree | Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin')
+        @(git -C $repo log -1 --format=%P HEAD) -split ' ' | Should -HaveCount 2
+    }
+
+    It 'кириличне перейменування регістром, дзеркало вже предок (коміт без злиття) — без фантома' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-case-plain') -WithHooks -WithGitignore -WithGitattributes
+        $mirror = Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "sync: версія 7`n`nStorage-Source: Alpha_SMB`nStorage-Version: 7" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml' = 'xml'; 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin' = 'bin'
+        })
+        # Гілка задачі — нащадок дзеркала, але зі старим регістром (дзеркало вже предок → adopt комітить без merge).
+        Set-KitFakeBranchTree -Repo $repo -Branch 'task' -Parent $mirror -Message 'локально старий регістр' -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/T/Образецанализ.xml' = 'xml'; 'Alpha_SMB/cfe/src/T/Образецанализ/Ext/T.bin' = 'bin'
+            'v8storagekit.yaml' = (Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw)
+            'Alpha_SMB/v8project.yaml' = (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Raw)
+            '.gitattributes' = (Get-Content -LiteralPath (Join-Path $repo '.gitattributes') -Raw)
+            '.gitignore' = (Get-Content -LiteralPath (Join-Path $repo '.gitignore') -Raw)
+            'AUTHORS' = (Get-Content -LiteralPath (Join-Path $repo 'AUTHORS') -Raw)
+        }) | Out-Null
+        git -C $repo checkout -q -f task 2>&1 | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $tree = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- 'Alpha_SMB/cfe/src/T')
+        $tree | Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin')
+        @(git -C $repo log -1 --format=%P HEAD) -split ' ' | Should -HaveCount 1
+    }
+
+    It 'шлях джерела без -text — зупинка до стирання дерева, дерево ціле, коміту немає' {
+        $repo = New-AdoptRepo 'adopt-no-text'
+        # Перекрити -text з шаблону для цього шляху: остання відповідна лінія перемагає.
+        Add-Content -LiteralPath (Join-Path $repo '.gitattributes') -Value 'Alpha_SMB/cfe/src/** text' -Encoding UTF8
+        git -C $repo add .gitattributes 2>&1 | Out-Null; git -C $repo commit -q -m 'зламана політика' 2>&1 | Out-Null
+        $head = git -C $repo rev-parse HEAD
+        $r = Invoke-Adopt -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -BeLike '*не виведено з-під конверсії кінців рядків*'
+        Join-Path $repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
+        (git -C $repo rev-parse HEAD) | Should -Be $head
+    }
+
+    It 'дзеркало несе файл, який споживач ігнорує, — інваріант «індекс ≡ диск» не зупиняє adopt' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-ignored-file') -WithHooks -WithGitignore -WithGitattributes
+        Add-Content -LiteralPath (Join-Path $repo '.gitignore') -Value '*.bak' -Encoding UTF8
+        git -C $repo add .gitignore 2>&1 | Out-Null; git -C $repo commit -q -m 'ігнор *.bak' 2>&1 | Out-Null
+        $conf = [System.IO.File]::ReadAllText((Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'))
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "sync: версія 7`n`nStorage-Source: Alpha_SMB`nStorage-Version: 7" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/Configuration.xml' = $conf; 'Alpha_SMB/cfe/src/New.xml' = 'n'; 'Alpha_SMB/cfe/src/local.bak' = 'b'
+        }) | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $tree = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- 'Alpha_SMB/cfe/src')
+        ($tree -ccontains 'Alpha_SMB/cfe/src/local.bak') | Should -BeFalse -Because "у переліку: $($tree -join ', ')"
+        ($tree -ccontains 'Alpha_SMB/cfe/src/New.xml') | Should -BeTrue -Because "у переліку: $($tree -join ', ')"
+    }
+
+    It 'глобальний конфіг ГітКонвертера (autocrlf=true, safecrlf=true): змішаний файл із дзеркала — blob побайтово' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-gitconverter') -WithHooks -WithGitignore -WithGitattributes
+        # Фікстура ставить ЛОКАЛЬНИЙ core.autocrlf=false, який перекриває глобальний конфіг.
+        git -C $repo config --unset core.autocrlf 2>&1 | Out-Null
+        $conf = [System.IO.File]::ReadAllText((Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'))
+        $mixed = "<a>`r`nt`nt</a>"
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "sync: версія 7`n`nStorage-Source: Alpha_SMB`nStorage-Version: 7" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/Configuration.xml' = $conf; 'Alpha_SMB/cfe/src/Form.xml' = $mixed
+        }) | Out-Null
+        $mirrorBlob = (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim()
+        $cfg = Join-Path $TestDrive 'adopt-gitconverter.gitconfig'
+        Set-Content -LiteralPath $cfg -Value "[core]`n`tautocrlf = true`n`tsafecrlf = true" -Encoding ascii
+        $env:GIT_CONFIG_GLOBAL = $cfg
+        try { $r = Invoke-Adopt -Repo $repo -More @('-Apply') } finally { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        (git -C $repo rev-parse 'HEAD:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $mirrorBlob
+    }
 }
 
 Describe 'kit adopt — основна конфігурація з поставкою вендора (спека 2026-09-30 §5.2)' {
@@ -166,7 +254,7 @@ Describe 'kit adopt — основна конфігурація з постав�
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:New-SupplyAdoptRepo {
             param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor, [switch]$OldMirrorWithCf)
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply -WithGitattributes
             if ($NoSupplyIgnoreLine) {
                 # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
                 $gi = Join-Path $repo '.gitignore'
@@ -318,7 +406,7 @@ Describe 'kit adopt — основна конфігурація з постав�
     }
 
     It 'розширення клієнтського воркспейсу (кирилиця в імені) — adopt -Apply працює як раніше' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-cyr') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-cyr') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithGitattributes
         $env:V8KIT_SYNC = '1'
         try {
             git -C $repo checkout -q -b 'storage/Доработки' 2>&1 | Out-Null
