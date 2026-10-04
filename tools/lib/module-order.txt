@@ -12,7 +12,9 @@
 # TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
 # C2 Task 1); GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess,
 # C2 Task 5); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
-# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1). Рядки з # ігноруються.
+# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1); CaseGuard — після TreeCompare
+# (Invoke-KitGitProcess, Get-KitRelativeFiles, Test-KitComparableRelativePath; StorageBranch
+# імпортує його вкладено, як AgentBase — V8). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Supply
@@ -25,6 +27,7 @@ StorageBranch
 StorageImprint
 GitMerge
 TreeCompare
+CaseGuard
 TreeBackup
 Hooks
 GitOutput

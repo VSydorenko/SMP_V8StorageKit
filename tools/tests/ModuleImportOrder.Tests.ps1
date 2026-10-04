@@ -16,6 +16,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions', 'Test-KitExtensionNotFound',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
             'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
+            'Get-KitTreePaths', 'Get-KitCaseCollisions', 'Assert-KitIndexMatchesDisk', 'Test-KitComparableRelativePath',
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
             'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',

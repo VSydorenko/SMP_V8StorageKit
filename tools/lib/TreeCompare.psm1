@@ -180,6 +180,20 @@ function Export-KitTree {
     $count
 }
 
+function Test-KitComparableRelativePath {
+    <#
+    .SYNOPSIS
+        Чи бере відносний шлях участь у звірці дерев: не службовий файл платформи й не поставка вендора.
+    .DESCRIPTION
+        Одне джерело фільтра для Get-KitRelativeFiles (диск) і CaseGuard (індекс, перелік git) —
+        два фільтри з різною логікою розходилися б тихо (kit-dev, «пишу перевірку»).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RelativePath)
+    $leaf = ($RelativePath -split '/')[-1]
+    ($script:PlatformJunk -notcontains $leaf) -and -not (Test-KitSupplyRelativePath -RelativePath $RelativePath)
+}
+
 function Get-KitRelativeFiles {
     <# Відносні шляхи файлів під Root з '/', без службових файлів платформи. #>
     [CmdletBinding()]
@@ -188,11 +202,11 @@ function Get-KitRelativeFiles {
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
     # Поставка вендора — стан машини, не зміст дерева (спека 2026-09-30 §6.3.3); .bin порівнюється,
-    # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object.
+    # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object;
+    # фільтр — Test-KitComparableRelativePath.
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
-        Where-Object { $script:PlatformJunk -notcontains $_.Name } |
         ForEach-Object { $_.FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/' } |
-        Where-Object { -not (Test-KitSupplyRelativePath -RelativePath $_) })
+        Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
     $files
 }
 
@@ -289,4 +303,4 @@ function Compare-KitTrees {
     }
 }
 
-Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
+Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
