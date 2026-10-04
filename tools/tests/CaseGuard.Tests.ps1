@@ -33,7 +33,7 @@ Describe 'CaseGuard.psm1 — шляхи, що різняться лише рег
         $all | Should -HaveCount 3
         $src = @(Get-KitTreePaths -RepoRoot $repo -Ref 'storage/Alpha_SMB' -Path 'Alpha_SMB/cfe/src')
         $src | Should -HaveCount 2
-        ($src -ccontains 'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml') | Should -BeTrue
+        ($src -ccontains 'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml') | Should -BeTrue -Because "у переліку: $($src -join ', ')"
         @(Get-KitTreePaths -RepoRoot $repo -Ref 'storage/Alpha_SMB' -Path 'nope') | Should -HaveCount 0
         @(Get-KitCaseCollisions -Paths $src) | Should -HaveCount 1
     }

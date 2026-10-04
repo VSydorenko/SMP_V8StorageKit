@@ -55,8 +55,8 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
         $paths | Should -HaveCount 2
         # -ccontains, не Should -Contain: Pester порівнює рядки нечутливо до регістру.
-        ($paths -ccontains 'Alpha_SMB/cfe/src/T/Образецанализ.xml') | Should -BeTrue
-        ($paths -ccontains 'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml') | Should -BeTrue
+        ($paths -ccontains 'Alpha_SMB/cfe/src/T/Образецанализ.xml') | Should -BeTrue -Because "у переліку: $($paths -join ', ')"
+        ($paths -ccontains 'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml') | Should -BeTrue -Because "у переліку: $($paths -join ', ')"
         (git -C $repo rev-parse HEAD) | Should -Be $head
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
         # Другий коміт — батько = попередня вершина
