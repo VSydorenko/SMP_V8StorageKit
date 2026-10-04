@@ -28,7 +28,11 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . [-S
 pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . -Source <ключ> -Apply
 ```
 
-Після: кількість файлів; для `truth: dump` — запропонувати коміт у поточну гілку задачі.
+Після: кількість файлів; для `truth: dump` — запропонувати коміт у поточну гілку задачі. Форма коміту
+дерева: `git rm -r -q --cached -- <шлях джерела>`, `git add -- <шлях джерела>`, перевірка
+`git diff --cached --name-only` (лише цей шлях), `git commit -F <файл>` — без `-a` і без `--only`:
+`--only` воскрешає фантом, коли вивантаження змінило лише регістр імені (`docs/storage-and-git.md`,
+«Перейменування регістром»).
 
 ## 3. Штатні зупинки
 
