@@ -93,6 +93,40 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
         $LASTEXITCODE | Should -Be 0
     }
 
+    It 'commit --only після кириличного перейменування регістром (фантом воскресає) — відхилено; звичайний коміт проходить' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-hook')
+        Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/T'
+        New-Item -ItemType Directory -Path (Join-Path $dir 'Образецанализ/Ext') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'Образецанализ.xml') -Value 'xml' -NoNewline
+        Set-Content -LiteralPath (Join-Path $dir 'Образецанализ/Ext/T.bin') -Value 'bin' -NoNewline
+        git -C $repo add -A; git -C $repo commit -q -m 'старий регістр' 2>&1 | Out-Null
+        Remove-Item -LiteralPath $dir -Recurse -Force
+        New-Item -ItemType Directory -Path (Join-Path $dir 'ОбразецАнализ/Ext') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'ОбразецАнализ.xml') -Value 'xml' -NoNewline
+        Set-Content -LiteralPath (Join-Path $dir 'ОбразецАнализ/Ext/T.bin') -Value 'bin' -NoNewline
+        git -C $repo rm -r -q --cached -- Alpha_SMB/cfe/src/T
+        git -C $repo add -- Alpha_SMB/cfe/src/T
+        $before = git -C $repo rev-parse HEAD
+        $out = git -C $repo commit -q --only -m 'з --only' -- Alpha_SMB/cfe/src/T 2>&1 | Out-String
+        $LASTEXITCODE | Should -Not -Be 0
+        $out | Should -BeLike '*в індексі є шляхи, що різняться лише регістром*'
+        (git -C $repo rev-parse HEAD) | Should -Be $before
+        git -C $repo commit -q -m 'без --only' 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only HEAD -- Alpha_SMB/cfe/src/T) |
+            Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin')
+    }
+
+    It 'ASCII-імена, що різняться не лише регістром, — хук мовчить' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-hook-ascii')
+        Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'Readme.md') -Value 'a'
+        Set-Content -LiteralPath (Join-Path $repo 'Readme2.md') -Value 'b'
+        git -C $repo add -A; git -C $repo commit -q -m 'різні імена' 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+
     Context 'Test-KitGitHooks — аудит для check' {
         It 'свіжий репозиторій без хуків — помилки про core.hooksPath і файли' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-none')
