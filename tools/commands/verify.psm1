@@ -165,7 +165,8 @@ function Invoke-KitVerify {
                    elseif ($vv.NewerVersions.Count -eq 0) { 'ref-ahead' }
                    else { 'mixed' }
 
-        Write-Host "  Побайтово рівних: $($diff.Equal) із $($diff.Total)"
+        Write-Host ("  Побайтово рівних: $($diff.Equal) із $($diff.Total)" +
+            $(if ($diff.CaseCollidedPaths -gt 0) { " (ще $($diff.CaseCollidedPaths) шлях(ів) — у групах регістру, окремий клас нижче)" } else { '' }))
         Write-KitDiffList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
         Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
         Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump

@@ -279,6 +279,11 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $result.ExitCode | Should -Be 3
             $result.Results[0].Diff.CaseCollisions | Should -HaveCount 1
             $result.Results[0].Diff.CaseCollisions[0].InDump | Should -BeExactly 'T/ОбразецАнализ.xml'
+            # Звіт сходиться арифметично: шляхи груп регістру не губляться між «рівними» й Total.
+            $d = $result.Results[0].Diff
+            $d.CaseCollidedPaths | Should -BeGreaterThan 0
+            ($d.Equal + $d.CaseCollidedPaths + $d.CrOnly.Count + $d.Content.Count + $d.OnlyInDump.Count + $d.OnlyInTree.Count + 2 * $d.CaseOnly.Count) |
+                Should -Be $d.Total
         }
 
         It 'дерево зі старим ASCII-регістром — клас «лише регістр шляху», не пара додано/видалено' {

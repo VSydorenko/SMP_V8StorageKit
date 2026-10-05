@@ -288,6 +288,9 @@ function Compare-KitTrees {
     }
 
     $equal = 0
+    # Шляхи з Total, які пішли в групи регістру, — щоб звіт сходився арифметично (на NTFS група в
+    # дереві — один файл, тож це не сума розмірів груп).
+    $caseSkipped = 0
     $crOnly = [System.Collections.Generic.List[string]]::new()
     $content = [System.Collections.Generic.List[string]]::new()
     $onlyDump = [System.Collections.Generic.List[string]]::new()
@@ -296,7 +299,7 @@ function Compare-KitTrees {
     # Сортування — тим самим Ordinal, що й вище (детермінований порядок незалежно від локалі машини).
     $ordered = [System.Linq.Enumerable]::OrderBy([string[]]$all, [Func[string, string]] { param($x) $x }, [System.StringComparer]::Ordinal)
     foreach ($rel in $ordered) {
-        if ($collided.Contains($rel)) { continue }
+        if ($collided.Contains($rel)) { $caseSkipped++; continue }
         $inDump = $dump.Contains($rel); $inTree = $tree.Contains($rel)
         if ($inDump -and -not $inTree) { $onlyDump.Add($rel); continue }
         if ($inTree -and -not $inDump) { $onlyTree.Add($rel); continue }
@@ -328,6 +331,7 @@ function Compare-KitTrees {
     [pscustomobject]@{
         CaseCollisions = $groupsOut.ToArray()
         CaseOnly   = $caseOnlyOut.ToArray()
+        CaseCollidedPaths = $caseSkipped
         Equal      = $equal
         CrOnly     = $crOnly.ToArray()
         Content    = $content.ToArray()
