@@ -129,13 +129,31 @@ function Merge-KitBranchInto {
     foreach ($g in @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $old))) { [void]$oldGroups.Add($g -join "`0") }
     $newGroups = @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $tree) | Where-Object { -not $oldGroups.Contains($_ -join "`0") })
     if ($newGroups.Count -gt 0) {
-        $shown = @($newGroups | Select-Object -First 5 | ForEach-Object { $_ -join ' | ' })
-        $more  = $newGroups.Count - $shown.Count
-        $detail = ($shown -join "`n") + $(if ($more -gt 0) { "`n…і ще $more" } else { '' })
-        throw ("Злиття $Branch → $Into дало б у гілці '$Into' шляхи, що різняться лише регістром (на NTFS це один файл — виходить фантом). " +
-               "Нічого не змінено — гілка '$Into' і робоча копія ті самі. Групи:`n$detail`n" +
-               "Рецепт: у гілці '$Into' зніміть старий регістр з індексу — git rm --cached -- <старий шлях> (диск не чіпається, " +
-               "на NTFS це той самий файл), закомітьте БЕЗ --only і повторіть команду (docs/storage-and-git.md, «Перейменування регістром»).")
+        # Звідки група — від цього залежить рецепт. Уся група у вершині дзеркала — фантом несе саме дзеркало
+        # (запис kit ≤ 1.3.1): лікує наступний sync, не ціль. Інакше члени розділені між ціллю й дзеркалом.
+        $mirrorGroups = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($g in @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $branchSha))) { [void]$mirrorGroups.Add($g -join "`0") }
+        $fromMirror = @($newGroups | Where-Object { $mirrorGroups.Contains($_ -join "`0") })
+        $split      = @($newGroups | Where-Object { -not $mirrorGroups.Contains($_ -join "`0") })
+        $fmt = {
+            param($list)
+            $shown = @($list | Select-Object -First 5 | ForEach-Object { $_ -join ' | ' })
+            ($shown -join "`n") + $(if ($list.Count -gt 5) { "`n…і ще $($list.Count - 5)" } else { '' })
+        }
+        $parts = @("Злиття $Branch → $Into дало б у гілці '$Into' шляхи, що різняться лише регістром (на NTFS це один файл — виходить фантом). " +
+                   "Нічого не змінено — гілка '$Into' і робоча копія ті самі.")
+        if ($fromMirror.Count -gt 0) {
+            $parts += ("Групи, які несе сама вершина ${Branch}:`n$(& $fmt $fromMirror)`n" +
+                       "Фантом записав у дзеркало kit ≤ 1.3.1. Наступний kit sync нової версії сховища його прибере — тоді повторіть злиття; " +
+                       'ремонту історії дзеркала kit не робить.')
+        }
+        if ($split.Count -gt 0) {
+            $parts += ("Групи, члени яких розділені між '$Into' і ${Branch}:`n$(& $fmt $split)`n" +
+                       "Рецепт: у гілці '$Into' зніміть старий регістр з індексу — git rm --cached -- <старий шлях> (диск не чіпається, " +
+                       'на NTFS це той самий файл), закомітьте БЕЗ --only і повторіть команду.')
+        }
+        $parts += '(docs/storage-and-git.md, «Перейменування регістром»)'
+        throw ($parts -join "`n")
     }
 
     if ($here) {

@@ -221,9 +221,24 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
         $err.Exception.Message | Should -BeLike '*шляхи, що різняться лише регістром*Нічого не змінено*'
         $err.Exception.Message | Should -BeLikeExactly '*Alpha_SMB/cfe/src/T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
-        $err.Exception.Message | Should -BeLike '*git rm --cached*'
+        $err.Exception.Message | Should -BeLike '*члени яких розділені між*git rm --cached*'
+        $err.Exception.Message | Should -Not -BeLike '*несе сама вершина*'
         (git -C $repo rev-parse main).Trim() | Should -Be $before
         @(git -C $repo status --porcelain) | Should -HaveCount 0
+    }
+
+    It 'фантом несе сама вершина дзеркала (kit ≤ 1.3.1), ціль чиста — зупинка з порадою «наступний sync», без рецепту для цілі (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-mirror') -WithHooks -WithGitattributes -WithGitignore
+        $pair = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+        $pair['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'xml'
+        $pair['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'xml'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files $pair | Out-Null
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB) | Should -HaveCount 2 -Because 'пара мусить справді бути в дзеркалі'
+        $before = (git -C $repo rev-parse main).Trim()
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLikeExactly '*несе сама вершина storage/Alpha_SMB*Alpha_SMB/cfe/src/T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*Наступний kit sync*'
+        $err.Exception.Message | Should -Not -BeLike '*git rm --cached*'
+        (git -C $repo rev-parse main).Trim() | Should -Be $before
     }
 
     It 'група регістру, що вже є в цільовій гілці й не змінюється, злиття не блокує (Via=ref) (H1)' {
