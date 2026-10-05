@@ -2,7 +2,8 @@
 # одне джерело для обох, щоб список не розходився (docs/follow-ups.md §5).
 # Порядок важливий: PathSafety раніше за V8; Yaml раніше за V8Project/Manifest; Preflight раніше за
 # StorageBranch/Hooks (вони беруть New-KitFinding); V8 раніше за StorageReport; GitMerge — після
-# StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath); TreeCompare — після
+# StorageBranch (бере Test-KitBranchExists) і PathSafety (бере Assert-SafeWorkPath), а TreeCompare
+# (Invoke-KitGitProcess) імпортує вкладено, бо в цьому списку той стоїть пізніше; TreeCompare — після
 # PathSafety (Assert-SafeWorkPath); StoragePlatform — після PathSafety і V8 (New-ExtensionInfobase,
 # New-V8FileInfobase, Invoke-V8Designer) І після AgentBase (Get-KitSourceInfobase бере
 # Resolve-KitAgentBase, C1 Task 1); StorageImprint — після StorageBranch (бере
@@ -12,7 +13,9 @@
 # TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
 # C2 Task 1); GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess,
 # C2 Task 5); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
-# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1). Рядки з # ігноруються.
+# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1); CaseGuard — після TreeCompare
+# (Invoke-KitGitProcess, Get-KitRelativeFiles, Test-KitComparableRelativePath; StorageBranch
+# і GitMerge імпортують його вкладено, як AgentBase — V8). Рядки з # ігноруються.
 RepoRoot
 PathSafety
 Supply
@@ -25,6 +28,7 @@ StorageBranch
 StorageImprint
 GitMerge
 TreeCompare
+CaseGuard
 TreeBackup
 Hooks
 GitOutput

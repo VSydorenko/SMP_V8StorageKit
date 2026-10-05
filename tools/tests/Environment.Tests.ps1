@@ -154,6 +154,23 @@ Describe 'Get-GitAvailability' {
     }
 }
 
+Describe 'Test-KitGitVersionSupported (злиття через merge-tree потребує git ≥ 2.38)' {
+    It '<Text> → <Ok>' -ForEach @(
+        @{ Text = 'git version 2.37.1';             Ok = $false }
+        @{ Text = 'git version 2.38.0';             Ok = $true }
+        @{ Text = 'git version 2.53.0.windows.1';   Ok = $true }
+        @{ Text = 'щось інше';                      Ok = $false }
+    ) {
+        Test-KitGitVersionSupported -VersionText $Text | Should -Be $Ok
+    }
+
+    It 'Get-GitAvailability повідомляє Supported і Minimum' {
+        $g = Get-GitAvailability
+        $g.Minimum | Should -Be '2.38'
+        $g.Supported | Should -BeTrue
+    }
+}
+
 Describe 'check-environment.ps1: unica не впливає на код виходу' {
     It 'дає той самий код виходу з плагіном unica і без нього' {
         # Це і є контракт, заради якого заведені категорії: unica лежить у категорії

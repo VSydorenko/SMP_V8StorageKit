@@ -42,4 +42,25 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         Join-Path $repo 'Client_UNF/cfe/Доработки/src/Configuration.xml' | Should -Exist
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
     }
+
+    It 'Set-KitFakeBranchTree: записує два шляхи, що різняться лише кириличним регістром; робоча копія не рухається' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-tree')
+        $head = git -C $repo rev-parse HEAD
+        # Літерал @{}/[ordered]@{} регістронезалежний і відхиляє пару як дубль ключа — потрібен Ordinal-словник.
+        $files = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+        $files['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'old'
+        $files['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'new'
+        $sha = Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files $files
+        (git -C $repo rev-parse storage/Alpha_SMB) | Should -Be $sha
+        $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
+        $paths | Should -HaveCount 2
+        # -ccontains, не Should -Contain: Pester порівнює рядки нечутливо до регістру.
+        ($paths -ccontains 'Alpha_SMB/cfe/src/T/Образецанализ.xml') | Should -BeTrue -Because "у переліку: $($paths -join ', ')"
+        ($paths -ccontains 'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml') | Should -BeTrue -Because "у переліку: $($paths -join ', ')"
+        (git -C $repo rev-parse HEAD) | Should -Be $head
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        # Другий коміт — батько = попередня вершина
+        $sha2 = Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message 'v2' -Files ([ordered]@{ 'Alpha_SMB/cfe/src/a.xml' = 'A' })
+        (git -C $repo rev-parse "$sha2^") | Should -Be $sha
+    }
 }

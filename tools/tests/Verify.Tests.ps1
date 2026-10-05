@@ -243,6 +243,85 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Доработки' -Ref 'storage/Доработки'
         $r.Results[0].Verdict | Should -Be 'equal'
     }
+
+    Context 'регістр шляхів (спека 2026-10-04 §4.3)' {
+        BeforeAll {
+            function script:New-VerifyCaseRepo {
+                param([string]$Name, [System.Collections.IDictionary]$Files)
+                $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+                Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files $Files | Out-Null
+                $storageDir = Join-Path $TestDrive "$Name-storage"
+                New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+                $repo
+            }
+        }
+
+        It 'дерево з кириличним фантомом — не equal, група з позначеним справжнім членом, код 3 (#32)' {
+            # Не літерал [ordered]@{…}: хештаблиця PowerShell нечутлива до регістру ключів — пара
+            # 'Образецанализ'/'ОбразецАнализ' або дала б ParseException, або мовчки злилась би в один ключ.
+            $f = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+            $f['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'x'
+            $f['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'x'
+            $repo = New-VerifyCaseRepo 'verify-phantom' $f
+            # Контроль фікстури: у гілці справді обидва шляхи (інакше тест нічого б не міряв).
+            @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB | Where-Object { $_ -like '*Образец*' }) | Should -HaveCount 2
+            Mock -ModuleName verify Enter-KitStorageBind { $false }
+            Mock -ModuleName verify Exit-KitStorageBind { }
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path (Join-Path $Target 'T') -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Target 'T/ОбразецАнализ.xml') -Value 'x' -NoNewline
+                1
+            }
+            $result = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB'
+            $result.Results[0].Verdict | Should -Not -Be 'equal'
+            $result.ExitCode | Should -Be 3
+            $result.Results[0].Diff.CaseCollisions | Should -HaveCount 1
+            $result.Results[0].Diff.CaseCollisions[0].InDump | Should -BeExactly 'T/ОбразецАнализ.xml'
+            # Звіт сходиться арифметично: шляхи груп регістру не губляться між «рівними» й Total.
+            $d = $result.Results[0].Diff
+            $d.CaseCollidedPaths | Should -BeGreaterThan 0
+            ($d.Equal + $d.CaseCollidedPaths + $d.CrOnly.Count + $d.Content.Count + $d.OnlyInDump.Count + $d.OnlyInTree.Count + 2 * $d.CaseOnly.Count) |
+                Should -Be $d.Total
+        }
+
+        It 'дерево зі старим ASCII-регістром — клас «лише регістр шляху», не пара додано/видалено' {
+            $repo = New-VerifyCaseRepo 'verify-ascii' ([ordered]@{ 'Alpha_SMB/cfe/src/Sampleabc.xml' = 'x' })
+            Mock -ModuleName verify Enter-KitStorageBind { $false }
+            Mock -ModuleName verify Exit-KitStorageBind { }
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path $Target -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Target 'SampleaBc.xml') -Value 'x' -NoNewline
+                1
+            }
+            $result = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB'
+            $result.Results[0].Verdict | Should -Not -Be 'equal'
+            $result.Results[0].Diff.CaseOnly | Should -HaveCount 1
+            $result.Results[0].Diff.CaseOnly[0].Dump | Should -BeExactly 'SampleaBc.xml'
+            $result.Results[0].Diff.CaseOnly[0].Tree | Should -BeExactly 'Sampleabc.xml'
+            $result.Results[0].Diff.OnlyInDump | Should -HaveCount 0
+            $result.Results[0].Diff.OnlyInTree | Should -HaveCount 0
+        }
+
+        It 'запобіжник лічильника: файлів у теці дерева менше, ніж очікує перелік git — виняток, не вердикт' {
+            $repo = New-VerifyCaseRepo 'verify-tripwire' ([ordered]@{ 'Alpha_SMB/cfe/src/a.xml' = 'a'; 'Alpha_SMB/cfe/src/b.xml' = 'b' })
+            Mock -ModuleName verify Enter-KitStorageBind { $false }
+            Mock -ModuleName verify Exit-KitStorageBind { }
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path $Target -Force | Out-Null; 0
+            }
+            Mock -ModuleName verify Export-KitTree {
+                param($RepoRoot, $Ref, $RepoPath, $Destination)
+                New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Destination 'a.xml') -Value 'a' -NoNewline
+                2
+            }
+            { Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB' } | Should -Throw '*verify не ручається за звірку*'
+        }
+    }
 }
 
 Describe 'kit verify — живе сховище: рівні → сховище попереду → звірочний коміт → рівні' -Tag Integration {

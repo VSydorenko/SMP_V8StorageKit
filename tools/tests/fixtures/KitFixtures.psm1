@@ -398,6 +398,59 @@ function Invoke-KitCommand {
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
 }
 
+function Set-KitFakeBranchTree {
+    <#
+    .SYNOPSIS
+        Коміт на гілку з деревом рівно з -Files — без робочої копії, через тимчасовий GIT_INDEX_FILE.
+    .DESCRIPTION
+        Робоча копія на NTFS не може тримати два шляхи, що різняться лише регістром, і git не
+        переводить її через кириличне перейменування регістром (спека 2026-10-04 §2). Тестам злиття,
+        adopt, verify і check потрібні саме такі дерева — тому плумбінг: hash-object → update-index
+        --cacheinfo → write-tree → commit-tree → update-ref. -c core.ignorecase=false на update-index —
+        щоб git не зіставляв варіанти регістру й записав обидва, незалежно від налаштування машини.
+        Якщо гілка вибрана в робочій копії, update-ref лишить індекс і диск застарілими — викликач
+        це знає й бере для такого випадку окрему гілку.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [Parameter(Mandatory)][string]$Branch,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Files,
+        [Parameter(Mandatory)][string]$Message,
+        [string]$Parent
+    )
+    $idx = Join-Path ([System.IO.Path]::GetTempPath()) "kit-fake-index-$([guid]::NewGuid().ToString('N'))"
+    $env:GIT_INDEX_FILE = $idx
+    try {
+        foreach ($path in @($Files.Keys)) {
+            $tmp = [System.IO.Path]::GetTempFileName()
+            try {
+                [System.IO.File]::WriteAllText($tmp, [string]$Files[$path], [System.Text.UTF8Encoding]::new($false))
+                $sha = ([string](@(Invoke-KitFakeGit -C $Repo hash-object -w --no-filters -- $tmp)[-1])).Trim()
+            } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+            Invoke-KitFakeGit -C $Repo -c core.ignorecase=false update-index --add --cacheinfo "100644,$sha,$path" | Out-Null
+        }
+        $tree = ([string](@(Invoke-KitFakeGit -C $Repo write-tree)[-1])).Trim()
+    } finally {
+        Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $idx -Force -ErrorAction SilentlyContinue
+    }
+    $parentArgs = @()
+    if ($Parent) { $parentArgs = @('-p', $Parent) }
+    else {
+        # Код 1 = гілки ще немає, не збій (той самий навмисно не загорнутий патерн, що Add-KitFakeStorageCommit).
+        git -C $Repo rev-parse --verify --quiet "refs/heads/$Branch" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $parentArgs = @('-p', "refs/heads/$Branch") }
+    }
+    $msgFile = [System.IO.Path]::GetTempFileName()
+    try {
+        [System.IO.File]::WriteAllText($msgFile, $Message, [System.Text.UTF8Encoding]::new($false))
+        $commit = ([string](@(Invoke-KitFakeGit -C $Repo commit-tree $tree @parentArgs -F $msgFile)[-1])).Trim()
+    } finally { Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue }
+    Invoke-KitFakeGit -C $Repo update-ref "refs/heads/$Branch" $commit | Out-Null
+    $commit
+}
+
 function Copy-KitTools {
     <#
     .SYNOPSIS
@@ -442,4 +495,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
+Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
