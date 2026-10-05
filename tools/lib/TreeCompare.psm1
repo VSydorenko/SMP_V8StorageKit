@@ -180,6 +180,20 @@ function Export-KitTree {
     $count
 }
 
+function Test-KitComparableRelativePath {
+    <#
+    .SYNOPSIS
+        Чи бере відносний шлях участь у звірці дерев: не службовий файл платформи й не поставка вендора.
+    .DESCRIPTION
+        Одне джерело фільтра для Get-KitRelativeFiles (диск) і CaseGuard (індекс, перелік git) —
+        два фільтри з різною логікою розходилися б тихо (kit-dev, «пишу перевірку»).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RelativePath)
+    $leaf = ($RelativePath -split '/')[-1]
+    ($script:PlatformJunk -notcontains $leaf) -and -not (Test-KitSupplyRelativePath -RelativePath $RelativePath)
+}
+
 function Get-KitRelativeFiles {
     <# Відносні шляхи файлів під Root з '/', без службових файлів платформи. #>
     [CmdletBinding()]
@@ -188,11 +202,11 @@ function Get-KitRelativeFiles {
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
     # Поставка вендора — стан машини, не зміст дерева (спека 2026-09-30 §6.3.3); .bin порівнюється,
-    # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object.
+    # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object;
+    # фільтр — Test-KitComparableRelativePath.
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
-        Where-Object { $script:PlatformJunk -notcontains $_.Name } |
         ForEach-Object { $_.FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/' } |
-        Where-Object { -not (Test-KitSupplyRelativePath -RelativePath $_) })
+        Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
     $files
 }
 
@@ -243,7 +257,14 @@ function Compare-KitTrees {
         # виглядає найтиповіше дерево 1С (лише XML/BSL, жодного .png/.bin/.zip з
         # templates/gitattributes). Без цього атрибута verify падав на прив'язці параметра
         # ПІСЛЯ підняття тимчасової ІБ, дампу й експорту дерева — після всієї дорогої роботи.
-        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$BinaryPaths
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$BinaryPaths,
+        # Групи шляхів, що різняться лише регістром (Get-KitCaseCollisions, CaseGuard.psm1), — відносні
+        # до TreeDir. На NTFS члени групи вже злились в один файл при експорті, тож порівнювати їх як
+        # звичайні шляхи безглуздо: вони звітуються окремим класом (спека 2026-10-04 §4.3).
+        [AllowEmptyCollection()][object[]]$CaseCollisions = @(),
+        # Клас «лише регістр шляху» — лише на явний запит verify. adopt кличе без нього: пара мусить
+        # лишатись в OnlyInDump/OnlyInTree, інакше прев'ю adopt сказало б «вже збігається».
+        [switch]$ClassifyCase
     )
 
     # Ordinal, не IgnoreCase: git регістрочутливий, і Ordinal — саме та семантика порівняння шляхів,
@@ -258,7 +279,18 @@ function Compare-KitTrees {
     $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::Ordinal)
     $all.UnionWith($tree)
 
+    $collided = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $groupsOut = [System.Collections.Generic.List[object]]::new()
+    foreach ($g in $CaseCollisions) {
+        foreach ($p in $g) { [void]$collided.Add($p) }
+        $real = @($g | Where-Object { $dump.Contains($_) })
+        $groupsOut.Add([pscustomobject]@{ Paths = [string[]]$g; InDump = $(if ($real.Count -gt 0) { $real[0] } else { $null }) })
+    }
+
     $equal = 0
+    # Шляхи з Total, які пішли в групи регістру, — щоб звіт сходився арифметично (на NTFS група в
+    # дереві — один файл, тож це не сума розмірів груп).
+    $caseSkipped = 0
     $crOnly = [System.Collections.Generic.List[string]]::new()
     $content = [System.Collections.Generic.List[string]]::new()
     $onlyDump = [System.Collections.Generic.List[string]]::new()
@@ -267,6 +299,7 @@ function Compare-KitTrees {
     # Сортування — тим самим Ordinal, що й вище (детермінований порядок незалежно від локалі машини).
     $ordered = [System.Linq.Enumerable]::OrderBy([string[]]$all, [Func[string, string]] { param($x) $x }, [System.StringComparer]::Ordinal)
     foreach ($rel in $ordered) {
+        if ($collided.Contains($rel)) { $caseSkipped++; continue }
         $inDump = $dump.Contains($rel); $inTree = $tree.Contains($rel)
         if ($inDump -and -not $inTree) { $onlyDump.Add($rel); continue }
         if ($inTree -and -not $inDump) { $onlyTree.Add($rel); continue }
@@ -279,7 +312,26 @@ function Compare-KitTrees {
         if ([System.Linq.Enumerable]::SequenceEqual($a2, $b2)) { $crOnly.Add($rel) } else { $content.Add($rel) }
     }
 
+    $caseOnlyOut = [System.Collections.Generic.List[object]]::new()
+    if ($ClassifyCase -and $onlyDump.Count -gt 0 -and $onlyTree.Count -gt 0) {
+        $treeByFold = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[string]]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($t in $onlyTree) {
+            if (-not $treeByFold.ContainsKey($t)) { $treeByFold[$t] = [System.Collections.Generic.List[string]]::new() }
+            $treeByFold[$t].Add($t)
+        }
+        foreach ($d in @($onlyDump)) {
+            if (-not $treeByFold.ContainsKey($d) -or $treeByFold[$d].Count -ne 1) { continue }
+            $t = $treeByFold[$d][0]
+            $same = [System.Linq.Enumerable]::SequenceEqual([System.IO.File]::ReadAllBytes((Join-Path $DumpDir $d)), [System.IO.File]::ReadAllBytes((Join-Path $TreeDir $t)))
+            $caseOnlyOut.Add([pscustomobject]@{ Dump = $d; Tree = $t; ContentEqual = $same })
+            [void]$onlyDump.Remove($d); [void]$onlyTree.Remove($t)
+        }
+    }
+
     [pscustomobject]@{
+        CaseCollisions = $groupsOut.ToArray()
+        CaseOnly   = $caseOnlyOut.ToArray()
+        CaseCollidedPaths = $caseSkipped
         Equal      = $equal
         CrOnly     = $crOnly.ToArray()
         Content    = $content.ToArray()
@@ -289,4 +341,4 @@ function Compare-KitTrees {
     }
 }
 
-Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
+Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees

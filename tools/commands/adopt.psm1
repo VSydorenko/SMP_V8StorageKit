@@ -110,16 +110,29 @@ function Invoke-KitAdopt {
         # Той самий принцип, що verify.psm1:69–71: усі git-перевірки — до першої руйнівної дії.
         $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
 
+        # -text на шляху джерела — ДО першого руйнівного кроку (спека 2026-10-04 §4.1). Без нього
+        # git застосує core.autocrlf/core.safecrlf машини: за порадою ГітКонвертера (autocrlf=true,
+        # safecrlf=true) add відмовить уже ПІСЛЯ стирання дерева, з safecrlf=warn — мовчки нормалізує
+        # змішані кінці рядків платформи. Досі це ловив лише kit check.
+        if (-not (Test-GitTextPolicy -RepoRoot $root -Path $src.RepoPath)) {
+            throw ("Дерево '$($src.RepoPath)' не виведено з-під конверсії кінців рядків — adopt зупиняється до стирання дерева. " +
+                   "Додайте в .gitattributes рядок '$($src.RepoPath)/** -text' окремим комітом (docs/text-policy.md) і повторіть adopt.")
+        }
+
         # Поставка вендора (спека 2026-09-30 §5.2) не має відстежуватись git — ДО будь-якого
-        # руйнівного кроку: відстежуваний .cf `add -A` застейджив би, а `commit --only` перечитав би
-        # з диска. Так само пробу check-ignore робимо тут: зламаний .gitignore зупиняє adopt до
-        # стирання дерева.
+        # руйнівного кроку: відстежуваний .cf `add -A` застейджив би, і коміт індексу забрав би його
+        # в історію. Цей ls-files — ще й перевірка, що git читає індекс, до стирання дерева (той самий
+        # інваріант «усі git-перевірки — до першого руйнівного кроку»). Окремої проби check-ignore тут
+        # немає свідомо: на зламаних ігнор-правилах вона коду >1 не дає (виміряно, git 2.53: тека
+        # .gitignore, нечитабельний .gitignore, core.excludesFile на теку чи неіснуючий файл — 0 або 1),
+        # а після `add -A -f` нижче ігнор-правила на відмову не впливають.
         $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
         $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-files', '--', $supplyRel)
         if ($tracked.ExitCode -ne 0) { throw "git ls-files для '$supplyRel' завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)" }
-        # Поставка в індексі АБО в HEAD — зупинка. adopt видалення поставки не комітить взагалі: на
-        # гілці без merge `commit --only -- <RepoPath>` перечитав би відстежуваний .cf з диска й
-        # скасував би застейджене видалення, а на гілці з merge його скасовує reset перед злиттям.
+        # Поставка в індексі АБО в HEAD — зупинка. adopt видалення поставки не комітить взагалі:
+        # Remove-KitSupplyFromIndex знімає поставку з індексу перед комітом, а на гілці з merge
+        # застейджене видалення скасовує ще й reset перед злиттям — тож зняття з відстеження
+        # мусить бути окремим комітом людини.
         $inHeadOut = ''
         if ((Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'HEAD')).ExitCode -eq 0) {
             $inHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-tree', '-r', '--name-only', 'HEAD', '--', $supplyRel)
@@ -132,26 +145,13 @@ function Invoke-KitAdopt {
                    "ОКРЕМИМ комітом до adopt (файли на диску лишаться): git rm -r --cached -- '$supplyRel' , потім " +
                    "git commit -m <повідомлення> (без шляхів; якщо в індексі застейджено ще щось — спершу розберіться з цим), і повторіть adopt.")
         }
-        # Проба — сама тека, не файл усередині: при правилі з негацією (`Ext/ParentConfigurations/*` +
-        # `!*.cf`) теку git не вважає ігнорованою, і exclude працює (перевірено, git 2.53); а якщо
-        # ігнорує цілком (`**/Ext/ParentConfigurations/`) — exclude дав би код 1. Проба «файл усередині»
-        # у випадку негації давала «ігнорується», exclude не додавався, add стейджив .cf, а
-        # merge --abort потім СТИРАВ його з диска (доведено тестом).
-        # Форма з КІНЦЕВОЮ рискою не годиться: при CRLF-.gitignore з порожнім рядком `check-ignore -q -- <шлях>/`
-        # повертає 0 на будь-який шлях (виміряно, git 2.53). Теки немає — стейджити нічого, exclude не потрібен.
-        if (Test-Path -LiteralPath (Join-Path $src.FullPath (Get-KitSupplyRelativePath)) -PathType Container) {
-            $ignored = Invoke-KitGitProcess -RepoRoot $root -Arguments @('check-ignore', '-q', '--', $supplyRel)
-        } else {
-            $ignored = [pscustomobject]@{ ExitCode = 0; Stderr = '' }
-        }
-        if ($ignored.ExitCode -gt 1) { throw "git check-ignore для '$supplyRel' завершився з кодом $($ignored.ExitCode): $($ignored.Stderr)" }
-
         # Guard критичного рев'ю C2 (Critical, спека §5 «Чотири умови», п.1) — ДО Remove-Item,
         # поки дерево ще ЦІЛЕ. Причина: нижче гілка задачі приймає версію сховища ЗЛИТТЯМ
         # (git merge -s ours), щоб зрушити ancestry, на якій тримається verify
-        # (Get-KitVerifyVersion, StorageBranch.psm1:556) — а партійний коміт (--only) git під
-        # час merge ЗАБОРОНЯЄ ("cannot do a partial commit during a merge", перевірено
-        # емпірично), тож коміт піде БЕЗ pathspec і зафіксує ВЕСЬ індекс, яким він є. Спільна
+        # (Get-KitVerifyVersion, StorageBranch.psm1:556). Коміт — в обох гілках (зі злиттям і без)
+        # БЕЗ pathspec і фіксує ВЕСЬ індекс, яким він є: партійний коміт (--only) git під час merge
+        # забороняє ("cannot do a partial commit during a merge"), а без merge він воскрешає
+        # фантом перейменування регістром (спека 2026-10-04 §4.1). Спільна
         # робоча копія: якщо там паралельно застейджена чи просто незакомічена чужа зміна ПОЗА
         # шляхом джерела, вона поїде в наш коміт непомітно. Зміни ВСЕРЕДИНІ $src.RepoPath —
         # нормальні: підуть у резервну копію нижче й однаково будуть замінені дзеркалом.
@@ -215,7 +215,7 @@ function Invoke-KitAdopt {
         # "Already up to date": якщо дзеркало вже предок HEAD (adopt повторюють без нової версії
         # сховища, а дерево розбіглося тільки локальними правками), git НЕ створює MERGE_HEAD і
         # виходить кодом 0 без жодної дії (перевірено емпірично) — ancestry вже правильна, і
-        # йдемо ЗВИЧАЙНИМ шляхом (коміт --only, як і до цього фіксу), а не через merge-коміт.
+        # йдемо ЗВИЧАЙНИМ шляхом (коміт індексу без злиття), а не через merge-коміт.
         $mergeHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'MERGE_HEAD')
         $viaMerge = ($mergeHead.ExitCode -eq 0)
 
@@ -246,12 +246,18 @@ function Invoke-KitAdopt {
             # merge — guard на початку кроку вже виключив їх до першого руйнівного кроку).
             # :(exclude) — поставка не стейджиться НІКОЛИ, навіть у репозиторії, де рядка ігнору ще
             # немає (до kitVersion 1.3.0): інакше -A забрав би .cf на сотні МБ у коміт.
-            # Але лише КОЛИ теку не ігнорує .gitignore: git add відмовляється (код 1, «paths are
-            # ignored») від pathspec-виключення, що вказує на ігноровану теку, — а вона тоді й так
-            # не стейджиться (перевірено: з exclude і без нього індекс той самий, різниця лише в
-            # коді виходу).
-            $addArgs = @('add', '-A', '--', $src.RepoPath)
-            if ($ignored.ExitCode -ne 0) { $addArgs += ":(exclude)$supplyRel" }
+            # -f (спека 2026-10-04 §4.1, фінальне рев'ю, H2): піддерево після очищення містить рівно дерево
+            # дзеркала, тож кожен його файл мусить потрапити в індекс незалежно від ігнору машини
+            # (.git/info/exclude, core.excludesFile, .gitignore споживача) — інакше rm --cached нижче мовчки
+            # знімає з відстеження файл, який ігнор ловить. З -f git не відмовляє на виключенні ігнорованої
+            # теки поставки (код 0, виміряно), тож exclude додається ЗАВЖДИ, без проби check-ignore.
+            # Індекс піддерева — наново з дерева дзеркала (спека 2026-10-04 §4.1): без цього `add -A`
+            # при core.ignorecase=true лишає запис старого регістру (git складає лише ASCII, а lstat
+            # старого шляху на NTFS успішний). Поставка в індексі не буває (перевірено вище), тож rm
+            # її не зачіпає.
+            $rm = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', $src.RepoPath)
+            if ($rm.ExitCode -ne 0) { throw "git rm --cached для '$($src.RepoPath)' завершився з кодом $($rm.ExitCode): $($rm.Stderr)" }
+            $addArgs = @('-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', 'add', '-A', '-f', '--', $src.RepoPath, ":(exclude)$supplyRel")
             $add = Invoke-KitGitProcess -RepoRoot $root -Arguments $addArgs
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
             # Властивість не залежить від форми .gitignore (негація !*.cf може обійти і пробу, і
@@ -259,17 +265,15 @@ function Invoke-KitAdopt {
             # git merge --abort, а той СТИРАЄ застейджений .cf з диска (доведено тестом раунду 1).
             # Тому поставку знімаємо з індексу (диск не чіпається) і йдемо далі.
             Remove-KitSupplyFromIndex -RepoRoot $root -SupplyPath $supplyRel
+            Assert-KitIndexMatchesDisk -RepoRoot $root -RepoPath $src.RepoPath
 
             $message = "adopt: $($src.Key) ← $mirror (версія $version)"
-            if ($viaMerge) {
-                # Партійний коміт (--only) під час merge git ЗАБОРОНЯЄ ("cannot do a partial
-                # commit during a merge", перевірено емпірично) — тому саме тут, і тільки тут,
-                # коміт БЕЗ pathspec. Guard на початку кроку вже гарантував, що в індексі немає
-                # нічого поза $src.RepoPath, тож плаский коміт фіксує рівно те саме, що й раніше.
-                $commit = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '-m', $message)
-            } else {
-                $commit = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '--only', '-m', $message, '--', $src.RepoPath)
-            }
+            # Обидві гілки комітять індекс як є. Під час злиття партійний коміт (--only) git забороняє
+            # взагалі; а без злиття `commit --only -- <шлях>` накладає записи HEAD під pathspec і
+            # перечитує їх із диска: старий регістр на NTFS «існує», тож фантом воскресає (спека
+            # 2026-10-04 §4.1). Межу «точковий коміт» тримає guard «немає незакомічених змін поза
+            # шляхом джерела» вище: індекс поза $src.RepoPath порожній.
+            $commit = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '-m', $message)
             if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }
         } catch {
             if (-not $viaMerge) { throw }

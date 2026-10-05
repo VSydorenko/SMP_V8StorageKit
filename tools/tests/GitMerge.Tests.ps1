@@ -14,6 +14,35 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
             Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'b.xml' -Content 'B1' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
             $repo
         }
+
+        function script:New-RepoWithIgnoredClash {
+            # -LocalName відмінне від -MirrorName лише регістром — ігнорований файл на диску й доданий шлях на NTFS один файл.
+            param([string]$Name, [string]$LocalContent, [string]$LocalName = 'x.bin', [string]$MirrorName = 'x.bin')
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitattributes -WithGitignore
+            Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'проєкт' -Encoding UTF8
+            git -C $repo add -A; git -C $repo commit -q -m 'README'
+            # Обидва регістри розширення — щоб ігнорування не залежало від core.ignorecase машини.
+            Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value @('*.bin', '*.BIN')
+            Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+                "Alpha_SMB/cfe/src/$MirrorName" = 'mirror'; 'Alpha_SMB/cfe/src/a.xml' = 'A1'
+            }) | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo "Alpha_SMB/cfe/src/$LocalName") -Value $LocalContent -NoNewline
+            $repo
+        }
+
+        function script:New-RepoWithCaseRename {
+            param([string]$Name)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitattributes -WithGitignore
+            Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+                'Alpha_SMB/cfe/src/T/Образецанализ.xml' = 'xml'; 'Alpha_SMB/cfe/src/T/Образецанализ/Ext/T.bin' = 'bin'
+            }) | Out-Null
+            Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated | Out-Null
+            Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" -Files ([ordered]@{
+                'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml' = 'xml'; 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin' = 'bin'
+            }) | Out-Null
+            $repo
+        }
     }
 
     It 'перше злиття (unrelated): файли main лишаються, файли сховища додаються; далі — already' {
@@ -46,13 +75,13 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         @((git -C $repo log -1 --format=%P main) -split ' ').Count | Should -Be 2
     }
 
-    It 'HEAD на гілці задачі F: злиття йде через тимчасовий worktree; F не зрушила; worktree прибрано' {
+    It 'HEAD на гілці задачі F: злиття лише пересуває main; F і робоча копія не зрушили; worktree не створюється' {
         $repo = New-RepoWithMirror 'via-wt'
         git -C $repo checkout -q -b feature/task
         $fHead = git -C $repo rev-parse HEAD
         $mainBefore = git -C $repo rev-parse main
         $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated
-        $r.Via | Should -Be 'worktree'
+        $r.Via | Should -Be 'ref'
         (git -C $repo rev-parse HEAD) | Should -Be $fHead
         (git -C $repo branch --show-current) | Should -Be 'feature/task'
         (git -C $repo rev-parse main) | Should -Not -Be $mainBefore
@@ -84,6 +113,153 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         (git -C $repo rev-parse main) | Should -Be $before
         git -C $repo rev-parse -q --verify MERGE_HEAD 2>$null | Should -BeNullOrEmpty
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+    }
+
+    It 'кириличне перейменування регістром, main вибрана тут — merged in-place; диск і індекс у новому регістрі (#31)' {
+        $repo = New-RepoWithCaseRename 'case-inplace'
+        $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'sync: злиття v2'
+        $r.Outcome | Should -Be 'merged'
+        $r.Via | Should -Be 'in-place'
+        # Шляхи, що різняться лише регістром, порівнюємо чутливо: -Be/-Contain в Pester нечутливі й пройшли б на старому регістрі.
+        @(git -c core.quotepath=false -C $repo ls-files -- 'Alpha_SMB/cfe/src/T') |
+            Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin')
+        $onDisk = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/T') -Name)
+        ($onDisk -ccontains 'ОбразецАнализ.xml') | Should -BeTrue -Because "на диску: $($onDisk -join ', ')"
+        ($onDisk -ccontains 'Образецанализ.xml') | Should -BeFalse -Because "на диску лишився старий регістр: $($onDisk -join ', ')"
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        @((git -C $repo log -1 --format=%P main) -split ' ') | Should -HaveCount 2
+        (git -C $repo log -1 --format=%s main) | Should -Be 'sync: злиття v2'
+    }
+
+    It 'кириличне перейменування регістром, HEAD на гілці задачі — merged через ref; F і диск не зрушили' {
+        $repo = New-RepoWithCaseRename 'case-ref'
+        git -C $repo checkout -q -b feature/task
+        $before = @(Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/T') -Name)
+        $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'sync: злиття v2'
+        $r.Via | Should -Be 'ref'
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only main -- 'Alpha_SMB/cfe/src/T') |
+            Should -BeExactly @('Alpha_SMB/cfe/src/T/ОбразецАнализ.xml', 'Alpha_SMB/cfe/src/T/ОбразецАнализ/Ext/T.bin')
+        @(Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/T') -Name) | Should -BeExactly $before
+        (git -C $repo branch --show-current) | Should -Be 'feature/task'
+    }
+
+    It 'невідстежуваний файл у main — брудна копія, зупинка до злиття; main не зрушив, файл цілий' {
+        $repo = New-RepoWithMirror 'untracked'
+        Set-Content -LiteralPath (Join-Path $repo 'notes.txt') -Value 'моя чернетка'
+        $before = git -C $repo rev-parse main
+        { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw '*не чиста*notes.txt*'
+        (git -C $repo rev-parse main) | Should -Be $before
+        (Get-Content -LiteralPath (Join-Path $repo 'notes.txt') -Raw).Trim() | Should -Be 'моя чернетка'
+    }
+
+    It 'ігнорований невідстежуваний файл збігається зі шляхом, який приносить дзеркало — зупинка, main не зрушив, вміст цілий' {
+        $repo = New-RepoWithIgnoredClash 'ignored-clash' 'precious'
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty -Because 'файл ігнорований, status його не показує'
+        $before = git -C $repo rev-parse main
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*ігноровані невідстежувані файли*Нічого не змінено*Alpha_SMB/cfe/src/x.bin*'
+        (git -C $repo rev-parse main) | Should -Be $before
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/x.bin') -Raw) | Should -BeExactly 'precious'
+        Join-Path $repo 'Alpha_SMB/cfe/src/a.xml' | Should -Not -Exist
+    }
+
+    It 'ігнорований файл відрізняється від доданого шляху лише регістром (кирилиця) — на NTFS той самий файл: зупинка, вміст цілий' {
+        $repo = New-RepoWithIgnoredClash 'ignored-case-clash' 'precious' -LocalName 'Ф.BIN' -MirrorName 'ф.bin'
+        $before = git -C $repo rev-parse main
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLikeExactly '*ігноровані невідстежувані файли*Нічого не змінено*Alpha_SMB/cfe/src/Ф.BIN (дзеркало приносить Alpha_SMB/cfe/src/ф.bin)*'
+        (git -C $repo rev-parse main) | Should -Be $before
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Ф.BIN') -Raw) | Should -BeExactly 'precious'
+    }
+
+    It 'ігнорований невідстежуваний файл із тим самим вмістом, що в дзеркалі — не втрата, merged' {
+        $repo = New-RepoWithIgnoredClash 'ignored-same' 'mirror'
+        $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated
+        $r.Outcome | Should -Be 'merged'
+        $r.Via | Should -Be 'in-place'
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/x.bin') -Raw) | Should -BeExactly 'mirror'
+    }
+
+    It 'main вибрана в іншому worktree — зупинка, main не зрушив' {
+        $repo = New-RepoWithMirror 'other-wt'
+        git -C $repo checkout -q -b feature/task
+        $wt = Join-Path $TestDrive 'other-wt-main'
+        git -C $repo worktree add -q $wt main
+        try {
+            $before = git -C $repo rev-parse main
+            { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw "*'main' вибрана в іншому worktree*"
+            (git -C $repo rev-parse main) | Should -Be $before
+        } finally { git -C $repo worktree remove --force $wt 2>$null }
+    }
+
+    It 'ціль — storage/*: зупинка до будь-якої дії' {
+        $repo = New-RepoWithMirror 'into-storage'
+        { Merge-KitBranchInto -RepoRoot $repo -Branch 'main' -Into 'storage/Alpha_SMB' -Message 'x' -AllowUnrelated } | Should -Throw '*storage/Alpha_SMB*дзеркало сховища*'
+    }
+
+    It 'конфлікт: нічого не змінено, merge --abort не викликався (немає хибного «незавершеного злиття»)' {
+        $repo = New-RepoWithMirror 'conflict-new'
+        Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/a.xml') -Value 'A-main' -NoNewline
+        git -C $repo add -A; git -C $repo commit -q -m 'main править a.xml'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Content 'A-storage' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 3')
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*Нічого не змінено*Alpha_SMB/cfe/src/a.xml*'
+        $err.Exception.Message | Should -Not -BeLike '*незавершеному*'
+    }
+
+    It 'перше злиття (unrelated) приносить об''єкт з новим регістром, у main закомічено старий — зупинка, main і копія ті самі (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-new') -WithHooks -WithGitattributes -WithGitignore
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/T'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'Образецанализ.xml') -Value 'xml' -NoNewline
+        git -C $repo add -A; git -C $repo commit -q -m 'main зі старим регістром'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/T/ОбразецАнализ.xml' = 'xml'
+        }) | Out-Null
+        $before = (git -C $repo rev-parse main).Trim()
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*шляхи, що різняться лише регістром*Нічого не змінено*'
+        $err.Exception.Message | Should -BeLikeExactly '*Alpha_SMB/cfe/src/T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*'
+        $err.Exception.Message | Should -BeLike '*члени яких розділені між*git rm --cached*'
+        $err.Exception.Message | Should -Not -BeLike '*несе сама вершина*'
+        (git -C $repo rev-parse main).Trim() | Should -Be $before
+        @(git -C $repo status --porcelain) | Should -HaveCount 0
+    }
+
+    It 'фантом несе сама вершина дзеркала (kit ≤ 1.3.1), ціль чиста — зупинка з порадою «наступний sync», без рецепту для цілі (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-mirror') -WithHooks -WithGitattributes -WithGitignore
+        $pair = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
+        $pair['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'xml'
+        $pair['Alpha_SMB/cfe/src/T/ОбразецАнализ.xml'] = 'xml'
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files $pair | Out-Null
+        @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB) | Should -HaveCount 2 -Because 'пара мусить справді бути в дзеркалі'
+        $before = (git -C $repo rev-parse main).Trim()
+        $err = { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLikeExactly '*несе сама вершина storage/Alpha_SMB*Alpha_SMB/cfe/src/T/ОбразецАнализ.xml | Alpha_SMB/cfe/src/T/Образецанализ.xml*Наступний kit sync*'
+        $err.Exception.Message | Should -Not -BeLike '*git rm --cached*'
+        (git -C $repo rev-parse main).Trim() | Should -Be $before
+    }
+
+    It 'група регістру, що вже є в цільовій гілці й не змінюється, злиття не блокує (Via=ref) (H1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-old') -WithHooks -WithGitattributes -WithGitignore
+        $f = Join-Path $repo 'Alpha_SMB/cfe/src/T'
+        New-Item -ItemType Directory -Path $f -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $f 'ОбразецАнализ.xml') -Value 'xml' -NoNewline
+        git -C $repo add -A
+        $sha = (git -C $repo hash-object -w -- (Join-Path $f 'ОбразецАнализ.xml')).Trim()
+        git -C $repo -c core.ignorecase=false update-index --add --cacheinfo "100644,$sha,Alpha_SMB/cfe/src/T/Образецанализ.xml"
+        # --no-verify: хук pre-commit якраз відхиляє такий коміт, а нам потрібна стара зіпсована гілка.
+        git -C $repo commit -q --no-verify -m 'main з давньою групою регістру'
+        $old = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only main -- Alpha_SMB/cfe/src/T)
+        $old | Should -HaveCount 2
+        git -C $repo switch -q -c task
+        Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
+            'Alpha_SMB/cfe/src/b.xml' = 'B'
+        }) | Out-Null
+        $r = Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'x' -AllowUnrelated
+        $r.Outcome | Should -Be 'merged'
+        $r.Via | Should -Be 'ref'
     }
 
     It 'головної гілки ще немає — зупинка з підказкою' {

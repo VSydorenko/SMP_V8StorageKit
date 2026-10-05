@@ -151,6 +151,20 @@ function Get-UnicaInstallation {
     return $result
 }
 
+function Test-KitGitVersionSupported {
+    <#
+    .SYNOPSIS
+        Чи достатня версія git для kit: злиття дзеркала йде через merge-tree --write-tree (спека 2026-10-04 §4.2).
+    .DESCRIPTION
+        Мінімум 2.38.0: Documentation/git-merge-tree.txt у тегу v2.38.0 описує --write-tree, --name-only,
+        -z і --allow-unrelated-histories, у v2.37.0 — жодного.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$VersionText, [version]$Minimum = '2.38')
+    if ($VersionText -notmatch 'git version (?<v>\d+\.\d+(\.\d+)?)') { return $false }
+    [version]$Matches['v'] -ge $Minimum
+}
+
 function Get-GitAvailability {
     <#
     .SYNOPSIS
@@ -163,6 +177,8 @@ function Get-GitAvailability {
         Available = $false
         Version   = ''
         Reason    = ''
+        Supported = $false
+        Minimum   = '2.38'
     }
 
     $cmd = Get-Command git -CommandType Application -ErrorAction SilentlyContinue
@@ -174,6 +190,7 @@ function Get-GitAvailability {
     try {
         $result.Version = (& git --version 2>&1 | Select-Object -First 1).ToString().Trim()
         $result.Available = $true
+        $result.Supported = Test-KitGitVersionSupported -VersionText $result.Version
     } catch {
         $result.Reason = "git знайдено ($($cmd.Source)), але 'git --version' не виконалась: $($_.Exception.Message)"
     }
@@ -217,4 +234,4 @@ function Get-PesterAvailability {
     return $result
 }
 
-Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Get-GitAvailability, Get-PesterAvailability
+Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability

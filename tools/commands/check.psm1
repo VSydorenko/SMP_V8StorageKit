@@ -212,6 +212,22 @@ function Invoke-KitCheck {
                     & $add error gitattributes "$tag`: git check-attr не відповів: $($_.Exception.Message)"
                 }
 
+                # Групи регістру в HEAD під шляхом джерела (спека 2026-10-04 §4.4): фантом приходить і
+                # ручним `git add -A` після dump/canon, не лише з дзеркала.
+                try {
+                    if ((Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'HEAD')).ExitCode -eq 0) {
+                        $groups = @(Get-KitCaseCollisions -Paths @(Get-KitTreePaths -RepoRoot $root -Ref 'HEAD' -Path $src.RepoPath))
+                        if ($groups.Count -gt 0) {
+                            $shown = @($groups | Select-Object -First 5 | ForEach-Object { $_ -join ' | ' })
+                            & $add error case-collision ("$tag`: у HEAD $($groups.Count) груп(и) шляхів, що різняться лише регістром: " +
+                                "$($shown -join '; ')$(if ($groups.Count -gt 5) { "; …і ще $($groups.Count - 5)" } else { '' }). " +
+                                'Зніміть фантом з індексу (git rm --cached -- <шлях>) і закомітьте без --only; розбір — docs/storage-and-git.md, «Перейменування регістром».')
+                        }
+                    }
+                } catch {
+                    & $add error case-collision "$tag`: перевірка регістру в HEAD впала: $($_.Exception.Message)"
+                }
+
                 # Дзеркальна перевірка до gitignore для vendor: дерево, яке МАЄ бути в git,
                 # не повинно ловитись правилом .gitignore. Помилково широке правило викидає
                 # вихідники з git мовчки — ні sync, ні canon цього не бачать.
