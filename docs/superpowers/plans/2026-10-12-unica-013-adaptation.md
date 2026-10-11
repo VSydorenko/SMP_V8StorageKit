@@ -19,7 +19,7 @@ Kit сам раннер не викликає.
 
 **Tech Stack:** PowerShell 7, Pester 5, git ≥ 2.38, платформа 1С 8.3.27.x, модуль `powershell-yaml`; Unica 0.13.x (MCP) — лише в пілоті й тексті.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md` на коміті **`8d94204`** (§2.2 і §4.1 — уточнення за першоджерелами Уніки 0.13; §6 — порядок «пілот після адаптації», пункти пілоту 12–13 і «Відкіт до пілоту»; §10 і §10.1 — рішення архітектора за питаннями й аудитом цього плану). План пройшов чотири аудити (код Tasks 1–6, код Tasks 7–11, першоджерела Unica 0.13 і v8-runner 0.14, Tasks 12–21 і повнота); знахідки внесено, рішення архітектора за ними — у розділі «Свідомі відхилення» наприкінці. Архітектор — сесія `unica-013-adaptation-spec`. Розбіжність плану зі спекою або пілоту зі спекою — зупинка й питання архітекторові, не вибір виконавця.
+**Spec:** `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md` на коміті **`27a242a`** (§2.2 і §4.1 — уточнення за першоджерелами Уніки 0.13; §6 — порядок «пілот після адаптації», пункти пілоту 12–13 і «Відкіт до пілоту»; §10 і §10.1 П17–П22 — рішення архітектора за питаннями, аудитом і фінальною звіркою цього плану). Посилання «на `8d94204`» нижче — на розділи, що в `27a242a` не змінились. План пройшов чотири аудити (код Tasks 1–6, код Tasks 7–11, першоджерела Unica 0.13 і v8-runner 0.14, Tasks 12–21 і повнота); знахідки внесено, рішення архітектора за ними — у розділі «Свідомі відхилення» наприкінці. Архітектор — сесія `unica-013-adaptation-spec`. Розбіжність плану зі спекою або пілоту зі спекою — зупинка й питання архітекторові, не вибір виконавця.
 
 ## Global Constraints
 
@@ -1744,16 +1744,20 @@ Describe 'kit canon -MarkerOnly (§10 П5)' {
         $r.Output | Should -BeLike '*брудне*доповідь*'
         Test-Path -LiteralPath $marker | Should -BeFalse
     }
-    It '.cf старіший за .bin — код 1, позначку не записано (pull не оновив поставку; пара «новий .bin + старий .cf»)' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-old-cf') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+    It 'стара позначка на місці (stale) — код 1, позначку не переписано (§10.1 П22: .cf цим pull не перевивантажувався)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-stale') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
         $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
-        Remove-Item -LiteralPath $marker -Force
-        $cf = Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations') -Filter '*.cf' | Select-Object -First 1
-        $cf.LastWriteTimeUtc = (Get-Item -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations.bin')).LastWriteTimeUtc.AddMinutes(-5)
+        [System.IO.File]::WriteAllText($marker, 'deadbeef')
         $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*.cf старіший за*.bin*'
-        Test-Path -LiteralPath $marker | Should -BeFalse
+        $r.Output | Should -BeLike '*стара позначка*не перевивантажувався*'
+        [System.IO.File]::ReadAllText($marker) | Should -Be 'deadbeef'
+    }
+    It 'позначка вже актуальна (current) — код 0, нічого не пишеться' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-current') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*вже відповідає .bin*'
     }
 }
 ```
@@ -1797,17 +1801,21 @@ function Invoke-KitCanonMarkerOnly {
         throw "-MarkerOnly: Ext/ParentConfigurations.bin набору '$($src.Key)' не описує поставку вендора — позначка не потрібна."
     }
     $dir = Join-Path $src.FullPath (Get-KitSupplyRelativePath)
-    $cfFiles = @(Get-ChildItem -LiteralPath $dir -Filter '*.cf' -File -ErrorAction SilentlyContinue)
-    if ($cfFiles.Count -eq 0) {
+    if (@(Get-ChildItem -LiteralPath $dir -Filter '*.cf' -File -ErrorAction SilentlyContinue).Count -eq 0) {
         throw "-MarkerOnly: у $dir немає .cf — позначку нема чим підтвердити. Спершу крок pull Уніки, надрукований kit sync чи kit verify."
     }
-    # Позначка засвідчує пару «.bin ↔ .cf». .bin пише git (злиття, checkout), .cf — вивантаження
-    # (pull); .cf, старіший за .bin, означає, що pull поставку не оновив, і позначка освятила б
-    # пару «новий .bin + старий .cf» — саме те, від чого захищає стан stale.
-    $binTime = (Get-Item -LiteralPath (Join-Path $src.FullPath 'Ext/ParentConfigurations.bin')).LastWriteTimeUtc
-    if (@($cfFiles | Where-Object { $_.LastWriteTimeUtc -lt $binTime }).Count -gt 0) {
-        throw ("-MarkerOnly: .cf старіший за Ext/ParentConfigurations.bin — pull не оновив поставку вендора. Позначку не записано. " +
-               "Зупинка й доповідь людині; відновлення поставки — kit canon -Source $($src.Key) -Apply на головній гілці.")
+    # Спека §10.1 П22: pull --force стирає каталог набору РАЗОМ з позначкою (§2.2), тож свіжий pull
+    # лишає стан missing (.cf є, позначки немає) — лише тоді режим пише позначку. Стара позначка на
+    # місці (stale) доводить, що .cf цим pull не перевивантажувався: запис освятив би пару «новий .bin
+    # + старий .cf». Час зміни файлу тут не доказ — git ставить його .bin на кожному checkout.
+    $state = Get-KitSupplyState -TreeRoot $src.FullPath
+    if ($state -eq 'current') {
+        Write-Host "  $($src.Key): позначка .kit-bin-sha1 вже відповідає .bin — писати нічого." -ForegroundColor DarkGray
+        return [pscustomobject]@{ ExitCode = 0; Canonized = @() }
+    }
+    if ($state -eq 'stale') {
+        throw ("-MarkerOnly: стара позначка .kit-bin-sha1 на місці (не відповідає .bin) — .cf цим pull не перевивантажувався. " +
+               "Позначку не записано. Спершу крок pull Уніки, надрукований kit sync чи kit verify, тоді повторіть.")
     }
     $dirty = @(Get-KitDirtyRecords -RepoRoot $Context.RepoRoot -RepoPath $src.RepoPath)
     if ($dirty.Count -gt 0) {
@@ -1839,7 +1847,7 @@ function Invoke-KitCanonMarkerOnly {
 
 - [ ] **Step 5: Прогін — зелений.**
 
-- [ ] **Step 6: Мутації** — на копії дерева, кожна окремо: (а) прибрати перевірку `$dirty.Count -gt 0` — червоніє «брудне дерево»; (б) прибрати перевірку `LastWriteTimeUtc -lt $binTime` — червоніє «.cf старіший за .bin». Тексти падінь — у звіт.
+- [ ] **Step 6: Мутації** — на копії дерева, кожна окремо: (а) прибрати перевірку `$dirty.Count -gt 0` — червоніє «брудне дерево»; (б) прибрати перевірку стану (`if ($state -eq 'stale') { throw … }`) — червоніє «стара позначка на місці (stale)». Тексти падінь — у звіт.
 
 - [ ] **Step 7 (контролер, з дозволу людини): Коміт.** Тема: `§10 П5: canon -MarkerOnly; рецепт поставки через verify → pull → позначку`.
 
@@ -3279,7 +3287,7 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 **Рівень ризику:** рев'ю контуру (kit-dev, «Роблю рев'ю»).
 
-- [ ] **Step 1: Рев'ю гілки** `git diff main..HEAD` одним рев'юером на сильній моделі (бриф — `.claude/skills/kit-dev/references/subagent-brief.md` + цей план + спека `8d94204`). Обов'язкові питання:
+- [ ] **Step 1: Рев'ю гілки** `git diff main..HEAD` одним рев'юером на сильній моделі (бриф — `.claude/skills/kit-dev/references/subagent-brief.md` + цей план + спека `27a242a`). Обов'язкові питання:
   - (а) чи є стан, у якому всі тести зелені, а kit друкує `pull`, хоча дерево не дорівнює вивантаженому (стик Tasks 7/9/10);
   - (б) чи кожна команда, що зрушує базу агента, друкує рівно один крок на набір (таблиця §4.1);
   - (в) чи немає запасного читання старої форми конфігу (рішення 9) — `grep -rn "'infobase'" tools/` лише в `Get-V8ProjectConfigProblems`;
@@ -3354,7 +3362,7 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
      13. **приймальний критерій #25**: гілка задачі з роботою, не перенесеною в сховище; власник кладе в сховище частину → `kit sync -Apply` (надруковано `push` з `"force":true`) → цей крок → `kit canon` → прев'ю `kit adopt` називає саме неперенесену роботу в «зникне». Окремо (сітка): звичайний `push` замість надрукованого кроку на незміненому дереві гілки відповідає `infobase_state_unverified` з назвою набору (а не мовчить), і скіл за цим попередженням виконує `push` з `"force":true`.
   7. **Формат журналу** — для кожного пункту: команда, сирий вивід (без обрізання, але з приховуванням секретів за правилом «Межі»), «Висновок: підтверджено / спростовано / не відтворено» з умовою виміру.
   8. **Куди писати** — абсолютний шлях журналу в робочій копії kit (`R:\github\SMP_V8StorageKit\docs\superpowers\pilots\2026-10-12-unica-013-pilot.md`), лише цей файл; нічого в kit не комітити.
-- [ ] **Step 2: Журнал** — шаблон із заголовками «Середовище», «П.0 перехід», «П.1» … «П.13», «Підсумок для архітектора». У шапці — спека `8d94204`, коміт kit, з якого встановлено 1.5.0.
+- [ ] **Step 2: Журнал** — шаблон із заголовками «Середовище», «П.0 перехід», «П.1» … «П.13», «Підсумок для архітектора». У шапці — спека `27a242a`, коміт kit, з якого встановлено 1.5.0.
 - [ ] **Step 3 (контролер, з дозволу людини): Коміт** обох файлів. Тема: `пілот Unica 0.13: бриф агента-тестера й журнал`.
 
 ---
@@ -3398,7 +3406,9 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 ---
 
-## Трасування «пункт спеки → задача» (спека `8d94204`, §9)
+## Трасування «пункт спеки → задача» (спека `27a242a`, §9)
+
+Звірено архітектором на коміті плану `12ce519` (поправка П22 внесена наступним комітом плану). Наприкінці фази A (Task 17, Step 3) архітектор чекає це трасування з хешами комітів задач.
 
 | Пункт спеки | Задача |
 |---|---|
@@ -3410,6 +3420,7 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 | §10.1 П19 — тексти `kit check` не приписують відмову Уніці | Task 3 (`Get-V8ProjectConfigProblems`), Task 16 |
 | §10.1 П20 — `push full:true` звіряє покоління, `no_memory` → `push force` | Task 12 Step 3 (таблиця маршрутизації) |
 | §10.1 П21 — `-InstalledPluginsPath` замість змінної оточення | Task 5 |
+| §10.1 П22 — `-DumpPlatform` знімає `pull`-критерій; `canon -MarkerOnly` пише лише в стані `missing`, відмова на `stale`; `push force` для розширення, якого немає в пам'яті; `-Workspace` у надрукованих командах; `ask` для `run`/`apply`/`task_cancel` | Task 9 (`$lastViaAlt`), Task 8 (перевірка стану), Task 6 і Task 9 (тексти), Task 7 (`-Workspace`), Task 14 (`ask`) |
 | §10 П5/П15, §3 рішення 4 — хто створює базу; `canon` «лише позначка»; рецепти (i)/(ii) без `canon` | Task 11 (`Get-KitConfigurationFitness`, `Get-KitProvisionSteps`), Task 8 (`-MarkerOnly`, `Get-KitSupplyRecipe`), Task 12 (onboarding, provision) |
 | §10 П7 — `provision -Force` прибирає `<workPath>/infobases/origin/`, мітку власника й замок не чіпає | Task 11 |
 | §10 П16 — вид воркспейсу за типами наборів; `provision` без `origin` зупиняється | Task 4 (`Test-KitWorkspaceNeedsAgentBase`), Task 11 |
@@ -3438,5 +3449,5 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 **Що аудити змінили в плані** (знахідки чотирьох аудитів на коміті плану `5743282`, звірені; спростованих немає):
 - критичні: кома-обгортка `Get-V8ProjectConfigProblems` (`@(f).Count = 1` без знахідок — префлайт пропускав би кожен воркспейс); синтаксична помилка `Write-Host (…) -f` у `provision` (модуль не завантажився б; додано крок розбору парсером); тест `sync` «pull», червоний за будь-якої реалізації (бракувало `-WithGitignore`); запобіжник словника сліпий до повних MCP-імен, сам падав би на тексті Task 12 і на історичних розділах `upgrades.md`;
 - з першоджерел Уніки 0.13 / раннера 0.14: `pull` розширення вимагає `extension`; серверна база — завжди `push force` (#184); `dryRun` першим — конвенція kit; незмінене дерево дає `infobase_state_unverified` без звірки (захищає лише надрукований крок + сітка в скілі); ключі `cluster{user,password}`; `providers` без ключа `launch`; `execution_timeout_seconds` верхнього рівня;
-- решта: `Remove-KitDirectory` знімає ReadOnly і з тек, змішані місця «файл/тека»; тести, що не могли впасти (лічильник спроб, половина критерію `verify`, проводка пароля через `sync`/`Get-StorageVersions`/`DumpCfg`); перелік наявних тестів, що ламаються (`Supply`, `Check.Supply`, `Check.AgentBase`, `Sync.Guards`, `StoragePlatform`, `Provision`, `ModuleImportOrder`); `-MarkerOnly` не освячує `.cf`, старіший за `.bin`; `-Workspace` у надрукованих командах kit; маршрут відкоту Уніки й ізоляція перевірок маркетплейсу; секрети в журналі пілоту; `upgrades.md` — порядок маркетплейсів, кроки людини, `push force` лише для наборів з базою.
+- решта: `Remove-KitDirectory` знімає ReadOnly і з тек, змішані місця «файл/тека»; тести, що не могли впасти (лічильник спроб, половина критерію `verify`, проводка пароля через `sync`/`Get-StorageVersions`/`DumpCfg`); перелік наявних тестів, що ламаються (`Supply`, `Check.Supply`, `Check.AgentBase`, `Sync.Guards`, `StoragePlatform`, `Provision`, `ModuleImportOrder`); `-MarkerOnly` пише позначку лише в стані `missing` (свіжий `pull` стер її разом з каталогом) і відмовляє на `stale` — за ознакою стану, не за часом зміни файлу (рішення архітектора, §10.1 П22); `-Workspace` у надрукованих командах kit; маршрут відкоту Уніки й ізоляція перевірок маркетплейсу; секрети в журналі пілоту; `upgrades.md` — порядок маркетплейсів, кроки людини, `push force` лише для наборів з базою.
 
