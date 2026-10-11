@@ -19,7 +19,7 @@ Kit сам раннер не викликає.
 
 **Tech Stack:** PowerShell 7, Pester 5, git ≥ 2.38, платформа 1С 8.3.27.x, модуль `powershell-yaml`; Unica 0.13.x (MCP) — лише в пілоті й тексті.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md` на коміті **`ab43106`** (§6 — порядок «пілот після адаптації»; §10 — рішення архітектора за питаннями цього плану). Архітектор — сесія `unica-013-adaptation-spec`. Розбіжність плану зі спекою або пілоту зі спекою — зупинка й питання архітекторові, не вибір виконавця.
+**Spec:** `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md` на коміті **`8d94204`** (§2.2 і §4.1 — уточнення за першоджерелами Уніки 0.13; §6 — порядок «пілот після адаптації», пункти пілоту 12–13 і «Відкіт до пілоту»; §10 і §10.1 — рішення архітектора за питаннями й аудитом цього плану). План пройшов чотири аудити (код Tasks 1–6, код Tasks 7–11, першоджерела Unica 0.13 і v8-runner 0.14, Tasks 12–21 і повнота); знахідки внесено, рішення архітектора за ними — у розділі «Свідомі відхилення» наприкінці. Архітектор — сесія `unica-013-adaptation-spec`. Розбіжність плану зі спекою або пілоту зі спекою — зупинка й питання архітекторові, не вибір виконавця.
 
 ## Global Constraints
 
@@ -28,7 +28,8 @@ Kit сам раннер не викликає.
 - **Kit не викликає CLI раннера сам** (§3 рішення 2). Платформу kit кличе сам лише там, де раннер нічого не пропонує: сховище (`sync`, `verify`), дев-база людини (`dump`), тимчасові бази (`build` для `.epf`, `-DumpPlatform`) і порожня база за непридатного дерева (§3 рішення 4).
 - **Kit кодом `v8project*.yaml` не пише ніколи**; `infobases.origin` пише скіл `provision` (§10 П16).
 - `providers: {push: designer, pull: designer, download: designer}` — **у закоміченому** `v8project.yaml`; відсутній або ≠ `designer` для `push`/`pull`/`download` → `error`; інші ключі `providers` вільні (§4.3 п. 1, §10 П10).
-- Форма виклику, яку друкує kit: `unica.run {"op": …, "args": {…}, "dryRun": true|false}`; `infobase` не друкувати — він за замовчуванням `origin` (§10 П2). Кожен `unica.run` — спершу з `"dryRun":true`.
+- Форма виклику, яку друкує kit: `unica.run {"op": …, "args": {…}, "dryRun": true|false}`; `infobase` не друкувати — він за замовчуванням `origin` (§10 П2). Уніка вимагає явний булів `dryRun` у кожному виклику, але прев'ю першим не вимагає (`v13_run_dictionary.rs`: `previewRequired: false`, `dryRunRequired: true`); kit **за власною конвенцією** друкує спершу `"dryRun":true`, потім той самий виклик з `false`. Не називати це «вимогою Уніки».
+- Для набору `EXTENSION` `pull` несе `extension` = ім'я набору (схема `pull` Уніки 0.13: «required for an extension source set and must match it»); `make` `.cfe` — так само `extension`, для `.cf` — без нього.
 - `force:true` на базі агента — без питання людині (§4.1); база агента похідна (§3 рішення 1).
 - `unica_run` і `unica_apply` у `templates/settings.json` — з запитом (§3 рішення 6).
 - Платформа — гілка **8.3.27.x**; підрядки `лиценз`, `ліценз`, `license`, `HASP` у виводі платформи — зупинка й доповідь.
@@ -84,7 +85,7 @@ Kit сам раннер не викликає.
 | `docs/v8-runner-migration.md` | **знімається з обліку** |
 | `.claude-plugin/plugin.json` | 1.5.0 |
 
-## Порядок і фази (спека §6, §10 П1 на `ab43106`)
+## Порядок і фази (спека §6, §10 П1 на `8d94204`)
 
 ```
 Фаза A — адаптація (код і документи, за шляхом [док]; тести kit Уніки не потребують)
@@ -148,19 +149,34 @@ Describe 'Remove-KitDirectory (#34)' {
         { Remove-KitDirectory -Path $f } | Should -Throw '*не тека*'
         Test-Path -LiteralPath $f | Should -BeTrue
     }
-    It 'зайнятий файл — повторює задану кількість разів і кидає, тека ціла' {
+    It 'тека з атрибутом ReadOnly (а не лише файл) — видаляється, як це робив Remove-Item -Force' {
+        $d = Join-Path $TestDrive 'rodir'
+        $sub = Join-Path $d 'sub'
+        New-Item -ItemType Directory -Path $sub -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $sub 'x.txt') -Value 'x'
+        (Get-Item -LiteralPath $sub).Attributes = 'ReadOnly, Directory'
+        Remove-KitDirectory -Path $d
+        Test-Path -LiteralPath $d | Should -BeFalse
+    }
+    It 'зайнятий файл — рівно Attempts спроб (Attempts-1 повторів у Verbose) і виняток, тека ціла' {
         $d = Join-Path $TestDrive 'locked'; New-Item -ItemType Directory -Path $d | Out-Null
         $f = Join-Path $d 'x.txt'; Set-Content -LiteralPath $f -Value 'x'
         $h = [System.IO.File]::Open($f, 'Open', 'Read', 'None')
+        $msgs = [System.Collections.Generic.List[string]]::new(); $threw = $false
         try {
-            $verbose = $null
-            { Remove-KitDirectory -Path $d -Attempts 3 -DelayMs 10 -Verbose 4>&1 | Tee-Object -Variable verbose | Out-Null } | Should -Throw
+            try { Remove-KitDirectory -Path $d -Attempts 3 -DelayMs 10 -Verbose 4>&1 | ForEach-Object { $msgs.Add([string]$_.Message) } }
+            catch { $threw = $true }
         } finally { $h.Dispose() }
+        $threw | Should -BeTrue
+        @($msgs | Where-Object { $_ -like '*спроба*' }).Count | Should -Be 2
         Test-Path -LiteralPath $d | Should -BeTrue
     }
 }
 
 Describe 'Запобіжник #34: жодного Remove-Item -Recurse у коді kit' {
+    # Межа виміру (не ширша за неї): ловиться Remove-Item і -Recurse в одному рядку. Рядок
+    # продовження (бектік) і псевдоніми rm/ri/del тест не бачить — на момент написання таких
+    # місць у tools/ немає (grep по 'Recurse').
     It 'tools/commands, tools/lib, tools/kit.ps1 — без Remove-Item з -Recurse поза коментарями' {
         $root = (Resolve-Path "$PSScriptRoot/..").Path
         $files = @(Get-ChildItem -LiteralPath (Join-Path $root 'commands'), (Join-Path $root 'lib') -Filter '*.psm1' -File) +
@@ -193,9 +209,10 @@ function Remove-KitDirectory {
     .DESCRIPTION
         Remove-Item -Recurse під pwsh 7.6 на Windows Server недетерміновано падає на зайнятому
         файлі (антивірус, індексатор, щойно закритий 1cv8). [System.IO.Directory]::Delete не
-        знімає атрибута ReadOnly, тож на UnauthorizedAccessException атрибут знімається з усіх
-        файлів дерева і спроба повторюється; IOException — пауза, що росте з номером спроби, і
-        повтор. Межу шляху тут не перевіряють: викликач робить Assert-SafeWorkPath ДО виклику,
+        знімає атрибута ReadOnly ні з файлів, ні з тек (на теці з ReadOnly .NET кидає IOException,
+        не UnauthorizedAccessException — перевірено аудитом плану), тож перед КОЖНИМ повтором
+        атрибут знімається з усього дерева, а на IOException ще й пауза, що росте з номером
+        спроби. Межу шляху тут не перевіряють: викликач робить Assert-SafeWorkPath ДО виклику,
         як і раніше перед Remove-Item.
     #>
     [CmdletBinding()]
@@ -209,6 +226,15 @@ function Remove-KitDirectory {
         throw "Remove-KitDirectory: '$Path' не тека — файли видаляє викликач сам (Remove-Item без -Recurse)."
     }
     $full = (Resolve-Path -LiteralPath $Path).ProviderPath
+    $clearReadOnly = {
+        $all = @($full) + @([System.IO.Directory]::EnumerateFileSystemEntries($full, '*', [System.IO.SearchOption]::AllDirectories))
+        foreach ($entry in $all) {
+            $attr = [System.IO.File]::GetAttributes($entry)
+            if ($attr -band [System.IO.FileAttributes]::ReadOnly) {
+                [System.IO.File]::SetAttributes($entry, $attr -band (-bnot [System.IO.FileAttributes]::ReadOnly))
+            }
+        }
+    }
     for ($i = 1; ; $i++) {
         try {
             [System.IO.Directory]::Delete($full, $true)
@@ -218,15 +244,11 @@ function Remove-KitDirectory {
         } catch [System.UnauthorizedAccessException] {
             if ($i -ge $Attempts) { throw }
             Write-Verbose "Remove-KitDirectory: спроба $i — доступ заборонено, знімаю ReadOnly у '$full'"
-            foreach ($f in [System.IO.Directory]::EnumerateFiles($full, '*', [System.IO.SearchOption]::AllDirectories)) {
-                $attr = [System.IO.File]::GetAttributes($f)
-                if ($attr -band [System.IO.FileAttributes]::ReadOnly) {
-                    [System.IO.File]::SetAttributes($f, $attr -band (-bnot [System.IO.FileAttributes]::ReadOnly))
-                }
-            }
+            & $clearReadOnly
         } catch [System.IO.IOException] {
             if ($i -ge $Attempts) { throw }
             Write-Verbose "Remove-KitDirectory: спроба $i — $($_.Exception.Message); повтор через $($DelayMs * $i) мс"
+            try { & $clearReadOnly } catch { Write-Verbose "Remove-KitDirectory: зняти ReadOnly не вдалось — $($_.Exception.Message)" }
             Start-Sleep -Milliseconds ($DelayMs * $i)
         }
     }
@@ -235,7 +257,7 @@ function Remove-KitDirectory {
 
 Export: `Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory`.
 
-- [ ] **Step 4: Заміна викликів.** Кожен знайдений рядок переписати за формою:
+- [ ] **Step 4: Заміна викликів.** Спершу для **кожного** рядка грепу визначити читанням, тека це, файл чи «будь-що» (цикли на кшталт `foreach ($leftover in @($cf, $altIbPath))` у `StoragePlatform.psm1` прибирають і файл `.cf`, і теку `alt-ib`; `Supply.psm1` — `$inner`/`$item`; `V8.psm1` у `New-V8FileInfobase`). `Remove-KitDirectory` на файлі кидає «не тека», тож змішане місце без розділення перестало б прибирати файл. Тоді переписати за формою:
   - `if (Test-Path -LiteralPath X) { Remove-Item -LiteralPath X -Recurse -Force }` → `Remove-KitDirectory -Path X`.
   - Для елемента, що може бути й файлом (`Clear-KitTreeExceptSupply` у `Supply.psm1`):
 
@@ -244,7 +266,14 @@ Export: `Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory`
     ```
 
   - Місце з `-ErrorAction SilentlyContinue` (best-effort прибирання в `StorageBranch.psm1`) → `try { Remove-KitDirectory -Path $Path } catch { Write-Verbose "…: $($_.Exception.Message)" }`. Семантика «не валити» лишається.
-  - Місце з `-ErrorAction Stop` → простий виклик.
+  - Змішаний цикл у `StoragePlatform.psm1` (файл `$cf` і тека `$altIbPath`, `-ErrorAction Stop` усередині `try`) — розділити, семантику обробки помилки лишити тією, що була:
+
+    ```powershell
+    if (Test-Path -LiteralPath $cf -PathType Leaf) { Remove-Item -LiteralPath $cf -Force -ErrorAction Stop }
+    Remove-KitDirectory -Path $altIbPath
+    ```
+
+  - Інше місце з `-ErrorAction Stop` на теці → простий виклик `Remove-KitDirectory`.
   - `Assert-SafeWorkPath` перед викликом лишається там, де був.
 
   Коментарі, що згадують `Remove-Item -Recurse -Force` як механізм (у `canon.psm1`, `TreeBackup.psm1`, `AgentBase.psm1`, `V8.psm1`, `provision.psm1`), переписати на `Remove-KitDirectory`. Причина в коментарі лишається (kit-dev, «змінилась причина чужого кроку»).
@@ -262,7 +291,8 @@ Export: `Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory`
 **Files:**
 - Modify: `tools/lib/V8.psm1` (`ConvertFrom-V8Connection`)
 - Modify: `tools/lib/AgentBase.psm1` (лише коментарі `Get-KitInfobaseCanonicalForm`, `Test-KitSameInfobase`, `Resolve-KitAgentBase` про лапки)
-- Test: `tools/tests/V8.Tests.ps1`, `tools/tests/AgentBase.Tests.ps1`, тести `Check.*`, що чекали відмови на лапках (знайти: `grep -rln "лапк" tools/tests`)
+- Modify: `tools/commands/check.psm1` — лише коментарі, що стверджують «лапки — помилка, fail-closed» (знайти: `grep -n "лапк" tools/commands/check.psm1`)
+- Test: `tools/tests/V8.Tests.ps1` (тести відмови на лапках, `ConvertTo-V8IbSwitch` на лапках), `tools/tests/AgentBase.Tests.ps1` (тест лапок), `tools/tests/Check.Names.Tests.ps1` (тести «`*лапках*`»). Повний перелік — `grep -rn "лапк\|Srvr=\"" tools/tests`; кожен збіг переглянути
 
 **Interfaces:**
 - Produces: `ConvertFrom-V8Connection` — той самий вихід `{Kind; Server; Ref; File}`. Значення в парних лапках навколо всього значення знімаються. Непарна лапка чи лапка всередині значення — виняток.
@@ -332,7 +362,7 @@ It 'Srvr у лапках і без лапок — та сама база (§4.3 
 
   Факт `issue #9` (Уніка 0.12 у лапках не підключалась) — одним реченням як історія.
 
-- [ ] **Step 4: Коментарі `AgentBase.psm1`** — абзаци «значення в лапках — fail-closed/помилка» переписати: лапки парою — та сама база, непарні — `Parsed=$false` з текстом винятку (fail-closed лишається для нерозбірного).
+- [ ] **Step 4: Коментарі `AgentBase.psm1` і `check.psm1`** — абзаци «значення в лапках — fail-closed/помилка» переписати: лапки парою — та сама база, непарні — `Parsed=$false` з текстом винятку (fail-closed лишається для нерозбірного). Тексти про лапки поза `tools/` (скіли, `templates/v8storagekit.local.yaml.example`, `docs/`, `upgrades.md`) — Tasks 12, 15, 16.
 
 - [ ] **Step 5: Прогін — зелений.** Тести `Check.*`, що чекали знахідки на лапках, переписати: парні лапки → знахідки немає; непарні → `error` з `*непарні лапки*`. Перш ніж писати перевірку на фразу, переконатися `grep -rn "непарні лапки" tools/commands tools/lib`, що вона трапляється лише в `V8.psm1`.
 
@@ -375,8 +405,8 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         $script:Clean = @('format: DESIGNER', "workPath: 'build'", 'providers:', '  push: designer', '  pull: designer', '  download: designer',
             'source-set:', '  - name: base', '    type: CONFIGURATION', "    path: 'cf/src'")
     }
-    It 'чиста форма 0.13 — знахідок немає' {
-        $d = New-Ws -Name 'clean' -Project $script:Clean -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'")
+    It 'чиста форма 0.13 — знахідок немає (вкладений tests.execution_timeout_seconds законний)' {
+        $d = New-Ws -Name 'clean' -Project ($script:Clean + @('tests:', '  execution_timeout_seconds: 600')) -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'")
         @(Get-V8ProjectConfigProblems -Directory $d) | Should -BeNullOrEmpty
     }
     It 'усі застарілі ключі — усі знахідки разом, кожна з рецептом' {
@@ -412,7 +442,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike $Want
     }
     It 'інші ключі providers вільні' {
-        $proj = @('format: DESIGNER', 'providers:', '  push: designer', '  pull: designer', '  download: designer', '  launch: agent',
+        $proj = @('format: DESIGNER', 'providers:', '  push: designer', '  pull: designer', '  download: designer', '  make: agent',
                   'source-set:', '  - name: base', '    type: CONFIGURATION', "    path: 'cf/src'")
         $d = New-Ws -Name 'prov-extra' -Project $proj
         @(Get-V8ProjectConfigProblems -Directory $d) | Should -BeNullOrEmpty
@@ -560,8 +590,10 @@ function Get-V8ProjectConfigProblems {
         if ($null -eq $data) { continue }
         $p = $file.Path
 
-        foreach ($key in 'builder', 'execution_timeout', 'basePath') {
-            if ($data.Contains($key)) { $problems.Add("${p}: ключ '$key' Уніка 0.13 не приймає — з ним вона відмовляється працювати. Видаліть рядок.") }
+        # Лише верхній рівень: вкладений tests.execution_timeout_seconds Уніка 0.13 приймає
+        # (runner_014.rs, validate_layer); builder відхиляє сам раннер 0.14.
+        foreach ($key in 'builder', 'execution_timeout', 'execution_timeout_seconds', 'basePath') {
+            if ($data.Contains($key)) { $problems.Add("${p}: ключ '$key' Уніка 0.13 / v8-runner 0.14 не приймають — з ним вони відмовляються працювати. Видаліть рядок.") }
         }
         foreach ($section in 'push', 'build') {
             if ($data.Contains($section) -and $data[$section] -is [System.Collections.IDictionary] -and $data[$section].Contains('partialLoadThreshold')) {
@@ -576,8 +608,10 @@ function Get-V8ProjectConfigProblems {
             }
         }
         if ($data.Contains('infobase')) {
-            $problems.Add("${p}: стара форма 'infobase:' — kit 1.5.0 і Уніка 0.13 беруть базу агента лише з infobases.origin " +
-                "у $localPath. Перенесіть: infobases: { origin: { connection: …, user: …, password: … } } у $localPath і " +
+            # Політика kit (рішення 9 спеки), не відмова Уніки: Уніка 0.13 стару форму ще приймає
+            # проєкцією — тому в тексті не писати, що її «відхиляє Уніка».
+            $problems.Add("${p}: стара форма 'infobase:' — kit 1.5.0 читає базу агента лише з infobases.origin " +
+                "у $localPath (одна форма на kit і Уніку, без сумісного читання). Перенесіть: infobases: { origin: { connection: …, user: …, password: … } } у $localPath і " +
                 'приберіть infobase: (перехід — skills/onboarding/references/upgrades.md, «1.4.0 → 1.5.0»).')
         }
         if ($data.Contains('infobases')) {
@@ -612,7 +646,10 @@ function Get-V8ProjectConfigProblems {
             }
         }
     }
-    , $problems.ToArray()
+    # БЕЗ коми-обгортки: викликачі загортають у @(...), і `, $arr` дав би масив з ОДНОГО
+    # елемента навіть без знахідок (аудит плану: @(f).Count = 1) — префлайт тоді пропускав би
+    # кожен воркспейс. Той самий урок, що в Select-KitSources.
+    $problems.ToArray()
 }
 ```
 
@@ -653,7 +690,7 @@ function Get-V8ProjectConfigProblems {
         }
 ```
 
-  - Нова функція (додати в `Export-ModuleMember`, якщо модуль його має; інакше експорт за замовчуванням):
+  - Нова функція — **додати в явний перелік `Export-ModuleMember` наприкінці `KitFixtures.psm1`**:
 
 ```powershell
 function Set-KitFakeAgentBase {
@@ -685,9 +722,22 @@ function Set-KitFakeAgentBase {
   - `v8project-extension.yaml`, `v8project-epf.yaml`: прибрати `builder`, `execution_timeout`, `infobase:`; додати блок `providers` (три ключі).
 
 - [ ] **Step 7: Наявні тести.**
-  - Кожне `Set-Content … 'v8project.local.yaml' … @('infobase:', "  connection: '…'")` → `Set-KitFakeAgentBase -Repo $repo -Connection '…'`. Перелік — `grep -rn "'infobase:'" tools/tests`, до нуля збігів.
-  - Тести, що читали `InfobaseConnection` чи `Read-V8ProjectLocalInfobaseUser`, переписати на нові поля.
+  - Кожен запис старої форми в `v8project.local.yaml` — і в одинарних лапках (`@('infobase:', …)`), і в подвійних (`"infobase:`n  connection…"`, `"infobase:`r`n …"`) — → `Set-KitFakeAgentBase -Repo $repo -Connection '…'`. Перелік — `grep -rn "infobase:" tools/tests` (без лапок), до нуля збігів поза тестами самої знахідки «стара форма». Відомі місця: `Check.Names.Tests.ps1` (вісім), `Check.Manifest.Tests.ps1`, `Canon.Tests.ps1`, `Provision.Tests.ps1` (кілька), `AgentBase.Tests.ps1`.
+  - Тести, що читали `InfobaseConnection` чи `Read-V8ProjectLocalInfobaseUser`, переписати на нові поля; `AgentBase.Tests.ps1` «Origin … `*v8project.yaml`» → `*v8project.local.yaml`; `V8Project.Tests.ps1` «накладка Уніки виграє у закоміченого» — прибрати (закоміченої бази більше немає), покриття — новий `Describe 'Resolve-V8AgentInfobase …'`.
   - Тест `Check.AgentBase` про базу «лише в закоміченому `v8project.yaml`» — тепер це знахідка конфігу; переписати на очікування `error` з `*стара форма 'infobase:'*`.
+  - `.git/info/exclude` у фікстурі прибирає знахідку `local-ignored` у репо без `-WithGitignore` (`git check-ignore --no-index` бачить exclude). Тесту на цю знахідку зараз немає; додати в `Check.Manifest.Tests.ps1`:
+
+```powershell
+    It 'v8project.local.yaml не гітігноровано правилом репозиторію — error local-ignored (exclude фікстури прибрано)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'local-not-ignored') -WithHooks
+        $ex = Join-Path $repo '.git/info/exclude'
+        Set-Content -LiteralPath $ex -Value (@(Get-Content -LiteralPath $ex | Where-Object { $_ -ne 'v8project.local.yaml' })) -Encoding UTF8
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo
+        $r.Output | Should -BeLike '*v8project.local.yaml не гітігноровано*'
+    }
+```
+
+  - Нові тести підпроцесом кличуть наявний `Invoke-KitCommand -Kit … -Command … -Repo …` (`KitFixtures.psm1`), а не власний `Run`-хелпер — одна точка запуску, у якої є свій тест. У прикладах цього плану `Run`/`Invoke-Provision` замінити на неї, якщо сигнатура дозволяє передати додаткові аргументи; інакше лишити наявний хелпер файлу.
 
 - [ ] **Step 8: Прогін — зелений** (повний набір).
 
@@ -706,7 +756,7 @@ function Set-KitFakeAgentBase {
   - `Get-KitSourceInfobase`;
   - `-Password` у `Invoke-KitStorageUpdate`, `Invoke-KitStorageCheckout`, `Invoke-KitStorageCheckoutViaPlatform` — лише виклики з базою агента; виклики тимчасової `alt-ib` без пароля;
   - `Enter-/Exit-KitStorageBind` **не чіпати** (§10 П12).
-- Modify: `tools/lib/StorageReport.psm1` — `-Password` у `Get-StorageVersions` і функції звіту, яку вона кличе.
+- Modify: `tools/lib/StorageReport.psm1` — `-Password` (пароль **бази агента**) у `Get-StorageVersions` і в тій функції звіту, що кличе `Invoke-V8Designer`; **не** в `Get-StorageReportArguments` — там лише `StoragePassword` сховища, інша сутність.
 - Modify: `tools/commands/sync.psm1`, `verify.psm1`, `canon.psm1` — передача пароля.
 - Modify: `tools/commands/check.psm1` — знахідка `agent-base-required`.
 - Test: `tools/tests/AgentBase.Tests.ps1`, `V8.Tests.ps1`, `StoragePlatform.Tests.ps1`, `Canon.Tests.ps1`, `Check.AgentBase.Tests.ps1`
@@ -717,7 +767,7 @@ function Set-KitFakeAgentBase {
   - `Resolve-KitAgentBase` → `{Workspace; Connection; User; Password; Dbms; Origin; Kind; Path; IbSwitch; Exists}` або `$null`;
   - `Test-KitWorkspaceNeedsAgentBase -Workspace` → `bool` (є набір `CONFIGURATION` чи `EXTENSION`);
   - `New-KitAgentBaseMissingMessage -WorkspacePath` → `string`;
-  - `Get-KitSourceInfobase` → `{IbSwitch; User; Password; Workspace}`;
+  - `Get-KitSourceInfobase` → `{IbSwitch; User; Password; Kind; Workspace}` (`Kind` — `file`/`server`, для кроку вирівнювання Tasks 9–10);
   - `Invoke-KitStorageCheckout … [-Password <string>]`, `Invoke-KitStorageCheckoutViaPlatform … [-Password]`, `Get-StorageVersions … [-Password]`.
 
 - [ ] **Step 1: Тести.**
@@ -761,6 +811,8 @@ Describe 'kit canon — пароль бази агента доходить до
     It 'canon -Apply: /P "***" у Verbose, справжній пароль — лише в аргументах Start-Process' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'pwd') -WithHooks -WithAgentBase
         Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'S3cr3t-Пароль'
+        # Без моку Get-V8Path тест залежав би від установленої платформи 8.3.27.x (kit-dev (б)).
+        Mock -ModuleName V8 Get-V8Path { 'C:\fake\1cv8.exe' }
         Mock -ModuleName V8 Start-Process { [pscustomobject]@{ ExitCode = 0 } }
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         $old = $global:VerbosePreference; $global:VerbosePreference = 'Continue'
@@ -782,7 +834,32 @@ It 'Invoke-KitStorageCheckout передає -Password в обидва викл�
     $null = Invoke-KitStorageCheckout -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target $t -MustBeUnder $TestDrive -User 'agent' -Password 'pw'
     Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2 -Exactly -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' }
 }
+It 'Invoke-KitStorageCheckoutViaPlatform: пароль — у UpdateCfg і DumpCfg бази агента, НЕ в LoadCfg/дампі тимчасової alt-ib' {
+    Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+    Mock -ModuleName StoragePlatform New-V8FileInfobase { $Path }
+    $src = [pscustomobject]@{ Key = 'base'; Type = 'CONFIGURATION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
+    $wd = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
+    try {
+        $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target (Join-Path $wd 'out') `
+            -MustBeUnder $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
+    } catch { }   # виклик може впасти далі на відсутньому .cf від моку — перевіряємо лише аргументи викликів платформи
+    Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -eq '/F "C:\ib"' -and $Password -eq 'pw' } -Times 2 -Exactly
+    Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -ne '/F "C:\ib"' -and $Password } -Times 0 -Exactly
+}
 ```
+
+`tools/tests/StorageReport.Tests.ps1` (наявний файл мокає `Invoke-V8Designer` за `-ModuleName StorageReport`):
+
+```powershell
+It 'Get-StorageVersions передає пароль бази агента в Invoke-V8Designer, а пароль сховища — лише аргументом /ConfigurationRepositoryP' {
+    Mock -ModuleName StorageReport Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+    $wd = Join-Path $TestDrive 'rep'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
+    try { $null = Get-StorageVersions -IbSwitch '/F "C:\ib"' -StoragePath 'C:\s' -StorageUser 'su' -StoragePassword 'sp' -WorkDir $wd -User 'agent' -Password 'pw' } catch { }
+    Should -Invoke -ModuleName StorageReport Invoke-V8Designer -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' } -Times 1
+}
+```
+
+(Імена параметрів `Get-StorageVersions` звірити з фактичною сигнатурою перед написанням; `try/catch` — бо мок не пише файлу звіту, і розбір після виклику може кинути.)
 
 `tools/tests/AgentBase.Tests.ps1`:
 
@@ -884,8 +961,10 @@ function New-KitAgentBaseMissingMessage {
                'вивантажується в контексті базової конфігурації. Спершу v8storagekit:provision (kit provision -Workspace ' +
                "$($ws.Path) -Apply і надрукований ним крок), тоді повторіть команду.")
     }
-    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Workspace = $ws.Path }
+    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path }
 ```
+
+  (`Kind` — `file`/`server`; його бере крок вирівнювання `sync`/`verify`, Tasks 9–10. Моки `Get-KitSourceInfobase` у наявних тестах, що повертають об'єкт без `Kind`, дописати `Kind = 'file'`.)
 
   - `canon.psm1`:
     - рядок `if ($null -eq $ab) { … 'у v8project.yaml немає infobase:' … }` → `if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }` (цілі canon — лише `CONFIGURATION`/`EXTENSION`, тож бази потребує завжди);
@@ -901,13 +980,33 @@ function New-KitAgentBaseMissingMessage {
             }
 ```
 
-  - Тести, що чекали старих рецептів (`StoragePlatform.Tests` «`*kit provision*operation=build*`» тощо): переписати на `*v8storagekit:provision*`.
+  - Тести, що чекали старих рецептів, переписати (унікальність кожної нової фрази — `grep` по `tools/`):
+    - `StoragePlatform.Tests.ps1` «`*kit provision*operation=build*`» → `*v8storagekit:provision*`; у трьох моках `Resolve-KitAgentBase` того самого файлу дописати `Password = ''` — інакше під StrictMode `PropertyNotFound` на `$ab.Password`;
+    - `Check.AgentBase.Tests.ps1`: позитивна перевірка `*kit provision*` → `*v8storagekit:provision*`; заперечна `-Not -BeLike '*kit provision*'` → `-Not -BeLike '*v8storagekit:provision*'` (інакше тавтологія — нового тексту з пробілом «kit provision» немає взагалі);
+    - `Sync.Guards.Tests.ps1`: перевірка `*kit provision*` + `*operation=build*` → `*v8storagekit:provision*` (друга фраза зникає разом зі старим текстом); тест «немає infobase:» → П16 «не налаштована».
 
 - [ ] **Step 7: Прогін — зелений.**
 
 - [ ] **Step 8: Мутації — на копії дерева, кожна окремо, текст падіння у звіт:**
   - (а) у `Hide-V8Secrets` прибрати `-replace …` (повернути `$ArgLine`) — червоніють обидва тести «замасковано» (`V8.Tests`) і «canon -Apply» (`Canon.Tests`);
-  - (б) у `canon.psm1` прибрати `-Password $ab.Password` — червоніє `ParameterFilter` тесту canon.
+  - (б) у `canon.psm1` прибрати `-Password $ab.Password` — червоніє `ParameterFilter` тесту canon;
+  - (в) у `sync.psm1` прибрати `-Password $ibPassword` з виклику `Get-StorageVersions` — червоніє тест нижче (Step 8а).
+
+- [ ] **Step 8а: Тест проводки пароля через `sync`** — у `tools/tests/Sync.Merge.Tests.ps1` (той самий `BeforeAll` з `module-order.txt` і моками), бо тести модулів окремо не бачать, що `sync` пароль узагалі передає:
+
+```powershell
+    It '#26: sync передає пароль бази агента в Get-StorageVersions і в Invoke-KitStorageCheckout' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'pwd-sync') -WithHooks -WithAgentBase -WithGitignore
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'pw'
+        $storageDir = Join-Path $TestDrive 'pwd-sync-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7) }
+        $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        Should -Invoke -ModuleName sync Get-StorageVersions -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' } -Times 1
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $Password -eq 'pw' } -Times 2
+    }
+```
 
 - [ ] **Step 9 (контролер, з дозволу людини): Коміт.** Тема: `#26 і §10 П16: пароль бази агента в усіх викликах платформи; вид воркспейсу за типами наборів`.
 
@@ -918,16 +1017,20 @@ function New-KitAgentBaseMissingMessage {
 **Files:**
 - Modify: `tools/lib/Environment.psm1` (нова `Get-KitUnicaVersionVerdict`)
 - Modify: `tools/lib/module-order.txt` — додати `Environment` одразу після `RepoRoot`; у шапці файлу дописати: «Environment — без залежностей; check бере звідти Get-UnicaInstallation і Get-KitUnicaVersionVerdict»
-- Modify: `tools/commands/check.psm1` — знахідка `unica-version`, на початку `Invoke-KitCheck`, **поза** `if ($Context.Manifest)`
+- Modify: `tools/commands/check.psm1` — параметр `-InstalledPluginsPath`, знахідка `unica-version` на початку `Invoke-KitCheck`, **поза** `if ($Context.Manifest)`
+- Modify: `tools/commands/session-check.psm1` — параметр `-InstalledPluginsPath`, прокидається в `Invoke-KitCheck`
 - Modify: `tools/check-environment.ps1` — блок «Вихідники»
-- Modify: `tools/tests/fixtures/KitFixtures.psm1` — фальшивий реєстр Уніки 0.13.0 на рівні модуля
+- Modify: `tools/tests/fixtures/KitFixtures.psm1` — `New-KitFakeUnicaRegistry`; `Invoke-KitCommand` для `check`/`session-check` додає `-InstalledPluginsPath` фальшивого реєстру, якщо викликач його не передав
+- Modify: `tools/tests/ModuleImportOrder.Tests.ps1` — прибрати виняток «крім Environment» (фільтр `-ne 'Environment'` і слова в назві `It`), додати в `RequiredCommands` `Get-UnicaInstallation`, `Get-KitUnicaVersionVerdict`
+- Modify: кожен тест, що кличе `check`/`session-check` в обхід `Invoke-KitCommand` (підпроцес напряму чи `Invoke-KitCheck`/`Invoke-KitSessionCheck` у процесі) — передати `-InstalledPluginsPath (New-KitFakeUnicaRegistry)`. Перелік — `grep -rn "Invoke-KitCheck\|Invoke-KitSessionCheck\|kit.ps1.* check\|\$script:Kit check\|\$script:Kit session-check" tools/tests`
 - Test: `tools/tests/Environment.Tests.ps1`, `tools/tests/Check.Manifest.Tests.ps1`
 
 **Interfaces:**
-- Consumes: `Get-UnicaInstallation` → `{Installed; Version; InstallPath; PathExists; Reason}`.
+- Consumes: `Get-UnicaInstallation -InstalledPluginsPath` → `{Installed; Version; InstallPath; PathExists; Reason}`.
 - Produces:
   - `Get-KitUnicaVersionVerdict -Installation` → `{Level = 'ok'|'info'|'warn'|'error'; Message}`;
-  - змінна середовища `V8KIT_INSTALLED_PLUGINS` — перевизначає реєстр для `kit check` (тести).
+  - `kit check [-InstalledPluginsPath <шлях>]`, `kit session-check [-InstalledPluginsPath <шлях>]` — за замовчуванням реєстр машини `~/.claude/plugins/installed_plugins.json` (спека §10.1 П21: жодної змінної оточення, яку production читає заради тестів);
+  - `New-KitFakeUnicaRegistry [-Version <string>='0.13.0']` (`KitFixtures`) → шлях до фальшивого `installed_plugins.json` у `$TestDrive`.
 
 - [ ] **Step 1: Тести.** `tools/tests/Environment.Tests.ps1`:
 
@@ -972,19 +1075,24 @@ Describe 'kit check — версія Уніки (§4.4 п. 4)' {
     }
     It 'Уніка 0.12.3 у реєстрі — код 1, рецепт оновлення' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-unica') -WithHooks -WithGitignore
-        $reg = Join-Path $TestDrive 'reg-0.12.json'
-        Set-Content -LiteralPath $reg -Encoding UTF8 -Value (@{ plugins = @{ 'unica@unica' = @(@{ version = '0.12.3'; installPath = $TestDrive }) } } | ConvertTo-Json -Depth 5)
-        $saved = $env:V8KIT_INSTALLED_PLUGINS
-        try {
-            $env:V8KIT_INSTALLED_PLUGINS = $reg
-            $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo 2>&1 | Out-String
-            $code = $LASTEXITCODE
-        } finally { $env:V8KIT_INSTALLED_PLUGINS = $saved }
-        $code | Should -Be 1
-        $out | Should -BeLike '*[-]*0.12.3*claude plugin update unica@unica*'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.12.3'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[-]*0.12.3*claude plugin update unica@unica*'
+    }
+    It 'Уніка 0.13.0 — знахідки unica-version немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'new-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.13.0'))
+        $r.Output | Should -Not -BeLike '*плагін unica*'
+    }
+    It 'session-check прокидає -InstalledPluginsPath у check' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sc-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.12.3'))
+        $r.Output | Should -BeLike '*0.12.3*'
     }
 }
 ```
+
+> Перевірка до коду (kit-dev (а)): чи `session-check` друкує знахідки `check` рівня `error` (а не лише свої рядки «Стан сховищ»). Якщо ні — третій тест перевіряє `-AsJson` чи інший канал, яким `session-check` показує знахідки check; не підганяти текст.
 
 - [ ] **Step 2: Прогін — червоний.**
 
@@ -1031,16 +1139,19 @@ function Get-KitUnicaVersionVerdict {
 
 Додати в `Export-ModuleMember`.
 
-- [ ] **Step 4: `check.psm1`** — одразу після `$root = $Context.RepoRoot`:
+- [ ] **Step 4: `check.psm1` і `session-check.psm1`.**
+  - `Invoke-KitCheck`: параметр `[string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json')`. Одразу після `$root = $Context.RepoRoot`:
 
 ```powershell
     # Спека 2026-10-11 §4.4 п. 4: версія Уніки — вимога. Реєстр машинний (Уніка — плагін рівня
-    # користувача); V8KIT_INSTALLED_PLUGINS перевизначає його для тестів — той самий прийом, що
-    # -InstalledPluginsPath у check-environment.ps1. Поза if ($Context.Manifest): стан машини.
-    $pluginsRegistry = if ($env:V8KIT_INSTALLED_PLUGINS) { $env:V8KIT_INSTALLED_PLUGINS } else { Join-Path $HOME '.claude/plugins/installed_plugins.json' }
-    $unicaVerdict = Get-KitUnicaVersionVerdict -Installation (Get-UnicaInstallation -InstalledPluginsPath $pluginsRegistry)
+    # користувача); параметр -InstalledPluginsPath — той самий інтерфейс, що в check-environment.ps1
+    # (§10.1 П21: жодної змінної оточення заради тестів). Поза if ($Context.Manifest): стан машини.
+    $unicaVerdict = Get-KitUnicaVersionVerdict -Installation (Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath)
     if ($unicaVerdict.Level -ne 'ok') { & $add $unicaVerdict.Level 'unica-version' $unicaVerdict.Message }
 ```
+
+  - `Invoke-KitSessionCheck`: той самий параметр з тим самим умовчанням; виклик `Invoke-KitCheck … -Quiet` отримує `-InstalledPluginsPath $InstalledPluginsPath`.
+  - Хук старту сесії споживача (`templates/hooks/session-start.ps1`) параметра не передає — і не мусить: у споживача діє реєстр машини. Тести шима (`SessionStartHook.Tests.ps1`) — перевірити, що їхні очікування не залежать від знахідки `unica-version`. Якщо залежать — зупинка й питання контролеру (не обхід через змінну оточення).
 
 - [ ] **Step 5: `check-environment.ps1`, блок «Вихідники»:**
 
@@ -1055,21 +1166,31 @@ $unicaDetail = if ($unica.Installed -and $unica.PathExists) {
 }
 ```
 
-- [ ] **Step 6: `KitFixtures.psm1`** — на рівні модуля, після функцій, до кінця файлу:
+- [ ] **Step 6: `KitFixtures.psm1`.**
+  - Нова функція (у явний `Export-ModuleMember`):
 
 ```powershell
-# Спека 2026-10-11 §4.4 п. 4: kit check звіряє версію Уніки з реєстру машини. Без цього
-# кожен тест check на машині з іншою Унікою отримав би чужу знахідку unica-version. Змінна
-# середовища успадковується підпроцесом kit.ps1, якого запускають тести.
-$script:FakeUnicaRoot = Join-Path ([System.IO.Path]::GetTempPath()) "kit-fake-unica-$PID"
-New-Item -ItemType Directory -Path $script:FakeUnicaRoot -Force | Out-Null
-$script:FakeUnicaRegistry = Join-Path $script:FakeUnicaRoot 'installed_plugins.json'
-Set-Content -LiteralPath $script:FakeUnicaRegistry -Encoding UTF8 -Value (
-    @{ plugins = @{ 'unica@unica' = @(@{ version = '0.13.0'; installPath = $script:FakeUnicaRoot }) } } | ConvertTo-Json -Depth 5)
-$env:V8KIT_INSTALLED_PLUGINS = $script:FakeUnicaRegistry
+function New-KitFakeUnicaRegistry {
+    <#
+    .SYNOPSIS
+        Фальшивий installed_plugins.json з Унікою заданої версії — для -InstalledPluginsPath kit check
+        і session-check (спека §10.1 П21). Тести не залежать від того, яка Уніка стоїть на машині.
+    #>
+    [CmdletBinding()]
+    param([string]$Version = '0.13.0')
+    $dir = Join-Path $TestDrive "fake-unica-$Version-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $path = Join-Path $dir 'installed_plugins.json'
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value (
+        @{ plugins = @{ 'unica@unica' = @(@{ version = $Version; installPath = $dir }) } } | ConvertTo-Json -Depth 5)
+    $path
+}
 ```
 
-- [ ] **Step 7: Прогін — зелений.** Якщо тести без `KitFixtures` кличуть `check` (знайти: `grep -rLn "KitFixtures" tools/tests/*.ps1 | xargs grep -ln " check "`), там та сама підготовка змінної.
+  (`$TestDrive` видно з функції модуля, що викликається з `It`/`BeforeAll` Pester; якщо ні — параметр `-Root` з умовчанням `$TestDrive` у викликача.)
+  - `Invoke-KitCommand`: якщо `-Command` — `check` чи `session-check` і в `-More` немає `-InstalledPluginsPath`, дописати `-InstalledPluginsPath (New-KitFakeUnicaRegistry)`. Коментар: «тест, що навмисно перевіряє реєстр машини, передає параметр сам». Тест на це — у `KitFixtures.Tests.ps1`: виклик `check` без параметра на фікстурі не дає знахідки `unica-version` незалежно від машини.
+
+- [ ] **Step 7: Прогін — зелений.** Кожен виклик `check`/`session-check` поза `Invoke-KitCommand` (перелік — grep із «Files») передає `-InstalledPluginsPath (New-KitFakeUnicaRegistry)`. Тест, що параметр забув, на цій машині (Уніка 0.12.3) червоніє — це очікувана сигналізація, не дефект.
 
 - [ ] **Step 8: Мутація** — на копії дерева в `Get-KitUnicaVersionVerdict` поміняти `-lt` на `-le`. Червоніє тест `0.13.0 → ok`. Текст падіння — у звіт.
 
@@ -1081,7 +1202,8 @@ $env:V8KIT_INSTALLED_PLUGINS = $script:FakeUnicaRegistry
 
 **Files:**
 - Create: `tools/lib/UnicaStep.psm1`
-- Modify: `tools/lib/module-order.txt` — `UnicaStep` одразу після `GitOutput`; у шапці: «UnicaStep — після Supply і TreeCompare (Get-KitSupplyState, Invoke-KitGitProcess), імпортує їх вкладено без -Force, як AgentBase — V8»
+- Modify: `tools/lib/module-order.txt` — `UnicaStep` одразу після `GitOutput`; у шапці: «UnicaStep — після Supply, TreeCompare і TreeBackup (Get-KitSupplyState, Invoke-KitGitProcess, Get-KitDirtyRecords), імпортує їх вкладено без -Force, як AgentBase — V8; StoragePlatform імпортує UnicaStep вкладено (Format-KitUnicaRun) — для тестів, що вантажать StoragePlatform окремо»
+- Modify: `tools/tests/ModuleImportOrder.Tests.ps1` — у `RequiredCommands` додати `Format-KitUnicaRun`, `Write-KitNextSteps`, `Remove-KitDirectory`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage`, `Get-V8ProjectConfigProblems` (і далі кожну нову глобальну функцію Tasks 7–11 — у тій задачі, що її вводить)
 - Modify texts:
   - `tools/commands/build.psm1` — підказка `.cfe` у прев'ю і рядок «У … порожньо»;
   - `tools/lib/StoragePlatform.psm1` — `Invoke-KitStorageUpdate`, гілка «розширення не знайдено»;
@@ -1126,6 +1248,24 @@ Describe 'Format-KitUnicaRun (спека §10 П2)' {
         ($s.Substring('unica.run '.Length) | ConvertFrom-Json).args.input | Should -Be 'D:\dumps\demo.dt'
     }
 }
+
+Describe 'Write-KitNextSteps' {
+    BeforeAll {
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+    }
+    It 'порожній перелік — нічого не друкує' {
+        (& { Write-KitNextSteps -Title 'Далі:' -Steps @() } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
+    }
+    It 'unica.run отримує нагадування про dryRun:false, крок kit — ні' {
+        $out = & { Write-KitNextSteps -Title 'Далі:' -Steps @('unica.run {"op":"push","args":{},"dryRun":true}', 'kit verify -Source base') } 6>&1 | Out-String
+        $lines = @($out -split "`r?`n" | Where-Object { $_ -match '^\s+\d\.' })
+        $lines[0] | Should -BeLike '*"dryRun":false*'
+        $lines[1] | Should -Not -BeLike '*dryRun*'
+    }
+}
 ```
 
 - [ ] **Step 2: Прогін — червоний** (`Format-KitUnicaRun` не знайдено).
@@ -1149,7 +1289,9 @@ function Format-KitUnicaRun {
         Одна функція форматування на весь kit: скіли не переказують виклик, а кажуть «виконай крок,
         надрукований командою» (§4.4 п. 1). infobase не друкується — він за замовчуванням origin, а
         іншої бази Уніка не обслуговує. ConvertTo-Json у PowerShell 7 екранує лише керівні символи,
-        тож кирилиця імені набору лишається читабельною й копіюється дослівно.
+        тож кирилиця імені набору лишається читабельною й копіюється дослівно. dryRun:true першим —
+        конвенція kit, не вимога Уніки (вона вимагає лише явний булів dryRun): превью показує
+        попередження infobase_overwritten до виконання (спека §4.1).
     #>
     [CmdletBinding()]
     param(
@@ -1196,12 +1338,15 @@ Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps
   - `StoragePlatform.psm1`, «розширення не знайдено»:
 
 ```powershell
-            $push = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $Source.Key })
+            # force:true — набору ще немає в пам'яті раннера, звичайний push відповів би no_memory (спека §2.2).
+            $push = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $Source.Key; force = $true })
+            $ws = if ($Source.PSObject.Properties['Workspace']) { " (воркспейс '$($Source.Workspace)')" } else { '' }
             throw ("У базі агента немає розширення '$($Source.Key)' — дерево розширення ще не завантажене в базу. " +
-                   "Спершу (воркспейс '$($Source.Workspace)'): $push, потім той самий виклик з `"dryRun`":false; тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
+                   "Спершу$ws`: $push, потім той самий виклик з `"dryRun`":false; тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
 ```
 
-  - `sync.psm1`, запасний шлях: «…після злиття й звичайного push Уніки наступні версії підуть у базі агента…» замість «після злиття й operation=build».
+  - `StoragePlatform.psm1`: після вкладеного імпорту `AgentBase.psm1` — `Import-Module "$PSScriptRoot/UnicaStep.psm1"` (без `-Force`) з тим самим коментарем «для тестів, які вантажать цей модуль окремо».
+  - `sync.psm1`, запасний шлях: «…після злиття й `push` Уніки з `"force":true` для цього розширення (його ще немає в пам'яті раннера, звичайний `push` відповів би `no_memory`) наступні версії підуть у базі агента…» замість «після злиття й operation=build».
   - `verify.psm1`, `ref-ahead`: «(зберіть артефакт: kit build і unica.run op=make)».
   - Коментарі коду з `operation=build`/`operation=make` у цих файлах — переписати новим словником (Task 13 перевіряє лише некоментовані рядки, але читач коментаря не мусить вивчати знятий словник).
 
@@ -1220,7 +1365,7 @@ Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps
 
 ---
 
-### Task 7: Критерій і крок вирівнювання пам'яті раннера (§4.1, §10 П3–П5)
+### Task 7: Критерій і крок вирівнювання пам'яті раннера (§4.1, §10 П3–П5, §10.1)
 
 **Рівень ризику:** властивість безпеки (`pull force` переписує дерево набору з бази; хибний `pull` стер би незакомічену роботу) → два рев'ю.
 
@@ -1232,22 +1377,28 @@ Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps
 - Consumes:
   - `Format-KitUnicaRun`, `Write-KitNextSteps` (Task 6);
   - `Get-KitSupplyState -TreeRoot` → `none|current|stale|missing` (`Supply.psm1`);
-  - `Invoke-KitGitProcess -RepoRoot -Arguments` → `{ExitCode; Stdout; Stderr}` (`TreeCompare.psm1`).
+  - `Invoke-KitGitProcess -RepoRoot -Arguments` → `{ExitCode; Stdout; Stderr}` (`TreeCompare.psm1`);
+  - `Get-KitDirtyRecords -RepoRoot -RepoPath` (`TreeBackup.psm1`; `status --porcelain -z -uall`, без ігнорованих) — одна семантика «чисте дерево» на kit.
 - Produces:
   - `Test-KitSetTreeEqual -RepoRoot -RepoPath -Left <rev> -Right <rev>` → `bool` (ідентифікатори git-дерева набору рівні; відсутній шлях на будь-якому боці → `$false`);
-  - `Test-KitSetClean -RepoRoot -RepoPath` → `bool` (`git status --porcelain -- <шлях>` порожній; невідстежувані рахуються, гітігноровані — ні); збій git → виняток;
+  - `Test-KitSetClean -RepoRoot -RepoPath` → `bool` (`Get-KitDirtyRecords` порожній; невідстежувані рахуються, гітігноровані — ні); збій git → виняток;
   - `Test-KitRefIsHead -RepoRoot -Ref` → `bool` (`<Ref>^{commit}` == `HEAD^{commit}`);
-  - `Get-KitAlignStep -Source <джерело префлайту> -Criterion <bool>` → `[pscustomobject]@{ SourceSet; RepoPath; Op = 'pull'|'push'|'blocked'; Supply; MarkerOnly; Steps = string[]; Recipe }`;
-  - `Write-KitAlignStep -Step` — друк.
+  - `Get-KitAlignStep -Source <джерело префлайту> -Criterion <bool> -BaseKind 'file'|'server'` → `[pscustomobject]@{ SourceSet; Workspace; RepoPath; BaseKind; Op = 'pull'|'push'|'blocked'; Supply; MarkerOnly; Steps = string[]; Recipe }`;
+  - `Write-KitAlignStep -Step` — друк кроку `pull`/`push` (для `blocked` нічого не друкує);
+  - `Write-KitAlignStops -Steps <object[]>` — рядки `ЗУПИНКА: …` для всіх `blocked`; викликач друкує їх **останніми**, після підсумку команди (умова архітектора до відхилення 2).
 
-Логіка `Get-KitAlignStep` (спека §4.1, §10 П5):
+Логіка `Get-KitAlignStep` (спека §4.1 і §10 П5 на `8d94204`):
 
-| Критерій | Поставка (`CONFIGURATION`) | Op | Steps |
-|---|---|---|---|
-| так | `none` / не `CONFIGURATION` | `pull` | `unica.run pull {sourceSet, force:true}` |
-| так | ≠ `none` | `pull` | той самий `pull` + `kit canon -Source <ключ> -MarkerOnly -Apply` |
-| ні | `none` або `current` | `push` | `unica.run push {sourceSet, force:true}` |
-| ні | `missing` або `stale` | `blocked` | порожньо; `Recipe` — «вирівняти на головній гілці: `verify` на HEAD → `pull` → позначка» |
+| База | Критерій | Поставка (`CONFIGURATION`) | Op | Steps |
+|---|---|---|---|---|
+| файлова | так | `none` / не `CONFIGURATION` | `pull` | `unica.run pull {sourceSet, [extension для EXTENSION], force:true}` |
+| файлова | так | ≠ `none` | `pull` | той самий `pull` + `kit canon -Workspace <ws> -Source <ключ> -MarkerOnly -Apply` |
+| серверна | так | `none` / `current` | `push` | `unica.run push {sourceSet, force:true}` |
+| серверна | так | `missing` / `stale` | `push` | `kit canon -Workspace <ws> -Source <ключ> -Apply` (дає `.cf` і позначку; дерево не змінюється — воно дорівнює базі) + `push force` |
+| будь-яка | ні | `none` / `current` | `push` | `unica.run push {sourceSet, force:true}` |
+| будь-яка | ні | `missing` / `stale` | `blocked` | порожньо; `Recipe` — «вирівняти на головній гілці: `verify` на HEAD → надрукований крок → позначка» |
+
+Серверна — завжди `push force` (§4.1): з `providers: designer` Конфігуратор у кластері покоління не віддає (#184), звірки там немає ніколи, і вирівняти хеш-пам'ять нічим.
 
 - [ ] **Step 1: Тести** — дописати в `tools/tests/UnicaStep.Tests.ps1`:
 
@@ -1311,36 +1462,58 @@ Describe 'Get-KitAlignStep — таблиця §10 П5' {
                 if ($Supply -eq 'current') { [System.IO.File]::WriteAllText((Join-Path $root 'Ext/ParentConfigurations/.kit-bin-sha1'), $sha) }
                 if ($Supply -eq 'stale')   { [System.IO.File]::WriteAllText((Join-Path $root 'Ext/ParentConfigurations/.kit-bin-sha1'), 'deadbeef') }
             }
-            [pscustomobject]@{ Key = 'base'; Type = $Type; FullPath = $root; RepoPath = 'Ws/cf/src' }
+            [pscustomobject]@{ Key = 'base'; Type = $Type; FullPath = $root; RepoPath = 'Ws/cf/src'; Workspace = 'Ws' }
         }
     }
-    It '<Type>/<Supply>, критерій <C> → <Op>, MarkerOnly <M>' -ForEach @(
-        @{ Type = 'EXTENSION';     Supply = 'none';    C = $true;  Op = 'pull';    M = $false }
-        @{ Type = 'CONFIGURATION'; Supply = 'missing'; C = $true;  Op = 'pull';    M = $true }
-        @{ Type = 'CONFIGURATION'; Supply = 'current'; C = $true;  Op = 'pull';    M = $true }
-        @{ Type = 'EXTENSION';     Supply = 'none';    C = $false; Op = 'push';    M = $false }
-        @{ Type = 'CONFIGURATION'; Supply = 'current'; C = $false; Op = 'push';    M = $false }
-        @{ Type = 'CONFIGURATION'; Supply = 'missing'; C = $false; Op = 'blocked'; M = $false }
-        @{ Type = 'CONFIGURATION'; Supply = 'stale';   C = $false; Op = 'blocked'; M = $false }
+    It '<Kind>: <Type>/<Supply>, критерій <C> → <Op>, MarkerOnly <M>' -ForEach @(
+        @{ Kind = 'file';   Type = 'EXTENSION';     Supply = 'none';    C = $true;  Op = 'pull';    M = $false }
+        @{ Kind = 'file';   Type = 'CONFIGURATION'; Supply = 'missing'; C = $true;  Op = 'pull';    M = $true }
+        @{ Kind = 'file';   Type = 'CONFIGURATION'; Supply = 'current'; C = $true;  Op = 'pull';    M = $true }
+        @{ Kind = 'file';   Type = 'EXTENSION';     Supply = 'none';    C = $false; Op = 'push';    M = $false }
+        @{ Kind = 'file';   Type = 'CONFIGURATION'; Supply = 'current'; C = $false; Op = 'push';    M = $false }
+        @{ Kind = 'file';   Type = 'CONFIGURATION'; Supply = 'missing'; C = $false; Op = 'blocked'; M = $false }
+        @{ Kind = 'file';   Type = 'CONFIGURATION'; Supply = 'stale';   C = $false; Op = 'blocked'; M = $false }
+        @{ Kind = 'server'; Type = 'EXTENSION';     Supply = 'none';    C = $true;  Op = 'push';    M = $false }
+        @{ Kind = 'server'; Type = 'CONFIGURATION'; Supply = 'current'; C = $true;  Op = 'push';    M = $false }
+        @{ Kind = 'server'; Type = 'CONFIGURATION'; Supply = 'missing'; C = $true;  Op = 'push';    M = $false }
+        @{ Kind = 'server'; Type = 'CONFIGURATION'; Supply = 'missing'; C = $false; Op = 'blocked'; M = $false }
     ) {
-        $s = Get-KitAlignStep -Source (New-Set -Type $Type -Supply $Supply) -Criterion $C
+        $s = Get-KitAlignStep -Source (New-Set -Type $Type -Supply $Supply) -Criterion $C -BaseKind $Kind
         $s.Op | Should -Be $Op
         $s.MarkerOnly | Should -Be $M
     }
-    It 'pull: точний виклик і позначка другим кроком' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $true
+    It 'файлова pull CONFIGURATION: точний виклик і позначка з -Workspace другим кроком' {
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $true -BaseKind 'file'
         $s.Steps[0] | Should -BeExactly 'unica.run {"op":"pull","args":{"sourceSet":"base","force":true},"dryRun":true}'
-        $s.Steps[1] | Should -BeExactly 'kit canon -Source base -MarkerOnly -Apply'
+        $s.Steps[1] | Should -BeExactly 'kit canon -Workspace Ws -Source base -MarkerOnly -Apply'
+    }
+    It 'файлова pull EXTENSION: extension = ім''я набору (схема pull Уніки 0.13)' {
+        $set = New-Set -Type 'EXTENSION' -Supply 'none'; $set.Key = 'Alpha_SMB'
+        $s = Get-KitAlignStep -Source $set -Criterion $true -BaseKind 'file'
+        $s.Steps[0] | Should -BeExactly 'unica.run {"op":"pull","args":{"sourceSet":"Alpha_SMB","extension":"Alpha_SMB","force":true},"dryRun":true}'
+    }
+    It 'серверна, критерій є, поставка без .cf: спершу kit canon (не MarkerOnly), потім push force' {
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $true -BaseKind 'server'
+        $s.Steps[0] | Should -BeExactly 'kit canon -Workspace Ws -Source base -Apply'
+        $s.Steps[1] | Should -BeExactly 'unica.run {"op":"push","args":{"sourceSet":"base","force":true},"dryRun":true}'
+        ($s.Steps -join "`n") | Should -Not -BeLike '*"op":"pull"*'
     }
     It 'push: force:true, без позначки' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -Criterion $false
+        $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -Criterion $false -BaseKind 'file'
         @($s.Steps) | Should -HaveCount 1
         $s.Steps[0] | Should -BeExactly 'unica.run {"op":"push","args":{"sourceSet":"base","force":true},"dryRun":true}'
     }
-    It 'blocked: кроків немає, рецепт називає verify, pull і MarkerOnly' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $false
+    It 'blocked: кроків немає, рецепт називає verify з -Workspace і MarkerOnly' {
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $false -BaseKind 'file'
         @($s.Steps) | Should -HaveCount 0
-        $s.Recipe | Should -BeLike '*verify -Source base*pull*-MarkerOnly*'
+        $s.Recipe | Should -BeLike '*kit verify -Workspace Ws -Source base*-MarkerOnly*'
+    }
+    It 'Write-KitAlignStep мовчить про blocked; Write-KitAlignStops друкує ЗУПИНКА лише для blocked' {
+        $b = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $false -BaseKind 'file'
+        $p = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -Criterion $false -BaseKind 'file'
+        (& { Write-KitAlignStep -Step $b } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
+        $out = & { Write-KitAlignStops -Steps @($p, $b) } 6>&1 | Out-String
+        @($out -split "`r?`n" | Where-Object { $_ -like '*ЗУПИНКА:*' }).Count | Should -Be 1
     }
 }
 ```
@@ -1372,19 +1545,16 @@ function Test-KitSetTreeEqual {
 function Test-KitSetClean {
     <#
     .SYNOPSIS
-        Чи чисте робоче дерево набору: status --porcelain порожній (§4.1).
+        Чи чисте робоче дерево набору (§4.1) — та сама семантика, що в страховці canon (Get-KitDirtyRecords).
     .DESCRIPTION
-        Невідстежувані файли рахуються (status показує їх, нову теку — одним рядком «?? тека/»):
-        pull force переписує дерево з бази, і невідстежувана нова форма агента зникла б безслідно
-        (Review Focus 3) — тому не git diff. Гітігноровані файли (поставка вендора) не рахуються —
-        їх status без --ignored не показує, і саме так тут треба.
+        Невідстежувані файли рахуються: pull force переписує дерево з бази, і невідстежувана нова
+        форма агента зникла б безслідно (Review Focus 3) — тому не git diff. Гітігноровані файли
+        (поставка вендора) не рахуються. Одна функція «брудне дерево» на kit (kit-dev: друга
+        перевірка з іншою логікою гірша за жодну).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
-    $p = ($RepoPath -replace '\\', '/').TrimEnd('/')
-    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'status', '--porcelain', '--', $p)
-    if ($r.ExitCode -ne 0) { throw "git status -- $p завершився з кодом $($r.ExitCode): $($r.Stderr)" }
-    [string]::IsNullOrWhiteSpace($r.Stdout)
+    @(Get-KitDirtyRecords -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0
 }
 
 function Test-KitRefIsHead {
@@ -1411,63 +1581,102 @@ function Get-KitAlignStep {
         змінюються, пам'ять раннера стає правильною. Інакше push force — повне завантаження з git,
         для бази агента безпечне за побудовою (рішення 1 спеки).
 
-        Поставка вендора (CONFIGURATION, стан ≠ none): після pull .cf лягає з вивантаження, а
-        позначку .kit-bin-sha1 пише її власник — canon у режимі -MarkerOnly, без вивантаження.
+        Поставка вендора (CONFIGURATION, стан ≠ none), файлова база: pull --force стирає каталог
+        набору разом з ігнорованими, але повне вивантаження платформи кладе .cf поставки заново (на
+        цьому стоїть canon 1.4.0); знищується лише позначка .kit-bin-sha1, і її пише власник —
+        canon у режимі -MarkerOnly, без вивантаження (§10 П5 на 8d94204).
+        Серверна база — pull немає ніколи (§4.1: з providers: designer у кластері покоління не
+        звіряється, #184); поставку без .cf там дає повний canon (дерево не змінюється — воно
+        дорівнює базі), а тоді push force.
         Без критерію push force можливий лише з .cf на місці (current); missing/stale дають
-        'blocked' з рецептом — push без .cf упав би на повному завантаженні (§10 П5). Це й є
-        запасна гілка спеки §6: пілот вирішує, чи вона колись спрацює, але не прибирає її.
+        'blocked' з рецептом — push без .cf упав би на повному завантаженні. Це й є запасна гілка
+        спеки §6: пілот вирішує, чи вона колись спрацює, але не прибирає її.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Criterion)
+    param(
+        [Parameter(Mandatory)]$Source,
+        [Parameter(Mandatory)][bool]$Criterion,
+        [Parameter(Mandatory)][ValidateSet('file', 'server')][string]$BaseKind
+    )
 
     $set = $Source.Key
+    $ws = $Source.Workspace
     $supply = if ($Source.Type -eq 'CONFIGURATION') { Get-KitSupplyState -TreeRoot $Source.FullPath } else { 'none' }
-    $step = [pscustomobject]@{ SourceSet = $set; RepoPath = $Source.RepoPath; Op = $null; Supply = $supply; MarkerOnly = $false; Steps = @(); Recipe = $null }
+    $step = [pscustomobject]@{ SourceSet = $set; Workspace = $ws; RepoPath = $Source.RepoPath; BaseKind = $BaseKind
+        Op = $null; Supply = $supply; MarkerOnly = $false; Steps = @(); Recipe = $null }
+    $pushForce = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true })
 
-    if ($Criterion) {
+    if ($Criterion -and $BaseKind -eq 'file') {
         $step.Op = 'pull'
-        $steps = @(Format-KitUnicaRun -Op 'pull' -Arguments ([ordered]@{ sourceSet = $set; force = $true }))
+        $pullArgs = [ordered]@{ sourceSet = $set }
+        # Схема pull Уніки 0.13: extension «required for an extension source set and must match it»;
+        # ім'я набору = ім'я розширення (обхід B5-B6).
+        if ($Source.Type -eq 'EXTENSION') { $pullArgs['extension'] = $set }
+        $pullArgs['force'] = $true
+        $steps = @(Format-KitUnicaRun -Op 'pull' -Arguments $pullArgs)
         if ($supply -ne 'none') {
             $step.MarkerOnly = $true
-            $steps += "kit canon -Source $set -MarkerOnly -Apply"
+            $steps += "kit canon -Workspace $ws -Source $set -MarkerOnly -Apply"
         }
         $step.Steps = $steps
         return $step
     }
+    if ($Criterion -and $BaseKind -eq 'server') {
+        $step.Op = 'push'
+        $step.Steps = if ($supply -in 'missing', 'stale') { @("kit canon -Workspace $ws -Source $set -Apply", $pushForce) } else { @($pushForce) }
+        return $step
+    }
     if ($supply -in 'none', 'current') {
         $step.Op = 'push'
-        $step.Steps = @(Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true }))
+        $step.Steps = @($pushForce)
         return $step
     }
     $step.Op = 'blocked'
-    $step.Recipe = ("Вирівняти пам'ять раннера для '$set' зараз неможливо: дерево набору не збігається з тим, що kit вивантажив, " +
+    $step.Recipe = ("Вирівняти пам'ять раннера для '$set' (воркспейс $ws) зараз неможливо: дерево набору не збігається з тим, що kit вивантажив, " +
         "а поставка вендора $supply — push force без .cf упав би на повному завантаженні. Рецепт — на головній гілці (HEAD = головна, " +
-        "дерево чисте): kit verify -Source $set → надрукований ним pull Уніки → kit canon -Source $set -MarkerOnly -Apply. Зупинка й доповідь людині, без обходу.")
+        "дерево чисте): kit verify -Workspace $ws -Source $set → крок, який він надрукує (файлова: pull Уніки й kit canon -Workspace $ws -Source $set -MarkerOnly -Apply; " +
+        'серверна: kit canon і push force). Зупинка й доповідь людині, без обходу.')
     $step
 }
 
 function Write-KitAlignStep {
+    <#
+    .SYNOPSIS
+        Друк кроку pull/push одразу після набору. Для 'blocked' — нічого: зупинки друкує
+        Write-KitAlignStops ОСТАННІМИ, після підсумку команди (умова архітектора до Op 'blocked').
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Step)
-    if ($Step.Op -eq 'blocked') {
-        Write-Host "  ЗУПИНКА: $($Step.Recipe)" -ForegroundColor Red
-        return
-    }
+    if ($Step.Op -eq 'blocked') { return }
     $why = if ($Step.Op -eq 'pull') { 'дерево набору дорівнює вивантаженому kit' } else { 'повне завантаження набору з git' }
-    Write-KitNextSteps -Title "Далі — вирівняти пам'ять раннера для '$($Step.SourceSet)' ($($Step.Op): $why), без питання людині:" -Steps $Step.Steps
+    Write-KitNextSteps -Title "Далі — вирівняти пам'ять раннера для '$($Step.SourceSet)' (воркспейс $($Step.Workspace); $($Step.Op): $why), без питання людині:" -Steps $Step.Steps
     if ($Step.Op -eq 'pull') {
         Write-Host "    Після pull: git status --porcelain -- $($Step.RepoPath) мусить бути порожнім. Непорожній — вивантаження раннера дало інші байти, ніж kit: зупинка й доповідь людині, не робота для агента." -ForegroundColor Cyan
     }
 }
+
+function Write-KitAlignStops {
+    <#
+    .SYNOPSIS
+        Рядки «ЗУПИНКА: …» для кроків 'blocked' — викликач друкує їх останніми, після підсумку.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Steps)
+    foreach ($s in @($Steps | Where-Object { $_.Op -eq 'blocked' })) {
+        Write-Host "ЗУПИНКА: $($s.Recipe)" -ForegroundColor Red
+    }
+}
 ```
 
-Export: `Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitAlignStep`.
+Export: `Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitAlignStep, Write-KitAlignStops`. Нові глобальні функції — у `RequiredCommands` `ModuleImportOrder.Tests.ps1`.
 
 - [ ] **Step 4: Прогін — зелений.**
 
 - [ ] **Step 5: Мутації — на копії дерева, кожна окремо, текст падіння у звіт:**
-  - (а) у `Test-KitSetClean` замінити `status --porcelain` на `diff --name-only` — червоніє «невідстежуваний файл» (`git diff` невідстежуваного не бачить; саме ця властивість і захищає роботу агента від `pull`);
-  - (б) у `Get-KitAlignStep` замінити `$supply -in 'none', 'current'` на `$true` — червоніють два рядки `blocked`.
+  - (а) тіло `Test-KitSetClean` замінити на `$true` — червоніє «невідстежуваний файл»;
+  - (б) у `Get-KitAlignStep` замінити `$supply -in 'none', 'current'` на `$true` — червоніють рядки `blocked`;
+  - (в) прибрати умову `-and $BaseKind -eq 'file'` у гілці `pull` — червоніють рядки `server … критерій $true`;
+  - (г) прибрати рядок `$pullArgs['extension'] = $set` — червоніє тест «pull EXTENSION».
 
 - [ ] **Step 6 (контролер, з дозволу людини): Коміт.** Тема: `§4.1, §10 П3–П5: критерій і крок вирівнювання пам'яті раннера`.
 
@@ -1535,10 +1744,23 @@ Describe 'kit canon -MarkerOnly (§10 П5)' {
         $r.Output | Should -BeLike '*брудне*доповідь*'
         Test-Path -LiteralPath $marker | Should -BeFalse
     }
+    It '.cf старіший за .bin — код 1, позначку не записано (pull не оновив поставку; пара «новий .bin + старий .cf»)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-old-cf') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        Remove-Item -LiteralPath $marker -Force
+        $cf = Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations') -Filter '*.cf' | Select-Object -First 1
+        $cf.LastWriteTimeUtc = (Get-Item -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations.bin')).LastWriteTimeUtc.AddMinutes(-5)
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*.cf старіший за*.bin*'
+        Test-Path -LiteralPath $marker | Should -BeFalse
+    }
 }
 ```
 
-`tools/tests/Supply.Tests.ps1`, тест «рецепт (ii)/(iii)»: замінити очікування `*operation=build*` на `*kit verify -Source*pull*-MarkerOnly*`. Додати `$r | Should -Not -BeLike '*kit canon -Source * -Apply (вивантажує*'` — канону для поставки більше немає.
+Наявні тести, що ламаються від нового тексту `Get-KitSupplyRecipe`, — переписати всі три:
+- `tools/tests/Supply.Tests.ps1`, тест «рецепт (ii)/(iii)»: `*operation=build*` і `*kit canon -Source base -Apply*` → `*kit verify -Source base*pull*kit canon -Source base -MarkerOnly -Apply*`; речення «У рецепті (i)… canon … до PR» → `*У рецепті (i)*kit sync -Source base*`; додати `$r | Should -Not -BeLike '*(вивантажує .cf і пише позначку)*'` — канону-дампу для поставки більше немає;
+- `tools/tests/Check.Supply.Tests.ps1`: `*поставка вендора відсутня*kit verify -Source base*kit canon -Source base -Apply*` → `*поставка вендора відсутня*kit verify -Source base*-MarkerOnly*`.
 
 > Перевірки до коду (kit-dev, case 21):
 > - `grep -rn "MarkerOnly потребує\|буває лише в наборі CONFIGURATION\|немає .cf" tools/` — фрази лише в новій функції;
@@ -1575,8 +1797,17 @@ function Invoke-KitCanonMarkerOnly {
         throw "-MarkerOnly: Ext/ParentConfigurations.bin набору '$($src.Key)' не описує поставку вендора — позначка не потрібна."
     }
     $dir = Join-Path $src.FullPath (Get-KitSupplyRelativePath)
-    if (@(Get-ChildItem -LiteralPath $dir -Filter '*.cf' -File -ErrorAction SilentlyContinue).Count -eq 0) {
+    $cfFiles = @(Get-ChildItem -LiteralPath $dir -Filter '*.cf' -File -ErrorAction SilentlyContinue)
+    if ($cfFiles.Count -eq 0) {
         throw "-MarkerOnly: у $dir немає .cf — позначку нема чим підтвердити. Спершу крок pull Уніки, надрукований kit sync чи kit verify."
+    }
+    # Позначка засвідчує пару «.bin ↔ .cf». .bin пише git (злиття, checkout), .cf — вивантаження
+    # (pull); .cf, старіший за .bin, означає, що pull поставку не оновив, і позначка освятила б
+    # пару «новий .bin + старий .cf» — саме те, від чого захищає стан stale.
+    $binTime = (Get-Item -LiteralPath (Join-Path $src.FullPath 'Ext/ParentConfigurations.bin')).LastWriteTimeUtc
+    if (@($cfFiles | Where-Object { $_.LastWriteTimeUtc -lt $binTime }).Count -gt 0) {
+        throw ("-MarkerOnly: .cf старіший за Ext/ParentConfigurations.bin — pull не оновив поставку вендора. Позначку не записано. " +
+               "Зупинка й доповідь людині; відновлення поставки — kit canon -Source $($src.Key) -Apply на головній гілці.")
     }
     $dirty = @(Get-KitDirtyRecords -RepoRoot $Context.RepoRoot -RepoPath $src.RepoPath)
     if ($dirty.Count -gt 0) {
@@ -1599,16 +1830,16 @@ function Invoke-KitCanonMarkerOnly {
 
 ```powershell
     "$what. Відновлення — лише на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте), не на гілці задачі: база агента є " +
-    "(інакше v8storagekit:provision) → kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією з дерева й надрукує " +
-    "pull Уніки та kit canon -Source $SourceKey -MarkerOnly -Apply) → виконати надруковане. У рецепті (i) (новий репозиторій, онбординг " +
-    "на гілці через sync -MergeInto) той самий крок друкує kit sync -Source $SourceKey."
+    "(інакше v8storagekit:provision) → kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією зі сховища — " +
+    "merge-base — і надрукує крок: на файловій базі pull Уніки та kit canon -Source $SourceKey -MarkerOnly -Apply, на серверній — kit canon і push) " +
+    "→ виконати надруковане. У рецепті (i) (новий репозиторій, онбординг на гілці через sync -MergeInto) той самий крок друкує kit sync -Source $SourceKey."
 ```
 
   Коментарі `Supply.psm1` про «canon — єдине місце, де `.cf` з'являється на машині» → «`.cf` кладе вивантаження з бази агента — `canon` або `pull` Уніки; позначку пише лише `canon`». Той самий коментар у `canon.psm1` біля `Write-KitSupplyMarker` переписати так само.
 
 - [ ] **Step 5: Прогін — зелений.**
 
-- [ ] **Step 6: Мутація** — на копії дерева прибрати перевірку `$dirty.Count -gt 0`. Червоніє тест «брудне дерево»; текст падіння — у звіт.
+- [ ] **Step 6: Мутації** — на копії дерева, кожна окремо: (а) прибрати перевірку `$dirty.Count -gt 0` — червоніє «брудне дерево»; (б) прибрати перевірку `LastWriteTimeUtc -lt $binTime` — червоніє «.cf старіший за .bin». Тексти падінь — у звіт.
 
 - [ ] **Step 7 (контролер, з дозволу людини): Коміт.** Тема: `§10 П5: canon -MarkerOnly; рецепт поставки через verify → pull → позначку`.
 
@@ -1617,20 +1848,20 @@ function Invoke-KitCanonMarkerOnly {
 **Рівень ризику:** властивість безпеки (хибний `pull` після `sync`) → два рев'ю.
 
 **Files:**
-- Modify: `tools/commands/sync.psm1` (блок після «Перенесено версій», повідомлення про базу, злиття; результат)
+- Modify: `tools/commands/sync.psm1` (блок після «Перенесено версій», повідомлення про базу, злиття; обидва `$results.Add`; підсумок «Готово.»; результат)
 - Create test: `tools/tests/Sync.Align.Tests.ps1`
-- Modify tests: ті, що чекали «Перед роботою: operation=build Уніки» (`grep -rn "Перед роботою" tools/tests`)
 
 **Interfaces:**
-- Consumes: `Test-KitSetTreeEqual`, `Test-KitSetClean`, `Get-KitAlignStep`, `Write-KitAlignStep` (Task 7).
-- Produces: `Invoke-KitSync` → `{ExitCode; Synced; AlignSteps = object[]}`; кожен елемент `Synced` — ще й поле `AlignStep` (`$null`, якщо кроку немає).
+- Consumes: `Test-KitSetTreeEqual`, `Test-KitSetClean`, `Get-KitAlignStep -BaseKind`, `Write-KitAlignStep`, `Write-KitAlignStops` (Task 7); `Get-KitSourceInfobase` → `{…; Kind}` (Task 4).
+- Produces: `Invoke-KitSync` → `{ExitCode; Synced; AlignSteps = object[]}`; **кожен** елемент `Synced` (обидва місця `$results.Add`, зокрема гілка «нових версій немає») — ще й поле `AlignStep` (`$null`, якщо кроку немає).
 
-Критерій (спека §10 П3; формулювання — дерево, а не «злиття», див. примітку):
+Критерій (спека §10 П3; формулювання — дерево, а не «злиття»; відхилення 1 прийнято архітектором):
 - кроку немає — запасний шлях (тимчасова ІБ) або 0 перенесених версій;
-- `pull` — `Test-KitSetTreeEqual -Left HEAD -Right storage/<ключ>` **і** `Test-KitSetClean` після спроби злиття;
+- `pull`-критерій — `Test-KitSetTreeEqual -Left HEAD -Right storage/<ключ>` **і** `Test-KitSetClean` після спроби злиття **і** остання перенесена версія вивантажена **основною** платформою. Якщо остання версія — `-ForVersion` з `-DumpPlatform`, дерево дзеркала — дамп іншої платформи, і рівність «дерево = те, що віддасть база основною платформою» не доведено (аудит Tasks 7–11);
+- тип бази (`file`/`server`) — з `Get-KitSourceInfobase`; серверна — завжди `push force` (Task 7);
 - `push force` — інакше, зокрема коли злиття впало: тоді дерево не чисте чи не рівне.
 
-> Примітка для рев'ю: П3 перелічує «злиття впало → `push force`» окремим пунктом. Тут він випливає з критерію дерева й чистоти, окремої гілки коду для нього немає. Якщо злиття впало, а дерево все одно рівне й чисте, `pull` теж коректний (дерево = вивантажене). Це повідомлено архітекторові разом із трасуванням.
+Порядок друку (умова архітектора до Op `blocked`): кроки `pull`/`push` — одразу після набору; рядки `ЗУПИНКА:` — **останніми**, після підсумку; підсумок не каже «Готово» для набору зі зупинкою.
 
 - [ ] **Step 1: Тести** — `tools/tests/Sync.Align.Tests.ps1`:
 
@@ -1652,7 +1883,10 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
             [pscustomobject]@{ Version = $Version; User = 'gitbot'; Date = '01.01.2026'; Time = '09:00:00'
                 ConfigVersion = ''; Comment = 'версія'; Added = @(); Modified = @(); Deleted = @(); Timestamp = [datetime]'2026-01-01T09:00:00' } }
         function script:New-AlignRepo { param([string]$Name)
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithAgentBase
+            # -WithGitignore обов'язковий: без нього невідстежувані v8storagekit.local.yaml і build/
+            # роблять копію брудною, злиття в main відмовляє, і тест «pull» червоніє за будь-якої
+            # реалізації (аудит Tasks 7–11).
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithAgentBase -WithGitignore
             $storageDir = Join-Path $TestDrive "$Name-storage"; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
             $repo }
@@ -1670,13 +1904,33 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7) }
     }
 
-    It 'перший sync, HEAD = main, дзеркало злито, дерево рівне й чисте — pull' {
+    It 'перший sync, HEAD = main, дзеркало злито, дерево рівне й чисте — pull (з extension для розширення)' {
         $repo = New-AlignRepo -Name 'first'
         $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
         $r.ExitCode | Should -Be 0
+        $r.Synced[0].MergedIntoMain | Should -BeTrue
         @($r.AlignSteps) | Should -HaveCount 1
         $r.AlignSteps[0].Op | Should -Be 'pull'
-        $r.AlignSteps[0].Steps[0] | Should -BeExactly 'unica.run {"op":"pull","args":{"sourceSet":"Alpha_SMB","force":true},"dryRun":true}'
+        $r.AlignSteps[0].Steps[0] | Should -BeExactly 'unica.run {"op":"pull","args":{"sourceSet":"Alpha_SMB","extension":"Alpha_SMB","force":true},"dryRun":true}'
+    }
+    It 'серверна база агента — push force, хоча дерево рівне й чисте (§4.1, #184)' {
+        $repo = New-AlignRepo -Name 'server'
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $r.AlignSteps[0].BaseKind | Should -Be 'server'
+        $r.AlignSteps[0].Op | Should -Be 'push'
+    }
+    It 'остання версія вивантажена -DumpPlatform — push force, не pull' {
+        $repo = New-AlignRepo -Name 'altplat'
+        Mock -ModuleName sync Get-KitInstalledPlatforms { @([pscustomobject]@{ Version = '8.3.24.1000'; Arch = 'x64'; Path = 'C:\alt\1cv8.exe' }) }
+        Mock -ModuleName sync Get-V8Path { 'C:\alt\1cv8.exe' }
+        Mock -ModuleName sync Invoke-KitStorageCheckoutViaPlatform {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+            1 }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -ForVersion 7 -DumpPlatform '8.3.24.1000'
+        $r.AlignSteps[0].Op | Should -Be 'push'
     }
     It 'гілка задачі з власною зміною набору — push force' {
         $repo = New-AlignRepo -Name 'task'
@@ -1704,14 +1958,15 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $repo = New-AlignRepo -Name 'text'
         $text = & { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
         $text | Should -BeLike "*вирівняти пам'ять раннера для 'Alpha_SMB'*"
-        $text | Should -BeLike '*контракт*'
+        $text | Should -BeLike '*це контракт sync, не збій*'
         $text | Should -Not -BeLike '*operation=*'
     }
 }
 ```
 
 > Перевірки до коду (kit-dev, case 21):
-> - (б) чи виконання доходить до кроку: у тесті «невідстежуваний файл» `Invoke-KitMainMerge` повертає `$false` (злиття відмовило на брудній копії), а не кидає назовні. Перевірити читанням `Invoke-KitMainMerge` у `sync.psm1`; якщо кидає — тест очікує `ExitCode 2` і все одно `push`;
+> - (б) у тесті «невідстежуваний файл» `Invoke-KitMainMerge` повертає `$false` (злиття відмовило на брудній копії), а не кидає назовні — перевірено аудитом; тест очікує `push`;
+> - (б) тест «-DumpPlatform»: імена й форма параметрів `Invoke-KitSync` (`-ForVersion`, `-DumpPlatform`) і того, як `sync` вибирає альтернативну платформу (`Get-KitInstalledPlatforms`/`Get-V8Path` — у якому модулі їх мокати), звірити з фактичним `sync.psm1` до написання; мок має перехопити все, що інакше пішло б у справжній `1cv8.exe` (`Should -Invoke` як доказ);
 > - (в) тест «перший sync → pull» червоний до зміни: `AlignSteps` не існує.
 
 - [ ] **Step 2: Прогін — червоний.**
@@ -1726,7 +1981,8 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
         # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
         if ($fallback) {
-            Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → звичайний push Уніки — розширення з'явиться в базі агента." -ForegroundColor Yellow
+            Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
+                "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
         } else {
             Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
                 $agent.Workspace, $done[-1]) -ForegroundColor Yellow
@@ -1743,23 +1999,59 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         # впало, лишає дерево брудним чи іншим — і дає push force без окремої гілки коду.
         $alignStep = $null
         if (-not $fallback -and $done.Count -gt 0) {
-            $criterion = (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
+            # Остання версія з -DumpPlatform — дерево дзеркала дала інша платформа, рівність із тим,
+            # що віддасть база основною платформою, не доведено.
+            $lastViaAlt = $hasFor -and ($done[-1] -eq [int]$ForVersion)
+            $criterion = (-not $lastViaAlt) -and
+                         (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
                          (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
-            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion
+            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
             Write-KitAlignStep -Step $alignStep
             $alignSteps.Add($alignStep)
         }
 ```
 
-  - У `$results.Add(...)` додати `AlignStep = $alignStep`.
-  - Підсумок: `[pscustomobject]@{ ExitCode = …; Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }`.
+  (`$hasFor`, `$ForVersion` — наявні змінні/параметри `Invoke-KitSync`; звірити імена з фактичним кодом.)
+  - В **обидва** `$results.Add(...)` (гілка «Нових версій немає» і основна) додати `AlignStep = $alignStep` / `AlignStep = $null`. Перелік — `grep -n "results.Add" tools/commands/sync.psm1`.
+  - Підсумок наприкінці `Invoke-KitSync`:
+
+```powershell
+    Write-Host ''
+    $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
+    if ($blocked.Count -eq 0) {
+        Write-Host 'Готово.' -ForegroundColor Green
+    } else {
+        Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
+    }
+    Write-KitAlignStops -Steps $alignSteps.ToArray()
+    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 2 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
+```
+
   - Ранні `return`, що повертають `Synced`, також отримують `AlignSteps = @()`. Перелік — `grep -n "Synced =" tools/commands/sync.psm1`.
 
-- [ ] **Step 4: Наявні тести**, що шукали «Перед роботою: operation=build Уніки», — на `*контракт sync*` або на крок. Перевірити `grep`-ом унікальність фрази.
+- [ ] **Step 4: Тест порядку «ЗУПИНКА останньою»** — дописати в `Sync.Align.Tests.ps1`:
+
+```powershell
+    It 'blocked: ЗУПИНКА — останній рядок виводу, підсумок не каже «Готово»' {
+        Mock -ModuleName sync Get-KitAlignStep { [pscustomobject]@{ SourceSet = 'Alpha_SMB'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cfe/src'
+            BaseKind = 'file'; Op = 'blocked'; Supply = 'missing'; MarkerOnly = $false; Steps = @(); Recipe = 'рецепт' } }
+        $repo = New-AlignRepo -Name 'blocked'
+        $text = & { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+        $lines[-1] | Should -BeLike 'ЗУПИНКА:*'
+        $text | Should -Not -BeLike '*Готово.*'
+    }
+```
+
+  (Мок `Get-KitAlignStep` за `-ModuleName sync` — бо sync кличе його напряму; поставку `missing` на розширенні фікстура не дає.)
 
 - [ ] **Step 5: Прогін — зелений.**
 
-- [ ] **Step 6: Мутація** — на копії дерева замінити `$criterion = (…) -and (…)` на `$criterion = $true`. Червоніють «гілка задачі» і «невідстежуваний файл»; текст падіння — у звіт.
+- [ ] **Step 6: Мутації** — на копії дерева, кожна окремо, текст падіння у звіт:
+  - (а) прибрати `(Test-KitSetTreeEqual …) -and` — червоніє «гілка задачі»;
+  - (б) прибрати `-and (Test-KitSetClean …)` — червоніє «невідстежуваний файл»;
+  - (в) прибрати `(-not $lastViaAlt) -and` — червоніє «-DumpPlatform»;
+  - (г) перенести `Write-KitAlignStops` вище «Готово» — червоніє «ЗУПИНКА останньою».
 
 - [ ] **Step 7 (контролер, з дозволу людини): Коміт.** Тема: `§4.1: sync друкує крок вирівнювання (pull за доведеною рівністю дерева, інакше push force); #25`.
 
@@ -1772,7 +2064,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
 - Test: `tools/tests/Verify.Tests.ps1` (у `Describe` «мок платформного шару»)
 
 **Interfaces:**
-- Consumes: `Test-KitRefIsHead`, `Test-KitSetClean`, `Get-KitAlignStep`, `Write-KitAlignStep` (Task 7).
+- Consumes: `Test-KitRefIsHead`, `Test-KitSetClean`, `Get-KitAlignStep -BaseKind`, `Write-KitAlignStep`, `Write-KitAlignStops` (Task 7); `Get-KitSourceInfobase` → `{…; Kind}` (Task 4).
 - Produces: `Invoke-KitVerify` → `{ExitCode; Results; AlignSteps}`; кожен елемент `Results` — ще й `AlignStep`.
 
 Критерій (§10 П4): `verdict -eq 'equal'` **і** `Test-KitRefIsHead -Ref $ref` **і** `Test-KitSetClean` → `pull`; будь-який інший вердикт → `push force` (або `blocked` за поставки `missing`/`stale`).
@@ -1839,7 +2131,28 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $r.Results[0].Verdict | Should -Be 'ref-ahead'
         $r.AlignSteps[0].Op | Should -Be 'push'
     }
+    It 'equal, -Ref main = HEAD, але невідстежуваний файл у наборі — push force (pull стер би його)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'al-dirty') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        git -C $repo merge -q --no-edit --allow-unrelated-histories storage/Alpha_SMB
+        $storageDir = Join-Path $TestDrive 'al-dirty-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Новая.xml') -Value 'робота агента' -Encoding UTF8
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+            1 }
+        $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+        $r.AlignSteps[0].Op | Should -Be 'push'
+    }
 ```
+
+> Перевірка до коду (kit-dev (б)): `verify` порівнює дерево `-Ref` (коміт), а не робочу копію, тож невідстежуваний `Новая.xml` вердикту `equal` не зіпсує — тест перевіряє саме половину критерію «дерево чисте». Якщо вердикт виявиться не `equal`, тест не перевіряє того, що мусить: зупинка й питання контролеру.
 
 > Перевірка до коду: злиття `storage/*` у `main` git-ом у тесті не спіткнеться на хуку `pre-merge-commit` фікстури? Якщо спіткнеться — `$env:V8KIT_SYNC = '1'` на час `git merge` у тесті (так дзеркало пише kit), з коментарем чому.
 
@@ -1855,17 +2168,19 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         # pull — лише коли kit довів рівність: вердикт equal, звіряли саме HEAD, дерево набору чисте.
         $criterion = ($verdict -eq 'equal') -and (Test-KitRefIsHead -RepoRoot $root -Ref $ref) -and
                      (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
-        $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion
+        $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
         Write-KitAlignStep -Step $alignStep
         $alignSteps.Add($alignStep)
 ```
+
+  - Наприкінці `Invoke-KitVerify`, перед поверненням: `Write-KitAlignStops -Steps $alignSteps.ToArray()` — рядки `ЗУПИНКА:` останніми (умова архітектора до Op `blocked`).
 
   - У `$results.Add(...)` — `AlignStep = $alignStep`.
   - Повернення: `[pscustomobject]@{ ExitCode = …; Results = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }`. Раннє повернення «немає джерел» → `AlignSteps = @()`.
 
 - [ ] **Step 4: Прогін — зелений.**
 
-- [ ] **Step 5: Мутація** — на копії дерева прибрати `-and (Test-KitRefIsHead …)`. Червоніє «equal, але -Ref = дзеркало»; текст падіння — у звіт.
+- [ ] **Step 5: Мутації** — на копії дерева, кожна окремо: (а) прибрати `-and (Test-KitRefIsHead …)` — червоніє «equal, але -Ref = дзеркало»; (б) прибрати `-and (Test-KitSetClean …)` — червоніє «невідстежуваний файл у наборі». Тексти падінь — у звіт.
 
 - [ ] **Step 6 (контролер, з дозволу людини): Коміт.** Тема: `§4.1, §10 П4: verify друкує крок вирівнювання`.
 
@@ -1889,7 +2204,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
   - `Get-KitSupplyState`; `New-V8FileInfobase`.
 - Produces: `kit provision [-Workspace] [-Source] [-Apply] [-Force] [-Template <.dt>] [-Remember] [-ServerBase New|Existing]` → `{ExitCode = 0; Provisioned = @({Workspace; Path; Template; CreatedBy = 'kit'|'unica'|'existing'; Steps = string[]})}`.
 
-Таблиця рішень (спека §4.2 на `ab43106` + §10):
+Таблиця рішень (спека §4.2 на `8d94204` + §10):
 
 | База | Дерево `CONFIGURATION` (`truth: storage`) | `-Apply` робить kit | Кроки |
 |---|---|---|---|
@@ -2084,7 +2399,7 @@ function Get-KitProvisionNextKitStep {
 function Get-KitProvisionSteps {
     <#
     .SYNOPSIS
-        Кроки після рішення provision — одна таблиця спеки §4.2 (на ab43106) замість розгалужень по тексту.
+        Кроки після рішення provision — одна таблиця спеки §4.2 (на 8d94204) замість розгалужень по тексту.
     #>
     [CmdletBinding()]
     param(
@@ -2166,8 +2481,10 @@ function Get-KitProvisionSteps {
                     throw ("Для -ServerBase New у $($ab.Origin) під infobases.origin.dbms бракує: $($missingDbms -join ', '). " +
                            'Їх і реквізити адміністратора кластера питає в людини скіл v8storagekit:provision.')
                 }
-                Write-Host ("  УВАГА: раннер створює базу з CrSQLDB=Y — він МОВЧКИ бере наявну базу даних СУБД з тим самим іменем ('{0}' на '{1}'). " +
-                            "Ім'я бази даних підтверджує людина до кроку. Регламентні завдання в новій базі вимкнено (SchJobDn=Y).") -f $ab.Dbms['name'], $ab.Dbms['server']) -ForegroundColor Yellow
+                $crWarn = ("  УВАГА: раннер створює базу з CrSQLDB=Y — він МОВЧКИ бере наявну базу даних СУБД з тим самим іменем ('{0}' на '{1}'). " +
+                           "Ім'я бази даних підтверджує людина до кроку. Регламентні завдання в новій базі вимкнено (SchJobDn=Y). " +
+                           'Адміністратор кластера — infobases.origin.cluster { user, password } (SUsr/SPwd).') -f $ab.Dbms['name'], $ab.Dbms['server']
+                Write-Host $crWarn -ForegroundColor Yellow
             }
             $kind = if ($ServerBase -eq 'New') { 'server-new' } else { 'server-existing' }
             $steps = Get-KitProvisionSteps -Kind $kind -Fitness $fitness -MainBranch $Context.MainBranch
@@ -2223,19 +2540,29 @@ function Get-KitProvisionSteps {
   - `New-KitOwnerMissingMessage`: «наповнюється operation=build Уніки, а build спершу вантажить власника» → «наповнюється push Уніки, а push спершу вантажить власника». «operation=build без нього так само не проходить» → «push без нього так само не проходить». Варіант «серверна база, яку створює людина в кластері» → «серверна база, яку дала людина (kit provision -ServerBase Existing)».
   - Коментарі з `operation=build` — новим словником.
 
-- [ ] **Step 5: Наявні тести `Provision.Tests.ps1`.** Тести, що чекали старої поведінки:
-  - зупинка на `Srvr=` «Kit її не створює» → тепер вимога `-ServerBase`;
-  - «у v8project.yaml немає infobase:» → П16;
-  - підказка рецепта (i) з `operation=build` → нова;
-  - попередження про поставку.
+- [ ] **Step 4а: Розбір парсером** до прогону тестів — синтаксична помилка в модулі ламає завантаження всього `kit.ps1`, і набір червоніє не там:
 
-  Переписати або прибрати, якщо новий `Describe` вище покриває той самий випадок. Прибирання — з рядком у звіті, яким тестом покрито.
+```powershell
+$errs = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools/commands/provision.psm1), [ref]$null, [ref]$errs); $errs
+```
+
+  Очікувано: порожньо. (Перша редакція цього плану мала тут зайву дужку біля `-f` — `Write-Host (…) -f …` PowerShell читає як параметр `Write-Host`; рядок складається у змінну до виклику.)
+
+- [ ] **Step 5: Наявні тести `Provision.Tests.ps1`.** Тести, що чекали старої поведінки (знайдено аудитом; перелік звірити `grep`-ом):
+  - «серверна база — зупинка `*Srvr*кластер*`»: фікстура з порожнім vendor-деревом тепер зупиняється раніше на власнику — переписати на новий `Describe` (додати власника) або прибрати як покритий тестом «серверна без -ServerBase»;
+  - «рецепт (i)» з очікуваннями `*Основна конфігурація 'base'*` і `*kit canon -Source base -Apply*` → покрито новим «рецепт (i)»;
+  - «поставка застаріла» з `*поставка вендора застаріла*` → новий текст друкує стан `stale` у фразі придатності; переписати очікування на `*поставка вендора stale*рецепт (ii)*`;
+  - «у v8project.yaml немає infobase:» → П16;
+  - **`Integration`** «порожня база агента створюється під build/ib» і «база з .dt і -Remember: створена…»: для придатного дерева й `.dt` базу тепер створює Уніка, а не kit, тож `1Cv8.1CD` не з'явиться. Переписати на непридатне дерево (рецепт (i) — kit створює порожню базу, `-Apply` з платформою) і на «`.dt`: `-Remember` записав шаблон у накладку, кроки надруковано, база kit не створена». Ці два видно лише в прогоні `Integration` (Task 17) — переписати зараз, не чекати фіналу.
+
+  Переписати або прибрати, якщо новий `Describe` вище покриває той самий випадок. Прибирання — з рядком у звіті, яким тестом покрито. Тест «П16: лише зовнішні обробки» зелений ще до зміни (поведінка вже була) — червоніє лише від мутації «прибрати перевірку `Test-KitWorkspaceNeedsAgentBase`», і це записати.
 
 - [ ] **Step 6: Прогін — зелений.**
 
 - [ ] **Step 7: Мутації — на копії дерева, кожна окремо, текст падіння у звіт:**
   - (а) прибрати `Remove-KitDirectory -Path $memoryDir` у файловій гілці — червоніє «-Apply -Force: прибрано … пам'ять раннера»;
-  - (б) у `Get-KitConfigurationFitness` прибрати перевірку `missing`/`stale` — червоніє «рецепт (ii)».
+  - (б) у `Get-KitConfigurationFitness` прибрати перевірку `missing`/`stale` — червоніє «рецепт (ii)»;
+  - (в) прибрати перевірку `Test-KitWorkspaceNeedsAgentBase` — червоніє «П16: лише зовнішні обробки».
 
 - [ ] **Step 8 (контролер, з дозволу людини): Коміт.** Тема: `§4.2, §10 П7/П8/П15/П16: provision — базу створює той, хто першим наповнює; серверна база агента`.
 
@@ -2244,8 +2571,8 @@ function Get-KitProvisionSteps {
 **Рівень ризику:** механічна (текст), але з наслідками для поведінки агента-споживача → рев'ю на сильній моделі з читанням дифу скілів рядок за рядком.
 
 **Files:**
-- Modify: `skills/using-v8storagekit/SKILL.md`, `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md`, `skills/sync/SKILL.md`, `skills/verify/SKILL.md`, `skills/provision/SKILL.md`, `skills/onboarding/SKILL.md`, `skills/onboarding/references/gitsync-migration.md` (якщо грep знаходить там старий словник), `skills/dump/SKILL.md` (якщо знаходить)
-- Modify: `templates/CLAUDE.md`, `templates/README.md`
+- Modify: `skills/using-v8storagekit/SKILL.md`, `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md` (і поле `description` у frontmatter), `skills/sync/SKILL.md`, `skills/verify/SKILL.md`, `skills/provision/SKILL.md` (і `description`), `skills/onboarding/SKILL.md`, `skills/onboarding/references/gitsync-migration.md` (якщо грep знаходить там старий словник), `skills/dump/SKILL.md` (якщо знаходить)
+- Modify: `templates/CLAUDE.md`, `templates/README.md`, `templates/v8storagekit.local.yaml.example` (речення «лапки не приймаються»), `templates/gitignore` (коментар «Відновлення .cf … kit canon з бази агента»), `templates/gitattributes` (коментар про `unica.project.status`)
 - Test: `tools/tests/Skills.Tests.ps1`, `tools/tests/Templates.Tests.ps1`
 
 **Interfaces:**
@@ -2255,22 +2582,35 @@ function Get-KitProvisionSteps {
   - `kit provision … -ServerBase New|Existing` (Task 11);
   - форма `unica.run {"op":…,"args":{…},"dryRun":…}` (Task 6).
 
-Повний перелік місць — `grep -rn "operation=\|cfe\.validate\|cf\.validate\|project\.status\|builder\|execution_timeout\|infobase\.\(connection\|user\)\|паролів бази агента\|unica:v8-runner" skills templates`. До кінця задачі — нуль збігів, крім цитат історії з поясненням «до 1.5.0».
+Повний перелік місць — три пошуки, кожен до нуля збігів (крім історичних розділів `upgrades.md`, Task 16):
+1. шаблон запобіжника Task 13 (`Get-RemovedPattern`) — запустити як інструмент пошуку по `skills/` і `templates/` ще до Task 13;
+2. `grep -rn "builder\|execution_timeout\|infobase\.\(connection\|user\)\|паролів бази агента" skills templates`;
+3. `grep -rni "лапк" skills templates` і `grep -rn "canon" skills templates` — кожне твердження «лапки не приймаються» і «поставку відновлює `canon`-дамп» переглянути проти Tasks 2 і 8.
 
-- [ ] **Step 1: Тести** — у `tools/tests/Skills.Tests.ps1` замінити `It`, що фіксують старий словник:
+Відомі місця поза названими кроками: `skills/onboarding/SKILL.md` — абзац про дев-бази «без лапок — kit лапки відхиляє» і рядок із `cfe.borrow`/`cfe.diff`/`cfe.validate` (у Step 8).
+
+**Тексти, що цитують зняті імена, валять запобіжник Task 13** — тож ні скіл, ні шаблон не перелічує старих імен навіть як «знято»: замість цього — «перелік знятої поверхні — `tools/tests/Vocabulary.Tests.ps1`».
+
+- [ ] **Step 1: Тести** — у `tools/tests/Skills.Tests.ps1` замінити `It`, що фіксують старий словник. Тест шаблону перевіряє **саме блок закоміченого `v8project.yaml`**, а не весь текст скіла (інакше повернення `infobases:` у закомічений шаблон лишилось би зеленим — блок `v8project.local.yaml` у тому самому скілі містить `infobases:`):
 
 ```powershell
-        It 'шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout, база — infobases.origin у local' {
+        It 'шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout і без бази; база — infobases.origin у блоці local' {
             $t = Skill 'onboarding'
-            $t | Should -Match '(?m)^\s*providers:\s*$'
-            foreach ($op in 'push', 'pull', 'download') { $t | Should -Match "(?m)^\s*${op}:\s*designer" }
-            $t | Should -Not -Match '(?m)^\s*builder:'
-            $t | Should -Not -Match 'execution_timeout'
-            $t | Should -Match '(?m)^\s*infobases:\s*$'
-            $t | Should -Match '(?m)^\s*origin:\s*$'
-            $t | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            $blocks = [regex]::Matches($t, '(?ms)^```yaml\s*\r?\n(.*?)^```') | ForEach-Object { $_.Groups[1].Value }
+            $committed = @($blocks | Where-Object { $_ -match '(?m)^format:\s*DESIGNER' })
+            $committed | Should -HaveCount 1
+            $c = $committed[0]
+            $c | Should -Match '(?m)^providers:\s*$'
+            foreach ($op in 'push', 'pull', 'download') { $c | Should -Match "(?m)^\s+${op}:\s*designer" }
+            $c | Should -Not -Match '(?m)^\s*(builder|execution_timeout|infobase|infobases):'
+            $c | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            $local = @($blocks | Where-Object { $_ -match '(?m)^infobases:\s*$' -and $_ -match '(?m)^\s+origin:\s*$' })
+            $local | Should -Not -BeNullOrEmpty
+            $t.IndexOf('v8project.local.yaml') | Should -BeLessThan $t.IndexOf($local[0]) -Because 'блок бази стоїть після назви файлу, у який його пишуть'
         }
 ```
+
+  У `Templates.Tests.ps1` наявний `It 'C2 Task 7: абзац «Збірка .cfe»…'` — `Should -Match 'output=build/artifacts/<Ім''я>\.cfe'` → `Should -Match '"output":"build/artifacts/<Ім''я>\.cfe"'`; заперечну перевірку (`output=<корінь`) лишити.
 
 ```powershell
     Context 'provision' {
@@ -2336,11 +2676,18 @@ function Get-KitProvisionSteps {
   Новий `It`:
 
 ```powershell
-    It 'using-v8storagekit: маршрутизація 0.13, крок з виводу виконується без питання, відповідь на non_fast_forward, #13' {
+    It 'using-v8storagekit: маршрутизація 0.13, крок з виводу, сітка infobase_state_unverified, виняток force (П17), ЗУПИНКА, #13' {
         $t = Skill 'using-v8storagekit'
         foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow', 'unica\.task\.result',
-                       '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'надрукован', '"dryRun":true') {
+                       '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
+                       'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків') {
             $t | Should -Match $m
+        }
+        $t | Should -Not -Match 'одинадцять'   # кількість — не в постійному тексті
+    }
+    It 'sync, verify, reconcile наказують перевірити ЗУПИНКА й не йти далі' {
+        foreach ($s in @('sync', 'verify', 'reconcile')) {
+            (Skill $s) | Should -Match 'ЗУПИНКА' -Because "$s мусить зупиняти агента на кроці blocked (умова архітектора)"
         }
     }
 ```
@@ -2378,8 +2725,8 @@ function Get-KitProvisionSteps {
 ````markdown
 ## Маршрутизація до Unica (0.13)
 
-Поверхня Уніки 0.13 — одинадцять інструментів; старі імена (`operation=…`, `cfe.validate`,
-`project.status` тощо) знято без аліасів, і kit їх не вживає.
+Kit говорить лише мовою Уніки 0.13. Стара поверхня 0.12 знята без аліасів; її перелік — у
+запобіжнику kit `tools/tests/Vocabulary.Tests.ps1` (тут не повторюється).
 
 | Що | Виклик |
 |---|---|
@@ -2389,28 +2736,39 @@ function Get-KitProvisionSteps {
 | пошук, адреса, документація, різниця | `unica.search`, `unica.resolve`, `unica.docs`, `unica.diff` |
 | правка вихідників (зокрема запозичення в розширення — операція `object.borrow`) | `unica.apply`: план → `executionToken` → застосування |
 | завантажити дерево в базу агента | `unica.run {"op":"push","args":{"sourceSet":"<набір>"},"dryRun":true}` |
-| перезібрати лише одне розширення, не всю базу | `unica.run {"op":"push","args":{"sourceSet":"<розширення>","full":true},"dryRun":true}` |
+| перезібрати лише одне розширення, не всю базу | `unica.run {"op":"push","args":{"sourceSet":"<розширення>","full":true},"dryRun":true}` — `full` теж звіряє покоління: без пам'яті раннера відповідь `no_memory`, і тоді — той самий виклик з `"force":true` (лише база агента, див. нижче) |
 | зібрати `.cf`/`.cfe` | `unica.run {"op":"make","args":{"sourceSet":"<набір>","extension":"<ім'я>","output":"build/artifacts/<ім'я>.cfe"},"dryRun":true}` — `output` відносний до воркспейсу (поза свій корінь Уніка не пише), `extension` обов'язковий для `.cfe` |
 | довга операція | `unica.task.get`, `unica.task.result` |
 
-Кожен `unica.run` — спершу з `"dryRun":true`, потім той самий виклик з `"dryRun":false`.
+Уніка вимагає явний `"dryRun"` у кожному `unica.run`; kit **за власною конвенцією** друкує
+спершу `"dryRun":true` (превью показує попередження на кшталт `infobase_overwritten` до виконання),
+потім той самий виклик з `"dryRun":false`.
 
 **Крок, надрукований командою kit, — виконати дослівно.** `sync`, `verify` і `provision` зрушують
 чи створюють базу агента й завершуються рядками «Далі …» — точний `unica.run …` і, для поставки
-вендора, `kit canon -Source <ключ> -MarkerOnly -Apply`. Їх не переказують і не замінюють своїм.
-`force:true` на базі агента — рішення власника: база агента похідна від git і сховища, людина в
-ній нічого не робить, тож питати людину перед `force` не треба. Після `pull` —
-`git status --porcelain -- <шлях набору>`: непорожній вивід означає, що вивантаження раннера дало
-інші байти, ніж kit, — зупинка й доповідь, не робота для агента. Рядок `ЗУПИНКА: …` у виводі
-команди — так само зупинка з доповіддю, без обходу.
+вендора, `kit canon … -MarkerOnly -Apply` (файлова база) чи `kit canon … -Apply` (серверна). Їх не
+переказують і не замінюють своїм. Після `pull` — `git status --porcelain -- <шлях набору>`:
+непорожній вивід означає, що вивантаження раннера дало інші байти, ніж kit, — зупинка й доповідь,
+не робота для агента. **Рядок `ЗУПИНКА: …` наприкінці виводу команди — зупинка з доповіддю людині,
+без обходу і без наступних кроків скіла**; поле `AlignSteps` з `Op = 'blocked'` означає те саме.
 
-**`push` відмовив з `non_fast_forward` чи `no_memory`** — крок вирівнювання пропущено, або базу
-зрушили поза Унікою. Для бази агента відповідь одна:
-`unica.run {"op":"push","args":{"sourceSet":"<набір>","force":true},"dryRun":true}` — повне
-завантаження набору з git, безпечне за побудовою.
+**`force:true` на базі агента — виняток із правила Уніки** («never add force:true on your own after
+a non_fast_forward or no_memory refusal … belongs to the user»). Правило Уніки захищає базу, в яку
+могли писати поза цією робочою копією. База агента в контурі kit (`infobases.origin`, перевірена kit
+як не база людини) за побудовою похідна від git: людина в ній не працює, сховище — істина. Тому для
+неї рішення про `force:true` власник прийняв заздалегідь, і агент виконує надрукований kit крок без
+питання. Для будь-якої іншої бази правило Уніки діє без винятків.
 
-`push` без `sourceSet` вантажить **всю** основну конфігурацію: на серверній базі агента — лише з
-явного підтвердження людини; для правок розширення — `sourceSet` цього розширення.
+**Сітка на пропущений крок.** Від пропущеного кроку захищає лише сам надрукований крок, а не раннер:
+набір з **незміненим** деревом звичайний `push` пропускає без звірки покоління, а на серверній базі
+звірки немає взагалі. Тому в контурі kit `infobase_state_unverified` або `non_fast_forward` (чи
+`no_memory`) у відповіді `push` бази агента — **не ігнорувати**, а виконати
+`unica.run {"op":"push","args":{"sourceSet":"<набір>","force":true},"dryRun":true}` для кожного
+названого набору — повне завантаження з git, безпечне для бази агента за побудовою.
+
+`push` без `sourceSet` вантажить **усі оголошені набори** воркспейсу: на серверній базі агента —
+лише з явного підтвердження людини (кроки, які надрукував `provision -ServerBase …`, підтверджено
+тим `-Apply`, на яке людина погодилась); для правок розширення — `sourceSet` цього розширення.
 `.cf` основної конфігурації людина в сховищі «порівнює й об'єднує з конфігурацією з файлу», а не
 завантажує цілком. Застосовні операції Уніки поза кроками kit (`unica.apply` з `executionToken`,
 `unica.run` з `"dryRun":false`) — лише на явне прохання, з названим ризиком.
@@ -2423,10 +2781,13 @@ function Get-KitProvisionSteps {
    цього набору («Далі — вирівняти пам'ять раннера …»). На гілці задачі це
    `unica.run {"op":"push","args":{"sourceSet":"<ключ>","force":true},"dryRun":true}` — повне
    завантаження гілки задачі в базу, кеш Уніки участі не бере. Звичайний `push` тут не годиться:
-   після `sync` раннер бачить зрушене покоління бази й відмовить `non_fast_forward` — це запобіжник,
-   а не збій (у 1.4.0 крок міг мовчки відповісти `skipped`, і прев'ю `adopt` виходило хибно порожнім,
-   ішуя #25). Якщо `sync` нових версій не приніс, кроку він не друкує — база не зрушена, і досить
-   звичайного `push`, коли дерево `F` змінювалось.
+   набір з незміненим деревом гілки він пропускає без звірки покоління (відповідь
+   `infobase_state_unverified`) — це й був дефект #25 (у 1.4.0 крок мовчки відповідав `skipped`, і
+   прев'ю `adopt` виходило хибно порожнім). Від #25 захищає саме надрукований крок; якщо його таки
+   пропущено, діє сітка з `v8storagekit:using-v8storagekit` (`infobase_state_unverified` → `push` з
+   `"force":true`). Якщо `sync` нових версій не приніс, кроку він не друкує — база не зрушена, і досить
+   звичайного `push`, коли дерево `F` змінювалось. Рядок `ЗУПИНКА: …` наприкінці виводу `sync` —
+   зупинка: кроки 3–5 не виконувати, доповісти людині.
    Три приводи для кроку, не один: (а) `canon` переписує дерево з бази, і без свіжого завантаження він
    знищить незакомічене; (б) крок 1 (`sync`) щойно лишив базу у стані версії сховища — це контракт,
    а не збій (спека 2026-09-17 §4); (в) канонізація робить прев'ю кроку 4 **семантичним** — див.
@@ -2443,33 +2804,47 @@ function Get-KitProvisionSteps {
   - Крок 6 → «**Перевірка коду** (Unica, `cwd` = воркспейс): `unica.check {}` по воркспейсу і `unica.check {at: <модуль або корінь набору>}` по модулях і коренях наборів, змінених у гілці (`git -c core.quotepath=false diff --name-only <mainBranch>...HEAD`). Помилки — PR не готувати; повернутись до роботи. Запуску тестів (YaXUnit/VA) Уніка 0.13 не має — цього кроку немає.»
   - Крок 7: `.cfe`/`.cf` — `unica.run {"op":"make","args":{"sourceSet":"<набір>","extension":"<ім'я>","output":"build/artifacts/<ім'я>.cfe"},"dryRun":true}` (відносний до воркспейсу: поза свій корінь Уніка не пише); решта без змін.
   - Шаблон PR: розділ `## Тести` → `## Перевірка` з рядком `unica.check: <результат>`.
-  - Штатні зупинки: «Червоні тести Unica» → «Помилки `unica.check`».
+  - Штатні зупинки: «Червоні тести Unica» → «Помилки `unica.check`»; додати «рядок `ЗУПИНКА: …` наприкінці виводу `sync`/`verify` — зупинка з доповіддю».
+  - frontmatter `description`: «прогнати тести й синтаксис Unica» → «перевірити код Унікою (`unica.check`)».
 
 - [ ] **Step 6: `skills/sync/SKILL.md`, `skills/verify/SKILL.md`.**
-  - Абзац «Після `sync` база агента містить версію зі сховища…» (і той самий у `verify`):
+  - `sync`, абзац «Після `sync` база агента містить версію зі сховища…»:
 
 ```markdown
 **Після `sync` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт
 (спека 2026-09-17 §4). Пам'ять раннера Уніки після цього розходиться з базою, тому `sync` для
 кожного зрушеного набору друкує один крок вирівнювання — виконати його дослівно
-(`v8storagekit:using-v8storagekit`, «Крок, надрукований командою kit»). Пропущений крок не ламає
-конвеєр тихо: наступний `push` Уніки відмовить `non_fast_forward`.
+(`v8storagekit:using-v8storagekit`, «Крок, надрукований командою kit»). Раннер пропущеного кроку
+сам не ловить: набір з незміненим деревом звичайний `push` пропускає з попередженням
+`infobase_state_unverified` — і за цим попередженням виконати `push` з `"force":true`.
+Рядок `ЗУПИНКА: …` наприкінці виводу — зупинка з доповіддю людині: далі не йти.
 ```
 
-  - Абзац запасного шляху в `sync`: `operation=build` → «звичайний `push` Уніки» (обидва вживання).
+  - `verify`, абзац «Після `verify` база агента містить версію зі сховища…» (у `verify` він сформульований інакше — «`verify` друкує про це рядком»): окремий текст тієї самої суті:
+
+```markdown
+**Після `verify` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт
+(спека 2026-09-17 §4), і `verify` друкує про це рядком, а за ним — крок вирівнювання пам'яті раннера
+для кожного набору. Виконати його дослівно (`v8storagekit:using-v8storagekit`, «Крок, надрукований
+командою kit»), перш ніж працювати з базою: перевіряти код, збирати. Рядок `ЗУПИНКА: …` наприкінці
+виводу — зупинка з доповіддю людині: далі не йти.
+```
+
+  - Абзац запасного шляху в `sync` — `operation=build` у ньому вжито **тричі**; кожне → «`push` Уніки з `"force":true` для цього розширення (його ще немає в пам'яті раннера)».
   - `verify`, рядок вердикту `ref-ahead`: `operation=make` → `unica.run` з `"op":"make"`.
 
 - [ ] **Step 7: `skills/provision/SKILL.md` — переписати цілком** за тією самою розбивкою розділів (1 власник, 2 тип, 3 виконання, 4 зупинки, 5 межі). Зміст:
-  - **Вступ.** База агента — `infobases.origin` у `<ws>/v8project.local.yaml` (гітігнорований файл Уніки). Його пише **цей скіл** (Edit), kit кодом `v8project*.yaml` не пише ніколи. Kit ніколи не цілиться в базу людини (аудит лишається).
-  - **§1 власник:** зміст той самий. Заміни словника: «наповнена `operation=build`» → «наповнена `push` Уніки»; рецепт (i) — нижче. Абзац «Поставка вендора» → «Дерево основної конфігурації не придатне до завантаження (`truth: storage`: дерева немає — рецепт (i); поставка без `.cf` чи застаріла — рецепт (ii)) — `kit provision` сам створить порожню файлову базу й надрукує наступний крок kit: `kit sync -Source <ключ> -FromLatest -Apply` для (i), `kit verify -Source <ключ>` на головній гілці для (ii). Наповнює базу kit, а пам'ять раннера вирівнює крок, який надрукує `sync`/`verify` (`pull` і `kit canon -Source <ключ> -MarkerOnly -Apply`).»
+  - **frontmatter `description`:** «…далі наповнити її operation=build Уніки» → «…далі — кроки, які надрукує kit provision (Уніка створює чи наповнює базу)». Тригери лишаються.
+  - **Вступ.** База агента — `infobases.origin` у `<ws>/v8project.local.yaml` (гітігнорований файл Уніки). Його пише **цей скіл** (Edit), kit кодом `v8project*.yaml` не пише ніколи. Kit **ніколи не цілиться в базу людини** (аудит лишається) — фразу зберегти дослівно; так само зберегти «лише на явне прохання» в межах і кроці виконання (регекс тесту «Межі» в `Skills.Tests.ps1` знає саме це формулювання).
+  - **§1 власник:** зміст той самий. Заміни словника: «наповнена `operation=build`» → «наповнена `push` Уніки»; рецепт (i) — нижче. Абзац «Поставка вендора» → «Дерево основної конфігурації не придатне до завантаження (`truth: storage`: дерева немає — рецепт (i); поставка без `.cf` чи застаріла — рецепт (ii)) — `kit provision` сам створить порожню файлову базу й надрукує наступний крок kit: `kit sync -Source <ключ> -FromLatest -Apply` для (i), `kit verify -Source <ключ>` на головній гілці для (ii). Наповнює базу kit, а пам'ять раннера вирівнює крок, який надрукує `sync`/`verify` (на файловій базі — `pull` і `kit canon … -MarkerOnly -Apply`; на серверній — `kit canon … -Apply` і `push` з `"force":true`).»
   - **§2 тип бази** (AskUserQuestion, варіанти дослівно):
     - **порожня** — файлова: скіл пише `infobases: { origin: { connection: 'File=build/ib' } }`; базу створює Уніка (`infobase.create`), якщо дерево придатне, інакше kit.
     - **з `.dt`** — шлях до файлу; `-Template … -Remember`; Уніка розгортає (`infobase.restore`).
     - **серверна** — два підваріанти:
-      - **нова** (`-ServerBase New`): скіл питає й пише `connection: 'Srvr=…;Ref=…;'`, `user`, `password`, `dbms: { kind, server, name, locale, user, password }` і реквізити адміністратора кластера за схемою `v8project.md` Уніки 0.13 (точні імена ключів адміністратора — пункт 8 пілоту; до пілоту — за документацією Уніки). **До кроку** назвати людині застереження з прев'ю: `CrSQLDB=Y` мовчки бере наявну базу даних СУБД з тим самим іменем — ім'я бази даних підтверджує людина. База створюється з `SchJobDn=Y`;
+      - **нова** (`-ServerBase New`): скіл питає й пише `connection: 'Srvr=…;Ref=…;'`, `user`, `password`, `dbms: { kind, server, name, locale, user, password }` і адміністратора кластера `cluster: { user, password }` (раннер передає їх у `SUsr`/`SPwd` рядка `CREATEINFOBASE`; спека §2.2 на `8d94204`). Секцію `dbms` для файлової бази не писати — раннер її відхиляє. **До кроку** назвати людині застереження з прев'ю: `CrSQLDB=Y` мовчки бере наявну базу даних СУБД з тим самим іменем — ім'я бази даних підтверджує людина. База створюється з `SchJobDn=Y`;
       - **наявна** (`-ServerBase Existing`): базу дала людина; скіл пише `connection`, `user`, `password`; kit прибирає пам'ять раннера й друкує `push` з `"force":true`.
     - Пароль бази агента — у `infobases.origin.password` того самого файлу (kit і Уніка беруть його звідти; у вивід не потрапляє; подвійна лапка в паролі — зупинка kit). Лапки в рядку підключення — парою навколо значення або без лапок; непарна лапка — помилка.
-  - **§3 виконання** — команди (прев'ю → `-Apply` лише на прохання), `-Force` для наявної файлової (kit прибирає теку бази й `<workPath>/infobases/origin/` — пам'ять раннера; без цього старі хеші розширень стали б «своєю» пам'яттю нової бази). **Далі — кроки, надруковані `provision`, дослівно.**
+  - **§3 виконання** — команди (прев'ю → `-Apply` лише на явне прохання), `-Force` для наявної файлової (kit прибирає теку бази й `<workPath>/infobases/origin/` — пам'ять раннера; без цього старі хеші розширень стали б «своєю» пам'яттю нової бази; мітку власника й замок поруч kit не чіпає). **Далі — кроки, надруковані `provision`, дослівно**; для серверної бази згода людини на `-Apply` покриває й надруковані кроки (`push` усіх наборів з `"force":true`).
   - **§4 штатні зупинки** — новий перелік:
     - «не налаштована» → записати `infobases.origin`;
     - «серверна … Вкажіть -ServerBase New … або -ServerBase Existing»;
@@ -2505,7 +2880,9 @@ source-set:
 ```
 
   - Абзац «`execution_timeout: 600000` … вистачає не всім» — **прибрати повністю** (ключа в 0.13 немає).
-  - Абзац про `name:` — без змін, крім «без `infobase:`» → «бази агента воркспейс обробок не має».
+  - Абзац про `name:` — без змін, крім «без `infobase:`» → «бази агента воркспейс обробок не має, але `providers` обов'язкові й тут (kit check вимагає їх у кожному закоміченому `v8project.yaml`)».
+  - Абзац про дев-бази «без лапок — kit лапки відхиляє, форма одна на весь контур» → «лапки — лише парою навколо значення або без лапок; непарна лапка — зупинка».
+  - Рядок про операції Уніки над розширенням (`cfe.borrow`/`cfe.diff`/`cfe.validate`) → «запозичення (`unica.apply`, операція `object.borrow`), різниця (`unica.diff`), перевірка (`unica.check`)».
   - Новий абзац після шаблону: «Базу агента в закоміченому файлі не оголошують: вона машинна й може нести пароль. Її пише `v8storagekit:provision` у `<ws>/v8project.local.yaml`:» і блок:
 
 ```yaml
@@ -2516,13 +2893,13 @@ infobases:
 
   - §3.2.1 «База агента вже є? — Так»: `infobases.origin` з `connection`, `user` і `password` (пароль тепер підтримується); «Рядок підключення — без лапок» → «лапки — лише парою навколо значення або без лапок»; «`provision` для такої бази не застосовний» → «серверну наявну вирівнює `kit provision -ServerBase Existing` (прибирає пам'ять раннера й друкує `push` з `"force":true`); файлову наявну `provision` перестворив би — її лише вписують».
   - Розділ «Клієнтська основна конфігурація під сховищем» — таблиця рецептів:
-    - (i) `onboarding` → `provision` (kit створить порожню базу) → `sync -Source <ключ> -FromLatest -Apply` (або `-FromVersion N`) зі злиттям у головну гілку або гілку онбордингу (`-MergeInto`) → **крок, надрукований `sync`** (`pull` Уніки й `kit canon -Source <ключ> -MarkerOnly -Apply`);
-    - (ii) **на головній гілці**: `provision` (kit створить порожню базу) → `verify -Source <ключ>` (очікувано `equal`) → **крок, надрукований `verify`** (той самий `pull` і позначка);
+    - (i) `onboarding` → `provision` (kit створить порожню базу) → `sync -Source <ключ> -FromLatest -Apply` (або `-FromVersion N`) зі злиттям у головну гілку або гілку онбордингу (`-MergeInto`) → **крок, надрукований `sync`** (файлова база: `pull` Уніки й `kit canon … -MarkerOnly -Apply`; серверна: `kit canon … -Apply` і `push` з `"force":true`);
+    - (ii) **на головній гілці**: `provision` (kit створить порожню базу) → `verify -Source <ключ>` (очікувано `equal`) → **крок, надрукований `verify`** (той самий);
     - (iii) той самий рецепт, що (ii), лише на головній гілці.
 
     Абзаци «Чому саме так»:
     - «`canon` переписує все дерево» лишається як причина «лише на гілці без роботи агента» — тепер для `pull`, що так само переписує дерево набору з бази;
-    - «Ніколи `canon` на порожній базі» → «`.cf` поставки кладе вивантаження `pull` з бази, наповненої `sync`/`verify`; `canon` для поставки більше не потрібен — лишається для канонізації роботи агента (спека §10 П5)»;
+    - «Ніколи `canon` на порожній базі» → «`.cf` поставки кладе повне вивантаження з бази, наповненої `sync`/`verify`: на файловій — `pull` Уніки (він стирає каталог набору разом з ігнорованими, але платформа виводить `.cf` заново; позначку дописує `canon -MarkerOnly`), на серверній — `canon`. Окремого `canon` для поставки на файловій більше не треба (спека §10 П5). Правило «ніколи `canon` на порожній базі» лишається для канонізації роботи агента»;
     - «від `operation=build`» → «від `push` Уніки»;
     - «Розширення без дерева» — `canon -Source <основна> -Apply` → крок, надрукований `sync` основної конфігурації; `operation=build` → `push` Уніки.
 
@@ -2534,11 +2911,14 @@ infobases:
     - «База агента — `infobases.origin` (`connection`, `user`, `password`; для серверної нової — `dbms`); пише скіл `v8storagekit:provision` | `<Воркспейс>/v8project.local.yaml` (гітігнорований, файл Уніки)».
   - «Редагування…; `operation=build/make/test/syntax` — Unica» → «Редагування (`unica.apply`), перевірка (`unica.check`), завантаження в базу агента й збірка (`unica.run`) — Unica 0.13; маршрутизація — `v8storagekit:using-v8storagekit`».
   - «Збірка `.cfe`»: `unica.run {"op":"make","args":{"sourceSet":"<Ім'я>","extension":"<Ім'я>","output":"build/artifacts/<Ім'я>.cfe"},"dryRun":true}` — далі без змін.
-  - «`operation=build` без `sourceSet`…» → «`push` Уніки без `sourceSet` вантажить усю основну конфігурацію. На серверній базі агента — лише з явного підтвердження людини; для правок розширення — `sourceSet` цього розширення. Після команд kit, що зрушили базу, — крок, який вони надрукували».
+  - «`operation=build` без `sourceSet`…» → «`push` Уніки без `sourceSet` вантажить усі оголошені набори воркспейсу. На серверній базі агента — лише з явного підтвердження людини; для правок розширення — `sourceSet` цього розширення. Після команд kit, що зрушили базу, — крок, який вони надрукували; `force:true` у ньому — виняток лише для бази агента (`v8storagekit:using-v8storagekit`)».
   - «Межі»: «`File=build/ib` у `v8project.yaml` — не секрет…» → «База агента й її пароль — лише в гітігнорованому `v8project.local.yaml`».
-  - «Дозволи»: «читальні інструменти Unica» → «читальні інструменти Unica (`unica_view`, `unica_search`, `unica_resolve`, `unica_docs`, `unica_check`, `unica_diff`, `unica_task_get`, `unica_task_result`); `unica_run` і `unica_apply` — з запитом».
+  - «Дозволи»: «читальні інструменти Unica» → «читальні інструменти Unica (перелік — `permissions.allow` у `.claude/settings.json`); `unica_run` і `unica_apply` — з запитом (`permissions.ask`)». Без переліку імен у постійному тексті.
+  - `templates/v8storagekit.local.yaml.example`: речення «лапки не приймаються» → «лапки — лише парою навколо значення або без лапок».
+  - `templates/gitignore`: коментар «Відновлення .cf на новій машині — kit canon з бази агента» → «Відновлення .cf на новій машині — крок, який надрукує kit verify (pull Уніки або kit canon) — skills/onboarding, рецепт (ii)».
+  - `templates/gitattributes`: коментар про `unica.project.status` → «ОЧІКУВАНО: `unica.check {}` видасть `git.text_resource_marked_binary` [гіп, пункт пілоту 6]» — без старого імені.
 
-  `templates/README.md` — рядок `settings.json`: «дозволи (читальні інструменти Уніки 0.13; `unica_run`/`unica_apply` — з запитом) + хук `SessionStart`».
+  `templates/README.md` — рядок `settings.json`: «дозволи (читальні інструменти Уніки; `unica_run`/`unica_apply` — з запитом) + хук `SessionStart`».
 
 - [ ] **Step 10: Прогін — зелений.** Повторити `grep` з шапки задачі — нуль збігів (крім позначених історичних).
 
@@ -2592,21 +2972,31 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
             'support_edit', 'template_add', 'template_remove', 'xdto_edit', 'xdto_info')
 
         function script:Get-RemovedPattern {
+            # Повне MCP-ім'я (mcp__plugin_unica_unica__unica_x_y) — окремий необов'язковий префікс:
+            # без нього lookbehind (?<![\w…]) забороняв би '_' перед 'unica_' і повні імена не
+            # ловились би зовсім (аудит плану). '$' у lookbehind — щоб не ловити $meta.Add( у коді.
             $alts = foreach ($name in $script:Removed) {
                 $seg = $name -split '_'
-                '(?:unica[._])?' + [regex]::Escape($seg[0]) + '[._]' + (($seg[1..($seg.Count - 1)] | ForEach-Object { [regex]::Escape($_) }) -join '[._-]')
+                '(?:mcp__plugin_unica_unica__)?(?:unica[._])?' + [regex]::Escape($seg[0]) + '[._]' + (($seg[1..($seg.Count - 1)] | ForEach-Object { [regex]::Escape($_) }) -join '[._-]')
             }
-            '(?<![\w.:-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner'
+            '(?<![\w.:$-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner'
         }
         function script:Get-ScannedLines { param([string]$Root)
             $md = @(Get-ChildItem -LiteralPath (Join-Path $Root 'skills') -Filter '*.md' -File -Recurse) +
                   @(Get-ChildItem -LiteralPath (Join-Path $Root 'templates') -File -Recurse)
             foreach ($f in $md) {
                 $n = 0
-                foreach ($line in (Get-Content -LiteralPath $f.FullName -Encoding UTF8)) { $n++; [pscustomobject]@{ File = $f.FullName; Line = $n; Text = $line } }
+                # upgrades.md: розділи переходів до 1.4.0 — історія словником своєї епохи (з приміткою
+                # на початку файлу, Task 16); скануються лише розділ «1.4.0 → 1.5.0» і все після нього.
+                $scan = $f.Name -ne 'upgrades.md'
+                foreach ($line in (Get-Content -LiteralPath $f.FullName -Encoding UTF8)) {
+                    $n++
+                    if (-not $scan -and $line -match '^##\s+1\.4\.0\s+→\s+1\.5\.0') { $scan = $true }
+                    if ($scan) { [pscustomobject]@{ File = $f.FullName; Line = $n; Text = $line } }
+                }
             }
             $code = @(Get-ChildItem -LiteralPath (Join-Path $Root 'tools/commands'), (Join-Path $Root 'tools/lib') -Filter '*.psm1' -File) +
-                    @(Get-Item -LiteralPath (Join-Path $Root 'tools/kit.ps1'))
+                    @(Get-Item -LiteralPath (Join-Path $Root 'tools/kit.ps1'), (Join-Path $Root 'tools/check-environment.ps1'))
             foreach ($f in $code) {
                 $text = [regex]::Replace((Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8), '(?s)<#.*?#>', { param($m) "`n" * ($m.Value.Split("`n").Count - 1) })
                 $n = 0
@@ -2646,8 +3036,30 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
         @{ Probe = 'unica.apply object.borrow' }
         @{ Probe = 'unica.task.result' }
         @{ Probe = 'скіл unica:cfe-borrow' }
+        @{ Probe = 'mcp__plugin_unica_unica__unica_task_result' }
+        @{ Probe = '$template.Add(1); $meta.Add(2)' }
     ) {
         $Probe | Should -Not -Match $script:Pattern
+    }
+
+    It 'шаблон ловить повне MCP-ім''я: <Probe>' -ForEach @(
+        @{ Probe = '"mcp__plugin_unica_unica__unica_cfe_borrow",' }
+        @{ Probe = 'mcp__plugin_unica_unica__unica_build_dump' }
+    ) {
+        $Probe | Should -Match $script:Pattern
+    }
+
+    It 'негативний контроль: на дереві до адаптації (коміт плану 5743282) збіги є в усіх трьох зонах' {
+        $old = Join-Path $TestDrive 'old-tree'
+        New-Item -ItemType Directory -Path $old -Force | Out-Null
+        $tar = Join-Path $TestDrive 'old.tar'
+        git -C $script:KitRoot archive --format=tar -o $tar 5743282 -- skills templates tools
+        tar -xf $tar -C $old
+        $hits = @(Get-ScannedLines -Root $old | Where-Object { $_.Text -match $script:Pattern })
+        foreach ($zone in 'skills', 'templates', 'tools') {
+            @($hits | Where-Object { [IO.Path]::GetRelativePath($old, $_.File) -like "$zone*" }).Count |
+                Should -BeGreaterThan 0 -Because "запобіжник мусить бачити старий словник у зоні $zone"
+        }
     }
 }
 ```
@@ -2656,9 +3068,11 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 - [ ] **Step 3: Мутація — на копії дерева.**
   - (а) дописати в копію `skills/sync/SKILL.md` рядок `Далі — operation=build Уніки.` — перший `It` червоний, у тексті падіння — `skills\sync\SKILL.md:<n>: Далі — operation=build Уніки.`;
-  - (б) окремо дописати в некоментований рядок копії `tools/commands/build.psm1` `'cfe.validate'` — червоний із цим файлом.
+  - (б) окремо дописати в некоментований рядок копії `tools/commands/build.psm1` `'cfe.validate'` — червоний із цим файлом;
+  - (в) окремо додати в `permissions.allow` копії `templates/settings.json` рядок `"mcp__plugin_unica_unica__unica_cfe_borrow",` — червоний із цим файлом;
+  - (г) окремо дописати `operation=build` у копію `skills/onboarding/references/upgrades.md` **після** заголовка «1.4.0 → 1.5.0» — червоний; той самий рядок у розділі «1.0.0 → 1.1.0» — зелений (історія не сканується).
 
-  Обидва тексти падіння — у звіт.
+  Усі тексти падіння — у звіт.
 
 - [ ] **Step 4 (контролер, з дозволу людини): Коміт.** Тема: `§8: запобіжник словника — знята поверхня Уніки 0.12.3 і operation=`.
 
@@ -2675,14 +3089,17 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 - [ ] **Step 1: Тест** — у `Describe 'templates/settings.json …'`:
 
 ```powershell
-    It 'дозволи Уніки 0.13: рівно читальні інструменти; run/apply/task_cancel — з запитом (спека §4.4 п. 3)' {
+    It 'дозволи Уніки 0.13: рівно читальні інструменти в allow; run/apply/task_cancel — явно в ask (спека §4.4 п. 3)' {
+        # task_get/task_result/task_cancel існують лише в профілі Compatibility (клієнт без нативних
+        # MCP Tasks); у профілі Native їх немає, і зайвий дозвіл нешкідливий.
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
         $unica = @($s.permissions.allow | Where-Object { $_ -like 'mcp__plugin_unica_unica__*' } | Sort-Object)
         $want = @('view', 'search', 'resolve', 'docs', 'check', 'diff', 'task_get', 'task_result') |
             ForEach-Object { "mcp__plugin_unica_unica__unica_$_" } | Sort-Object
-        $unica | Should -Be $want
+        ($unica -join "`n") | Should -Be ($want -join "`n")
         foreach ($name in 'unica_run', 'unica_apply', 'unica_task_cancel') {
             @($s.permissions.allow) | Should -Not -Contain "mcp__plugin_unica_unica__$name"
+            @($s.permissions.ask)   | Should -Contain "mcp__plugin_unica_unica__$name" -Because 'відсутність в allow не гарантує запиту в режимах acceptEdits/bypass'
         }
     }
 ```
@@ -2702,7 +3119,7 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
       "mcp__plugin_unica_unica__unica_task_result"
 ```
 
-  `unica_run`, `unica_apply` не дописувати нікуди: відсутність у `allow` і є «з запитом» (§3 рішення 6). JSON має лишитись валідним (кома після останнього елемента `allow` — ні).
+  У `permissions.ask` (поруч із `git push` тощо) дописати `"mcp__plugin_unica_unica__unica_run"`, `"mcp__plugin_unica_unica__unica_apply"`, `"mcp__plugin_unica_unica__unica_task_cancel"` — «з запитом» (§3 рішення 6) явно, а не відсутністю в `allow`. JSON має лишитись валідним (кома після останнього елемента масиву — ні). Імена за правилом «крапки → `_`» підтверджено на 0.12.3 (`unica.build.dump` ↔ `unica_build_dump`); пункт 7 пілоту звіряє з живим `tools/list` 0.13.
 
 - [ ] **Step 4: Прогін — зелений.**
 
@@ -2713,19 +3130,26 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 **Рівень ризику:** механічна → рев'ю на дешевій моделі, але з читанням `docs/unica-contract.md` цілком.
 
 **Files:**
-- Modify: `CLAUDE.md`, `README.md`, `docs/storage-and-git.md`, `docs/text-policy.md`, `docs/unica-contract.md`, `docs/follow-ups.md` (лише місця зі старим словником, без зміни суті записів)
+- Modify: `CLAUDE.md`, `README.md`, `docs/storage-and-git.md`, `docs/text-policy.md`, `docs/unica-contract.md`, `docs/follow-ups.md` (лише місця зі старим словником, без зміни суті записів), `docs/migration/legacy-gitsync-repo.md` (абзац з `execution_timeout: 3600000` і посиланням на знятий абзац onboarding §3.2)
 - Delete: `docs/v8-runner-migration.md` (знімається з обліку — висновки переносяться в контракт)
 
-Правило постійної документації — без номерів рядків, кількостей і результатів прогонів; замість числа — спосіб дістати. Перелік місць — `grep -rn "operation=\|v8-runner-migration\|infobase\.connection\|execution_timeout\|builder\|34 MCP\|паролів бази агента" CLAUDE.md README.md docs/*.md`.
+Правило постійної документації — без номерів рядків, кількостей і результатів прогонів; замість числа — спосіб дістати. Перелік місць — три пошуки по `CLAUDE.md README.md docs/ -r` (з підтеками, `docs/superpowers/` — поза обсягом, це історія):
+1. шаблон запобіжника Task 13 (`Get-RemovedPattern`) як інструмент пошуку — він знаходить і `unica.project.status`/`unica.cfe.validate` у `docs/text-policy.md`, які простий `operation=` пропускає;
+2. `grep -rn "v8-runner-migration\|infobase\.connection\|execution_timeout\|builder\|34 MCP\|паролів бази агента" CLAUDE.md README.md docs --exclude-dir=superpowers`;
+3. `grep -rni "лапк" docs --exclude-dir=superpowers` — твердження «kit лапки не приймає» (є в `docs/storage-and-git.md`) переписати за Task 2.
 
 - [ ] **Step 1: `docs/unica-contract.md` — за процедурою E (розділ E того самого файлу).**
-  - «Зафіксований стан» — Unica 0.13.0, v8-runner 0.14.0 (форк `IngvarConsulting/v8-runner-rust`).
-  - A/B/D:
+  - «Зафіксований стан» (і шапка документа, що посилається на `v8-runner-migration.md`) — Unica 0.13.0, v8-runner 0.14.0 (форк `IngvarConsulting/v8-runner-rust`).
+  - A/B/D — **кожен** пункт контракту отримує статус на 0.13, без пропусків:
     - закриті за кодом — B1, B2, D4, B8: позначити «закрито в 0.13» з джерелом [код/док] зі спеки §2.1;
-    - змінені — A2–A5, A10, A12 (лапки: раннер знімає парні, kit приймає парою — §4.3 п. 4), B10: переписати за спекою §2;
-    - без змін — A6–A9, A11, B5-B6, B7, B9 (`git.text_resource_marked_binary` під `-text` — `error`, #641), а також нові `git.index_eol_not_lf`, `git.mixed_eol`;
-    - настало — D5.
-  - Новий пункт «Пам'ять покоління v8-runner 0.14» — зміст спеки §2.2 і §4.1 (токен, `<workPath>/infobases/<база>/`, `no_memory`/`non_fast_forward`, межі #459/#184/#429; чому `providers: designer`; крок вирівнювання kit).
+    - змінені — A2–A5, A10, A12 (лапки: раннер знімає парні `"`/`'`, непарна — рядок не серверний; kit приймає парою — §4.3 п. 4), B10: переписати за спекою §2;
+    - A6 — тепер читання `infobases.origin` у `v8project.local.yaml`;
+    - без змін — A7–A9, A11, B5-B6, B7, B9 (`git.text_resource_marked_binary` під `-text` — `error`, #641), а також нові `git.index_eol_not_lf` (`error`; файли під `-text` у неї не потрапляють), `git.mixed_eol`;
+    - настало — D5;
+    - не класифіковані спекою — A1 (`make` у `build/artifacts` воркспейсу; пункт пілоту 4), B3, B4, D1–D3: «статус на 0.13 не перевірено [гіп]».
+    - розділи «Трекінг в апстрімі» і «Постійні детектори» — переглянути на 0.13 (знятих інструментів у детекторах лишатись не мусить).
+  - Новий пункт «Пам'ять покоління v8-runner 0.14» — зміст спеки §2.2 і §4.1 на `8d94204`: токен; `<workPath>/infobases/<база>/` (зокрема `new-owner.json`, `copied-from.json`; мітка власника й замок — поза текою); хто пише (`push`; `pull` — покоління лише незмінне; `infobase create` — лише хеші); `no_memory`/`non_fast_forward`; **незмінене дерево — `infobase_state_unverified` без звірки**; `pull --force` стирає каталог разом з ігнорованими; межі #459/#184/#429; чому `providers: designer` і чому серверна — завжди `push force`; крок вирівнювання kit і сітка в `using-v8storagekit`.
+  - Новий пункт «`force` на базі агента проти правила Уніки» — текст §10.1 П17.
   - Розділ F («Що готує v0.13») — **зняти**.
   - Висновки `docs/v8-runner-migration.md` §2 («ядро kit не дублюється раннером», підтверджено на 0.14/0.15: сховища в раннері немає, #220) — перенести одним підрозділом.
   - Тези, не підтверджені живим прогоном, позначати [гіп] до фази C.
@@ -2733,20 +3157,21 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 - [ ] **Step 3: `CLAUDE.md`, розділ «Зв'язок з Unica».**
   - Уніка 0.13 і раннер 0.14.
   - «`kit.ps1 dump` існує рівно заради операцій Уніки (`cfe.borrow`, `cfe.diff`, `cfe.validate`)» → «заради операцій Уніки над розширенням (запозичення через `unica.apply`, різниця, перевірка), яким потрібен склад конфігурації-власника».
-  - «`templates/settings.json` дозволяє 34 MCP-інструменти» → без числа: «дозволяє читальні MCP-інструменти Уніки — перелік: `grep -c mcp__plugin_unica templates/settings.json`».
+  - «`templates/settings.json` дозволяє 34 MCP-інструменти» → без числа: «дозволяє читальні MCP-інструменти Уніки (`permissions.allow`), а `unica_run`/`unica_apply` — лише з запитом (`permissions.ask`); перелік — `grep -o 'mcp__plugin_unica[a-z_]*' templates/settings.json`».
   - «`.cf`/`.cfe` kit сам не будує — це `operation=make`» → «`unica.run` з `"op":"make"`».
-  - «звужений грep на `mcp__|Invoke-Unica|operation=(build|make)`» → `mcp__|Invoke-Unica|unica\.run`.
+  - «звужений грep на `mcp__|Invoke-Unica|operation=(build|make)`» → `mcp__|Invoke-Unica|unica\.run` з поясненням очікуваного результату: збіги є — це **рядки друку** кроків (`UnicaStep.psm1`, повідомлення команд), а не виклики; твердження «у `tools/` немає виклику Unica» лишається правдивим.
   - Новий абзац: «Kit не викликає CLI раннера сам; база агента — територія раннера, доступ лише через Уніку. Команди kit, що зрушують базу агента, друкують крок вирівнювання (`docs/storage-and-git.md`)».
   - «Структура»: `tools/` — лічильник команд, якщо він є в тексті, не міняти (команд не додається).
 - [ ] **Step 4: `docs/storage-and-git.md`** — розділи про базу агента:
   - `infobases.origin` у `v8project.local.yaml`, пароль, серверна база;
-  - вирівнювання пам'яті раннера: таблиця «команда → крок» зі спеки §4.1 — **як принцип і критерій**, без прикладів виводу;
+  - вирівнювання пам'яті раннера: таблиця «команда → крок» зі спеки §4.1 — **як принцип і критерій** (файлова: `pull` за доведеною рівністю, інакше `push force`; серверна: завжди `push force`; захищає надрукований крок, сітка — `infobase_state_unverified` у `using-v8storagekit`), без прикладів виводу;
   - хто створює базу (§3 рішення 4);
-  - поставка: `.cf` дає вивантаження (`canon` або `pull`), позначку пише лише `canon`;
+  - поставка: `.cf` дає повне вивантаження (`canon`, а на файловій базі й `pull`), позначку пише лише `canon` (повний чи `-MarkerOnly`);
+  - лапки в рядку підключення — парою приймаються (за Task 2), не «kit лапки не приймає»;
   - три теки під `build/` (`ib`, `infobases/`, `artifacts`) і що з них чиє: `infobases/origin` — пам'ять раннера, kit прибирає її лише в `provision`.
 
   Кожне `operation=build` → `push` Уніки.
-- [ ] **Step 5: `docs/text-policy.md`, `README.md`, `docs/follow-ups.md`** — місця з `grep` новим словником. У `follow-ups.md` суть записів не міняти — лише назви операцій. Запис про #34/#26/#25/#13, якщо такий є в `follow-ups.md`, — позначити «закрито в 1.5.0» з посиланням на спеку.
+- [ ] **Step 5: `docs/text-policy.md`, `README.md`, `docs/follow-ups.md`, `docs/migration/legacy-gitsync-repo.md`** — місця з пошуків шапки новим словником; у `legacy-gitsync-repo.md` абзац про `execution_timeout` прибрати (ключа в 0.13 немає, посилання на onboarding §3.2 веде в знятий абзац). У `follow-ups.md` суть записів не міняти — лише назви операцій. Запис про #34/#26/#25/#13, якщо такий є в `follow-ups.md`, — позначити «закрито в 1.5.0» з посиланням на спеку.
 - [ ] **Step 6: Прогін — зелений** (тести читають `CLAUDE.md`/`README.md`?); повторний `grep` з шапки — лише історичні цитати з поясненням.
 - [ ] **Step 7 (контролер, з дозволу людини): Коміт** — разом із `git rm`: `git add <перелік>`; `git commit --only -F <файл> -- <перелік, включно з docs/v8-runner-migration.md>`. Тема: `§4.5: документація на Уніку 0.13; v8-runner-migration.md знято з обліку`.
 
@@ -2771,35 +3196,50 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 - `v8project.yaml` без `builder`, `execution_timeout`, `partialLoadThreshold`, `basePath` і з
   обов'язковими `providers` (`push`, `pull`, `download` — `designer`);
 - база агента — лише `infobases.origin` у гітігнорованому `v8project.local.yaml` (з `user` і
-  `password`; для нової серверної — `dbms`). Стара `infobase:` у будь-якому з двох файлів —
-  помилка `kit check` і зупинка кожної команди;
+  `password`; для нової серверної — `dbms` і `cluster`). Стара `infobase:` у будь-якому з двох
+  файлів — помилка `kit check` і зупинка кожної команди. Це політика kit (одна форма), а не відмова
+  Уніки: Уніка 0.13 стару форму ще приймає;
 - `sync`, `verify` і `provision` друкують точний наступний крок Уніки (вирівнювання пам'яті
-  раннера); поставка вендора відновлюється через `verify` → `pull` → `kit canon -MarkerOnly`;
+  раннера); поставка вендора відновлюється через `verify` → надрукований крок (на файловій базі
+  `pull` і `kit canon -MarkerOnly`, на серверній — `kit canon` і `push`);
 - `kit provision` прибирає пам'ять раннера знищеної бази, створює порожню базу сам лише тоді, коли
   дерево основної конфігурації не придатне до завантаження, і знає серверну базу агента
   (`-ServerBase New|Existing`);
-- рядок підключення в лапках приймається, якщо лапки парні навколо значення;
+- рядок підключення в лапках приймається, якщо лапки парні навколо значення [гіп до пункту пілоту 5];
 - `kit check` вимагає Уніку 0.13.x.
 
-**Кроки.**
+**Кроки.** Кроки 1, 7 і 8 робить або явно погоджує людина.
 
-1. **Машинний крок, один раз на машину**: оновити Уніку й kit — `claude plugin marketplace update unica`,
-   `claude plugin update unica@unica`, `claude plugin update v8storagekit@smp-v8storagekit` — і почати
-   **нову сесію**; перший старт MCP Уніки качає рантайм. Оновлення Уніки перемикає **всі**
-   репозиторії машини: решту репозиторіїв переводьте цим самим розділом до наступної роботи в них.
+1. **Машинний крок людини, один раз на машину.** Оновлення Уніки зупиняє роботу агентів у
+   репозиторіях, що ще на kit 1.4.0, і перемикає **всі** репозиторії машини: решту переводьте цим
+   самим розділом до наступної роботи в них. Порядок (без `marketplace update` перед `update` кеш
+   лишається старим):
+   ```
+   claude plugin marketplace update unica
+   claude plugin update unica@unica
+   claude plugin marketplace update smp-v8storagekit
+   claude plugin update v8storagekit@smp-v8storagekit
+   ```
+   Тоді **нова сесія**; перший старт MCP Уніки качає рантайм. Ознака, що оновлення справді
+   відбулось, — версії в `claude plugin list` і нові скіли, а не текст відповіді `update`: він може
+   сказати «вже встановлено» й нічого не зробити. Тоді лікує лише `claude plugin uninstall …` →
+   `claude plugin install …` і нова сесія.
 2. `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/check-environment.ps1"` — рядок `Плагін unica`
    з версією 0.13.x без зауважень.
 3. `kit check -RepoRoot .` — перелік застарілого: кожна знахідка конфігу називає файл і рецепт.
 4. Для кожного воркспейсу:
    - у `<ws>/v8project.yaml` видалити рядки `builder`, `execution_timeout` (і `partialLoadThreshold`,
-     `basePath`, якщо є), прибрати блок `infobase:` і додати:
+     `basePath`, якщо є), прибрати блок `infobase:` (запам'ятати його `connection` і `user`) і додати —
+     **у кожен воркспейс, зокрема воркспейс зовнішніх обробок**:
      ```yaml
      providers:
        push: designer
        pull: designer
        download: designer
      ```
-   - у `<ws>/v8project.local.yaml` (створити, якщо немає; файл гітігнорований) — база агента:
+   - **лише для воркспейсів з наборами `CONFIGURATION`/`EXTENSION`** — у `<ws>/v8project.local.yaml`
+     (створити, якщо немає; файл гітігнорований) база агента зі значенням `connection` з прибраного
+     блоку `infobase:` (типово `File=build/ib`):
      ```yaml
      infobases:
        origin:
@@ -2810,11 +3250,16 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 5. `.claude/settings.json` і розділи `CLAUDE.md` про Уніку — з шаблонів плагіна
    (`templates/settings.json`, `templates/CLAUDE.md`): дозволи на інструменти Уніки 0.13.
 6. `kit check -RepoRoot .` — помилок немає.
-7. **Перший `push` після переходу — з `force`** для кожного набору воркспейсу:
+7. **Перший `push` бази агента після переходу — з `force`**, лише для наборів `CONFIGURATION`/
+   `EXTENSION` воркспейсів, де база агента є (немає — спершу `v8storagekit:provision`; воркспейс
+   обробок бази не має):
    `unica.run {"op":"push","args":{"sourceSet":"<набір>","force":true},"dryRun":true}`, потім з
    `"dryRun":false`. Пам'ять раннера 0.5.1 не переноситься; перше завантаження й так повне.
+   Набір `CONFIGURATION` з поставкою вендора без `.cf` (`kit check` попереджає «поставка вендора
+   відсутня/застаріла») — **не** `push`: спершу рецепт поставки з `v8storagekit:onboarding`
+   (рецепт (ii)), бо повне завантаження без `.cf` впаде.
 8. Записати `kitVersion: 1.5.0` у `v8storagekit.yaml` і закомітити разом із `v8project.yaml`
-   воркспейсів, `.claude/settings.json` і `CLAUDE.md` — явним переліком шляхів.
+   воркспейсів, `.claude/settings.json` і `CLAUDE.md` — явним переліком шляхів, з погодження людини.
 
 **Чого очікувати у виводі.** До кроку 4 — помилки `kit check` на ключах `builder`/`infobase:`/
 відсутніх `providers` і зупинка будь-якої іншої команди kit з тими самими текстами. Після кроку 4 на
@@ -2822,7 +3267,9 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 `v8storagekit:provision`.
 ````
 
-  Розділ «1.1.0 → 1.2.0» («лапки заборонені»): дописати одне речення в кінець — «З 1.5.0 парні лапки знову приймаються (Уніка 0.13 знімає їх сама) — див. «1.4.0 → 1.5.0»». Сам розділ історії не переписувати.
+  Розділ «1.1.0 → 1.2.0» («лапки заборонені»): дописати одне речення в кінець — «З 1.5.0 парні лапки знову приймаються — див. «1.4.0 → 1.5.0»». Сам розділ історії не переписувати.
+
+  Примітка на початку `upgrades.md` (одразу після вступного абзацу, до таблиці): «Розділи переходів до 1.4.0 включно написано словником своєї епохи (Уніка 0.12: `operation=build` тощо). Хто йде ланцюжком переходів на машині з Унікою 0.13, читає `operation=build` як `push` Уніки, а `operation=make` — як `unica.run` з `"op":"make"` (маршрутизація — `v8storagekit:using-v8storagekit`).» Запобіжник Task 13 сканує `upgrades.md` лише від розділу «1.4.0 → 1.5.0», тож історичні розділи не переписуються.
 
 - [ ] **Step 3: Прогін — зелений.**
 
@@ -2832,12 +3279,15 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 **Рівень ризику:** рев'ю контуру (kit-dev, «Роблю рев'ю»).
 
-- [ ] **Step 1: Рев'ю гілки** `git diff main..HEAD` одним рев'юером на сильній моделі (бриф — `.claude/skills/kit-dev/references/subagent-brief.md` + цей план + спека `ab43106`). Обов'язкові питання:
+- [ ] **Step 1: Рев'ю гілки** `git diff main..HEAD` одним рев'юером на сильній моделі (бриф — `.claude/skills/kit-dev/references/subagent-brief.md` + цей план + спека `8d94204`). Обов'язкові питання:
   - (а) чи є стан, у якому всі тести зелені, а kit друкує `pull`, хоча дерево не дорівнює вивантаженому (стик Tasks 7/9/10);
   - (б) чи кожна команда, що зрушує базу агента, друкує рівно один крок на набір (таблиця §4.1);
   - (в) чи немає запасного читання старої форми конфігу (рішення 9) — `grep -rn "'infobase'" tools/` лише в `Get-V8ProjectConfigProblems`;
   - (г) чи пароль ніде не друкується (`grep -rn "Password" tools/commands` — лише передача);
-  - (ґ) обидва боки кожного критерію — з незалежних джерел (`HEAD` проти дзеркала / проти `-Ref`, не одне джерело двічі).
+  - (ґ) обидва боки кожного критерію — з незалежних джерел (`HEAD` проти дзеркала / проти `-Ref`, не одне джерело двічі);
+  - (д) чи є шлях, де для серверної бази агента друкується `pull` (не мусить бути ніколи — §4.1 на `8d94204`), і чи `pull` для `EXTENSION` скрізь несе `extension`;
+  - (е) чи рядки `ЗУПИНКА:` скрізь друкуються останніми, а підсумок не каже «Готово» для набору зі зупинкою;
+  - (є) чи жоден текст для людини чи агента не приписує Уніці відмову, яка є політикою kit (§10.1 П19), і чи «спершу `dryRun:true`» ніде не названо вимогою Уніки.
 
   Знахідки — окремими задачами-фіксами з тим самим циклом.
 - [ ] **Step 2 (з підтвердженням людини): `Integration`** — `pwsh -NoProfile -File tools/tests/Run-Tests.ps1` без `-ExcludeTag`. Запускає `1cv8.exe`, створює файлову ІБ. Сирий підсумок — у звіт; підрядки ліцензії — зупинка.
@@ -2851,14 +3301,18 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 **Рівень ризику:** незворотний крок поза репозиторієм — **лише контролер, з окремого дозволу людини**; у бриф субагента не потрапляє.
 
-Перемикання маркетплейсу й оновлення плагінів — машинна дія, що зупиняє агентів на 1.4.0. Тому тут лише **готуються** команди, а виконує їх власник у фазі C (Task 20) разом з оновленням Уніки (спека §6).
+Перемикання маркетплейсу й оновлення плагінів — машинна дія, що зупиняє агентів на 1.4.0. Тому тут лише **готуються й перевіряються читанням** команди, а виконує їх власник у фазі C (Task 20) разом з оновленням Уніки (спека §6). **У цій задачі жодної команди `claude plugin install|update|uninstall|marketplace add|update` на профілі машини не виконувати.**
 
-- [ ] **Step 1:** з'ясувати, як зареєструвати локальне джерело плагіна `v8storagekit` під тим самим ідентифікатором `v8storagekit@smp-v8storagekit`. `.claude-plugin/marketplace.json` репозиторію зараз указує на `url` з `ref: v1.4.0`, тож `marketplace add <робоча копія>` поставив би 1.4.0 з GitHub.
+- [ ] **Step 1: Маршрут уперед (kit 1.5.0 з робочої копії).** З'ясувати, як зареєструвати локальне джерело плагіна `v8storagekit` під тим самим ідентифікатором `v8storagekit@smp-v8storagekit`. `.claude-plugin/marketplace.json` репозиторію зараз указує на `url` з `ref: v1.4.0`, тож `marketplace add <робоча копія>` поставив би 1.4.0 з GitHub.
   - Спосіб, що працював у B1: пам'ять `v8storagekit-plugin-dev-loop` — локальний маркетплейс, `install` копіює знімок робочої копії в кеш.
   - Поточну форму джерела-шляху звірити з документацією Claude Code (агент `claude-code-guide`, `model: sonnet`), не з пам'яті.
-  - Результат — точний перелік команд у розділі «Власник: перемикання» брифу тестера (Task 19).
+  - Якщо потрібна практична перевірка встановлення, — лише в **ізольованому профілі** (`CLAUDE_CONFIG_DIR` на теку скретчпада), ніколи на профілі машини; результат: kit 1.5.0 лягає в окремий каталог кешу версії `1.5.0`.
   - `marketplace.json` у гілці **не змінювати** — `ref` міняється лише на релізі (фаза D).
-- [ ] **Step 2:** перевірити, що kit 1.5.0 з робочої копії встановлюється в **окремий** кеш версії `1.5.0` (каталог кешу версіонований). Для повернення на 1.4.0 записати команду відкоту (повернути маркетплейс на GitHub і `claude plugin update`) — у той самий розділ брифу.
+- [ ] **Step 2: Маршрут відкоту (Unica 0.12.3 і kit 1.4.0)** — встановлюється й перевіряється **читанням до перемикання** (спека §6, «Відкіт до пілоту»):
+  - **Уніка.** Пастка з README Уніки: теги `v0.9.1`…`v0.13.0-rc.5` несуть каталог **попередньої** версії й ставлять не свою версію, тож «`#v0.12.3`» не означає 0.12.3 автоматично. За README і `marketplace.json` маркетплейсу `IngvarConsulting/unica-marketplace` знайти ref, що справді ставить 0.12.3 (звірити поле `version` у каталозі цього ref через `gh api`), і записати точні команди відкоту.
+  - **kit.** Повернути маркетплейс `smp-v8storagekit` на GitHub (`ref: v1.4.0`) і переставити плагін.
+  - **Правило kit-dev «Оновлюю кеш плагіна».** `install`/`update` можуть відповісти «вже встановлено» й нічого не зробити; лікує лише `uninstall` → `install` і нова сесія. Ознака успіху — версії в `claude plugin list` і наявність (чи відсутність) характерних скілів версії, а не текст відповіді команди. Для Уніки 0.12.3 — скіл `unica:v8-runner` є; для 0.13 — його немає.
+- [ ] **Step 3:** обидва маршрути — точним переліком команд з ознаками успіху — у розділ «Власник: перемикання і відкіт» брифу тестера (Task 19).
 
 ### Task 19: Самодостатній бриф агента-тестера і журнал пілоту
 
@@ -2870,31 +3324,37 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 - [ ] **Step 1: Бриф** — самодостатній: агент-тестер працює в репо-споживачі, не бачить ні kit, ні спеки, ні цієї розмови. Розділи:
   1. **Мета** — перевірити kit 1.5.0 з Унікою 0.13 на живому споживачі; нічого не виправляти, лише фіксувати. Чотири речення про контур: сховище → git, база агента, крок вирівнювання.
-  2. **Межі** (дослівно):
+  2. **Як знайти kit і що означають слова** (тестер не бачить ні репозиторію kit, ні спеки):
+     - корінь плагіна — `claude plugin list` → рядок `v8storagekit@smp-v8storagekit`, шлях встановлення; команди kit — `pwsh -NoProfile -File "<корінь>/tools/kit.ps1" <команда> -RepoRoot .`;
+     - глосарій: **набір** (`sourceSet`) — елемент `source-set:` у `v8project.yaml`, його `name`; **ключ** — те саме ім'я в маніфесті `v8storagekit.yaml`; **база агента** — `infobases.origin` у `v8project.local.yaml`; **пам'ять раннера** — `<workPath>/infobases/origin/` (`generation.json`, `hashes/`); **крок вирівнювання** — рядки «Далі — вирівняти пам'ять раннера …» у виводі `kit sync`/`verify`; **поставка вендора** — `Ext/ParentConfigurations.bin` у git і гітігнорований `.cf` з позначкою `.kit-bin-sha1`.
+  3. **Межі** (дослівно):
      - сховища — лише читання;
-     - база людини — лише читання;
+     - база людини — лише читання; `push`/`push force` і `-ServerBase Existing` — **лише на базі, яку власник явно назвав одноразовою базою агента**;
      - `-Apply` — у межах кроків брифу, інакше не робити;
      - `git push`, PR, злиття в головну гілку споживача — ніколи;
      - підрядки `лиценз`/`ліценз`/`license`/`HASP` — зупинка й доповідь;
      - будь-яка розбіжність із «Очікувано» — зупинка пункту, сирий вивід у журнал, перехід до наступного незалежного пункту;
-     - **без обходів і без пояснень собі**.
-  3. **Власник: перемикання** — команди з Task 18 (Уніка 0.13 і kit 1.5.0 з локального маркетплейсу), нова сесія, `check-environment.ps1`.
-  4. **Пункт 0 — перехід** за `upgrades.md` «1.4.0 → 1.5.0» на пілотній гілці споживача, крок за кроком; кожен крок — вивід у журнал. Це водночас прохід процедури (спека §8).
-  5. **Пункти 1–11** спеки §6, кожен з командою, «Очікувано» за спекою і «Записати»:
+     - **без обходів і без пояснень собі**;
+     - **секрети**: перед записом виводу в журнал вичитати його на пароль бази агента, пароль сховища, `dbms`/`cluster`-реквізити й рядки підключення з ними; збіг — замінити на `<приховано>` і записати в журнал рядок «витік у виводі, див. п. N» (це сам по собі дефект для архітектора). Журнал власник комітить лише після власної вичитки.
+  4. **Власник: перемикання і відкіт** — обидва маршрути з Task 18 з ознаками успіху; нова сесія; `check-environment.ps1`.
+  5. **Пункт 0 — перехід** за `upgrades.md` «1.4.0 → 1.5.0» на пілотній гілці споживача, крок за кроком; кожен крок — вивід у журнал. Це водночас прохід процедури (спека §8).
+  6. **Пункти 1–13** спеки §6 (на `8d94204`), кожен з командою, «Очікувано» за спекою і «Записати»:
      1. `push` з `providers: designer` → `generation.json` у `<workPath>/infobases/origin/`;
-     2. `kit sync -Source <ключ> -Apply` → надрукований крок → `pull` → `git status --porcelain -- <набір>` порожній; стан `Ext/ParentConfigurations/`;
-     3. `kit provision -Apply -Force` (файлова, придатне дерево) → `infobase.create` → `push`; з `.dt` → `infobase.restore` (чи пише `generation.json`); `-ServerBase Existing` на наявній серверній → `push force`;
+     2. `kit sync -Source <ключ> -Apply` (файлова база) → надрукований крок → `pull` (для розширення — з `extension`) → `git status --porcelain -- <набір>` порожній; стан `Ext/ParentConfigurations/`;
+     3. `kit provision -Apply -Force` (файлова, придатне дерево) → `infobase.create` → `push` без `sourceSet` (усі набори); з `.dt` → `infobase.restore` (чи пише `generation.json`); `-ServerBase Existing` на наявній серверній одноразовій базі → `push force`;
      4. `make` → `.cfe` у `<ws>/build/artifacts`; `kit build -Apply` забирає;
      5. `Srvr="…";Ref="…"` у лапках → `push` проходить;
      6. `unica.check {}` під `-text` → перелік `git.*`;
      7. перелік інструментів Уніки, які бачить сесія (повні імена) — проти `templates/settings.json`;
-     8. серверна нова: `infobases.origin.dbms` + реквізити адміністратора кластера → `kit provision -ServerBase New` → `infobase.create` → `push force` (лише якщо власник дав кластер; інакше «не відтворено»);
+     8. серверна нова: `infobases.origin.dbms` і `infobases.origin.cluster {user, password}` → `kit provision -ServerBase New` → `infobase.create` → `push force`; після `sync` на серверній — надруковано `push force`, а не `pull` (лише якщо власник дав кластер; інакше «не відтворено»);
      9. `user`/`password` у базі агента: `push` Уніки, `kit sync`, `kit canon` — вхід без запиту пароля, пароль у виводі відсутній;
      10. `unica.apply` нового й зміненого `.xml`/`.bsl` у файлі з CRLF → профіль кінців рядків;
-     11. `pull force` на `CONFIGURATION` з поставкою → `.cf` у `Ext/ParentConfigurations/`; `kit canon -MarkerOnly -Apply` → позначка; `infobase.create` на придатному дереві з поставкою `current`.
-  6. **Формат журналу** — для кожного пункту: команда, сирий вивід (без обрізання), «Висновок: підтверджено / спростовано / не відтворено» з умовою виміру.
-  7. **Куди писати** — абсолютний шлях журналу в робочій копії kit (`R:\github\SMP_V8StorageKit\docs\superpowers\pilots\2026-10-12-unica-013-pilot.md`), лише цей файл; нічого в kit не комітити.
-- [ ] **Step 2: Журнал** — шаблон із заголовками «Середовище», «П.0 перехід», «П.1» … «П.11», «Підсумок для архітектора». У шапці — спека `ab43106`, коміт kit, з якого встановлено 1.5.0.
+     11. `pull force` на `CONFIGURATION` з поставкою → `.cf` у `Ext/ParentConfigurations/`; `kit canon -MarkerOnly -Apply` → позначка; `infobase.create` на придатному дереві з поставкою `current`;
+     12. **рецепт (ii) наскрізно** — свіжий клон, поставка без `.cf`: `kit provision` (kit створює порожню базу) → `kit verify -Source <ключ>` → надрукований `pull` → `kit canon … -MarkerOnly -Apply` → звичайний `push` → `kit check` без знахідок поставки;
+     13. **приймальний критерій #25**: гілка задачі з роботою, не перенесеною в сховище; власник кладе в сховище частину → `kit sync -Apply` (надруковано `push` з `"force":true`) → цей крок → `kit canon` → прев'ю `kit adopt` називає саме неперенесену роботу в «зникне». Окремо (сітка): звичайний `push` замість надрукованого кроку на незміненому дереві гілки відповідає `infobase_state_unverified` з назвою набору (а не мовчить), і скіл за цим попередженням виконує `push` з `"force":true`.
+  7. **Формат журналу** — для кожного пункту: команда, сирий вивід (без обрізання, але з приховуванням секретів за правилом «Межі»), «Висновок: підтверджено / спростовано / не відтворено» з умовою виміру.
+  8. **Куди писати** — абсолютний шлях журналу в робочій копії kit (`R:\github\SMP_V8StorageKit\docs\superpowers\pilots\2026-10-12-unica-013-pilot.md`), лише цей файл; нічого в kit не комітити.
+- [ ] **Step 2: Журнал** — шаблон із заголовками «Середовище», «П.0 перехід», «П.1» … «П.13», «Підсумок для архітектора». У шапці — спека `8d94204`, коміт kit, з якого встановлено 1.5.0.
 - [ ] **Step 3 (контролер, з дозволу людини): Коміт** обох файлів. Тема: `пілот Unica 0.13: бриф агента-тестера й журнал`.
 
 ---
@@ -2923,8 +3383,10 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 - [ ] **Step 1:** на кожне «спростовано» — рішення архітектора й правка спеки окремим комітом. Потім задача-фікс у цьому плані з тим самим циклом (тест, що червоніє на зафіксованому в журналі вході; реалізація; мутація; коміт). Очікувані місця, де фікс лягає без зміни дизайну:
   - п. 2 брудне → крок завжди `push` для набору (`Get-KitAlignStep`);
   - п. 7 інші імена → `templates/settings.json` і запобіжник;
-  - п. 8 ключі адміністратора кластера → скіл `provision`;
+  - п. 8 інша форма `cluster` → скіл `provision`;
+  - п. 11 `.cf` після `pull` не з'явився → для файлової бази та сама гілка, що для серверної: `kit canon`, потім `push force` (спека §10 П5 на `8d94204`);
   - п. 5 → `docs/unica-contract.md` A12.
+- [ ] **Step 1а: Зняти [гіп] за вимірами.** Для кожного підтвердженого пункту — `[гіп]` → `[вимір]` (з датою й умовою) у `docs/unica-contract.md`; для спростованого — виправлення текстів, що на ньому стоять (Tasks 2, 12, 15, 16: лапки в `upgrades.md` і скілах, `push` без `sourceSet`, `.cf` після `pull`, імена інструментів). Перелік місць — `grep -rn "\[гіп" skills templates docs --exclude-dir=superpowers`.
 - [ ] **Step 2:** повторний прохід пунктів журналу, які зачепив фікс.
 - [ ] **Step 3 — реліз, кожен крок лише за явним проханням людини** (`git push`, `gh pr create`, `gh release` — `ask`):
   - PR `feature/unica-0.13` → `main`;
@@ -2936,11 +3398,18 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 
 ---
 
-## Трасування «пункт спеки → задача» (спека `ab43106`, §9)
+## Трасування «пункт спеки → задача» (спека `8d94204`, §9)
 
 | Пункт спеки | Задача |
 |---|---|
 | §6, §10 П1 — фази A/B/C/D | A: Tasks 1–17; B: 18–19; C: 20; D: 21 |
+| §6 пункти 12–13 (рецепт (ii) наскрізно; приймальний критерій #25), «Відкіт до пілоту» | Task 19 (пункти брифу 12–13), Task 18 Step 2 (маршрут відкоту Уніки й kit) |
+| §2.2, §4.1 на `8d94204` — серверна база завжди `push force`; `pull` лише файлова; `extension` у `pull` розширення; `dryRun` — конвенція kit; сітка `infobase_state_unverified` | Task 7 (`-BaseKind`, `extension`), Tasks 9–10 (`Kind` з `Get-KitSourceInfobase`), Task 6 (коментар `Format-KitUnicaRun`), Task 12 (`using-v8storagekit`, `reconcile`, `sync`, `verify`) |
+| §10.1 П17 — `force` на базі агента проти правила Уніки | Task 12 Step 3 (дослівно), Task 15 (контракт) |
+| §10.1 П18 — шаблон `providers` лише три ключі; ключа `launch` немає | Task 3 (тест «інші ключі вільні» — `make: agent`), Task 12 Step 8 |
+| §10.1 П19 — тексти `kit check` не приписують відмову Уніці | Task 3 (`Get-V8ProjectConfigProblems`), Task 16 |
+| §10.1 П20 — `push full:true` звіряє покоління, `no_memory` → `push force` | Task 12 Step 3 (таблиця маршрутизації) |
+| §10.1 П21 — `-InstalledPluginsPath` замість змінної оточення | Task 5 |
 | §10 П5/П15, §3 рішення 4 — хто створює базу; `canon` «лише позначка»; рецепти (i)/(ii) без `canon` | Task 11 (`Get-KitConfigurationFitness`, `Get-KitProvisionSteps`), Task 8 (`-MarkerOnly`, `Get-KitSupplyRecipe`), Task 12 (onboarding, provision) |
 | §10 П7 — `provision -Force` прибирає `<workPath>/infobases/origin/`, мітку власника й замок не чіпає | Task 11 |
 | §10 П16 — вид воркспейсу за типами наборів; `provision` без `origin` зупиняється | Task 4 (`Test-KitWorkspaceNeedsAgentBase`), Task 11 |
@@ -2960,9 +3429,14 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
 | §5 — `upgrades.md` 1.4.0 → 1.5.0, бамп 1.5.0 | Task 16 |
 | §8 — тести kit і запобіжник словника; прохід `upgrades.md` на живому споживачі | Tasks 1–14 (тести в кожній), Task 13 (запобіжник), Task 19 п. 0 + Task 20 (прохід) |
 
-**Свідомі відхилення плану від буквального тексту спеки** (надіслано архітекторові разом із трасуванням):
-1. Критерій `sync` (§10 П3, пункт (б) «злиття впало → `push force`»): окремої гілки коду немає — це наслідок критерію «дерево рівне й чисте». Якщо злиття впало, а дерево все одно рівне й чисте, kit друкує `pull`, і це коректно.
-2. Op `blocked` у `sync`/`verify` (поставка `missing`/`stale` без критерію) — «зупинка з рецептом» реалізована як рядок `ЗУПИНКА:` і елемент `AlignSteps` з `Op = 'blocked'`. Код виходу команди не змінюється: дзеркало вже оновлено, злиття виконано, і код 1 збрехав би, ніби команда не відпрацювала.
-3. `provision` для файлової придатної бази друкує `push` **без** `sourceSet` (усі набори воркспейсу) — [гіп], пункт 3 пілоту.
-4. `kit check` читає реєстр плагінів з `V8KIT_INSTALLED_PLUGINS`, якщо змінну задано (для тестів, як `-InstalledPluginsPath` у `check-environment.ps1`).
+**Свідомі відхилення плану від буквального тексту спеки й рішення архітектора за ними:**
+1. Критерій `sync` (§10 П3, пункт (б) «злиття впало → `push force`»): окремої гілки коду немає — це наслідок критерію «дерево рівне й чисте». **Прийнято** архітектором: інваріант — рівність дерев і чисте дерево; (б) був його наслідком. Доповнено за аудитом: остання версія з `-DumpPlatform` критерій знімає (Task 9).
+2. Op `blocked` у `sync`/`verify` — рядок `ЗУПИНКА:` і елемент `AlignSteps` з `Op = 'blocked'`, код виходу не змінюється. **Прийнято з умовами**, обидві в плані: (а) `ЗУПИНКА:` друкується останньою, підсумок не каже «Готово» (Task 7 `Write-KitAlignStops`, Task 9 Step 3–4, Task 10 Step 3); (б) скіли `sync`, `verify`, `reconcile` наказують перевірити й не йти далі (Task 12 Steps 4, 6; тест у Step 1).
+3. `provision` для файлової придатної бази друкує `push` **без** `sourceSet` — **[док]**, не [гіп]: `CAPABILITIES.md` раннера, розділ «infobase create» («первый push его не грузит, а расширения досылает целиком»); пункт 3 пілоту лише підтверджує.
+4. Реєстр плагінів для тестів — **змінну оточення відхилено**; замість неї параметр `kit check|session-check -InstalledPluginsPath` (спека §10.1 П21, Task 5).
+
+**Що аудити змінили в плані** (знахідки чотирьох аудитів на коміті плану `5743282`, звірені; спростованих немає):
+- критичні: кома-обгортка `Get-V8ProjectConfigProblems` (`@(f).Count = 1` без знахідок — префлайт пропускав би кожен воркспейс); синтаксична помилка `Write-Host (…) -f` у `provision` (модуль не завантажився б; додано крок розбору парсером); тест `sync` «pull», червоний за будь-якої реалізації (бракувало `-WithGitignore`); запобіжник словника сліпий до повних MCP-імен, сам падав би на тексті Task 12 і на історичних розділах `upgrades.md`;
+- з першоджерел Уніки 0.13 / раннера 0.14: `pull` розширення вимагає `extension`; серверна база — завжди `push force` (#184); `dryRun` першим — конвенція kit; незмінене дерево дає `infobase_state_unverified` без звірки (захищає лише надрукований крок + сітка в скілі); ключі `cluster{user,password}`; `providers` без ключа `launch`; `execution_timeout_seconds` верхнього рівня;
+- решта: `Remove-KitDirectory` знімає ReadOnly і з тек, змішані місця «файл/тека»; тести, що не могли впасти (лічильник спроб, половина критерію `verify`, проводка пароля через `sync`/`Get-StorageVersions`/`DumpCfg`); перелік наявних тестів, що ламаються (`Supply`, `Check.Supply`, `Check.AgentBase`, `Sync.Guards`, `StoragePlatform`, `Provision`, `ModuleImportOrder`); `-MarkerOnly` не освячує `.cf`, старіший за `.bin`; `-Workspace` у надрукованих командах kit; маршрут відкоту Уніки й ізоляція перевірок маркетплейсу; секрети в журналі пілоту; `upgrades.md` — порядок маркетплейсів, кроки людини, `push force` лише для наборів з базою.
 
