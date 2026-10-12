@@ -383,6 +383,21 @@ Describe 'kit canon — мок платформного шару: лічильн
         Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
         Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
     }
+
+    It 'C4: Get-KitDirtyRecords (git status страховки) кидає ДО видалення — зупинка, дерево ціле, платформа не запускалась' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-dirty-fail') -WithHooks
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
+        Set-Content (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') -Value 'stub'
+        Mock -ModuleName canon Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        # Перевірка невидимої роботи (П24) проходить, тож до страховки C4 доходить саме вона.
+        Mock -ModuleName canon Get-KitInvisibleWork { @() }
+        Mock -ModuleName canon Get-KitDirtyRecords { throw 'git status для страховки завершився з кодом 128' }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        { Invoke-KitCanon -Context $ctx -Source 'Alpha_SMB' -Apply $true } | Should -Throw '*страховки завершився з кодом 128*'
+        Should -Invoke -ModuleName canon Get-KitDirtyRecords -Times 1
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
+    }
 }
 
 Describe 'kit canon — round-trip дає нуль розбіжностей на канонічному дереві' -Tag Integration {
@@ -489,6 +504,25 @@ Describe 'kit canon -MarkerOnly (§10 П5)' {
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*стара позначка*не перевивантажувався*'
         [System.IO.File]::ReadAllText($marker) | Should -Be 'deadbeef'
+    }
+    It '.bin не описує поставку (16 байт) — код 1, позначку не записано' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-nodesc') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        Remove-Item -LiteralPath $marker -Force
+        [System.IO.File]::WriteAllBytes((Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..16))
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*не описує поставку вендора*'
+        Test-Path -LiteralPath $marker | Should -BeFalse
+    }
+    It 'прев''ю без -Apply — код 0, повідомлення про -Apply, позначку не записано' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-preview') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        Remove-Item -LiteralPath $marker -Force
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*додайте -Apply*'
+        Test-Path -LiteralPath $marker | Should -BeFalse
     }
     It 'позначка вже актуальна (current) — код 0, нічого не пишеться' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-current') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
