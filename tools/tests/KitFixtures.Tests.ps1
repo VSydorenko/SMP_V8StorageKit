@@ -82,9 +82,9 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
     }
     It 'check з явним -InstalledPluginsPath: фікстура свого не додає (явний реєстр виграє)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'explicit-unica') -WithHooks -WithGitattributes -WithGitignore
-        $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.12.3'))
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.11.7'))
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*0.12.3*'
+        $r.Output | Should -BeLike '*0.11.7*'
     }
     It 'New-KitFakeUnicaRegistry: файл читається Get-UnicaInstallation з заданою версією' {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force
