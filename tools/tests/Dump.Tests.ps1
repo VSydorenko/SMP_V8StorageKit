@@ -309,3 +309,58 @@ Describe 'kit dump -Apply — вендорське дерево (гітігно�
         Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
     }
 }
+
+Describe 'kit dump -Apply — vendor: решта видів невидимої роботи зупиняє; перевірка всіх джерел іде до першого видалення (фікс-раунд 1)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/dump.psm1").Path -Force
+        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;'`n    user: 'Адмін'"
+    }
+    BeforeEach {
+        Mock -ModuleName dump Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+    }
+    It 'truth: vendor, гітігноровані файли дампу і junction у дереві — зупинка (link), ціль посилання ціла, платформа не запускалась' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dinv-vendor-junction') -OverlayText $script:Overlay -WithGitignore -WithHooks
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml') -Value 'кеш дампу' -Encoding UTF8
+        $target = Join-Path $TestDrive 'dinv-vendor-junction-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'ціль' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Alpha_SMB/cf/src/lnk') -Target $target | Out-Null
+        { Invoke-KitDump -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } |
+            Should -Throw '*невидима робота під набором*link*Alpha_SMB/cf/src/lnk*'
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
+        Join-Path $target 'keep.txt' | Should -Exist
+        Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml' | Should -Exist
+    }
+    It 'truth: vendor, відстежуваний (add -f) файл з assume-unchanged у гітігнорованому дереві — зупинка (flagged)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dinv-vendor-flagged') -OverlayText $script:Overlay -WithGitignore -WithHooks
+        $f = Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml'
+        Set-Content -LiteralPath $f -Value 'кеш дампу' -Encoding UTF8
+        git -C $repo add -f -- Alpha_SMB/cf/src/Configuration.xml 2>&1 | Out-Null
+        git -C $repo commit -q -m 'відстежується' 2>&1 | Out-Null
+        Set-Content -LiteralPath $f -Value 'правка людини' -Encoding UTF8
+        git -C $repo update-index --assume-unchanged Alpha_SMB/cf/src/Configuration.xml
+        { Invoke-KitDump -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } |
+            Should -Throw '*невидима робота під набором*flagged*Configuration.xml*'
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
+        (Get-Content -LiteralPath $f -Raw) | Should -BeLike '*правка людини*'
+    }
+    It 'два джерела: друге брудне — перше лишається цілим (усі джерела перевіряються до першого видалення), платформа не запускалась' {
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            '      Ext_One: { truth: dump, dump: { from: dev } }', '      Ext_Two: { truth: dump, dump: { from: dev } }') -join "`n"
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
+            @{ Name = 'Ext_One'; Type = 'EXTENSION'; Path = 'ext1/src' }
+            @{ Name = 'Ext_Two'; Type = 'EXTENSION'; Path = 'ext2/src' }) } }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dinv-order') -Workspaces $ws -ManifestText $manifest -OverlayText $script:Overlay -WithGitignore -WithHooks
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/ext2/src/Нова.xml') -Value 'нова форма' -Encoding UTF8
+        { Invoke-KitDump -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } |
+            Should -Throw '*незакомічен*Alpha_SMB/ext2/src/Нова.xml*'
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
+        Join-Path $repo 'Alpha_SMB/ext1/src/Configuration.xml' | Should -Exist -Because 'перше джерело чисте, але зупинка має настати до будь-якого видалення'
+        Join-Path $repo 'Alpha_SMB/ext2/src/Нова.xml' | Should -Exist
+    }
+}

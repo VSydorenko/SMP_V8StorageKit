@@ -51,12 +51,19 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         # почато (немає MERGE_HEAD), HEAD не зрушив, код виходу ненульовий.
         function script:Assert-AdoptStopsEarly {
             param([string]$Repo, [string]$Pattern)
+            # Застейджена зміна в наборі поряд із невидимою роботою: git reset (перший руйнівний крок) скинув би її з індексу,
+            # тож незмінність git diff --cached доводить, що зупинка настала ДО нього.
+            Set-Content -LiteralPath (Join-Path $Repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml') -Value 'застейджена правка' -Encoding UTF8
+            git -C $Repo add -- Alpha_SMB/cfe/src/OnlyInBranch.xml 2>&1 | Out-Null
+            $cachedBefore = (git -C $Repo diff --cached | Out-String)
+            $cachedBefore | Should -BeLike '*застейджена правка*' -Because 'без застейдженої правки перевірка індексу нічого б не доводила'
             $headBefore = (git -C $Repo rev-parse HEAD).Trim()
             $r = Invoke-Adopt -Repo $Repo -More @('-Source', 'Alpha_SMB', '-Apply')
             $r.ExitCode | Should -Not -Be 0 -Because $r.Output
             $r.Output   | Should -BeLike $Pattern
             (git -C $Repo rev-parse -q --verify MERGE_HEAD) | Should -BeNullOrEmpty
             (git -C $Repo rev-parse HEAD).Trim() | Should -Be $headBefore
+            (git -C $Repo diff --cached | Out-String) | Should -Be $cachedBefore
             Join-Path $Repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
         }
     }

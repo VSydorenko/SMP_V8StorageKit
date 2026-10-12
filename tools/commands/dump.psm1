@@ -48,11 +48,11 @@ function Invoke-KitDump {
         # Remove-KitDirectory і до платформи — для ВСІХ джерел одразу: зупинка на невидимій для git status роботі
         # і на будь-якому записі status. Збій git — виняток (не «чисто»); теки лишаються цілими.
         $invisible = @(foreach ($item in $plan) {
-            foreach ($w in @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $item.Source.RepoPath)) {
-                # truth: vendor — дерево гітігноровано ЦІЛКОМ за задумом (onboarding дописує <ws>/<шлях>/** у .gitignore),
-                # і воно є кешем дампу бази людини, який dump саме й переписує: «ігнорований» там — норма, а не робота
-                # агента. Решта видів (прапорець, gitlink, вкладений репозиторій, посилання) зупиняє й тут.
-                if ($w.Kind -eq 'ignored' -and $item.Source.Truth -eq 'vendor') { continue }
+            # truth: vendor — дерево гітігноровано ЦІЛКОМ за задумом (onboarding дописує <ws>/<шлях>/** у .gitignore)
+            # і є кешем дампу бази людини, який dump саме й переписує: «ігнорований» там — норма, а не робота агента.
+            # Рішення приймаємо тут, одним виразом; решта видів (прапорець, gitlink, вкладений репозиторій, посилання)
+            # зупиняє й для vendor.
+            foreach ($w in @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $item.Source.RepoPath -WholeTreeDerived:($item.Source.Truth -eq 'vendor'))) {
                 [pscustomobject]@{ Key = $item.Source.Key; Kind = $w.Kind; Path = $w.Path }
             }
         })

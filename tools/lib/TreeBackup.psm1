@@ -226,19 +226,27 @@ function Get-KitInvisibleWork {
         - nested-repo — сам .git (тека чи файл) під шляхом набору, що не є gitlink; Path — тека вкладеного
           репозиторію. Пошук обходом ФС, від статусу в git не залежить (нижче, після git-видів);
         - ignored — ls-files --others --ignored --exclude-standard, мінус похідне
-          ($script:KitDerivedIgnoredPattern);
+          ($script:KitDerivedIgnoredPattern); з -WholeTreeDerived не обчислюється зовсім;
         - flagged — ls-files -v: тег з малої літери (assume-unchanged, будь-яка) або S (skip-worktree).
           Тег M (unmerged) — не прапорець, конфлікт видно в status як UU;
         - link — junction чи symlink (атрибут ReparsePoint, тека або файл) під шляхом набору: не підтримується;
-          Path — саме посилання, всередину обхід не заходить;
+          Path — саме посилання, всередину обхід не заходить. Хмарні файли-заглушки (OneDrive) теж мають ReparsePoint
+          і дають зупинку — безпечний бік, не лікується;
         - gitlink — режим 160000 (ls-files -s): підмодуль під набором. --ignore-submodules не
           використовується: відмова проста й не залежить від налаштувань.
+        Похідне — одне поняття з двома обсягами, обидва тут: службові файли платформи й kit ($script:KitDerivedIgnoredPattern,
+        типово) або ВСЕ дерево набору (-WholeTreeDerived: дерево, яке вивантаження відтворює повністю й яке .gitignore
+        ігнорує цілком, — vendor-дамп). Рішення, який обсяг діє, приймає викликач; тут маніфесту немає.
         Збій будь-якого git-виклику — виняток, не «чисто» (через Invoke-KitGitProcess, як
         Get-KitDirtyRecords). Єдина функція на kit; Get-KitDirtyRecords і формат canon-backup
         не змінюються.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoPath,
+        [switch]$WholeTreeDerived
+    )
 
     $run = {
         param($gitArgs)
@@ -248,8 +256,11 @@ function Get-KitInvisibleWork {
     }
     $records = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($p in (& $run @('ls-files', '-z', '--others', '--ignored', '--exclude-standard'))) {
-        if ($p -notmatch $script:KitDerivedIgnoredPattern) { $records.Add([pscustomobject]@{ Path = $p; Kind = 'ignored' }) }
+    # -WholeTreeDerived: вид ignored не обчислюється зовсім (дорогий ls-files --others --ignored не запускається).
+    if (-not $WholeTreeDerived) {
+        foreach ($p in (& $run @('ls-files', '-z', '--others', '--ignored', '--exclude-standard'))) {
+            if ($p -notmatch $script:KitDerivedIgnoredPattern) { $records.Add([pscustomobject]@{ Path = $p; Kind = 'ignored' }) }
+        }
     }
     foreach ($e in (& $run @('ls-files', '-z', '-v'))) {
         if ($e.Length -gt 2 -and ($e[0] -cmatch '[a-z]' -or $e[0] -ceq 'S')) {
