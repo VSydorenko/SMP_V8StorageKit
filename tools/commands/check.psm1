@@ -100,7 +100,7 @@ function Invoke-KitCheck {
                 # виправляла): (а) база агента збіглася з дев-базою людини — принцип 3;
                 # (б) підключення нерозбірне — ConvertFrom-V8Connection (V8.psm1, issue #9) кидає на
                 # порожньому рядку, на непарній лапці (парні знімаються), на
-                # голому шляху, на Srvr= без Ref= і на невідомому ключі; (в) Test-KitSameInfobase
+                # голому шляху, на Srvr= без Ref= і на невідомому ключі; (в) Test-KitInfobasesOverlap
                 # fail-closed і кидає й тоді, коли нерозбірне підключення дев-бази з накладки.
                 # Зупинка виправдана в усіх трьох, а текст самого винятку йде у повідомлення —
                 # тож людина бачить справжню причину, не наш здогад про неї.
@@ -512,23 +512,23 @@ function Invoke-KitCheck {
                 # F1 (рев'ю B4 Task 1): та сама формула ідентичності бази, що в
                 # Resolve-KitAgentBase (AgentBase.psm1) — текстова нормалізація (стара форма
                 # $norm) не бачила, що 'File=D:\x\' і 'File=D:\x' та сама тека, і що
-                # 'Srvr=A;Ref=B;' та 'Ref=B;Srvr=A;' та сама база. Test-KitSameInfobase
+                # 'Srvr=A;Ref=B;' та 'Ref=B;Srvr=A;' та сама база. Test-KitInfobasesOverlap
                 # кидає, коли підключення не розбирається однозначно (fail-closed, зокрема на
                 # непарній лапці у значенні — issue #9) — тут це ЗАБОРОНЕНО дати впасти check:
                 # перетворюємо на знахідку error, як і решта аудитів git нижче (Test-KitGitHooks).
                 #
                 # Бік воркспейсу розв'язується до звірки (Resolve-KitAgentInfobasePath, чиста
                 # функція), тим самим прийомом, що в Resolve-KitAgentBase: відносний File=
-                # бази агента законний (тека воркспейсу, §2.5) і Test-KitSameInfobase на ньому
+                # бази агента законний (тека воркспейсу, §2.5) і Test-KitInfobasesOverlap на ньому
                 # б кидав — без цього check давав би error на кожному штатному File=build/ib.
                 try {
                     $localResolved = Resolve-KitAgentInfobasePath -Project $ws.Project -Connection $localConn
                     $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File={0}' -f $localResolved.Path } else { $localConn }
                     foreach ($human in $Context.Overlay.Infobases.Values) {
-                        if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection `
+                        if (Test-KitInfobasesOverlap -Left $localAuditConn -Right $human.Connection `
                             -LeftOrigin "база агента воркспейсу '$($ws.Path)' (infobases.origin у v8project.local.yaml)" `
                             -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
-                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
+                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit або перетинається з нею (та сама, вкладена чи батьківська тека) — " +
                                 'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
                                 'й дайте агентові окрему базу (v8storagekit:provision).')
                             break

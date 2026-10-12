@@ -267,3 +267,32 @@ Describe 'Remove-KitDirectory — знімається лише посиланн
         (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
     }
 }
+
+Describe 'Get-KitDirectoryEntriesNoLinks — перерахунок для зняття ReadOnly не заходить у посилання (П26, M-1)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force }
+
+    It 'файл за junction не перелічено, саме посилання теж; звичайні вкладені файли — так' {
+        $d = Join-Path $TestDrive 'enum-link'
+        New-Item -ItemType Directory -Path (Join-Path $d 'sub') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'sub/own.txt') -Value 'x'
+        $target = Join-Path $TestDrive 'enum-link-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'beyond.txt') -Value 'x'
+        New-Item -ItemType Junction -Path (Join-Path $d 'lnk') -Target $target | Out-Null
+        $names = @(Get-KitDirectoryEntriesNoLinks -Path $d | ForEach-Object { Split-Path $_ -Leaf })
+        $names | Should -Contain 'own.txt'
+        $names | Should -Not -Contain 'beyond.txt' -Because 'вміст цілі посилання не наш'
+        $names | Should -Not -Contain 'lnk'
+    }
+
+    It 'прихований ReadOnly-файл перелічено (умовчання AttributesToSkip Hidden|System його б пропустило)' {
+        $d = Join-Path $TestDrive 'enum-hidden'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $f = Join-Path $d 'hidden-ro.txt'
+        Set-Content -LiteralPath $f -Value 'x'
+        [System.IO.File]::SetAttributes($f, [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::ReadOnly)
+        try {
+            @(Get-KitDirectoryEntriesNoLinks -Path $d | ForEach-Object { Split-Path $_ -Leaf }) | Should -Contain 'hidden-ro.txt'
+        } finally { [System.IO.File]::SetAttributes($f, [System.IO.FileAttributes]::Normal) }
+    }
+}

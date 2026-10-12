@@ -187,6 +187,152 @@ function Get-KitProvisionSteps {
     , $steps.ToArray()
 }
 
+function Get-KitProvisionPlan {
+    <#
+    .SYNOPSIS
+        Перший прохід provision для одного воркспейсу: усі перевірки, жодного побічного ефекту (П26 п. 4).
+    .DESCRIPTION
+        Кидає виняток на кожну відмову — Invoke-KitProvision збирає відмови всіх воркспейсів і зупиняє
+        команду ДО першого видалення. Повертає план, за яким другий прохід друкує, прибирає й створює.
+        Усе, що може відмовити за -Apply (база є без -Force, .dt не знайдено), перевіряється тут, а не
+        посеред видалень.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)]$Workspace,
+        [string]$Template,
+        [string]$ServerBase,
+        [bool]$Apply,
+        [bool]$Force
+    )
+    $ws = $Workspace
+    # Потребу в базі визначають ТИПИ наборів, не наявність infobases.origin (П16): на свіжому клоні
+    # файлу Уніки ще немає, і воркспейс з розширенням не можна приймати за воркспейс обробок.
+    if (-not (Test-KitWorkspaceNeedsAgentBase -Workspace $ws)) { return [pscustomobject]@{ Ws = $ws; Skip = $true } }
+    $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
+    if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
+
+    # $wsTemplate — ОКРЕМА змінна від параметра -Template: імена змінних PowerShell реєстронечутливі,
+    # і $template = $Template стало б однією змінною — шаблон з накладки першого воркспейсу
+    # перезаписав би параметр і протік у наступний воркспейс циклу.
+    $wsTemplate = $Template
+    if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
+        $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
+    }
+
+    # Вісь власника — до вибору типу бази (рішення користувача 2026-09-10): порожнє дерево
+    # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
+    if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
+        $missing = @(Get-KitMissingOwnerSources -Workspace $ws)
+        if (@($missing | Where-Object Truth -ne 'storage').Count -gt 0) { throw (New-KitOwnerMissingMessage -Workspace $ws) }
+    }
+    $fitness = Get-KitConfigurationFitness -Workspace $ws
+    $unfitNote = $null
+    if (-not $fitness.Fit) {
+        $why = if ($fitness.Recipe -eq 'i') { 'дерева ще немає — рецепт (i)' } else { "поставка вендора $($fitness.Supply) — рецепт (ii)" }
+        $unfitNote = ("  Дерево основної конфігурації '{0}' не придатне до завантаження ({1}): першим базу наповнить kit зі сховища" + $(if ($ab.Kind -eq 'file' -and -not $wsTemplate) { ', тож порожню файлову базу створює теж kit.' } else { '; створює її Уніка (create/restore).' })) -f $fitness.Source.Key, $why
+    }
+
+    # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу (workPath, §2.5/§4),
+    # НЕ вся тека воркспейсу. Другий, незалежний від аудиту принципу 3 (Resolve-KitAgentBase)
+    # запобіжник: аудит ловить базу людини під чужим ім'ям, ця межа ловить БУДЬ-ЯКУ теку поза
+    # робочою — навіть описку infobase.connection: 'File=cfe/src' (законну підтеку воркспейсу).
+    # Той самий Assert-SafeWorkPath застосовано до самої межі: він відхиляє рівність із межею
+    # (край workPath: '.'), сегмент ".." і ненормалізований шлях. $ws.Project.WorkPath, не літерал
+    # 'build': workPath конфігурований у v8project.yaml, і решта kit його шанує.
+    $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
+    # П25 «Корені власності»: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
+    # Тож workPath, що дорівнює кореню набору, лежить у ньому чи містить його, відхиляється ДО будь-якого
+    # видалення. У повідомлення — лише шляхи відносно воркспейсу (значення конфігу поза ними не друкуємо).
+    $agentWorkFull = [System.IO.Path]::GetFullPath($agentWork).TrimEnd('\', '/')
+    foreach ($setSrc in @($ws.Sources)) {
+        $setFull = [System.IO.Path]::GetFullPath($setSrc.FullPath).TrimEnd('\', '/')
+        $sep = [System.IO.Path]::DirectorySeparatorChar
+        if (($agentWorkFull -eq $setFull) -or $agentWorkFull.StartsWith($setFull + $sep, [System.StringComparison]::OrdinalIgnoreCase) -or $setFull.StartsWith($agentWorkFull + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw ("workPath у v8project.yaml воркспейсу '$($ws.Path)' збігається з деревом джерела '$($setSrc.Key)', лежить у ньому чи над ним — " +
+                   'робоча тека агента не може перетинатися з вихідниками. Виправлення: у v8project.yaml задайте workPath окремою текою воркспейсу поза деревами джерел (типово build).')
+        }
+    }
+    Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
+    # Спека §10 П7: пам'ять раннера знищеної чи чужої бази — інакше старі хеші розширень стали б
+    # «своєю» пам'яттю нової бази, і push пропустив би їх (клас #25). Мітку власника й замок поруч
+    # (інші файли <workPath>/infobases/) не чіпати. Межа та сама: корінь власності — workPath.
+    $memoryDir = Join-Path $agentWork 'infobases/origin'
+    Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
+
+    $plan = [pscustomobject]@{
+        Ws = $ws; Skip = $false; Ab = $ab; WsTemplate = $wsTemplate; Fitness = $fitness; UnfitNote = $unfitNote
+        AgentWork = $agentWork; MemoryDir = $memoryDir; Server = ($ab.Kind -eq 'server'); CrWarn = $null
+        Kind = $null; Steps = @(); KitCreates = $false; CreatedBy = $null
+    }
+
+    if ($ab.Kind -eq 'server') {
+        if (-not $ServerBase) {
+            throw ("База агента воркспейсу '$($ws.Path)' серверна ($($ab.Connection)). Вкажіть -ServerBase New — Уніка створить її в " +
+                   'кластері з infobases.origin.dbms, або -ServerBase Existing — базу дала людина, kit лише прибере пам''ять раннера й надрукує крок.')
+        }
+        if ($wsTemplate) { throw '-Template (.dt) для серверної бази агента не підтримується: розгортання .dt на сервері — поза обсягом. Приберіть -Template чи agentBase.template з накладки.' }
+        if ($ServerBase -eq 'New') {
+            $missingDbms = @('kind', 'server', 'name', 'locale' | Where-Object {
+                $null -eq $ab.Dbms -or -not $ab.Dbms.Contains($_) -or [string]::IsNullOrWhiteSpace([string]$ab.Dbms[$_]) })
+            if ($missingDbms.Count -gt 0) {
+                throw ("Для -ServerBase New у $($ab.Origin) під infobases.origin.dbms бракує: $($missingDbms -join ', '). " +
+                       'Їх і реквізити адміністратора кластера питає в людини скіл v8storagekit:provision.')
+            }
+            $plan.CrWarn = ("  УВАГА: раннер створює базу з CrSQLDB=Y — він МОВЧКИ бере наявну базу даних СУБД з тим самим іменем ('{0}' на '{1}'). " +
+                            "Ім'я бази даних підтверджує людина до кроку. Регламентні завдання в новій базі вимкнено (SchJobDn=Y). " +
+                            'Адміністратор кластера — infobases.origin.cluster {{ user, password }} (SUsr/SPwd).') -f $ab.Dbms['name'], $ab.Dbms['server']
+        }
+        $plan.Kind = if ($ServerBase -eq 'New') { 'server-new' } else { 'server-existing' }
+        $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -MainBranch $Context.MainBranch
+        $plan.CreatedBy = if ($ServerBase -eq 'New') { 'unica' } else { 'existing' }
+        return $plan
+    }
+    if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
+
+    Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
+    # П26 п. 2 (б): шлях бази не перетинається з <workPath>/infobases (пам'ять раннера, owner.mark, lock) —
+    # тим самим предикатом перетину, що й аудит бази людини, а не другою копією. Описка в connection
+    # (File=build/infobases) не має стирати теку, яка бази не містить.
+    if (Test-KitPathsOverlap -Left $ab.Path -Right (Join-Path $agentWork 'infobases')) {
+        throw ("Шлях бази агента воркспейсу '$($ws.Path)' перетинається з '$($ws.Project.WorkPath)/infobases' (пам'ять раннера, мітка власника, замок) — " +
+               'kit цього не прибирає. Виправлення: у v8project.local.yaml задайте infobases.origin.connection окремою текою бази (типово build/ib).')
+    }
+    # П26 п. 2 (а): видаляється лише те, що є базою. Наявна непорожня тека без 1Cv8.1CD — не база агента,
+    # навіть із -Force (File=build/artifacts не має стирати артефакти).
+    if (-not $ab.Exists -and (Test-Path -LiteralPath $ab.Path -PathType Container) -and
+            @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction SilentlyContinue).Count -gt 0) {
+        throw ("Тека за шляхом бази агента воркспейсу '$($ws.Path)' наявна, непорожня й не містить 1Cv8.1CD — це не база агента, kit її не прибирає, навіть із -Force. " +
+               'Виправлення: у v8project.local.yaml задайте infobases.origin.connection шляхом, де лежить база агента або де нічого немає (типово build/ib).')
+    }
+    # Шаблон (.dt) — файл людини: якщо він лежить у теці, яку -Apply зараз прибере (база чи пам'ять раннера),
+    # видалення знищило б його, а крок restore посилався б на неіснуючий файл. Відмова до будь-якого видалення.
+    if ($wsTemplate) {
+        $tplFull = [System.IO.Path]::GetFullPath($wsTemplate)
+        foreach ($doomed in @($ab.Path, $memoryDir)) {
+            $doomedFull = [System.IO.Path]::GetFullPath($doomed).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+            if ($tplFull.StartsWith($doomedFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw ("Шаблон бази (.dt) лежить у теці, яку kit прибирає при перестворенні бази агента воркспейсу '$($ws.Path)' (тека бази чи пам'ять раннера під робочою текою). " +
+                       'Перенесіть .dt поза робочу теку воркспейсу і повторіть команду.')
+            }
+        }
+    }
+    if ($Apply) {
+        if ($ab.Exists -and -not $Force) {
+            throw "База агента вже є: $($ab.Path). Перестворити з нуля — kit provision -Workspace $($ws.Path) -Apply -Force."
+        }
+        if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
+    }
+
+    $plan.Kind = if ($wsTemplate) { 'file-dt' } else { 'file-empty' }
+    $templateFull = if ($wsTemplate -and (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { (Resolve-Path -LiteralPath $wsTemplate).Path } else { $wsTemplate }
+    $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -TemplatePath $templateFull -MainBranch $Context.MainBranch
+    $plan.KitCreates = ($plan.Kind -eq 'file-empty' -and -not $fitness.Fit)
+    $plan.CreatedBy = if ($plan.KitCreates) { 'kit' } else { 'unica' }
+    $plan
+}
+
 function Invoke-KitProvision {
     <#
     .SYNOPSIS
@@ -198,6 +344,11 @@ function Invoke-KitProvision {
         (truth: storage без дерева чи з поставкою missing/stale) — першим базу наповнює kit зі сховища,
         тож порожню файлову базу створює теж kit. Серверну базу kit не створює ніколи: -ServerBase New —
         створює Уніка, -ServerBase Existing — базу дала людина.
+
+        Два проходи (П26 п. 4): перший — усі перевірки всіх воркспейсів без побічних ефектів; відмова
+        будь-якого зупиняє команду до першого видалення, з переліком воркспейсів і причин. Другий —
+        друк, видалення й створення. Інакше відмова другого воркспейсу лишала б напівстан: база першого
+        вже знесена, нова не створена.
     .PARAMETER Template
         Файл .dt; без нього береться workspaces.<ws>.agentBase.template з накладки; без обох — порожня база.
     .PARAMETER Remember
@@ -236,141 +387,72 @@ function Invoke-KitProvision {
     $overlayPath = if ($Context.OverlayPath) { $Context.OverlayPath } else { Join-Path $Context.RepoRoot 'v8storagekit.local.yaml' }
     $done = [System.Collections.Generic.List[object]]::new()
 
+    # Перший прохід: перевірки всіх воркспейсів, без побічних ефектів. Відмови збираються, не кидаються по одній.
+    $plans = [System.Collections.Generic.List[object]]::new()
+    $refusals = [System.Collections.Generic.List[string]]::new()
     foreach ($ws in $workspaces) {
+        try {
+            $plans.Add((Get-KitProvisionPlan -Context $Context -Workspace $ws -Template $Template -ServerBase $ServerBase -Apply $Apply -Force ([bool]$Force)))
+        } catch {
+            $refusals.Add(("  - {0}: {1}" -f $ws.Path, $_.Exception.Message))
+        }
+    }
+    if ($refusals.Count -gt 0) {
+        throw ("Перевірки перед змінами не пройдено — нічого не прибрано й не створено:`n" + ($refusals -join "`n"))
+    }
+
+    # Другий прохід: друк, видалення, створення.
+    foreach ($plan in $plans) {
+        $ws = $plan.Ws
         Write-Host ''
         Write-Host "Воркспейс: $($ws.Path)"
-        # Потребу в базі визначають ТИПИ наборів, не наявність infobases.origin (П16): на свіжому клоні
-        # файлу Уніки ще немає, і воркспейс з розширенням не можна приймати за воркспейс обробок.
-        if (-not (Test-KitWorkspaceNeedsAgentBase -Workspace $ws)) {
+        if ($plan.Skip) {
             Write-Host '  У воркспейсі лише зовнішні обробки — бази агента тут не буває.'
             continue
         }
-        $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
-        if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
-
-        # $wsTemplate — ОКРЕМА змінна від параметра -Template: імена змінних PowerShell реєстронечутливі,
-        # і $template = $Template стало б однією змінною — шаблон з накладки першого воркспейсу
-        # перезаписав би параметр і протік у наступний воркспейс циклу.
-        $wsTemplate = $Template
-        if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
-            $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
-        }
+        $ab = $plan.Ab
+        $agentWork = $plan.AgentWork
+        $memoryDir = $plan.MemoryDir
+        $steps = $plan.Steps
         Write-Host "База:      $($ab.Connection)  ($($ab.Origin))"
+        if ($plan.UnfitNote) { Write-Host $plan.UnfitNote -ForegroundColor Cyan }
 
-        # Вісь власника — до вибору типу бази (рішення користувача 2026-09-10): порожнє дерево
-        # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
-        if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
-            $missing = @(Get-KitMissingOwnerSources -Workspace $ws)
-            if (@($missing | Where-Object Truth -ne 'storage').Count -gt 0) { throw (New-KitOwnerMissingMessage -Workspace $ws) }
-        }
-        $fitness = Get-KitConfigurationFitness -Workspace $ws
-        if (-not $fitness.Fit) {
-            $why = if ($fitness.Recipe -eq 'i') { 'дерева ще немає — рецепт (i)' } else { "поставка вендора $($fitness.Supply) — рецепт (ii)" }
-            $unfitNote = ("  Дерево основної конфігурації '{0}' не придатне до завантаження ({1}): першим базу наповнить kit зі сховища" + $(if ($ab.Kind -eq 'file' -and -not $wsTemplate) { ', тож порожню файлову базу створює теж kit.' } else { '; створює її Уніка (create/restore).' })) -f $fitness.Source.Key, $why
-            Write-Host $unfitNote -ForegroundColor Cyan
-        }
-
-        # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу (workPath, §2.5/§4),
-        # НЕ вся тека воркспейсу. Другий, незалежний від аудиту принципу 3 (Resolve-KitAgentBase)
-        # запобіжник: аудит ловить базу людини під чужим ім'ям, ця межа ловить БУДЬ-ЯКУ теку поза
-        # робочою — навіть описку infobase.connection: 'File=cfe/src' (законну підтеку воркспейсу).
-        # Той самий Assert-SafeWorkPath застосовано до самої межі: він відхиляє рівність із межею
-        # (край workPath: '.'), сегмент ".." і ненормалізований шлях. $ws.Project.WorkPath, не літерал
-        # 'build': workPath конфігурований у v8project.yaml, і решта kit його шанує.
-        $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
-        # П25 «Корені власності»: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
-        # Тож workPath, що дорівнює кореню набору, лежить у ньому чи містить його, відхиляється ДО будь-якого
-        # видалення. У повідомлення — лише шляхи відносно воркспейсу (значення конфігу поза ними не друкуємо).
-        $agentWorkFull = [System.IO.Path]::GetFullPath($agentWork).TrimEnd('\', '/')
-        foreach ($setSrc in @($ws.Sources)) {
-            $setFull = [System.IO.Path]::GetFullPath($setSrc.FullPath).TrimEnd('\', '/')
-            $sep = [System.IO.Path]::DirectorySeparatorChar
-            if (($agentWorkFull -eq $setFull) -or $agentWorkFull.StartsWith($setFull + $sep, [System.StringComparison]::OrdinalIgnoreCase) -or $setFull.StartsWith($agentWorkFull + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
-                throw ("workPath у v8project.yaml воркспейсу '$($ws.Path)' збігається з деревом джерела '$($setSrc.Key)', лежить у ньому чи над ним — " +
-                       'робоча тека агента не може перетинатися з вихідниками. Виправлення: у v8project.yaml задайте workPath окремою текою воркспейсу поза деревами джерел (типово build).')
-            }
-        }
-        Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
-        # Спека §10 П7: пам'ять раннера знищеної чи чужої бази — інакше старі хеші розширень стали б
-        # «своєю» пам'яттю нової бази, і push пропустив би їх (клас #25). Мітку власника й замок поруч
-        # (інші файли <workPath>/infobases/) не чіпати. Межа та сама: корінь власності — workPath.
-        $memoryDir = Join-Path $agentWork 'infobases/origin'
-        Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
-
-        if ($ab.Kind -eq 'server') {
-            if (-not $ServerBase) {
-                throw ("База агента воркспейсу '$($ws.Path)' серверна ($($ab.Connection)). Вкажіть -ServerBase New — Уніка створить її в " +
-                       'кластері з infobases.origin.dbms, або -ServerBase Existing — базу дала людина, kit лише прибере пам''ять раннера й надрукує крок.')
-            }
-            if ($wsTemplate) { throw '-Template (.dt) для серверної бази агента не підтримується: розгортання .dt на сервері — поза обсягом. Приберіть -Template чи agentBase.template з накладки.' }
-            if ($ServerBase -eq 'New') {
-                $missingDbms = @('kind', 'server', 'name', 'locale' | Where-Object {
-                    $null -eq $ab.Dbms -or -not $ab.Dbms.Contains($_) -or [string]::IsNullOrWhiteSpace([string]$ab.Dbms[$_]) })
-                if ($missingDbms.Count -gt 0) {
-                    throw ("Для -ServerBase New у $($ab.Origin) під infobases.origin.dbms бракує: $($missingDbms -join ', '). " +
-                           'Їх і реквізити адміністратора кластера питає в людини скіл v8storagekit:provision.')
-                }
-                $crWarn = ("  УВАГА: раннер створює базу з CrSQLDB=Y — він МОВЧКИ бере наявну базу даних СУБД з тим самим іменем ('{0}' на '{1}'). " +
-                           "Ім'я бази даних підтверджує людина до кроку. Регламентні завдання в новій базі вимкнено (SchJobDn=Y). " +
-                           'Адміністратор кластера — infobases.origin.cluster {{ user, password }} (SUsr/SPwd).') -f $ab.Dbms['name'], $ab.Dbms['server']
-                Write-Host $crWarn -ForegroundColor Yellow
-            }
-            $serverKind = if ($ServerBase -eq 'New') { 'server-new' } else { 'server-existing' }
-            $serverSteps = Get-KitProvisionSteps -Kind $serverKind -Fitness $fitness -MainBranch $Context.MainBranch
+        if ($plan.Server) {
+            if ($plan.CrWarn) { Write-Host $plan.CrWarn -ForegroundColor Yellow }
             if (-not $Apply) {
                 Write-Host "  Це попередній перегляд. Для виконання додайте -Apply (kit прибере пам'ять раннера $memoryDir)." -ForegroundColor Cyan
-                Write-KitNextSteps -Title 'Далі:' -Steps $serverSteps
+                Write-KitNextSteps -Title 'Далі:' -Steps $steps
                 continue
             }
+            Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
             Remove-KitDirectory -Path $memoryDir
-            Write-KitNextSteps -Title 'Далі:' -Steps $serverSteps
-            $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $null; Template = $null
-                CreatedBy = $(if ($ServerBase -eq 'New') { 'unica' } else { 'existing' }); Steps = $serverSteps })
+            Write-KitNextSteps -Title 'Далі:' -Steps $steps
+            $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $null; Template = $null; CreatedBy = $plan.CreatedBy; Steps = $steps })
             continue
         }
-        if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
 
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
-        # Шаблон (.dt) — файл людини: якщо він лежить у теці, яку -Apply зараз прибере (база чи пам'ять раннера),
-        # видалення знищило б його, а крок restore посилався б на неіснуючий файл. Відмова до будь-якого видалення.
-        if ($wsTemplate) {
-            $tplFull = [System.IO.Path]::GetFullPath($wsTemplate)
-            foreach ($doomed in @($ab.Path, $memoryDir)) {
-                $doomedFull = [System.IO.Path]::GetFullPath($doomed).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
-                if ($tplFull.StartsWith($doomedFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-                    throw ("Шаблон бази (.dt) лежить у теці, яку kit прибирає при перестворенні бази агента воркспейсу '$($ws.Path)' (тека бази чи пам'ять раннера під робочою текою). " +
-                           'Перенесіть .dt поза робочу теку воркспейсу і повторіть команду.')
-                }
-            }
-        }
+        $wsTemplate = $plan.WsTemplate
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
         Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
-
-        $fileKind = if ($wsTemplate) { 'file-dt' } else { 'file-empty' }
-        $templateFull = if ($wsTemplate -and (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { (Resolve-Path -LiteralPath $wsTemplate).Path } else { $wsTemplate }
-        $steps = Get-KitProvisionSteps -Kind $fileKind -Fitness $fitness -TemplatePath $templateFull -MainBranch $Context.MainBranch
-        $kitCreates = ($fileKind -eq 'file-empty' -and -not $fitness.Fit)
 
         if (-not $Apply) {
             # '+' після виклику команди — окремий позиційний аргумент, не конкатенація (F2/P4): рядок збирається в змінну ДО виклику.
             $previewNote = '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' })
             Write-Host $previewNote -ForegroundColor Cyan
-            if ($kitCreates) { Write-Host '  З -Apply kit сам створить порожню файлову базу.' -ForegroundColor Cyan }
-            elseif (-not $fitness.Fit) { Write-Host '  Першим базу наповнить kit; створює її Уніка (create/restore) — крок нижче.' -ForegroundColor Cyan }
+            if ($plan.KitCreates) { Write-Host '  З -Apply kit сам створить порожню файлову базу.' -ForegroundColor Cyan }
+            elseif (-not $plan.Fitness.Fit) { Write-Host '  Першим базу наповнить kit; створює її Уніка (create/restore) — крок нижче.' -ForegroundColor Cyan }
             Write-KitNextSteps -Title 'Далі:' -Steps $steps
             # F6 (рев'ю B4 Task 1): -Remember без -Apply не мовчить — шаблон ще не записано.
             if ($Remember) { Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray }
             continue
         }
-        if ($ab.Exists -and -not $Force) {
-            throw "База агента вже є: $($ab.Path). Перестворити з нуля — kit provision -Workspace $($ws.Path) -Apply -Force."
-        }
-        if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
-        # Обидва шляхи вже пройшли Assert-SafeWorkPath вище (до -Apply, безумовно) і з того часу не змінювались.
+        # Перевірки зроблено в першому проході; тут — повторний запобіжник безпосередньо перед видаленням.
+        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
+        Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
         Remove-KitDirectory -Path $ab.Path
         Remove-KitDirectory -Path $memoryDir
-        if ($kitCreates) {
+        if ($plan.KitCreates) {
             Write-Host '  Створюю порожню базу (першим її наповнить kit зі сховища)...'
             $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork
             Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
@@ -383,8 +465,7 @@ function Invoke-KitProvision {
             Save-KitOverlayAgentBase -OverlayPath $overlayPath -WorkspacePath $ws.Path -Template $wsTemplate
             Write-Host "  Шаблон записано в $overlayPath (workspaces.$($ws.Path).agentBase.template)." -ForegroundColor DarkGray
         }
-        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $wsTemplate
-            CreatedBy = $(if ($kitCreates) { 'kit' } else { 'unica' }); Steps = $steps })
+        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $wsTemplate; CreatedBy = $plan.CreatedBy; Steps = $steps })
     }
     [pscustomobject]@{ ExitCode = 0; Provisioned = $done.ToArray() }
 }

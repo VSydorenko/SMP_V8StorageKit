@@ -93,6 +93,26 @@ function Get-KitComponentAttributes {
     catch [System.IO.DirectoryNotFoundException] { return $null }
     catch { throw "${Description}: не вдалося перевірити компонент шляху '$Path' на посилання (${_}) — відмовляюсь видаляти чи створювати за таким шляхом." }
 }
+function Get-KitDirectoryEntriesNoLinks {
+    <#
+    .SYNOPSIS
+        Усі файли й теки під текою, не заходячи в посилання (junction/symlink) — перерахунок для зняття ReadOnly.
+    .DESCRIPTION
+        Правило закріплене кодом, а не поведінкою .NET (П26, M-1): два виміри розійшлися, чи
+        EnumerateFileSystemEntries(AllDirectories) перелічує вміст цілі junction. EnumerationOptions:
+        RecurseSubdirectories; AttributesToSkip — ЛИШЕ ReparsePoint (умовчання Hidden|System
+        пропустило б приховані ReadOnly-файли, і повтор Directory.Delete знову падав би);
+        IgnoreInaccessible = $false (недоступне — виняток, не тиша). Саме посилання не перелічується.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $o = [System.IO.EnumerationOptions]::new()
+    $o.RecurseSubdirectories = $true
+    $o.AttributesToSkip = [System.IO.FileAttributes]::ReparsePoint
+    $o.IgnoreInaccessible = $false
+    [System.IO.Directory]::EnumerateFileSystemEntries($Path, '*', $o)
+}
+
 function Remove-KitDirectory {
     <#
     .SYNOPSIS
@@ -118,7 +138,7 @@ function Remove-KitDirectory {
     }
     $full = (Resolve-Path -LiteralPath $Path).ProviderPath
     $clearReadOnly = {
-        $all = @($full) + @([System.IO.Directory]::EnumerateFileSystemEntries($full, '*', [System.IO.SearchOption]::AllDirectories))
+        $all = @($full) + @(Get-KitDirectoryEntriesNoLinks -Path $full)
         foreach ($entry in $all) {
             $attr = [System.IO.File]::GetAttributes($entry)
             if ($attr -band [System.IO.FileAttributes]::ReadOnly) {
@@ -145,4 +165,4 @@ function Remove-KitDirectory {
     }
 }
 
-Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory
+Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory, Get-KitDirectoryEntriesNoLinks

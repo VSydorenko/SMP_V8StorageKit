@@ -16,16 +16,16 @@ function Get-KitInfobaseCanonicalForm {
     .SYNOPSIS
         Приватний розбір одного підключення на канонічну форму — не експортується.
     .DESCRIPTION
-        Допоміжна функція для Test-KitSameInfobase: розбирає File= чи Srvr=;Ref= на
+        Допоміжна функція для Test-KitInfobasesOverlap: розбирає File= чи Srvr=;Ref= на
         {Parsed; Kind; Identity; Reason}. Сирий розбір — ConvertFrom-V8Connection
         (V8.psm1, issue #9): непарна лапка, голий шлях, Srvr= без Ref=, невідомий
         ключ і решта — виняток ConvertFrom-V8Connection, тут лише перехоплений і
         перетворений на Parsed=$false з текстом винятку в Reason.
 
-        Сама по собі fail-closed НЕ реалізує (не кидає) — це робить Test-KitSameInfobase,
+        Сама по собі fail-closed НЕ реалізує (не кидає) — це робить Test-KitInfobasesOverlap,
         маючи обидва боки одразу (щоб назвати обидва підключення в одному повідомленні).
         Відносний File= тут ЗАВЖДИ Parsed=$false: ця функція не знає бази відліку (тека
-        воркспейсу для бази агента, спека §2.5) — той, хто кличе Test-KitSameInfobase,
+        воркспейсу для бази агента, спека §2.5) — той, хто кличе Test-KitInfobasesOverlap,
         мусить сам розв'язати відносний File= бази агента до абсолютного шляху ДО звірки
         (Resolve-KitAgentBase так і робить).
     #>
@@ -48,15 +48,100 @@ function Get-KitInfobaseCanonicalForm {
     if (-not [System.IO.Path]::IsPathRooted($raw)) {
         return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'відносний File= — kit звіряє лише абсолютні File=.'; Exception = $null }
     }
-    $full = [System.IO.Path]::GetFullPath($raw).TrimEnd('\', '/')
-    [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = ''; Exception = $null }
+    # Канонізація (П26): без \\?\, з розкритими посиланнями по наявних компонентах. Збій читання
+    # атрибута — нерозбірне (fail-closed), текст без шляху.
+    try { $full = Get-KitCanonicalPath -Path $raw }
+    catch { return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = $_.Exception.Message; Exception = $null } }
+    [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Path = $full; Reason = ''; Exception = $null }
 }
 
-function Test-KitSameInfobase {
+function Get-KitCanonicalPath {
     <#
     .SYNOPSIS
-        Чи описують два підключення ТУ САМУ базу — а не той самий текст (принцип 3).
+        Канонічний абсолютний шлях для порівняння баз і тек (П26): без префікса \\?\, з розкритими посиланнями.
     .DESCRIPTION
+        Текстова нормалізація не бачить двох речей, через які аудит «база агента ≠ база людини»
+        пропускав збіг: префікс \\?\ (інша форма запису тієї самої теки) і junction/symlink на
+        проміжному компоненті (build за junction веде на теку, де лежить дев-база). Тут: зняти
+        \\?\ (і \\?\UNC\), GetFullPath, далі йти компонентами від кореня; наявний компонент-посилання
+        замінюється його ціллю (LinkTarget), решта шляху дописується як є — ненаявний компонент
+        зупиняє розкриття (глибше нічого немає). Помилка читання атрибута наявного компонента —
+        виняток (fail-closed), а не «посилання немає». Текст винятку не містить шляху (П23).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $p = $Path.Trim()
+    if ($p.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) { $p = '\\' + $p.Substring(8) }
+    elseif ($p.StartsWith('\\?\') -or $p.StartsWith('\??\')) { $p = $p.Substring(4) }
+    $full = [System.IO.Path]::GetFullPath($p)
+
+    for ($hop = 0; $hop -lt 40; $hop++) {
+        $root = [System.IO.Path]::GetPathRoot($full)
+        $segments = @($full.Substring($root.Length) -split '[\\/]+' | Where-Object { $_ })
+        $current = $root.TrimEnd('\', '/')
+        $restart = $null
+        for ($i = 0; $i -lt $segments.Count; $i++) {
+            $next = $current + '\' + $segments[$i]
+            $attr = $null
+            try { $attr = [System.IO.File]::GetAttributes($next) }
+            catch [System.IO.FileNotFoundException] { $attr = $null }
+            catch [System.IO.DirectoryNotFoundException] { $attr = $null }
+            catch { throw 'не вдалося перевірити компонент шляху бази на посилання — kit не може довести, що бази різні.' }
+            if ($null -eq $attr) {
+                # Глибше нічого немає: решту дописуємо як є.
+                $current = $next
+                for ($j = $i + 1; $j -lt $segments.Count; $j++) { $current += '\' + $segments[$j] }
+                return $current
+            }
+            if ($attr.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+                $target = $null
+                try { $target = (Get-Item -LiteralPath $next -Force -ErrorAction Stop).LinkTarget } catch { throw 'не вдалося прочитати ціль посилання в шляху бази — kit не може довести, що бази різні.' }
+                if ($target) {
+                    if ($target.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) { $target = '\\' + $target.Substring(8) }
+                    elseif ($target.StartsWith('\\?\') -or $target.StartsWith('\??\')) { $target = $target.Substring(4) }
+                    if (-not [System.IO.Path]::IsPathRooted($target)) { $target = [System.IO.Path]::GetFullPath($target, $current + '\') }
+                    $tail = if ($i + 1 -lt $segments.Count) { '\' + (($segments[($i + 1)..($segments.Count - 1)]) -join '\') } else { '' }
+                    $restart = [System.IO.Path]::GetFullPath($target.TrimEnd('\', '/') + $tail)
+                    break
+                }
+            }
+            $current = $next
+        }
+        if ($null -eq $restart) { return $current }
+        $full = $restart
+    }
+    throw 'ланцюг посилань у шляху бази задовгий (або зациклений) — kit не може довести, що бази різні.'
+}
+
+function Test-KitPathsOverlap {
+    <#
+    .SYNOPSIS
+        Чи перетинаються два шляхи: рівні, один під іншим чи над ним (П26) — після канонізації.
+    .DESCRIPTION
+        Єдиний предикат перетину на kit: аудит бази людини (Test-KitInfobasesOverlap) і межа
+        <workPath>/infobases у provision кличуть саме його, а не власні копії. Порівняння — з
+        роздільником (build\ib2 не лежить під build\ib), без урахування регістру.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Left, [Parameter(Mandatory)][string]$Right)
+    $a = (Get-KitCanonicalPath -Path $Left).TrimEnd('\', '/') + '\'
+    $b = (Get-KitCanonicalPath -Path $Right).TrimEnd('\', '/') + '\'
+    $a.StartsWith($b, [System.StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-KitInfobasesOverlap {
+    <#
+    .SYNOPSIS
+        Чи ПЕРЕТИНАЮТЬСЯ два підключення: та сама база або одна лежить усередині/над іншою (принцип 3, П26).
+    .DESCRIPTION
+        Семантика (П26): не «та сама база», а ПЕРЕТИН. Файлові бази канонізуються (без \\?\, з
+        розкритими посиланнями по наявних компонентах — Get-KitCanonicalPath) і вважаються
+        перетином, коли шляхи рівні, один під іншим чи над ним: provision -Force знищує теку
+        бази агента разом з усім, що в ній, тож дев-база всередині неї чи над нею гине так само,
+        як збіг. Серверні — сервер і Ref, як і раніше. Єдина функція для provision, префлайту й
+        аудиту check; ім'я каже про перетин, а не про рівність.
+
         Текстова нормалізація (пробіли/регістр) не досить: 'File=D:\Bases\SMP_UNF\'
         і 'File=D:\Bases\SMP_UNF' — та сама тека, текстово різні рядки; 'Srvr=VSDEV;Ref=SMP_UNF;'
         і 'Ref=SMP_UNF;Srvr=VSDEV;' — та сама база, різний порядок ключів. Ця функція
@@ -137,6 +222,12 @@ function Test-KitSameInfobase {
                'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки (принцип 3).')
     }
     if ($l.Kind -ne $r.Kind) { return $false }
+    if ($l.Kind -eq 'file') {
+        # Перетин, не рівність (П26): база всередині теки іншої, чи над нею, знищується разом із нею.
+        $a = $l.Path.TrimEnd('\', '/') + '\'
+        $b = $r.Path.TrimEnd('\', '/') + '\'
+        return ($a.StartsWith($b, [System.StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [System.StringComparison]::OrdinalIgnoreCase))
+    }
     $l.Identity -eq $r.Identity
 }
 
@@ -147,7 +238,7 @@ function Resolve-KitAgentBase {
     .DESCRIPTION
         Принцип 3: kit ніколи не пише в базу людини. Підключення бази агента (з
         `infobases.origin` у v8project.local.yaml — Resolve-V8AgentInfobase) звіряється проти
-        КОЖНОЇ дев-бази з infobases: накладки kit через Test-KitSameInfobase — порівняння за
+        КОЖНОЇ дев-бази з infobases: накладки kit через Test-KitInfobasesOverlap — порівняння за
         ідентичністю бази, не за текстом підключення (F1). Збіг або нерозбірне підключення
         (з будь-якого боку) — throw до будь-якої дії. $null — «бази не налаштовано на цій
         машині»: що це означає, вирішує викликач через Test-KitWorkspaceNeedsAgentBase
@@ -156,7 +247,7 @@ function Resolve-KitAgentBase {
         Файлову базу агента звіряють уже РОЗВ'ЯЗАНОЮ до абсолютного шляху
         (Resolve-KitAgentInfobasePath, чиста функція — виклик до звірки нічого не змінює,
         аудит лишається "до будь-якої дії"): відносний File= бази агента законний (від теки
-        воркспейсу, §2.5), а Test-KitSameInfobase кидає на відносному File= — те правило для
+        воркспейсу, §2.5), а Test-KitInfobasesOverlap кидає на відносному File= — те правило для
         підключень з накладки kit, де бази відліку немає, не для бази агента. Розв'язаний
         шлях повторно серіалізується в 'File=<шлях>' без лапок (парні лапки розбір однаково
         зняв би; потрібні вони лише для читабельності).
@@ -172,10 +263,10 @@ function Resolve-KitAgentBase {
     if ($Context.Overlay) {
         $agentConn = if ($resolved.Kind -eq 'file') { 'File={0}' -f $resolved.Path } else { $ib.Connection }
         foreach ($human in $Context.Overlay.Infobases.Values) {
-            if (Test-KitSameInfobase -Left $agentConn -Right $human.Connection `
+            if (Test-KitInfobasesOverlap -Left $agentConn -Right $human.Connection `
                     -LeftOrigin "база агента воркспейсу '$($Workspace.Path)' (infobases.origin у v8project.local.yaml)" `
                     -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
-                throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit. " +
+                throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit або перетинається з нею (та сама тека, вкладена чи батьківська). " +
                        'Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.')
             }
         }
@@ -215,4 +306,4 @@ function New-KitAgentBaseMissingMessage {
      '(файл гітігнорований — на свіжому клоні його ще немає). Налаштувати й розгорнути базу — скіл v8storagekit:provision, тоді повторіть команду.')
 }
 
-Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage
+Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitInfobasesOverlap, Test-KitPathsOverlap, Get-KitCanonicalPath, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage

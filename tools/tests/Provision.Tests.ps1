@@ -570,6 +570,117 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.ExitCode | Should -Be 0 -Because ($r.Output -replace 'SECRET', 'S*CRET')
         $r.Output | Should -Not -BeLike '*SECRET*'
     }
+    It 'П26 п. 1: дев-база записана з префіксом \\?\ (та сама тека) — відмова, дев-база ціла' {
+        $repoPath = Join-Path $TestDrive 'ov-long'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=\\?\$repoPath\Alpha_SMB\build\ib'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*дев-базою людини*dev*'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 1: дев-база вкладена в теку агента — відмова, дев-база ціла' {
+        $repoPath = Join-Path $TestDrive 'ov-nested'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build\ib\dev'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $dev = Join-Path $repo 'Alpha_SMB/build/ib/dev'
+        New-Item -ItemType Directory -Path $dev -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Value 'людська база'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*дев-базою людини*dev*'
+        (Get-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 1: дев-база є батьком теки агента — відмова, дев-база ціла' {
+        $repoPath = Join-Path $TestDrive 'ov-parent'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/build/dev-data.txt') -Value 'людська база'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*дев-базою людини*dev*'
+        (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/build/dev-data.txt') -Raw).Trim() | Should -Be 'людська база'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 1: build — junction на теку з дев-базою — відмова, дев-база ціла' {
+        $devDir = Join-Path $TestDrive 'ov-junction-dev'
+        New-Item -ItemType Directory -Path (Join-Path $devDir 'ib') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $devDir 'ib/1Cv8.1CD') -Value 'людська база'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$devDir'"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ov-junction') -WithHooks -OverlayText $overlay
+        Add-Owner -Repo $repo
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Alpha_SMB/build') -Target $devDir | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*дев-базою людини*dev*'
+        (Get-Content -LiteralPath (Join-Path $devDir 'ib/1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
+    }
+    It 'П26 п. 1, контроль: дев-база build\ib2 поруч з build\ib — не перетин, provision іде далі' {
+        $repoPath = Join-Path $TestDrive 'ov-sibling'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build\ib2'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+    }
+    foreach ($case in @(
+        @{ Name = 'build/artifacts'; Rel = 'build/artifacts'; Phrase = '*це не база агента*' }
+        @{ Name = 'build/adopt'; Rel = 'build/adopt'; Phrase = '*це не база агента*' }
+        @{ Name = 'build/infobases'; Rel = 'build/infobases'; Phrase = '*перетинається з*infobases*' }
+    )) {
+        It "П26 п. 2: connection = File=$($case.Name) — відмова навіть з -Force, вміст і owner.mark/lock цілi" -TestCases @($case) {
+            param($Name, $Rel, $Phrase)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('notbase-' + [guid]::NewGuid().ToString('N').Substring(0, 8))) -WithHooks
+            Add-Owner -Repo $repo
+            Set-KitFakeAgentBase -Repo $repo -Connection "File=$Rel"
+            $dir = Join-Path $repo "Alpha_SMB/$Rel"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'precious.txt') -Value 'x'
+            $infobases = Join-Path $repo 'Alpha_SMB/build/infobases'
+            New-Item -ItemType Directory -Path $infobases -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $infobases 'owner.mark') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $infobases 'lock') -Value 'x'
+            $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+            $r.ExitCode | Should -Be 1
+            $r.Output | Should -BeLike $Phrase
+            Test-Path -LiteralPath (Join-Path $dir 'precious.txt') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $infobases 'owner.mark') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $infobases 'lock') | Should -BeTrue
+        }
+    }
+    It 'П26 п. 2, контроль: порожня наявна тека на місці бази — дозволено' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty-dir') -WithHooks
+        Add-Owner -Repo $repo
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+    }
+    It 'П26 п. 4: два воркспейси, перший валідний, другий відмовляє — перший цілий (база й пам''ять раннера), код 1 з переліком' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/artifacts'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'two-pass') -Workspaces $ws -WithHooks -WithAgentBase
+        foreach ($n in 'Alpha_SMB', 'Beta_SMB') {
+            $dir = Join-Path $repo "$n/cf/src"; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base')
+        }
+        $art = Join-Path $repo 'Beta_SMB/build/artifacts'
+        New-Item -ItemType Directory -Path $art -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $art 'precious.txt') -Value 'x'
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Перевірки перед змінами не пройдено*Beta_SMB*'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        Test-Path -LiteralPath $mem | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $art 'precious.txt') | Should -BeTrue
+    }
     It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:provision' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })

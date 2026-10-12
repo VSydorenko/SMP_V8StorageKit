@@ -20,7 +20,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
             'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
-            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitSameInfobase',
+            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitInfobasesOverlap', 'Test-KitPathsOverlap', 'Get-KitDirectoryEntriesNoLinks',
             'Convert-KitEdtPath', 'Get-KitEdtRenamePlan', 'Get-KitDirtyRecords', 'Backup-KitDirtyFiles', 'Get-KitInvisibleWork', 'Format-KitInvisibleWorkStop',
             'Get-KitOriginGap', 'Get-KitPluginVersion', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',

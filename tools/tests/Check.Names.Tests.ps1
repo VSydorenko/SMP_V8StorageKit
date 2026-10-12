@@ -36,7 +36,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It '§2.5/F1: infobase.connection у v8project.local.yaml нерозбірне (Srvr= без Ref=) — error, а не тиша' {
-        # F1 (рев'ю B4 Task 1): fail-closed. Test-KitSameInfobase кидає на нерозбірному
+        # F1 (рев'ю B4 Task 1): fail-closed. Test-KitInfobasesOverlap кидає на нерозбірному
         # підключенні (тут — навіть раніше, на Resolve-KitAgentInfobasePath: ConvertFrom-V8Connection
         # вимагає Ref= для Srvr=), а check МАЄ перетворити цей throw на знахідку error, не
         # впасти й не мовчати — суперечливий репозиторій має бути видимий у звіті check.

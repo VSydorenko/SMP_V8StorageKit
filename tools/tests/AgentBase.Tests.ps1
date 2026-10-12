@@ -109,62 +109,62 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
     }
 }
 
-Describe 'AgentBase.psm1 — Test-KitSameInfobase (F1: ідентичність бази, не текст підключення)' {
+Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичність бази, не текст підключення)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/AgentBase.psm1").Path -Force
     }
 
     It 'кінцевий роздільник File= — та сама тека, збіг' {
-        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF\' -Right 'File=D:\Bases\SMP_UNF' | Should -BeTrue
+        Test-KitInfobasesOverlap -Left 'File=D:\Bases\SMP_UNF\' -Right 'File=D:\Bases\SMP_UNF' | Should -BeTrue
     }
 
     It 'регістр File= — не залежить, збіг' {
-        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'File=d:\bases\smp_unf' | Should -BeTrue
+        Test-KitInfobasesOverlap -Left 'File=D:\Bases\SMP_UNF' -Right 'File=d:\bases\smp_unf' | Should -BeTrue
     }
 
     It 'різні теки File= — не збіг' {
-        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'File=D:\Bases\Other' | Should -BeFalse
+        Test-KitInfobasesOverlap -Left 'File=D:\Bases\SMP_UNF' -Right 'File=D:\Bases\Other' | Should -BeFalse
     }
 
     It 'порядок ключів Srvr/Ref — незалежний, збіг' {
-        Test-KitSameInfobase -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Ref=SMP_UNF;Srvr=VSDEV;' | Should -BeTrue
+        Test-KitInfobasesOverlap -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Ref=SMP_UNF;Srvr=VSDEV;' | Should -BeTrue
     }
 
     It 'різний Ref на тому самому сервері — не збіг' {
-        Test-KitSameInfobase -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
+        Test-KitInfobasesOverlap -Left 'Srvr=VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
     }
 
     It 'різний Kind (file проти server) — безпечно не збіг, без зупинки: ми ЗНАЄМО, що бази різні' {
-        { Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Not -Throw
-        Test-KitSameInfobase -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' | Should -BeFalse
+        { Test-KitInfobasesOverlap -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Not -Throw
+        Test-KitInfobasesOverlap -Left 'File=D:\Bases\SMP_UNF' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' | Should -BeFalse
     }
 
     It 'порожній рядок — кидає (fail-closed, не "не збігається")' {
-        { Test-KitSameInfobase -Left '' -Right 'File=D:\x' } | Should -Throw
+        { Test-KitInfobasesOverlap -Left '' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'Srvr= без Ref= — кидає' {
-        { Test-KitSameInfobase -Left 'Srvr=VSDEV;' -Right 'File=D:\x' } | Should -Throw
+        { Test-KitInfobasesOverlap -Left 'Srvr=VSDEV;' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'підключення не File= і не Srvr= — кидає' {
-        { Test-KitSameInfobase -Left 'щось незрозуміле' -Right 'File=D:\x' } | Should -Throw
+        { Test-KitInfobasesOverlap -Left 'щось незрозуміле' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'відносний File= — кидає (ця функція не знає бази відліку; викликач мусить розв''язати сам)' {
-        { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x' } | Should -Throw
+        { Test-KitInfobasesOverlap -Left 'File=build/ib' -Right 'File=D:\x' } | Should -Throw
     }
 
     It 'кидаючий виняток називає нерозбірну сторону за походженням, а не рядком (П23)' {
         $err = $null
-        try { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
+        try { Test-KitInfobasesOverlap -Left 'File=build/ib' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*ЛІВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*ПРАВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*build/ib*'
         $err | Should -Not -BeLike '*D:\x*'
         # права сторона нерозбірна (Pwd) при розібраній лівій — називається права, значення немає
         $err = $null
-        try { Test-KitSameInfobase -Left 'File=D:\ok' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
+        try { Test-KitInfobasesOverlap -Left 'File=D:\ok' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*ПРАВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*ЛІВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*Ж7*'
@@ -174,14 +174,60 @@ Describe 'AgentBase.psm1 — Test-KitSameInfobase (F1: ідентичність 
     It 'Srvr у лапках і без лапок — та сама база (§4.3 п. 4)' {
         # Властивість безпеки: якби лапки робили запис «іншою базою», аудит «база агента ≠ база
         # людини» пропустив би колізію (мовчазний дозвіл до provision -Apply -Force).
-        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref=smp_unf;Srvr=vsdev' | Should -BeTrue
+        Test-KitInfobasesOverlap -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref=smp_unf;Srvr=vsdev' | Should -BeTrue
     }
 
     It 'парні лапки не роблять різні бази однаковими' {
-        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
+        Test-KitInfobasesOverlap -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
     }
 
     It 'непарна лапка — fail-closed: кидає, навіть коли на іншому боці коректний запис' {
-        { Test-KitSameInfobase -Left 'Srvr="VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Throw '*непарні лапки*'
+        { Test-KitInfobasesOverlap -Left 'Srvr="VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Throw '*непарні лапки*'
+    }
+}
+
+Describe 'AgentBase.psm1 — аудит бази людини: ПЕРЕТИН, а не рівність тексту (П26 п. 1)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Preflight.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/AgentBase.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        function script:New-AuditRepo { param([string]$Name, [string]$DevConnection)
+            New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -OverlayText "infobases:`n  devUNF:`n    connection: '$DevConnection'" }
+        function script:Resolve-Audit { param([string]$Repo)
+            $ctx = Invoke-KitPreflight -RepoRoot $Repo
+            Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] }
+    }
+
+    It 'запис дев-бази з префіксом \\?\ — той самий шлях, зупинка' {
+        $agent = Join-Path (Join-Path $TestDrive 'p-long') 'Alpha_SMB/build/ib'
+        $repo = New-AuditRepo -Name 'p-long' -DevConnection ('File=\\?\' + $agent)
+        { Resolve-Audit -Repo $repo } | Should -Throw '*людини*devUNF*'
+    }
+    It 'дев-база вкладена в теку агента — зупинка' {
+        $dev = Join-Path (Join-Path $TestDrive 'p-nested') 'Alpha_SMB/build/ib/dev'
+        $repo = New-AuditRepo -Name 'p-nested' -DevConnection "File=$dev"
+        { Resolve-Audit -Repo $repo } | Should -Throw '*людини*devUNF*'
+    }
+    It 'дев-база — батько теки агента — зупинка' {
+        $dev = Join-Path (Join-Path $TestDrive 'p-parent') 'Alpha_SMB/build'
+        $repo = New-AuditRepo -Name 'p-parent' -DevConnection "File=$dev"
+        { Resolve-Audit -Repo $repo } | Should -Throw '*людини*devUNF*'
+    }
+    It 'build — junction на теку з дев-базою — зупинка (посилання розкрито)' {
+        $devDir = Join-Path $TestDrive 'p-junction-dev'
+        New-Item -ItemType Directory -Path $devDir -Force | Out-Null
+        $repo = New-AuditRepo -Name 'p-junction' -DevConnection "File=$devDir"
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Alpha_SMB/build') -Target $devDir | Out-Null
+        { Resolve-Audit -Repo $repo } | Should -Throw '*людини*devUNF*'
+    }
+    It 'контроль: сусідня тека build\ib2 — не перетин' {
+        $dev = Join-Path (Join-Path $TestDrive 'p-sibling') 'Alpha_SMB/build/ib2'
+        $repo = New-AuditRepo -Name 'p-sibling' -DevConnection "File=$dev"
+        { Resolve-Audit -Repo $repo } | Should -Not -Throw
+    }
+    It 'Test-KitPathsOverlap: build\ib і build\ib2 — не перетин; build\ib і build\ib\x — перетин (з роздільником)' {
+        Test-KitPathsOverlap -Left 'D:\w\build\ib' -Right 'D:\w\build\ib2' | Should -BeFalse
+        Test-KitPathsOverlap -Left 'D:\w\build\ib' -Right 'D:\w\build\ib\x' | Should -BeTrue
+        Test-KitPathsOverlap -Left 'D:\w\build\ib' -Right 'D:\w' | Should -BeTrue
     }
 }
