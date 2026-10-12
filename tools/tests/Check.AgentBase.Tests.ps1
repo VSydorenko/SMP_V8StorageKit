@@ -23,17 +23,25 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Alpha_SMB*'
     }
 
-    It 'база агента з v8project.yaml (без .local) збігається з дев-базою людини — check це каже' {
+    It 'база агента з infobases.origin у v8project.local.yaml збігається з дев-базою людини — check це каже' {
         $repo = New-GoodRepo -Name 'agent-base-collision'
         $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
         New-Item -ItemType Directory -Force -Path $ibDir | Out-Null
         Set-Content -LiteralPath (Join-Path $ibDir '1Cv8.1CD') -Value 'fake' -Encoding UTF8
-        # Дев-база людини в накладці вказує на ту саму теку, що база агента у ЗАКОМІЧЕНОМУ
-        # v8project.yaml — жодного v8project.local.yaml у репозиторії немає.
+        # Дев-база людини в накладці вказує на ту саму теку, що infobases.origin бази агента (фікстура
+        # пише її у v8project.local.yaml).
         $overlay = @('infobases:', "  dev: { connection: 'File=$ibDir' }") -join "`n"
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
         $r = Invoke-Check -Repo $repo
         $r.Output | Should -BeLike '*дев-базою людини*'
+    }
+
+    It 'стара форма infobase: лише у v8project.local.yaml — error зі знахідкою "стара форма", код 1' {
+        $repo = New-GoodRepo 'old-form-local'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value "infobase:`n  connection: 'File=build/ib'"
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*Alpha_SMB*v8project.local.yaml*стара форма 'infobase:'*"
     }
 
     It 'база агента на місці — знахідки немає' {

@@ -188,7 +188,9 @@ function Get-V8ProjectConfigProblems {
         if ($data.Contains('infobases')) {
             if ($file.Committed) {
                 $problems.Add("${p}: infobases у закоміченому v8project.yaml — база агента машинна й може нести пароль. Перенесіть блок у $localPath (гітігнорований).")
-            } elseif ($data['infobases'] -is [System.Collections.IDictionary]) {
+            } elseif ($data['infobases'] -isnot [System.Collections.IDictionary]) {
+                $problems.Add("${p}: infobases має бути мапою з ключем origin (infobases: { origin: { connection: … } }) — інакше база агента тихо зникає. Виправте або приберіть infobases.")
+            } else {
                 foreach ($name in @($data['infobases'].Keys)) {
                     if ($name -ne 'origin') {
                         $problems.Add("${p}: infobases.'$name' — Уніка обслуговує лише origin, і kit читає лише origin; інша назва означала б, що аудит перевіряє не ту базу. Перейменуйте на origin або приберіть.")

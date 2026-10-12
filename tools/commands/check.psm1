@@ -182,10 +182,10 @@ function Invoke-KitCheck {
         # templates/v8storagekit.local.yaml.example) проходило check кодом 0 і падало лише на
         # kit dump — мовчазна пастка при міграції старих накладок. Один раз на дев-базу,
         # незалежно від кількості воркспейсів, — тому цикл тут, поза foreach ($src in $all)
-        # нижче. warn, не error: error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
-        # kit dump. Там, де та сама дев-база вже дала error 'agent-base-required' у гілці
-        # Resolve-KitAgentBase вище, ця знахідка законно дублюється — розводити їх
-        # ускладнило б код заради усунення дубля повідомлення.
+        # нижче. warn, не error: error тут гасив би сигнали сховищ у хуку старту сесії,
+        # а дев-база потрібна лише kit dump. Там, де та сама дев-база вже дала error
+        # 'agent-base-required' у гілці Resolve-KitAgentBase вище, ця знахідка законно
+        # дублюється — розводити їх ускладнило б код заради усунення дубля повідомлення.
         if ($Context.Overlay) {
             foreach ($human in $Context.Overlay.Infobases.Values) {
                 try { ConvertFrom-V8Connection -Connection $human.Connection | Out-Null }

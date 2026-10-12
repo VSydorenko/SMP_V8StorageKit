@@ -144,7 +144,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
     }
     It 'чиста форма 0.13 — знахідок немає (вкладений tests.execution_timeout_seconds законний)' {
         $d = New-Ws -Name 'clean' -Project ($script:Clean + @('tests:', '  execution_timeout_seconds: 600')) -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'")
-        @(Get-V8ProjectConfigProblems -Directory $d) | Should -BeNullOrEmpty
+        @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
     }
     It 'усі застарілі ключі — усі знахідки разом, кожна з рецептом' {
         $proj = @('builder: DESIGNER', 'execution_timeout: 600000', 'basePath: x', 'push:', '  partialLoadThreshold: 10',
@@ -169,6 +169,14 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         $d = New-Ws -Name 'noconn' -Project $script:Clean -Local @('infobases:', '  origin:', "    user: 'agent'")
         (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike '*infobases.origin*connection*'
     }
+    It 'infobases у local не мапа (<Case>) — знахідка, а не тиха відсутність бази' -ForEach @(
+        @{ Case = 'порожнє'; Lines = @('infobases:') }
+        @{ Case = 'скаляр';  Lines = @('infobases: origin') }
+        @{ Case = 'список';  Lines = @('infobases:', '  - origin') }
+    ) {
+        $d = New-Ws -Name ("notmap-" + [guid]::NewGuid().ToString('N')) -Project $script:Clean -Local $Lines
+        (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike '*infobases має бути мапою з ключем origin*'
+    }
     It 'providers: <Case>' -ForEach @(
         @{ Case = 'відсутній';         Lines = @() ;                                                     Want = "*providers*push: designer*" }
         @{ Case = 'pull інший';        Lines = @('providers:', '  push: designer', '  pull: agent', '  download: designer'); Want = "*providers.pull*agent*designer*" }
@@ -182,7 +190,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         $proj = @('format: DESIGNER', 'providers:', '  push: designer', '  pull: designer', '  download: designer', '  make: agent',
                   'source-set:', '  - name: base', '    type: CONFIGURATION', "    path: 'cf/src'")
         $d = New-Ws -Name 'prov-extra' -Project $proj
-        @(Get-V8ProjectConfigProblems -Directory $d) | Should -BeNullOrEmpty
+        @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
     }
 }
 
