@@ -99,6 +99,10 @@ function ConvertFrom-V8Connection {
 
         Голий шлях без File= не приймається.
 
+        Текст жодного винятку не містить вхідного рядка чи значень його елементів (у рядку може бути
+        пароль) — лише ім'я ключа й вид дефекту; де лежить рядок, каже викликач. Ключі Usr/Pwd
+        відхиляються окремо, з рецептом infobases.origin.
+
         Відома межа (документується, не лікується): шлях у File= не може містити ';' —
         ні в лапках, ні без них, бо рядок ділиться по ';' до зняття лапок.
     .PARAMETER Connection
@@ -117,8 +121,8 @@ function ConvertFrom-V8Connection {
     $value = $Connection.Trim()
 
     if ($value -notmatch '=') {
-        throw ("Рядок підключення '$Connection' — голий шлях без ключа. Голий шлях більше не приймається: " +
-               "вкажіть File=$value")
+        throw ('Рядок підключення — голий шлях без ключа. Голий шлях більше не приймається: ' +
+               'вкажіть File=<шлях>.')
     }
 
     $fields = @{}
@@ -126,30 +130,35 @@ function ConvertFrom-V8Connection {
         $piece = $part.Trim()
         if (-not $piece) { continue }
         if ($piece -notmatch '^(?<key>[^=]+)=(?<val>.*)$') {
-            throw "Рядок підключення '$Connection' містить елемент без '=': '$piece'."
+            throw "Рядок підключення містить елемент без '='."
         }
         $key = $Matches['key'].Trim()
         $val = $Matches['val'].Trim()
         if ($key.Contains('"')) {
-            throw "Рядок підключення '$Connection' містить лапки в імені ключа '$key'."
+            throw 'Рядок підключення містить лапки в імені ключа.'
+        }
+        if ($key -in @('usr', 'pwd')) {
+            throw ("Рядок підключення містить ключ '$key' (логін чи пароль). Логін і пароль бази агента задаються ключами " +
+                   'user і password в infobases.origin у v8project.local.yaml, а не в рядку підключення; ' +
+                   'у самому рядку лишаються лише Srvr=/Ref= або File=.')
         }
         if ($val.Length -ge 2 -and $val.StartsWith('"') -and $val.EndsWith('"')) {
             $val = $val.Substring(1, $val.Length - 2).Trim()
         }
         if ($val.Contains('"')) {
-            throw ("Рядок підключення '$Connection' містить непарні лапки у значенні ключа '$key': лапки " +
+            throw ("Рядок підключення містить непарні лапки у значенні ключа '$key': лапки " +
                    'допускаються лише парою навколо всього значення (Srvr="SRV";Ref="BASE";). Шлях у File= не може ' +
                    "містити ';' ні в лапках, ні без них.")
         }
         if ([string]::IsNullOrWhiteSpace($val)) {
-            throw "Рядок підключення '$Connection' містить порожнє значення для ключа '$key'."
+            throw "Рядок підключення містить порожнє значення для ключа '$key'."
         }
         $lkey = $key.ToLowerInvariant()
         if ($lkey -notin @('srvr', 'ref', 'file')) {
-            throw "Рядок підключення '$Connection' містить невідомий ключ '$key'. Дозволені ключі: Srvr, Ref, File."
+            throw "Рядок підключення містить невідомий ключ '$key'. Дозволені ключі: Srvr, Ref, File."
         }
         if ($fields.ContainsKey($lkey)) {
-            throw "Рядок підключення '$Connection' містить ключ '$key' двічі."
+            throw "Рядок підключення містить ключ '$key' двічі."
         }
         $fields[$lkey] = $val
     }
@@ -159,12 +168,12 @@ function ConvertFrom-V8Connection {
     $hasFile = $fields.ContainsKey('file')
 
     if ($hasSrvr -and $hasFile) {
-        throw "Рядок підключення '$Connection' містить одночасно Srvr= і File= — це два різні способи описати базу, разом вони суперечливі."
+        throw 'Рядок підключення містить одночасно Srvr= і File= — це два різні способи описати базу, разом вони суперечливі.'
     }
     if ($hasSrvr -or $hasRef) {
         if (-not ($hasSrvr -and $hasRef)) {
             $missing = if ($hasSrvr) { 'Ref=' } else { 'Srvr=' }
-            throw "Рядок підключення '$Connection' — серверна база потребує і Srvr=, і Ref= разом; бракує $missing."
+            throw "Рядок підключення — серверна база потребує і Srvr=, і Ref= разом; бракує $missing."
         }
         return [pscustomobject]@{ Kind = 'server'; Server = $fields['srvr']; Ref = $fields['ref']; File = $null }
     }
@@ -172,7 +181,31 @@ function ConvertFrom-V8Connection {
         return [pscustomobject]@{ Kind = 'file'; Server = $null; Ref = $null; File = $fields['file'] }
     }
 
-    throw "Рядок підключення '$Connection' не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>."
+    throw 'Рядок підключення не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>.'
+}
+
+function Assert-V8SecretQuoteFree {
+    <#
+    .SYNOPSIS
+        Єдина перевірка пароля на подвійну лапку — і для пароля бази агента, і для пароля сховища.
+    .DESCRIPTION
+        Платформа не приймає " у /P "…" і /ConfigurationRepositoryP "…", а маска Hide-V8Secrets
+        (для Write-Verbose) обірвалась би на ній і показала б решту пароля. Виняток називає лише
+        -Origin (звідки пароль) і причину; значення в текст не потрапляє.
+    .PARAMETER Value
+        Пароль.
+    .PARAMETER Origin
+        Де лежить пароль — для людини: «пароль бази агента», «накладка v8storagekit.local.yaml, storages.<ключ>.password».
+    #>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Value,
+        [Parameter(Mandatory)][string]$Origin
+    )
+    if ($Value -and $Value.Contains('"')) {
+        throw ($Origin + ' містить подвійну лапку — платформа не приймає її в /P "…" (і в /ConfigurationRepositoryP), ' +
+               'а маска виводу (Hide-V8Secrets) обірвалась би на ній і показала б решту пароля. Змініть цей пароль.')
+    }
 }
 
 function ConvertTo-V8IbSwitch {
@@ -240,7 +273,7 @@ function Assert-V8InfobaseNotBusy {
 function Hide-V8Secrets {
     <#
     .SYNOPSIS
-        Маскує паролі в рядку аргументів платформи — для Write-Verbose і текстів зупинок.
+        Маскує паролі в рядку аргументів платформи — лише для Write-Verbose. У текстах зупинок маска не застосовується: там аргументи не друкуються взагалі.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$ArgLine)
@@ -257,10 +290,7 @@ function Invoke-V8Designer {
         [string]$V8Path
     )
 
-    if ($Password -and $Password.Contains('"')) {
-        throw ('Пароль бази містить подвійну лапку — платформа не приймає його в /P "…", а маска виводу (Hide-V8Secrets) ' +
-               'обірвалась би на ній і показала б решту пароля. Змініть пароль користувача бази.')
-    }
+    Assert-V8SecretQuoteFree -Value $Password -Origin 'Пароль бази агента'
 
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
@@ -367,4 +397,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
+Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Assert-V8SecretQuoteFree, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy

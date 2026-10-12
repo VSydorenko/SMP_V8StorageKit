@@ -337,3 +337,85 @@ Describe 'Invoke-V8Designer — пароль (#26, Review Focus 2)' {
         Should -Invoke -ModuleName V8 Start-Process -Times 1 -ParameterFilter { $ArgumentList -like '*/P "S3cr3t-Пароль"*' }
     }
 }
+
+Describe 'ConvertFrom-V8Connection — текст винятку без вхідного рядка (§10.2 П23)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        function script:Get-ConnError { param([string]$C)
+            try { ConvertFrom-V8Connection -Connection $C | Out-Null } catch { return $_.Exception.Message }
+            return $null
+        }
+    }
+
+    # Маркер СЕКРЕТ-Ж7 стоїть у значенні й у тілі рядка кожної гілки. Гілка «не описує базу»
+    # недосяжна через вхід (будь-який елемент з '=' або дає дозволений ключ, або кидає раніше) —
+    # її текст перевіряє читання коду, а не цей перелік.
+    It 'гілка «<Name>»: виняток є, вхідного рядка й маркера в тексті немає' -TestCases @(
+        @{ Name = 'голий шлях';             C = 'D:\СЕКРЕТ-Ж7\base' }
+        @{ Name = 'елемент без =';          C = 'File=C:\x;СЕКРЕТ-Ж7' }
+        @{ Name = 'лапки в імені ключа';    C = '"СЕКРЕТ-Ж7"=VSDEV;Ref=X' }
+        @{ Name = 'непарні лапки';          C = 'Srvr="СЕКРЕТ-Ж7;Ref=BASE' }
+        @{ Name = 'порожнє значення';       C = 'Srvr=СЕКРЕТ-Ж7;Ref="";' }
+        @{ Name = 'невідомий ключ';         C = 'File=СЕКРЕТ-Ж7;Foo=СЕКРЕТ-Ж7' }
+        @{ Name = 'дубль ключа';            C = 'Srvr=СЕКРЕТ-Ж7;Srvr=B;Ref=C' }
+        @{ Name = 'Srvr разом з File';      C = 'Srvr=СЕКРЕТ-Ж7;Ref=B;File=C:\СЕКРЕТ-Ж7' }
+        @{ Name = 'серверна без Ref';       C = 'Srvr=СЕКРЕТ-Ж7' }
+        @{ Name = 'серверна без Srvr';      C = 'Ref=СЕКРЕТ-Ж7' }
+    ) {
+        $err = Get-ConnError $C
+        $err | Should -Not -BeNullOrEmpty
+        $err | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+        $err | Should -Not -BeLike "*$C*"
+    }
+
+    It 'порожній рядок — окреме повідомлення без значення' {
+        Get-ConnError '   ' | Should -BeLike '*порожній*'
+    }
+
+    It 'голий шлях: рецепт File= без шляху' {
+        $err = Get-ConnError 'D:\СЕКРЕТ-Ж7\base'
+        $err | Should -BeLike '*File=<шлях>*'
+    }
+
+    It 'Usr/Pwd у будь-якому регістрі — окреме повідомлення з рецептом infobases.origin, без значень' -TestCases @(
+        @{ C = 'File=build/ib;Usr=логін-Ж7;Pwd=СЕКРЕТ-Ж7' }
+        @{ C = 'File=build/ib;usr=логін-Ж7' }
+        @{ C = 'File=build/ib;pwd=СЕКРЕТ-Ж7' }
+        @{ C = 'Srvr=S;Ref=R;PWD=СЕКРЕТ-Ж7;' }
+        @{ C = 'Usr=логін-Ж7;File=build/ib' }
+    ) {
+        $err = Get-ConnError $C
+        $err | Should -BeLike '*infobases.origin*'
+        $err | Should -BeLike '*v8project.local.yaml*'
+        $err | Should -BeLike '*user*password*'
+        $err | Should -Not -BeLike '*Ж7*'
+        $err | Should -Not -BeLike '*невідомий ключ*'
+    }
+}
+
+Describe 'Assert-V8SecretQuoteFree — одна перевірка " для обох паролів (§10.2 П23)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+
+    It 'пароль із " — виняток із Origin, значення в тексті немає' {
+        $err = $null
+        try { Assert-V8SecretQuoteFree -Value 'ab"ХВІСТ-Ж7' -Origin 'накладка v8storagekit.local.yaml, storages.Alpha.password' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*накладка v8storagekit.local.yaml, storages.Alpha.password*'
+        $err | Should -BeLike '*подвійну лапку*'
+        $err | Should -Not -BeLike '*ХВІСТ*'
+        $err | Should -Not -BeLike '*ab"*'
+    }
+
+    It 'пароль без " і порожній пароль — тиша' {
+        { Assert-V8SecretQuoteFree -Value 'abc-Ж7' -Origin 'x' } | Should -Not -Throw
+        { Assert-V8SecretQuoteFree -Value '' -Origin 'x' } | Should -Not -Throw
+    }
+
+    It 'Invoke-V8Designer відмовляє через ту саму перевірку — з Origin «пароль бази агента»' {
+        $err = $null
+        try { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/X') -Password 'ab"c-Ж7' -V8Path 'C:\no-such\1cv8.exe' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*пароль бази агента*'
+        $err | Should -Not -BeLike '*c-Ж7*'
+    }
+}

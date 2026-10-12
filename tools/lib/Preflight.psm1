@@ -4,6 +4,8 @@ Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot/RepoRoot.psm1"
 Import-Module "$PSScriptRoot/Manifest.psm1"
 Import-Module "$PSScriptRoot/V8Project.psm1"
+# Без -Force, як і вкладений імпорт V8 у V8Project: потрібна Assert-V8SecretQuoteFree (П23) для пароля сховища.
+Import-Module "$PSScriptRoot/V8.psm1"
 
 $script:ManifestFileName = 'v8storagekit.yaml'
 $script:OverlayFileName  = 'v8storagekit.local.yaml'
@@ -196,7 +198,12 @@ function Invoke-KitPreflight {
                 $ov = $ctx.Overlay.Storages[$src.Key]
                 if ($ov.Path)     { $storagePath = $ov.Path }
                 if ($ov.User)     { $storageUser = $ov.User }
-                if ($ov.Password) { $storagePassword = $ov.Password }
+                if ($ov.Password) {
+                    # П23: " у паролі сховища — відмова ДО першого запуску платформи (та сама перевірка, що для пароля бази агента).
+                    try { Assert-V8SecretQuoteFree -Value $ov.Password -Origin "Пароль сховища (накладка $script:OverlayFileName, storages.$($src.Key).password)" }
+                    catch { & $fail 'overlay' $_.Exception.Message; continue }
+                    $storagePassword = $ov.Password
+                }
             }
             $sources.Add([pscustomobject]@{
                 Key             = $src.Key

@@ -524,7 +524,9 @@ function Invoke-KitCheck {
                     $localResolved = Resolve-KitAgentInfobasePath -Project $ws.Project -Connection $localConn
                     $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File={0}' -f $localResolved.Path } else { $localConn }
                     foreach ($human in $Context.Overlay.Infobases.Values) {
-                        if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection) {
+                        if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection `
+                            -LeftOrigin "база агента воркспейсу '$($ws.Path)' (infobases.origin у v8project.local.yaml)" `
+                            -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
                             & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
                                 'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
                                 'й дайте агентові окрему базу (v8storagekit:provision).')

@@ -33,7 +33,11 @@ function Invoke-KitDump {
     $overlayPath = if ($Context.OverlayPath) { $Context.OverlayPath } else { Join-Path $root 'v8storagekit.local.yaml' }
     $plan = @(foreach ($src in $sources) {
         $ib = Resolve-KitInfobase -Overlay $Context.Overlay -Name $src.DumpFrom -OverlayPath $overlayPath
-        [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = (ConvertTo-V8IbSwitch -Connection $ib.Connection) }
+        # Текст винятку розбору не містить рядка підключення (там може бути пароль) — де він лежить, кажемо тут.
+        $ibSwitch = $null
+        try { $ibSwitch = ConvertTo-V8IbSwitch -Connection $ib.Connection }
+        catch { throw "Дев-база '$($ib.Name)' у ${overlayPath}: $($_.Exception.Message)" }
+        [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = $ibSwitch }
     })
 
     $dumped = [System.Collections.Generic.List[object]]::new()

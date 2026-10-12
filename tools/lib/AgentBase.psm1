@@ -46,7 +46,7 @@ function Get-KitInfobaseCanonicalForm {
 
     $raw = $parsed.File
     if (-not [System.IO.Path]::IsPathRooted($raw)) {
-        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = "відносний File=$raw — kit звіряє лише абсолютні File=" }
+        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'відносний File= — kit звіряє лише абсолютні File=.' }
     }
     $full = [System.IO.Path]::GetFullPath($raw).TrimEnd('\', '/')
     [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = '' }
@@ -72,7 +72,7 @@ function Test-KitSameInfobase {
         інший нерозбірний ввід.
 
         Fail-closed навмисно: коли ХОЧ ОДНЕ підключення не розбирається однозначно, функція
-        КИДАЄ виняток (називаючи обидва підключення дослівно), а НЕ повертає $false.
+        КИДАЄ виняток, а НЕ повертає $false. Текст винятку називає нерозбірну сторону ЗА ПОХОДЖЕННЯМ (-LeftOrigin/-RightOrigin: воркспейс і infobases.origin, або дев-база в накладці), а не дослівним рядком — у рядку підключення може бути пароль, а сирий рядок, який ще не розібрано успішно, не друкується.
         "Не розібрали" -> "не збігається" (типова "безпечна" відповідь на помилку) тут була б
         насправді мовчазним ДОЗВОЛОМ: викликач (Resolve-KitAgentBase) далі веде до
         kit provision -Apply -Force, а це Remove-KitDirectory над текою підключення.
@@ -101,20 +101,27 @@ function Test-KitSameInfobase {
         Перше підключення (сирий рядок File=... або Srvr=...;Ref=...;).
     .PARAMETER Right
         Друге підключення, тієї самої форми.
+    .PARAMETER LeftOrigin
+        Де лежить перше підключення — для тексту винятку (воркспейс і ключ конфігу). Без значення рядка.
+    .PARAMETER RightOrigin
+        Те саме для другого підключення.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Left,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Right
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Right,
+        [string]$LeftOrigin = 'ліве підключення',
+        [string]$RightOrigin = 'праве підключення'
     )
 
     $l = Get-KitInfobaseCanonicalForm -Connection $Left
     $r = Get-KitInfobaseCanonicalForm -Connection $Right
 
     if (-not $l.Parsed -or -not $r.Parsed) {
+        $badOrigin = if (-not $l.Parsed) { $LeftOrigin } else { $RightOrigin }
         $reason = if (-not $l.Parsed) { $l.Reason } else { $r.Reason }
-        throw ("Kit не може однозначно розібрати й звірити два підключення до бази: '$Left' і '$Right'. " +
-               "$reason. Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. " +
+        throw ("Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — $badOrigin. " +
+               "$reason Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. " +
                'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки (принцип 3).')
     }
     if ($l.Kind -ne $r.Kind) { return $false }
@@ -153,7 +160,9 @@ function Resolve-KitAgentBase {
     if ($Context.Overlay) {
         $agentConn = if ($resolved.Kind -eq 'file') { 'File={0}' -f $resolved.Path } else { $ib.Connection }
         foreach ($human in $Context.Overlay.Infobases.Values) {
-            if (Test-KitSameInfobase -Left $agentConn -Right $human.Connection) {
+            if (Test-KitSameInfobase -Left $agentConn -Right $human.Connection `
+                    -LeftOrigin "база агента воркспейсу '$($Workspace.Path)' (infobases.origin у v8project.local.yaml)" `
+                    -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
                 throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit. " +
                        'Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.')
             }
