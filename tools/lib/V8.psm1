@@ -138,9 +138,11 @@ function ConvertFrom-V8Connection {
             throw 'Рядок підключення містить лапки в імені ключа.'
         }
         if ($key -in @('usr', 'pwd')) {
-            throw ("Рядок підключення містить ключ '$key' (логін чи пароль). Логін і пароль бази агента задаються ключами " +
-                   'user і password в infobases.origin у v8project.local.yaml, а не в рядку підключення; ' +
-                   'у самому рядку лишаються лише Srvr=/Ref= або File=.')
+            # Рецепт залежить від того, чий це рядок (база агента чи дев-база накладки) — його дописує
+            # викликач через Get-V8CredentialsRecipe; прапорець у Data передає, що причина саме ця.
+            $ex = [System.Exception]::new("Рядок підключення містить ключ '$key' (логін чи пароль): логін і пароль не задаються в рядку підключення, у ньому лишаються лише Srvr=/Ref= або File=.")
+            $ex.Data['KitCredentialsInConnection'] = $true
+            throw $ex
         }
         if ($val.Length -ge 2 -and $val.StartsWith('"') -and $val.EndsWith('"')) {
             $val = $val.Substring(1, $val.Length - 2).Trim()
@@ -184,6 +186,26 @@ function ConvertFrom-V8Connection {
     throw 'Рядок підключення не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>.'
 }
 
+function Get-V8CredentialsRecipe {
+    <#
+    .SYNOPSIS
+        Рецепт для винятку розбору підключення з Usr/Pwd — залежно від походження рядка; порожній, якщо причина інша.
+    .DESCRIPTION
+        ConvertFrom-V8Connection каже лише, що логін/пароль у рядку підключення не задаються (і ставить
+        прапорець у Exception.Data). Куди їх діти — знає викликач: у базі агента це user/password в
+        infobases.origin у v8project.local.yaml, у дев-базі накладки — user в infobases.<ім'я> (пароля дев-бази kit не підтримує).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Exception]$Exception,
+        [Parameter(Mandatory)][ValidateSet('agent', 'overlay')][string]$Kind
+    )
+    if (-not $Exception.Data.Contains('KitCredentialsInConnection')) { return '' }
+    if ($Kind -eq 'agent') {
+        return 'Логін і пароль бази агента задаються ключами user і password в infobases.origin у v8project.local.yaml.'
+    }
+    'Логін дев-бази задається ключем user у її записі в infobases: накладки v8storagekit.local.yaml; пароль дев-бази kit не підтримує.'
+}
 function Assert-V8SecretQuoteFree {
     <#
     .SYNOPSIS
@@ -397,4 +419,4 @@ function New-ExtensionInfobase {
     $ibSwitch
 }
 
-Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Assert-V8SecretQuoteFree, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy
+Export-ModuleMember -Function Get-V8Path, Get-KitInstalledPlatforms, Get-KitPlatformVersionFromPath, ConvertFrom-V8Connection, ConvertTo-V8IbSwitch, Get-V8CredentialsRecipe, Assert-V8SecretQuoteFree, Hide-V8Secrets, Invoke-V8Designer, New-V8FileInfobase, New-ExtensionInfobase, Test-V8InfobaseBusy, Assert-V8InfobaseNotBusy

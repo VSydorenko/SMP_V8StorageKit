@@ -36,7 +36,10 @@ function Invoke-KitDump {
         # Текст винятку розбору не містить рядка підключення (там може бути пароль) — де він лежить, кажемо тут.
         $ibSwitch = $null
         try { $ibSwitch = ConvertTo-V8IbSwitch -Connection $ib.Connection }
-        catch { throw "Дев-база '$($ib.Name)' у ${overlayPath}: $($_.Exception.Message)" }
+        catch {
+            $recipe = Get-V8CredentialsRecipe -Exception $_.Exception -Kind overlay
+            throw ("Дев-база '$($ib.Name)' у ${overlayPath}: $($_.Exception.Message)" + $(if ($recipe) { " $recipe" }))
+        }
         [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = $ibSwitch }
     })
 

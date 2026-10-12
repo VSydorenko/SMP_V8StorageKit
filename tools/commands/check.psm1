@@ -200,7 +200,8 @@ function Invoke-KitCheck {
             foreach ($human in $Context.Overlay.Infobases.Values) {
                 try { ConvertFrom-V8Connection -Connection $human.Connection | Out-Null }
                 catch {
-                    & $add warn overlay-connection "Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)"
+                    $recipe = Get-V8CredentialsRecipe -Exception $_.Exception -Kind overlay
+                    & $add warn overlay-connection ("Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)" + $(if ($recipe) { " $recipe" }))
                 }
             }
         }

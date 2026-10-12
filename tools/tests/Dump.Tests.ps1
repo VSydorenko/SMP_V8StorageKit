@@ -29,6 +29,20 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
         Join-Path $repo 'Alpha_SMB/cf/src/marker.txt' | Should -Exist
     }
 
+    It 'Pwd у підключенні дев-бази — розбір падає до платформи: маркера немає, походження і рецепт є, ціль не чіпалась (П23)' {
+        $overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;Usr=u;Pwd=СЕКРЕТ-Ж7'"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dev-pwd') -OverlayText $overlay -WithHooks
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/marker.txt') -Value 'є'
+        $r = Invoke-Dump -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+        $r.Output | Should -BeLike "*Дев-база 'dev' у *v8storagekit.local.yaml*"
+        $r.Output | Should -BeLike '*пароль дев-бази kit не підтримує*'
+        # план розбирається до будь-якого запуску платформи: «Джерело:» (друк першого кроку циклу) немає
+        $r.Output | Should -Not -BeLike '*Джерело:*'
+        Join-Path $repo 'Alpha_SMB/cf/src/marker.txt' | Should -Exist
+    }
+
     It 'без джерел truth: dump/vendor — код 0 і пояснення' {
         $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
         $r = Invoke-Dump -Repo (New-KitFakeRepo -Root (Join-Path $TestDrive 'none') -Workspaces $ws -WithHooks)

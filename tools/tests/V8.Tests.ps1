@@ -377,7 +377,7 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
         $err | Should -BeLike '*File=<шлях>*'
     }
 
-    It 'Usr/Pwd у будь-якому регістрі — окреме повідомлення з рецептом infobases.origin, без значень' -TestCases @(
+    It 'Usr/Pwd у будь-якому регістрі — окреме повідомлення без значень; рецепт дописує викликач за походженням' -TestCases @(
         @{ C = 'File=build/ib;Usr=логін-Ж7;Pwd=СЕКРЕТ-Ж7' }
         @{ C = 'File=build/ib;usr=логін-Ж7' }
         @{ C = 'File=build/ib;pwd=СЕКРЕТ-Ж7' }
@@ -385,11 +385,30 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
         @{ C = 'Usr=логін-Ж7;File=build/ib' }
     ) {
         $err = Get-ConnError $C
-        $err | Should -BeLike '*infobases.origin*'
-        $err | Should -BeLike '*v8project.local.yaml*'
-        $err | Should -BeLike '*user*password*'
+        $err | Should -BeLike '*не задаються в рядку підключення*'
+        $err | Should -Not -BeLike '*infobases*'   # рецепт залежить від походження — його тут немає
         $err | Should -Not -BeLike '*Ж7*'
         $err | Should -Not -BeLike '*невідомий ключ*'
+    }
+}
+
+Describe 'Get-V8CredentialsRecipe — рецепт за походженням рядка' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        function script:Get-CredEx { try { ConvertFrom-V8Connection -Connection 'File=x;Pwd=СЕКРЕТ-Ж7' } catch { $_.Exception } }
+    }
+    It 'база агента: user і password в infobases.origin' {
+        $r = Get-V8CredentialsRecipe -Exception (Get-CredEx) -Kind agent
+        $r | Should -BeLike '*user і password в infobases.origin у v8project.local.yaml*'
+    }
+    It 'дев-база накладки: user в infobases: накладки, пароль не підтримується — і жодного infobases.origin' {
+        $r = Get-V8CredentialsRecipe -Exception (Get-CredEx) -Kind overlay
+        $r | Should -BeLike '*v8storagekit.local.yaml*пароль дев-бази kit не підтримує*'
+        $r | Should -Not -BeLike '*infobases.origin*'
+    }
+    It 'виняток з іншої причини — порожній рецепт' {
+        $ex = try { ConvertFrom-V8Connection -Connection 'Srvr=A' } catch { $_.Exception }
+        Get-V8CredentialsRecipe -Exception $ex -Kind agent | Should -BeNullOrEmpty
     }
 }
 

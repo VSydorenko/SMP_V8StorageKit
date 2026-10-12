@@ -52,14 +52,6 @@ Describe 'секрети не у виводі (П23)' {
             $r.Output | Should -Not -BeLike '*ХВІСТ-Ж7*'
             $r.Output | Should -BeLike '*v8storagekit.local.yaml, storages.Alpha_SMB.password*'
         }
-        It 'sync -Apply: платформа не запускалась — робочої теки синхронізації немає' {
-            # Той самий спосіб, що в Sync.Guards.Tests.ps1: зупинка до платформи не лишає build/sync/<ключ>.
-            $r = Invoke-Kit -Command 'sync' -Repo $script:RepoB -More @('-Apply')
-            $r.ExitCode | Should -Not -Be 0
-            $r.Output | Should -Not -BeLike '*ХВІСТ-Ж7*'
-            Join-Path $script:RepoB 'build/sync/Alpha_SMB' | Should -Not -Exist
-            (git -C $script:RepoB branch --list 'storage/*') | Should -BeNullOrEmpty
-        }
     }
 
     Context '(в) Usr/Pwd у підключенні дев-бази людини з накладки' {
@@ -77,7 +69,47 @@ Describe 'секрети не у виводі (П23)' {
             # вивід не порожній, називає походження (ім'я дев-бази й файл накладки) і несе рецепт —
             # тест не зеленіє від того, що команда змовчала
             $r.Output | Should -BeLike "*дев-база 'dev' у *v8storagekit.local.yaml*"
-            $r.Output | Should -BeLike '*задаються ключами user і password в infobases.origin*'
+            $r.Output | Should -BeLike '*пароль дев-бази kit не підтримує*'
+            # рецепт бази агента (infobases.origin) для дев-бази хибний — його тут бути не може
+            $r.Output | Should -Not -BeLike '*задаються ключами user і password*'
         }
+    }
+}
+
+Describe 'пароль сховища з " — платформа не запускається (П23, у цьому процесі)' {
+    # Підпроцес не дає побачити, чи кликали платформу: тут Invoke-KitPreflight/Invoke-KitSync викликаються
+    # напряму, а Invoke-V8Designer підмінено (той самий прийом, що в Sync.Authors.Tests.ps1) і лічиться.
+    # Каталог сховища існує, версії підмінено — без відмови префлайту sync дійшов би до платформи.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+    }
+
+    It 'sync -Apply: відмова префлайту з Origin, Invoke-V8Designer не викликано, маркера немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'plat') -WithHooks -WithGitignore -WithAgentBase
+        $storageDir = Join-Path $TestDrive 'plat-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        $overlay = @('storages:', "  Alpha_SMB: { path: '$storageDir', password: 'ab""ХВІСТ-Ж7' }") -join "`n"
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value $overlay
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { throw 'платформа не мала викликатись' }
+        Mock -ModuleName StoragePlatform New-ExtensionInfobase { throw 'платформа не мала викликатись' }
+        Mock -ModuleName StoragePlatform New-V8FileInfobase { throw 'платформа не мала викликатись' }
+        Mock -ModuleName sync Get-StorageVersions { , @([pscustomobject]@{
+            Version = 1; User = 'gitbot'; Date = '01.01.2026'; Time = '09:00:00'; ConfigVersion = ''; Comment = 'v'
+            Added = @(); Modified = @(); Deleted = @(); Timestamp = [datetime]'2026-01-01T09:00:00' }) }
+        $err = $null
+        $text = & {
+            try { $ctx = Invoke-KitPreflight -RepoRoot $repo; Invoke-KitSync -Context $ctx -Apply $true }
+            catch { $script:Err = $_.Exception.Message }
+        } 6>&1 | Out-String
+        $err = $script:Err
+        $err | Should -BeLike '*storages.Alpha_SMB.password*'
+        "$err$text" | Should -Not -BeLike '*ХВІСТ-Ж7*'
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+        Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
+        Should -Invoke -ModuleName StoragePlatform New-V8FileInfobase -Times 0
     }
 }

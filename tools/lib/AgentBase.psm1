@@ -36,20 +36,20 @@ function Get-KitInfobaseCanonicalForm {
     try {
         $parsed = ConvertFrom-V8Connection -Connection $Connection
     } catch {
-        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = $_.Exception.Message }
+        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = $_.Exception.Message; Exception = $_.Exception }
     }
 
     if ($parsed.Kind -eq 'server') {
         $identity = 'server:' + $parsed.Server.ToLowerInvariant() + '/' + $parsed.Ref.ToLowerInvariant()
-        return [pscustomobject]@{ Parsed = $true; Kind = 'server'; Identity = $identity; Reason = '' }
+        return [pscustomobject]@{ Parsed = $true; Kind = 'server'; Identity = $identity; Reason = ''; Exception = $null }
     }
 
     $raw = $parsed.File
     if (-not [System.IO.Path]::IsPathRooted($raw)) {
-        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'відносний File= — kit звіряє лише абсолютні File=.' }
+        return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'відносний File= — kit звіряє лише абсолютні File=.'; Exception = $null }
     }
     $full = [System.IO.Path]::GetFullPath($raw).TrimEnd('\', '/')
-    [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = '' }
+    [pscustomobject]@{ Parsed = $true; Kind = 'file'; Identity = ('file:' + $full.ToLowerInvariant()); Reason = ''; Exception = $null }
 }
 
 function Test-KitSameInfobase {
@@ -105,13 +105,19 @@ function Test-KitSameInfobase {
         Де лежить перше підключення — для тексту винятку (воркспейс і ключ конфігу). Без значення рядка.
     .PARAMETER RightOrigin
         Те саме для другого підключення.
+    .PARAMETER LeftCredentialsKind
+        Чий це рядок, для рецепта на Usr/Pwd (Get-V8CredentialsRecipe): 'agent' — база агента, 'overlay' — дев-база накладки.
+    .PARAMETER RightCredentialsKind
+        Те саме для другого підключення.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Left,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Right,
         [string]$LeftOrigin = 'ліве підключення',
-        [string]$RightOrigin = 'праве підключення'
+        [string]$RightOrigin = 'праве підключення',
+        [ValidateSet('agent', 'overlay')][string]$LeftCredentialsKind = 'agent',
+        [ValidateSet('agent', 'overlay')][string]$RightCredentialsKind = 'overlay'
     )
 
     $l = Get-KitInfobaseCanonicalForm -Connection $Left
@@ -119,7 +125,13 @@ function Test-KitSameInfobase {
 
     if (-not $l.Parsed -or -not $r.Parsed) {
         $badOrigin = if (-not $l.Parsed) { $LeftOrigin } else { $RightOrigin }
-        $reason = if (-not $l.Parsed) { $l.Reason } else { $r.Reason }
+        $bad = if (-not $l.Parsed) { $l } else { $r }
+        $reason = $bad.Reason
+        if ($bad.Exception) {
+            $kind = if (-not $l.Parsed) { $LeftCredentialsKind } else { $RightCredentialsKind }
+            $recipe = Get-V8CredentialsRecipe -Exception $bad.Exception -Kind $kind
+            if ($recipe) { $reason += ' ' + $recipe }
+        }
         throw ("Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — $badOrigin. " +
                "$reason Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. " +
                'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки (принцип 3).')

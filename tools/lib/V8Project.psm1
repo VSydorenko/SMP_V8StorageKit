@@ -240,7 +240,10 @@ function Resolve-KitAgentInfobasePath {
 
     # Текст винятку розбору не містить рядка (там може бути пароль) — де він лежить, кажемо тут.
     try { $parsed = ConvertFrom-V8Connection -Connection $Connection }
-    catch { throw "infobases.origin.connection воркспейсу '$(Split-Path -Leaf $Project.Directory)' (v8project.local.yaml або v8project.yaml): $($_.Exception.Message)" }
+    catch {
+        $recipe = Get-V8CredentialsRecipe -Exception $_.Exception -Kind agent
+        throw ("infobases.origin.connection воркспейсу '$(Split-Path -Leaf $Project.Directory)' (v8project.local.yaml або v8project.yaml): $($_.Exception.Message)" + $(if ($recipe) { " $recipe" }))
+    }
     if ($parsed.Kind -eq 'server') {
         return [pscustomobject]@{ Kind = 'server'; Path = $null; IbSwitch = ('/S "{0}\{1}"' -f $parsed.Server, $parsed.Ref) }
     }
