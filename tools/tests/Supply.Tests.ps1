@@ -116,16 +116,17 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 
-    It 'рецепт (ii)/(iii) називає головну гілку, verify, canon і operation=build' {
+    It 'рецепт (ii)/(iii) називає головну гілку, verify, pull Уніки і canon -MarkerOnly' {
         $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'stale'
         $r | Should -BeLike '*main*'
-        $r | Should -BeLike '*kit verify -Source base*'
-        $r | Should -BeLike '*kit canon -Source base -Apply*'
-        $r | Should -BeLike '*operation=build*'
+        $r | Should -BeLike '*kit verify -Source base*pull*kit canon -Source base -MarkerOnly -Apply*'
+        # Канону-дампу для поставки більше немає: .cf кладе pull Уніки.
+        $r | Should -Not -BeLike '*(вивантажує .cf і пише позначку)*'
+        $r | Should -Not -BeLike '*operation=build*'
     }
 
-    It 'рецепт застерігає, що в (i) canon іде на гілці онбордингу без verify' {
+    It 'рецепт (i): той самий крок друкує kit sync' {
         $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'missing'
-        $r | Should -BeLike '*У рецепті (i)*canon -Source base виконується на гілці онбордингу до PR*verify там не потрібен*'
+        $r | Should -BeLike '*У рецепті (i)*kit sync -Source base*'
     }
 }

@@ -65,7 +65,7 @@ Describe 'kit check — поставка вендора основної кон�
         $r.ExitCode | Should -Be 0 -Because $r.Output
         # [!] — рівень warn у виводі check (Invoke-KitCheck: error → [-], warn → [!]).
         $r.Output | Should -Match '\[!\][^\r\n]*поставка вендора відсутня'
-        $r.Output | Should -BeLike '*поставка вендора відсутня*kit verify -Source base*kit canon -Source base -Apply*'
+        $r.Output | Should -BeLike '*поставка вендора відсутня*kit verify -Source base*-MarkerOnly*'
     }
 
     It 'підмінений .bin (новий реліз) — warn «застаріла»' {

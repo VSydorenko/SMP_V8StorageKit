@@ -374,12 +374,12 @@ Describe 'kit canon — мок платформного шару: лічильн
         Mock -ModuleName canon Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
 
         $ctx = Invoke-KitPreflight -RepoRoot $repo
-        # Псуємо git-індекс ДО виклику canon — перший же git status (страховка C4, ще до
+        # Псуємо git-індекс ДО виклику canon — перший же git-виклик (від Task 8 — перевірка невидимої роботи П24, раніше git status страховки C4; обидва ДО
         # Remove-Item) падає, і Remove-Item не виконується взагалі: платформу не кличуть
         # ні разу, закомічений файл лишається на місці.
         Set-Content -LiteralPath (Join-Path $repo '.git/index') -Value 'зіпсовано навмисно для тесту' -Encoding UTF8
 
-        { Invoke-KitCanon -Context $ctx -Source 'Alpha_SMB' -Apply $true } | Should -Throw '*git status*'
+        { Invoke-KitCanon -Context $ctx -Source 'Alpha_SMB' -Apply $true } | Should -Throw '*завершився з кодом 128*index file corrupt*'
         Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
         Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
     }
@@ -430,5 +430,131 @@ Describe 'kit canon — пароль бази агента доходить до
         $out | Should -Not -BeLike '*S3cr3t*'
         $out | Should -BeLike '*/P "[*][*][*]"*'
         Should -Invoke -ModuleName V8 Start-Process -ParameterFilter { $ArgumentList -like '*/N "agent"*/P "S3cr3t-Пароль"*' }
+    }
+}
+
+Describe 'kit canon -MarkerOnly (§10 П5)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        function script:Run { param([string]$Repo, [string[]]$More)
+            $out = & pwsh -NoProfile -File $script:Kit canon -RepoRoot $Repo @More 2>&1 | Out-String
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
+        $script:StorageWs = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+    }
+    It 'позначки немає, .cf на місці, дерево чисте — пише позначку без бази агента й без платформи' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-ok') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        Remove-Item -LiteralPath $marker -Force
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $want = (Get-FileHash -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations.bin') -Algorithm SHA1).Hash.ToLowerInvariant()
+        [System.IO.File]::ReadAllText($marker) | Should -Be $want
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib') | Should -BeFalse
+    }
+    It 'без -Source — код 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-nosrc') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        (Run -Repo $repo -More @('-MarkerOnly', '-Apply')).Output | Should -BeLike '*-MarkerOnly потребує -Source*'
+    }
+    It 'набір EXTENSION — код 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-ext') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $r = Run -Repo $repo -More @('-Source', 'Alpha_SMB', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*позначка поставки буває лише в наборі CONFIGURATION*'
+    }
+    It 'немає .cf — код 1, рецепт pull' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-nocf') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations') -Filter '*.cf' | Remove-Item -Force
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*немає .cf*pull*'
+    }
+    It 'брудне дерево — код 1, позначку не записано (запасна гілка §4.1)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-dirty') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        Remove-Item -LiteralPath $marker -Force
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Configuration.xml') -Value '<!-- pull дав інші байти -->'
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*брудне*доповідь*'
+        Test-Path -LiteralPath $marker | Should -BeFalse
+    }
+    It 'стара позначка на місці (stale) — код 1, позначку не переписано (§10.1 П22: .cf цим pull не перевивантажувався)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-stale') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
+        [System.IO.File]::WriteAllText($marker, 'deadbeef')
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*стара позначка*не перевивантажувався*'
+        [System.IO.File]::ReadAllText($marker) | Should -Be 'deadbeef'
+    }
+    It 'позначка вже актуальна (current) — код 0, нічого не пишеться' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-current') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        $r = Run -Repo $repo -More @('-Source', 'base', '-MarkerOnly', '-Apply')
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*вже відповідає .bin*'
+    }
+}
+
+Describe 'kit canon -Apply — зупинка на невидимій роботі під набором (§10.2 П24)' {
+    # Копія canon-backup покриває лише те, що бачить git status. Ігноровані файли, файли з
+    # прапорцем і gitlink Remove-KitDirectory знищив би безслідно — тому зупинка стоїть ДО нього.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/canon.psm1").Path -Force
+        $script:InvWs = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        function script:New-InvRepo { param([string]$Name)
+            New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces $script:InvWs -WithSupply -WithGitignore -WithHooks -WithAgentBase }
+    }
+    BeforeEach {
+        # Платформа мокована; лічильник викликів доводить, що наступний крок не відбувся.
+        Mock -ModuleName canon Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+    }
+    It 'файл під .git/info/exclude — зупинка з переліком і рецептом, тека ціла, платформа не запускалась' {
+        $repo = New-InvRepo 'inv-ignored'
+        Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value 'Alpha_SMB/cfe/src/mine.txt' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt') -Value 'робота' -Encoding UTF8
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw '*невидима робота під набором*ignored*mine.txt*'
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt' | Should -Exist
+        Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
+    }
+    It '<Flag> на зміненому файлі — зупинка, тека ціла, платформа не запускалась' -ForEach @(
+        @{ Flag = 'assume-unchanged' }
+        @{ Flag = 'skip-worktree' }
+    ) {
+        $repo = New-InvRepo "inv-$Flag"
+        $f = Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'
+        Set-Content -LiteralPath $f -Value 'правка агента' -Encoding UTF8
+        git -C $repo update-index "--$Flag" Alpha_SMB/cfe/src/Configuration.xml
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw '*невидима робота під набором*flagged*Configuration.xml*'
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        (Get-Content -LiteralPath $f -Raw) | Should -BeLike '*правка агента*'
+    }
+    It 'gitlink під набором — зупинка, платформа не запускалась' {
+        $repo = New-InvRepo 'inv-gitlink'
+        $sha = (git -C $repo rev-parse HEAD).Trim()
+        git -C $repo update-index --add --cacheinfo "160000,$sha,Alpha_SMB/cfe/src/sub"
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw '*невидима робота під набором*gitlink*sub*'
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
+    }
+    It 'контроль: ConfigDumpInfo.xml і .cf в Ext/ParentConfigurations — похідне, зупинки немає, платформа запущена' {
+        $repo = New-InvRepo 'inv-derived'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8
+        @(git -C $repo ls-files --others --ignored --exclude-standard -- Alpha_SMB/cf/src).Count | Should -BeGreaterOrEqual 3 -Because 'контроль має спиратись на справді ігноровані файли (.cf, позначка, ConfigDumpInfo.xml)'
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'base' -Apply $true } | Should -Not -Throw
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 1
     }
 }
