@@ -121,6 +121,19 @@ Describe 'templates/settings.json і using-v8storagekit — хук прив''я�
         $hook.hooks[0].command | Should -BeLike '*pwsh -NoProfile -File .claude/hooks/session-start.ps1*'
         $hook.hooks[0].async | Should -BeFalse
     }
+    It 'дозволи Уніки 0.13: рівно читальні інструменти в allow; run/apply/task_cancel — явно в ask (спека §4.4 п. 3)' {
+        # task_get/task_result/task_cancel існують лише в профілі Compatibility (клієнт без нативних
+        # MCP Tasks); у профілі Native їх немає, і зайвий дозвіл нешкідливий.
+        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+        $unica = @($s.permissions.allow | Where-Object { $_ -like 'mcp__plugin_unica_unica__*' } | Sort-Object)
+        $want = @('view', 'search', 'resolve', 'docs', 'check', 'diff', 'task_get', 'task_result') |
+            ForEach-Object { "mcp__plugin_unica_unica__unica_$_" } | Sort-Object
+        ($unica -join "`n") | Should -Be ($want -join "`n")
+        foreach ($name in 'unica_run', 'unica_apply', 'unica_task_cancel') {
+            @($s.permissions.allow) | Should -Not -Contain "mcp__plugin_unica_unica__$name"
+            @($s.permissions.ask)   | Should -Contain "mcp__plugin_unica_unica__$name" -Because 'відсутність в allow не гарантує запиту в режимах acceptEdits/bypass'
+        }
+    }
     It 'плагін не оголошує власних хуків' {
         Join-Path $script:Root 'hooks/hooks.json' | Should -Not -Exist
     }
