@@ -425,7 +425,7 @@ function New-KitStorageWorktree {
 
     if (Test-Path -LiteralPath $Path) {
         git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+        Remove-KitDirectory -Path $Path
     }
     git -C $RepoRoot worktree prune 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
@@ -467,7 +467,7 @@ function Remove-KitStorageWorktree {
     git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$Path' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
     if (Test-Path -LiteralPath $Path) {
-        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        try { Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
         if (Test-Path -LiteralPath $Path) {
             Write-Warning "Не вдалося прибрати worktree '$Path' — приберіть вручну (git worktree remove --force) перед наступним sync."
         }
@@ -485,7 +485,7 @@ function Clear-KitWorktreeSource {
     param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath)
     $target = Join-Path $WorktreePath $RepoPath
     Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -Description 'тека джерела у worktree'
-    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    Remove-KitDirectory -Path $target
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     (Resolve-Path -LiteralPath $target).Path
 }

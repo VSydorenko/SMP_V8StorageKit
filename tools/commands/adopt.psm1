@@ -59,7 +59,7 @@ function Invoke-KitAdopt {
 
         $workDir = Join-Path $root 'build/adopt' $src.Key
         Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/adopt') -Description "робоча тека adopt $($src.Key)"
-        if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
+        Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
         $mirrorDir = Join-Path $workDir 'mirror'
@@ -222,7 +222,7 @@ function Invoke-KitAdopt {
         try {
             # -MustBeUnder $ws.FullPath, не $root (рев'ю фікс-раунду 1, Minor): те саме звуження,
             # що canon.psm1:83 — коментар вище каже «те саме, що робить canon», і межа guard'а
-            # перед Remove-Item -Recurse -Force на дереві людини мусить це підтверджувати буквально.
+            # перед Remove-KitDirectory на дереві людини мусить це підтверджувати буквально.
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($src.Key)"
             # Поставка вендора (спека 2026-09-30 §5.2): у дзеркалі .cf немає — повне стирання
             # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).

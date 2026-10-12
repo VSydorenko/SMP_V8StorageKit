@@ -95,7 +95,7 @@ function Invoke-KitVerify {
 
         $workDir = Join-Path $root 'build/verify' $src.Key
         Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -Description "робоча тека verify $($src.Key)"
-        if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
+        Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
         $ib = $agent.IbSwitch

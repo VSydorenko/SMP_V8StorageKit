@@ -197,7 +197,7 @@ function Invoke-KitStorageCheckout {
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
-    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+    Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
     $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
@@ -290,7 +290,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
     }
 
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
-    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+    Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
     $dump = Invoke-V8Designer -IbSwitch $altSwitch -Arguments @(('/DumpConfigToFiles "{0}"' -f $Target)) -V8Path $AltV8Path
@@ -311,7 +311,8 @@ function Invoke-KitStorageCheckoutViaPlatform {
     # успішно вивантаженої версії — лише попередження.
     foreach ($leftover in @($cf, $altIbPath)) {
         try {
-            if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Recurse -Force -ErrorAction Stop }
+            if (Test-Path -LiteralPath $leftover -PathType Leaf) { Remove-Item -LiteralPath $leftover -Force -ErrorAction Stop }
+            Remove-KitDirectory -Path $leftover
         } catch {
             Write-Warning "Не вдалося прибрати $leftover після вивантаження версії $Version (прибере наступний прогін): $($_.Exception.Message)"
         }

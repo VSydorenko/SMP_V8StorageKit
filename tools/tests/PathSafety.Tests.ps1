@@ -56,3 +56,70 @@ Describe 'Assert-SafeWorkPath' {
             Should -Throw '*sourcePath у storage.json продукту XYZ*'
     }
 }
+
+Describe 'Remove-KitDirectory (#34)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force }
+
+    It 'видаляє дерево з read-only файлом у підтеці' {
+        $d = Join-Path $TestDrive 'ro'
+        New-Item -ItemType Directory -Path (Join-Path $d 'sub') -Force | Out-Null
+        $f = Join-Path $d 'sub/x.txt'
+        Set-Content -LiteralPath $f -Value 'x'
+        Set-ItemProperty -LiteralPath $f -Name IsReadOnly -Value $true
+        Remove-KitDirectory -Path $d
+        Test-Path -LiteralPath $d | Should -BeFalse
+    }
+    It 'відсутня тека — тиша, не виняток' {
+        { Remove-KitDirectory -Path (Join-Path $TestDrive 'nope') } | Should -Not -Throw
+    }
+    It 'шлях до файлу — виняток, файл цілий' {
+        $f = Join-Path $TestDrive 'f.txt'; Set-Content -LiteralPath $f -Value 'x'
+        { Remove-KitDirectory -Path $f } | Should -Throw '*не тека*'
+        Test-Path -LiteralPath $f | Should -BeTrue
+    }
+    It 'тека з атрибутом ReadOnly (а не лише файл) — видаляється, як це робив Remove-Item -Force' {
+        $d = Join-Path $TestDrive 'rodir'
+        $sub = Join-Path $d 'sub'
+        New-Item -ItemType Directory -Path $sub -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $sub 'x.txt') -Value 'x'
+        (Get-Item -LiteralPath $sub).Attributes = 'ReadOnly, Directory'
+        Remove-KitDirectory -Path $d
+        Test-Path -LiteralPath $d | Should -BeFalse
+    }
+    It 'зайнятий файл — рівно Attempts спроб (Attempts-1 повторів у Verbose) і виняток, тека ціла' {
+        $d = Join-Path $TestDrive 'locked'; New-Item -ItemType Directory -Path $d | Out-Null
+        $f = Join-Path $d 'x.txt'; Set-Content -LiteralPath $f -Value 'x'
+        $h = [System.IO.File]::Open($f, 'Open', 'Read', 'None')
+        $msgs = [System.Collections.Generic.List[string]]::new(); $threw = $false
+        try {
+            try { Remove-KitDirectory -Path $d -Attempts 3 -DelayMs 10 -Verbose 4>&1 | ForEach-Object { $msgs.Add([string]$_.Message) } }
+            catch { $threw = $true }
+        } finally { $h.Dispose() }
+        $threw | Should -BeTrue
+        @($msgs | Where-Object { $_ -like '*спроба*' }).Count | Should -Be 2
+        Test-Path -LiteralPath $d | Should -BeTrue
+    }
+}
+
+Describe 'Запобіжник #34: жодного Remove-Item -Recurse у коді kit' {
+    # Межа виміру (не ширша за неї): ловиться Remove-Item і -Recurse в одному рядку. Рядок
+    # продовження (бектік) і псевдоніми rm/ri/del тест не бачить — на момент написання таких
+    # місць у tools/ немає (grep по 'Recurse').
+    It 'tools/commands, tools/lib, tools/kit.ps1 — без Remove-Item з -Recurse поза коментарями' {
+        $root = (Resolve-Path "$PSScriptRoot/..").Path
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $root 'commands'), (Join-Path $root 'lib') -Filter '*.psm1' -File) +
+                 @(Get-Item -LiteralPath (Join-Path $root 'kit.ps1'))
+        $hits = foreach ($f in $files) {
+            $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
+            $text = [regex]::Replace($text, '(?s)<#.*?#>', '')
+            $n = 0
+            foreach ($line in ($text -split "`n")) {
+                $n++
+                $code = $line.Trim()
+                if ($code.StartsWith('#')) { continue }
+                if ($code -match 'Remove-Item\b' -and $code -match '-Recurse\b') { "$($f.Name): $code" }
+            }
+        }
+        @($hits) | Should -BeNullOrEmpty -Because 'рекурсивне видалення — лише Remove-KitDirectory (#34)'
+    }
+}

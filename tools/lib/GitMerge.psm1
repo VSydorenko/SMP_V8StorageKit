@@ -62,7 +62,7 @@ function Merge-KitBranchInto {
     if (Test-Path -LiteralPath $legacy) {
         Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'залишок worktree головної гілки'
         git -C $RepoRoot worktree remove --force $legacy 2>$null | Out-Null
-        if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Recurse -Force }
+        Remove-KitDirectory -Path $legacy
         git -C $RepoRoot worktree prune 2>$null | Out-Null
     }
 

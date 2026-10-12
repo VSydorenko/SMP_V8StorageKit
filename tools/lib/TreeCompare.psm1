@@ -101,7 +101,7 @@ function Export-KitTree {
     )
 
     Assert-SafeWorkPath -Path $Destination -MustBeUnder (Join-Path $RepoRoot 'build') -Description 'тека вивантаження дерева git'
-    if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
+    Remove-KitDirectory -Path $Destination
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')

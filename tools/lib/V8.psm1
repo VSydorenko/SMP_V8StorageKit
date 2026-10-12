@@ -308,9 +308,7 @@ function New-V8FileInfobase {
 
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
-    if (Test-Path -LiteralPath $Path) {
-        Remove-Item -LiteralPath $Path -Recurse -Force
-    }
+    Remove-KitDirectory -Path $Path
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
 
     $log = Join-Path $Path 'create.log'

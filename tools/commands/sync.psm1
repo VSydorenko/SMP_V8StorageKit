@@ -361,7 +361,7 @@ function Invoke-KitSync {
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  УВАГА: git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." -ForegroundColor Yellow
         }
-        if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
+        Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
         $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $fallback = $false

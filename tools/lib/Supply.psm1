@@ -80,7 +80,7 @@ function Remove-KitSupplyDir {
     $dir = Join-Path $TreeRoot $script:SupplyRelativePath
     if (-not (Test-Path -LiteralPath $dir)) { return }
     Assert-SafeWorkPath -Path $dir -MustBeUnder $MustBeUnder -Description 'тека поставки вендора'
-    Remove-Item -LiteralPath $dir -Recurse -Force
+    Remove-KitDirectory -Path $dir
 }
 
 function Clear-KitTreeExceptSupply {
@@ -99,11 +99,11 @@ function Clear-KitTreeExceptSupply {
         if ($item.PSIsContainer -and $item.Name -ieq $parts[0]) {
             foreach ($inner in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
                 if ($inner.PSIsContainer -and $inner.Name -ieq $parts[1]) { continue }
-                Remove-Item -LiteralPath $inner.FullName -Recurse -Force
+                if ($inner.PSIsContainer) { Remove-KitDirectory -Path $inner.FullName } else { Remove-Item -LiteralPath $inner.FullName -Force }
             }
             continue
         }
-        Remove-Item -LiteralPath $item.FullName -Recurse -Force
+        if ($item.PSIsContainer) { Remove-KitDirectory -Path $item.FullName } else { Remove-Item -LiteralPath $item.FullName -Force }
     }
 }
 

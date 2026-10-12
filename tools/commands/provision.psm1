@@ -211,7 +211,7 @@ function Invoke-KitProvision {
         # підтеку воркспейсу, яку аудит не ловить, бо це не база жодної людини з
         # накладки). Без неї межа -MustBeUnder $ws.FullPath пропускає будь-яку підтеку
         # воркспейсу, і New-V8FileInfobase стирає вихідники розширення
-        # (Remove-Item -Recurse -Force, V8.psm1) чи всю робочу теку з артефактами.
+        # (Remove-KitDirectory, V8.psm1) чи всю робочу теку з артефактами.
         #
         # Той самий Assert-SafeWorkPath, застосований до самої межі — не власна
         # перевірка "рівність/поза межею" третьою копією: Assert-SafeWorkPath уже

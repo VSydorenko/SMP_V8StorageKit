@@ -26,7 +26,7 @@ function Invoke-KitCanon {
 
         Без -Apply — лише прев'ю: перелік цілей і причини пропуску, без жодного
         звернення до диска чи платформи. З -Apply дерево кожної цілі СТИРАЄТЬСЯ
-        (Remove-Item -Recurse -Force) перед тим, як платформа запише туди свій дамп —
+        (Remove-KitDirectory) перед тим, як платформа запише туди свій дамп —
         інакше в дереві лишились би файли, яких платформа вже не віддає. Тому
         Assert-SafeWorkPath стоїть ДО видалення, а не після. Перед самим видаленням —
         страховка (Backup-KitDirtyFiles, C4): усе незакомічене чи невідстежуване в
@@ -93,7 +93,7 @@ function Invoke-KitCanon {
                 Write-Host "  $($t.Key): $($dirty.Count) незакомічених змін — копія перед canon у $backupDir" -ForegroundColor Yellow
             }
 
-            if (Test-Path -LiteralPath $t.FullPath) { Remove-Item -LiteralPath $t.FullPath -Recurse -Force }
+            Remove-KitDirectory -Path $t.FullPath
             New-Item -ItemType Directory -Path $t.FullPath -Force | Out-Null
 
             $ext = if ($t.Type -eq 'EXTENSION') { " -Extension $($t.Key)" } else { '' }

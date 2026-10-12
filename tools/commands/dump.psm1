@@ -52,7 +52,7 @@ function Invoke-KitDump {
         }
 
         Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $wsFull -Description "ціль дампу джерела $($src.Key)"
-        if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
+        Remove-KitDirectory -Path $src.FullPath
         New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
 
         $ext = if ($src.Type -eq 'EXTENSION') { " -Extension $($src.Key)" } else { '' }

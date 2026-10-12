@@ -205,7 +205,7 @@ function Backup-KitDirtyFiles {
             New-Item -ItemType Directory -Path (Split-Path -Parent $dstFile) -Force | Out-Null
             Move-Item -LiteralPath $rawFile -Destination $dstFile -Force
         }
-        if (Test-Path -LiteralPath $rawRoot) { Remove-Item -LiteralPath $rawRoot -Recurse -Force }
+        Remove-KitDirectory -Path $rawRoot
     }
 
     $BackupRoot
