@@ -104,11 +104,7 @@ function Invoke-KitCanon {
         }
         $invisible = @($invisible)
         if ($invisible.Count -gt 0) {
-            $list = ($invisible | ForEach-Object { "  [$($_.Kind)] $($_.Path)  (набір $($_.Key))" }) -join "`n"
-            throw ("canon -Apply зупинено: невидима робота під набором — git status її не бачить, а canon стер би теку набору разом з нею, " +
-                   "і копія canon-backup її не покриває:`n$list`nТеки наборів не чіпано, платформу не запущено. Для кожного шляху: " +
-                   'закомітити (ignored — зняти з ігнору й закомітити); зняти прапорець — git update-index --no-assume-unchanged / --no-skip-worktree <шлях>; ' +
-                   'підмодуль (gitlink) або вкладений репозиторій (nested-repo) — винести за межі набору; або перенести файл за межі набору. Потім повторіть canon.')
+            throw (Format-KitInvisibleWorkStop -Command 'canon' -Records $invisible -Backup 'canon-backup' -Untouched 'Теки наборів не чіпано, платформу не запущено.')
         }
 
         foreach ($t in $targets) {

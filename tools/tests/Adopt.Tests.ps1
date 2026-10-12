@@ -47,6 +47,18 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             }
             $repo
         }
+        # Зупинка П24 мусить настати ДО першого руйнівного кроку (git reset / merge -s ours): злиття не
+        # почато (немає MERGE_HEAD), HEAD не зрушив, код виходу ненульовий.
+        function script:Assert-AdoptStopsEarly {
+            param([string]$Repo, [string]$Pattern)
+            $headBefore = (git -C $Repo rev-parse HEAD).Trim()
+            $r = Invoke-Adopt -Repo $Repo -More @('-Source', 'Alpha_SMB', '-Apply')
+            $r.ExitCode | Should -Not -Be 0 -Because $r.Output
+            $r.Output   | Should -BeLike $Pattern
+            (git -C $Repo rev-parse -q --verify MERGE_HEAD) | Should -BeNullOrEmpty
+            (git -C $Repo rev-parse HEAD).Trim() | Should -Be $headBefore
+            Join-Path $Repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
+        }
     }
 
     It 'без -Apply нічого не змінює й називає обидва боки' {
@@ -263,6 +275,57 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         try { $r = Invoke-Adopt -Repo $repo -More @('-Apply') } finally { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }
         $r.ExitCode | Should -Be 0 -Because $r.Output
         (git -C $repo rev-parse 'HEAD:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $mirrorBlob
+    }
+
+    It 'П24: файл під .git/info/exclude — зупинка до злиття, MERGE_HEAD немає, HEAD на місці, тека ціла' {
+        $repo = New-AdoptRepo -Name 'adopt-inv-ignored'
+        Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value 'Alpha_SMB/cfe/src/mine.txt' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt') -Value 'робота' -Encoding UTF8
+        Assert-AdoptStopsEarly -Repo $repo -Pattern '*adopt -Apply зупинено*невидима робота під набором*ignored*mine.txt*'
+        Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt' | Should -Exist
+    }
+    It 'П24: <Flag> на зміненому файлі — зупинка до злиття' -ForEach @(
+        @{ Flag = 'assume-unchanged' }
+        @{ Flag = 'skip-worktree' }
+    ) {
+        $repo = New-AdoptRepo -Name "adopt-inv-$Flag"
+        $f = Join-Path $repo 'Alpha_SMB/cfe/src/Shared.xml'
+        Set-Content -LiteralPath $f -Value 'правка агента' -Encoding UTF8
+        git -C $repo update-index "--$Flag" Alpha_SMB/cfe/src/Shared.xml
+        Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*flagged*Shared.xml*'
+        (Get-Content -LiteralPath $f -Raw) | Should -BeLike '*правка агента*'
+    }
+    It 'П24: gitlink під набором — зупинка до злиття' {
+        $repo = New-AdoptRepo -Name 'adopt-inv-gitlink'
+        $sha = (git -C $repo rev-parse HEAD).Trim()
+        git -C $repo update-index --add --cacheinfo "160000,$sha,Alpha_SMB/cfe/src/sub"
+        Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*gitlink*sub*'
+    }
+    It 'П24: вкладений git-репозиторій — зупинка до злиття, історія ціла' {
+        $repo = New-AdoptRepo -Name 'adopt-inv-nested'
+        $nest = Join-Path $repo 'Alpha_SMB/cfe/src/nest'
+        New-Item -ItemType Directory -Path $nest -Force | Out-Null
+        git -C $nest init -q
+        Set-Content -LiteralPath (Join-Path $nest 'history.txt') -Value 'історія' -Encoding UTF8
+        Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*nested-repo*Alpha_SMB/cfe/src/nest*'
+        Join-Path $nest 'history.txt' | Should -Exist
+    }
+    It 'П24: junction під набором — зупинка до злиття, ціль посилання ціла' {
+        $repo = New-AdoptRepo -Name 'adopt-inv-junction'
+        $target = Join-Path $TestDrive 'adopt-inv-junction-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'ціль' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Alpha_SMB/cfe/src/lnk') -Target $target | Out-Null
+        Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*link*Alpha_SMB/cfe/src/lnk*прибрати посилання з набору*'
+        Join-Path $target 'keep.txt' | Should -Exist
+    }
+    It 'П24 контроль: похідне (ConfigDumpInfo.xml) під набором — зупинки немає, заміна проходить' {
+        $repo = New-AdoptRepo -Name 'adopt-inv-derived'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8
+        git -C $repo check-ignore -q 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml'; $LASTEXITCODE | Should -Be 0 -Because 'контроль має спиратись на справді ігнорований файл'
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        (git -C $repo log -1 --format=%s) | Should -BeLike 'adopt: Alpha_SMB*'
     }
 }
 

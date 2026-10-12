@@ -229,6 +229,8 @@ function Get-KitInvisibleWork {
           ($script:KitDerivedIgnoredPattern);
         - flagged — ls-files -v: тег з малої літери (assume-unchanged, будь-яка) або S (skip-worktree).
           Тег M (unmerged) — не прапорець, конфлікт видно в status як UU;
+        - link — junction чи symlink (атрибут ReparsePoint, тека або файл) під шляхом набору: не підтримується;
+          Path — саме посилання, всередину обхід не заходить;
         - gitlink — режим 160000 (ls-files -s): підмодуль під набором. --ignore-submodules не
           використовується: відмова проста й не залежить від налаштувань.
         Збій будь-якого git-виклику — виняток, не «чисто» (через Invoke-KitGitProcess, як
@@ -272,7 +274,13 @@ function Get-KitInvisibleWork {
             $hasGit = $false
             foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
                 if ($item.Name -ceq '.git') { $hasGit = $true; continue }
-                if ($item.PSIsContainer -and -not $item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) { $stack.Push($item.FullName) }
+                if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+                    # link: junction/symlink (тека чи файл) під набором не підтримуються (П24, п'ятий вид). Усередину не
+                    # заходимо і ціль не міряємо: стирання теки набору могло б зачепити ціль посилання, і межу тримає зупинка.
+                    $linkRel = ($item.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
+                    $records.Add([pscustomobject]@{ Path = $linkRel; Kind = 'link' })
+                }
+                elseif ($item.PSIsContainer) { $stack.Push($item.FullName) }
             }
             if ($hasGit) {
                 $rel = ($dir.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
@@ -283,4 +291,32 @@ function Get-KitInvisibleWork {
     $records.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles, Get-KitInvisibleWork
+function Format-KitInvisibleWorkStop {
+    <#
+    .SYNOPSIS
+        Текст зупинки команди, що стирає теку набору, на невидимій для git status роботі (спека §10.2 П24):
+        перелік «[вид] шлях (набір ключ)» і рецепт для кожного виду. Одна фраза на kit — canon, dump і adopt
+        друкують її звідси, а не кожен свою.
+    .PARAMETER Records
+        Записи { Key; Kind; Path } — Key це ключ набору, Kind і Path з Get-KitInvisibleWork.
+    .PARAMETER Backup
+        Ім'я теки копії, яка невидимої роботи не покриває (canon-backup, adopt-backup); у dump копії немає — порожньо.
+    .PARAMETER Untouched
+        Що лишилось цілим до зупинки (для кожної команди своє: платформу не запущено / злиття не почато).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter(Mandatory)][object[]]$Records,
+        [string]$Backup = '',
+        [Parameter(Mandatory)][string]$Untouched
+    )
+    $list = ($Records | ForEach-Object { "  [$($_.Kind)] $($_.Path)  (набір $($_.Key))" }) -join "`n"
+    $copy = if ($Backup) { ", і копія $Backup її не покриває" } else { '' }
+    ("$Command -Apply зупинено: невидима робота під набором — git status її не бачить, а $Command стер би теку набору разом з нею$copy`:`n$list`n$Untouched Для кожного шляху: " +
+     'закомітити (ignored — зняти з ігнору й закомітити); зняти прапорець — git update-index --no-assume-unchanged / --no-skip-worktree <шлях>; ' +
+     'підмодуль (gitlink) або вкладений репозиторій (nested-repo) — винести за межі набору; посилання (link, junction чи symlink) — прибрати посилання з набору; ' +
+     "або перенести файл за межі набору. Потім повторіть $Command.")
+}
+
+Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles, Get-KitInvisibleWork, Format-KitInvisibleWorkStop

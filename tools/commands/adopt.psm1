@@ -172,6 +172,16 @@ function Invoke-KitAdopt {
                    "CLAUDE.md) і повторіть adopt. Шляхи:`n$paths")
         }
 
+        # П24: невидима для git status робота під набором. Копія нижче її не покриває, а Clear-KitTreeExceptSupply
+        # стер би її безслідно. Зупинка — ДО першого руйнівного кроку (git reset, потім merge -s ours): після
+        # початого злиття зупинка лишила б репозиторій у стані MERGE_HEAD. Збій git — виняток, не «чисто».
+        $invisible = @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $src.RepoPath | ForEach-Object {
+            [pscustomobject]@{ Key = $src.Key; Kind = $_.Kind; Path = $_.Path }
+        })
+        if ($invisible.Count -gt 0) {
+            throw (Format-KitInvisibleWorkStop -Command 'adopt' -Records $invisible -Backup 'adopt-backup' -Untouched 'Теку набору не чіпано, злиття не почато.')
+        }
+
         # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у
         # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)

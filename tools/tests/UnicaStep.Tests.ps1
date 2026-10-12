@@ -70,6 +70,15 @@ Describe 'Критерій вирівнювання на справжньому 
         finally { Remove-Item -LiteralPath $f -Force }
         Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
     }
+    It 'junction під шляхом набору — дерево НЕ чисте (П24, вид link)' {
+        $target = Join-Path $TestDrive 'crit-junction-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        $link = Join-Path $script:Repo 'Alpha_SMB/cfe/src/lnk'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        try { Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeFalse }
+        finally { (Get-Item -LiteralPath $link -Force).Delete() }
+        Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
+    }
     It 'похідне гітігноване (.cf поставки, ConfigDumpInfo.xml) під шляхом набору — дерево чисте; власний гітігнорований файл — ні (П24)' {
         $d = Join-Path $script:Repo 'Alpha_SMB/cfe/src/Ext/ParentConfigurations'
         New-Item -ItemType Directory -Path $d -Force | Out-Null

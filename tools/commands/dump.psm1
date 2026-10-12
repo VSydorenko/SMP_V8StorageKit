@@ -43,6 +43,34 @@ function Invoke-KitDump {
         [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = $ibSwitch }
     })
 
+    if ($Apply) {
+        # П24: dump -Apply стирає теку набору цілком, а копії незакоміченого не робить узагалі. Тому до першого
+        # Remove-KitDirectory і до платформи — для ВСІХ джерел одразу: зупинка на невидимій для git status роботі
+        # і на будь-якому записі status. Збій git — виняток (не «чисто»); теки лишаються цілими.
+        $invisible = @(foreach ($item in $plan) {
+            foreach ($w in @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $item.Source.RepoPath)) {
+                # truth: vendor — дерево гітігноровано ЦІЛКОМ за задумом (onboarding дописує <ws>/<шлях>/** у .gitignore),
+                # і воно є кешем дампу бази людини, який dump саме й переписує: «ігнорований» там — норма, а не робота
+                # агента. Решта видів (прапорець, gitlink, вкладений репозиторій, посилання) зупиняє й тут.
+                if ($w.Kind -eq 'ignored' -and $item.Source.Truth -eq 'vendor') { continue }
+                [pscustomobject]@{ Key = $item.Source.Key; Kind = $w.Kind; Path = $w.Path }
+            }
+        })
+        if ($invisible.Count -gt 0) {
+            throw (Format-KitInvisibleWorkStop -Command 'dump' -Records $invisible -Untouched 'Теки наборів не чіпано, платформу не запущено; копії незакоміченого dump не робить.')
+        }
+        $dirtyAll = @(foreach ($item in $plan) {
+            foreach ($d in @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $item.Source.RepoPath)) {
+                [pscustomobject]@{ Key = $item.Source.Key; Status = $d.Status; Path = $d.Path }
+            }
+        })
+        if ($dirtyAll.Count -gt 0) {
+            $list = ($dirtyAll | ForEach-Object { "  [$($_.Status)] $($_.Path)  (набір $($_.Key))" }) -join "`n"
+            throw ("dump -Apply зупинено: у наборі є незакомічені зміни — dump стер би теку набору разом з ними, а копії незакоміченого не робить:`n$list`n" +
+                   'Теки наборів не чіпано, платформу не запущено. Для кожного шляху: закомітити, або перенести за межі набору. Потім повторіть dump.')
+        }
+    }
+
     $dumped = [System.Collections.Generic.List[object]]::new()
     foreach ($item in $plan) {
         $src = $item.Source

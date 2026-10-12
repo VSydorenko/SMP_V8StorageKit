@@ -601,6 +601,34 @@ Describe 'kit canon -Apply — зупинка на невидимій робот
         Join-Path $nest '.git' | Should -Exist
         Join-Path $nest 'history.txt' | Should -Exist
     }
+    It 'junction під набором: зупинка (link) з рецептом, тека і ціль посилання цілі, платформа не запускалась' {
+        $repo = New-InvRepo 'inv-junction'
+        $target = Join-Path $TestDrive 'inv-junction-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'ціль' -Encoding UTF8
+        $link = Join-Path $repo 'Alpha_SMB/cfe/src/lnk'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw '*невидима робота під набором*link*Alpha_SMB/cfe/src/lnk*прибрати посилання з набору*'
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
+        Join-Path $target 'keep.txt' | Should -Exist
+    }
+    It 'symlink під набором: зупинка (link), платформа не запускалась' {
+        $repo = New-InvRepo 'inv-symlink'
+        $target = Join-Path $TestDrive 'inv-symlink-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        $link = Join-Path $repo 'Alpha_SMB/cfe/src/slnk'
+        try { New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null }
+        catch { Set-ItResult -Skipped -Because "symlink без прав адміністратора не створюється ($($_.Exception.Message)); вид link перевіряє junction вище (той самий атрибут ReparsePoint)"; return }
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw '*невидима робота під набором*link*Alpha_SMB/cfe/src/slnk*'
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+    }
+    It 'контроль: набір без посилань — записів link немає' {
+        $repo = New-InvRepo 'inv-nolink'
+        @(Get-KitInvisibleWork -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' | Where-Object Kind -eq 'link') | Should -HaveCount 0
+    }
     It 'контроль: набір без .git усередині — зупинки немає' {
         $repo = New-InvRepo 'inv-nonested'
         New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src/plain/dir') -Force | Out-Null
