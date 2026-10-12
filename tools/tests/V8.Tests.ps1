@@ -347,25 +347,26 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
         }
     }
 
-    # Маркер СЕКРЕТ-Ж7 стоїть у значенні й у тілі рядка кожної гілки. Гілка «не описує базу»
+    # Маркер СЕКРЕТ-Ж7SECRETZ7 стоїть у значенні й у тілі рядка кожної гілки. Гілка «не описує базу»
     # недосяжна через вхід (будь-який елемент з '=' або дає дозволений ключ, або кидає раніше) —
     # її текст перевіряє читання коду, а не цей перелік.
     It 'гілка «<Name>»: виняток є, вхідного рядка й маркера в тексті немає' -TestCases @(
-        @{ Name = 'голий шлях';             C = 'D:\СЕКРЕТ-Ж7\base' }
-        @{ Name = 'елемент без =';          C = 'File=C:\x;СЕКРЕТ-Ж7' }
-        @{ Name = 'лапки в імені ключа';    C = '"СЕКРЕТ-Ж7"=VSDEV;Ref=X' }
-        @{ Name = 'непарні лапки';          C = 'Srvr="СЕКРЕТ-Ж7;Ref=BASE' }
-        @{ Name = 'порожнє значення';       C = 'Srvr=СЕКРЕТ-Ж7;Ref="";' }
-        @{ Name = 'невідомий ключ';         C = 'File=СЕКРЕТ-Ж7;Foo=СЕКРЕТ-Ж7' }
-        @{ Name = 'дубль ключа';            C = 'Srvr=СЕКРЕТ-Ж7;Srvr=B;Ref=C' }
-        @{ Name = 'Srvr разом з File';      C = 'Srvr=СЕКРЕТ-Ж7;Ref=B;File=C:\СЕКРЕТ-Ж7' }
-        @{ Name = 'серверна без Ref';       C = 'Srvr=СЕКРЕТ-Ж7' }
-        @{ Name = 'серверна без Srvr';      C = 'Ref=СЕКРЕТ-Ж7' }
-        @{ Name = '= у значенні';           C = 'File=C:СЕКРЕТ-Ж7,Pwd=СЕКРЕТ-Ж7' }
+        @{ Name = 'голий шлях';             C = 'D:\СЕКРЕТ-Ж7SECRETZ7\base' }
+        @{ Name = 'елемент без =';          C = 'File=C:\x;СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'лапки в імені ключа';    C = '"СЕКРЕТ-Ж7SECRETZ7"=VSDEV;Ref=X' }
+        @{ Name = 'непарні лапки';          C = 'Srvr="СЕКРЕТ-Ж7SECRETZ7;Ref=BASE' }
+        @{ Name = 'порожнє значення';       C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Ref="";' }
+        @{ Name = 'невідомий ключ';         C = 'File=СЕКРЕТ-Ж7SECRETZ7;Foo=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'дубль ключа';            C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Srvr=B;Ref=C' }
+        @{ Name = 'Srvr разом з File';      C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Ref=B;File=C:\СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'серверна без Ref';       C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'серверна без Srvr';      C = 'Ref=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = '= у значенні';           C = 'File=C:СЕКРЕТ-Ж7SECRETZ7,Pwd=СЕКРЕТ-Ж7SECRETZ7' }
     ) {
         $err = Get-ConnError $C
         $err | Should -Not -BeNullOrEmpty
         $err | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+        $err | Should -Not -BeLike '*SECRETZ7*'
         $err | Should -Not -BeLike "*$C*"
     }
 
@@ -374,21 +375,22 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
     }
 
     It 'голий шлях: рецепт File= без шляху' {
-        $err = Get-ConnError 'D:\СЕКРЕТ-Ж7\base'
+        $err = Get-ConnError 'D:\СЕКРЕТ-Ж7SECRETZ7\base'
         $err | Should -BeLike '*File=<шлях>*'
     }
 
     It 'Usr/Pwd у будь-якому регістрі — окреме повідомлення без значень; рецепт дописує викликач за походженням' -TestCases @(
-        @{ C = 'File=build/ib;Usr=логін-Ж7;Pwd=СЕКРЕТ-Ж7' }
+        @{ C = 'File=build/ib;Usr=логін-Ж7;Pwd=СЕКРЕТ-Ж7SECRETZ7' }
         @{ C = 'File=build/ib;usr=логін-Ж7' }
-        @{ C = 'File=build/ib;pwd=СЕКРЕТ-Ж7' }
-        @{ C = 'Srvr=S;Ref=R;PWD=СЕКРЕТ-Ж7;' }
+        @{ C = 'File=build/ib;pwd=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ C = 'Srvr=S;Ref=R;PWD=СЕКРЕТ-Ж7SECRETZ7;' }
         @{ C = 'Usr=логін-Ж7;File=build/ib' }
     ) {
         $err = Get-ConnError $C
         $err | Should -BeLike '*не задаються в рядку підключення*'
         $err | Should -Not -BeLike '*infobases*'   # рецепт залежить від походження — його тут немає
         $err | Should -Not -BeLike '*Ж7*'
+        $err | Should -Not -BeLike '*Z7*'
         $err | Should -Not -BeLike '*невідомий ключ*'
     }
 }
@@ -396,7 +398,7 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
 Describe 'Get-V8CredentialsRecipe — рецепт за походженням рядка' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
-        function script:Get-CredEx { try { ConvertFrom-V8Connection -Connection 'File=x;Pwd=СЕКРЕТ-Ж7' } catch { $_.Exception } }
+        function script:Get-CredEx { try { ConvertFrom-V8Connection -Connection 'File=x;Pwd=СЕКРЕТ-Ж7SECRETZ7' } catch { $_.Exception } }
     }
     It 'база агента: user і password в infobases.origin' {
         $r = Get-V8CredentialsRecipe -Exception (Get-CredEx) -Kind agent

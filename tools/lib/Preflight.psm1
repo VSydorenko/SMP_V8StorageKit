@@ -193,11 +193,11 @@ function Invoke-KitPreflight {
         }
         catch { & $fail 'workspace' $_.Exception.Message; continue }
 
-        $sources =[System.Collections.Generic.List[object]]::new()
+        $sources = [System.Collections.Generic.List[object]]::new()
         foreach ($src in $ws.Sources) {
             $set = $project.SourceSets | Where-Object Name -eq $src.Key | Select-Object -First 1
             if (-not $set) {
-                & $fail 'source' ("Джерело '$($src.Key)' воркспейсу '$($ws.Path)' не відповідає жодному name: source-set у " +
+                & $fail 'source' ("Ключ sources воркспейсу '$($ws.Path)' (ім'я не друкується) не відповідає жодному name: source-set у " +
                                   "$($ws.Path)/v8project.yaml (є: $($project.SourceSets.Name -join ', ')).")
                 continue
             }

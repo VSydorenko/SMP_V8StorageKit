@@ -24,7 +24,7 @@ Describe 'секрети не у виводі (П23)' {
     Context '(а) Usr/Pwd у рядку підключення бази агента' {
         BeforeAll {
             $script:RepoA = New-KitFakeRepo -Root (Join-Path $TestDrive 'a') -WithHooks -WithGitattributes -WithGitignore
-            Set-KitFakeAgentBase -Repo $script:RepoA -Connection 'File=build/ib;Usr=agent;Pwd=СЕКРЕТ-Ж7'
+            Set-KitFakeAgentBase -Repo $script:RepoA -Connection 'File=build/ib;Usr=agent;Pwd=SECRETZ7СЕКРЕТ-Ж7'
         }
         It '<Cmd>: помилка, маркера немає, рецепт infobases.origin є' -TestCases @(
             @{ Cmd = 'check'; More = @() }
@@ -33,6 +33,7 @@ Describe 'секрети не у виводі (П23)' {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoA -More $More
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+            $r.Output | Should -Not -BeLike '*SECRETZ7*'
             $r.Output | Should -Not -BeLike '*Pwd=*'
             $r.Output | Should -BeLike '*задаються ключами user і password в infobases.origin*'
         }
@@ -40,7 +41,7 @@ Describe 'секрети не у виводі (П23)' {
 
     Context '(б) пароль сховища з " у накладці' {
         BeforeAll {
-            $overlay = @('storages:', "  Alpha_SMB: { password: 'ab""ХВІСТ-Ж7' }") -join "`n"
+            $overlay = @('storages:', "  Alpha_SMB: { password: 'ab""TAILZ7ХВІСТ-Ж7' }") -join "`n"
             $script:RepoB = New-KitFakeRepo -Root (Join-Path $TestDrive 'b') -WithHooks -WithGitattributes -WithGitignore -OverlayText $overlay
         }
         It '<Cmd>: помилка з Origin, маркера немає' -TestCases @(
@@ -50,58 +51,8 @@ Describe 'секрети не у виводі (П23)' {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoB
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -Not -BeLike '*ХВІСТ-Ж7*'
+            $r.Output | Should -Not -BeLike '*TAILZ7*'
             $r.Output | Should -BeLike '*v8storagekit.local.yaml, storages.Alpha_SMB.password*'
-        }
-    }
-
-    Context '(г) друкарська помилка «без пробілу після :» (П23 п. 3)' {
-        BeforeAll {
-            function script:Assert-NoMarker {
-                param([string]$Repo, [string]$Marker, [string]$Text)
-                $Text | Should -Not -BeLike "*$Marker*"
-                # відбиток і решта файлів робочої копії (крім самого файлу накладки/конфігу, де маркер записали ми)
-                $own = @('v8storagekit.local.yaml', 'v8project.local.yaml')
-                $hits = @(Get-ChildItem -LiteralPath $Repo -Recurse -File -Force -ErrorAction SilentlyContinue |
-                    Where-Object { $_.FullName -notmatch '[\/]\.git[\/]' -and $_.Name -notin $own } |
-                    Select-String -SimpleMatch -Pattern $Marker -List)
-                $hits.Count | Should -Be 0
-            }
-        }
-        It 'невідомий ключ із двокрапкою в накладці (<Cmd>): маркера немає, підказка є' -TestCases @(
-            @{ Cmd = 'check' }, @{ Cmd = 'sync' }, @{ Cmd = 'session-check' }
-        ) {
-            $overlay = @('storages:', '  Alpha_SMB: { path: ''C:\x'', password:МАРКЕР-З9 }') -join "`n"
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "g1-$Cmd") -WithHooks -WithGitignore -OverlayText $overlay
-            $r = Invoke-Kit -Command $Cmd -Repo $repo
-            $r.Output | Should -BeLike "*пропущено пробіл після ':'?*"
-            $r.Output | Should -BeLike "*'password'*"
-            Assert-NoMarker -Repo $repo -Marker 'МАРКЕР-З9' -Text $r.Output
-        }
-        It 'невідомий ключ із двокрапкою у v8project.local.yaml (<Cmd>): маркера немає' -TestCases @(
-            @{ Cmd = 'check' }, @{ Cmd = 'sync' }, @{ Cmd = 'session-check' }
-        ) {
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "g2-$Cmd") -WithHooks -WithGitignore
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value "infobases: { origin: { connection: 'File=build/ib' }, password:МАРКЕР-З9 }"
-            $r = Invoke-Kit -Command $Cmd -Repo $repo
-            $r.Output | Should -BeLike "*пропущено пробіл після ':'?*"
-            Assert-NoMarker -Repo $repo -Marker 'МАРКЕР-З9' -Text $r.Output
-        }
-        It 'скаляр у storages, що починається з імені ключа об''єктної форми (<Cmd>): маркера немає, підказка є' -TestCases @(
-            @{ Cmd = 'check' }, @{ Cmd = 'sync' }, @{ Cmd = 'session-check' }
-        ) {
-            $overlay = @('storages:', '  Alpha_SMB: password:МАРКЕР-З9') -join "`n"
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "g3-$Cmd") -WithHooks -WithGitignore -OverlayText $overlay
-            $r = Invoke-Kit -Command $Cmd -Repo $repo
-            $r.Output | Should -BeLike "*значення починається з 'password:'*пропущено пробіл після ':'?*"
-            Assert-NoMarker -Repo $repo -Marker 'МАРКЕР-З9' -Text $r.Output
-        }
-        It 'контроль: законний шлях сховища (<Path>) не дає цієї помилки' -TestCases @(
-            @{ Path = 'C:\repo' }, @{ Path = 'tcp://srv/repo' }
-        ) {
-            $overlay = @('storages:', "  Alpha_SMB: '$Path'") -join "`n"
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('g4-' + ($Path -replace '\W', '_'))) -WithHooks -WithGitignore -OverlayText $overlay
-            $r = Invoke-Kit -Command 'check' -Repo $repo
-            $r.Output | Should -Not -BeLike "*пропущено пробіл після ':'?*"
         }
     }
 
@@ -110,29 +61,135 @@ Describe 'секрети не у виводі (П23)' {
             @{ Cmd = 'check' }, @{ Cmd = 'provision' }
         ) {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "d-$Cmd") -WithHooks -WithGitattributes -WithGitignore
-            Set-KitFakeAgentBase -Repo $repo -Connection 'File=C:\x,Pwd=МАРКЕР-И1'
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=C:\x,Pwd=SECRETI1МАРКЕР-И1'
             $r = Invoke-Kit -Command $Cmd -Repo $repo
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -BeLike "*містить '=' у значенні ключа 'File'*"
             $r.Output | Should -Not -BeLike '*МАРКЕР-И1*'
+            $r.Output | Should -Not -BeLike '*SECRETI1*'
         }
     }
 
-    Context '(е) пароль бази агента з " (П23 п. 5)' {
-        It '<Cmd>: відмова в префлайті з Origin, маркера немає' -TestCases @(
+    # Не тест на маркер: пароль із " у префлайті не потрапив би у вивід і без відмови (його не друкує жоден текст),
+    # тож перевіряється лише відмова і рецепт — маркерної асерції навмисно немає.
+    Context '(е) пароль бази агента з " — відмова в префлайті й рецепт' {
+        It '<Cmd>: відмова з Origin і причиною' -TestCases @(
             @{ Cmd = 'check' }, @{ Cmd = 'sync' }
         ) {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "e-$Cmd") -WithHooks -WithGitattributes -WithGitignore
-            Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -Password 'ab"МАРКЕР-К2'
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -Password 'ab"pwd'
             $r = Invoke-Kit -Command $Cmd -Repo $repo
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -BeLike '*infobases.origin.password*подвійну лапку*'
-            $r.Output | Should -Not -BeLike '*МАРКЕР-К2*'
         }
     }
+
+    # Ім'я невідомого ключа не друкується ніколи (П23 п. 3, 1c1b8ea): у flow-мапі запис без ': ' стає ключем цілком,
+    # тож секрет сидить саме в імені ключа. Кожен тест — з парою маркерів: ASCII поруч із кириличним
+    # (кириличний без UTF-8 у сесії дає хибну зелень поза Run-Tests.ps1).
+    Context '(г) ім''я невідомого ключа не друкується' {
+        BeforeAll {
+            function script:Assert-NoMarkers { param([string]$Text)
+                $Text | Should -Not -BeLike '*MARKZ9*'
+                $Text | Should -Not -BeLike '*МАРКЗ9*'
+            }
+            function script:New-GRepo { param([string]$Name, [string]$Overlay)
+                New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore -OverlayText $Overlay
+            }
+        }
+        It 'storages.<ключ>, об''єктна форма: ключ «<K>» (check) — виняток є, імені немає, підказка є' -TestCases @(
+            @{ K = 'password=MARKZ9МАРКЗ9' }, @{ K = 'password MARKZ9МАРКЗ9' }, @{ K = 'MARKZ9МАРКЗ9' },
+            @{ K = 'MARKZ9МАРКЗ9:' }, @{ K = "MARKZ9МАРКЗ9$([char]0xFF1A)" }
+        ) {
+            $repo = New-GRepo -Name ('g1-' + [guid]::NewGuid().ToString('N').Substring(0, 6)) -Overlay ("storages:`n  Alpha_SMB: { path: 'C:\x', $K }")
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike "*невідомий ключ (ім'я не друкується)*Перевірте пробіл після ':' і форму 'ключ: значення'*"
+            Assert-NoMarkers -Text $r.Output
+        }
+        It 'storages.<ключ>, об''єктна форма (<Cmd>): імені немає' -TestCases @(
+            @{ Cmd = 'sync' }, @{ Cmd = 'session-check' }
+        ) {
+            $repo = New-GRepo -Name "g1b-$Cmd" -Overlay "storages:`n  Alpha_SMB: { path: 'C:\x', password=MARKZ9МАРКЗ9 }"
+            $r = Invoke-Kit -Command $Cmd -Repo $repo
+            $r.Output | Should -BeLike "*ім'я не друкується*"
+            Assert-NoMarkers -Text $r.Output
+        }
+        It '<Place>: імені ключа немає (check)' -TestCases @(
+            @{ Place = 'infobases.<ім''я>'; Overlay = "infobases:`n  dev: { connection: 'File=C:\a', password=MARKZ9МАРКЗ9 }" }
+            @{ Place = 'workspaces.<шлях>'; Overlay = "workspaces:`n  Alpha_SMB: { password=MARKZ9МАРКЗ9 }" }
+            @{ Place = 'workspaces.<шлях>.agentBase'; Overlay = "workspaces:`n  Alpha_SMB: { agentBase: { password=MARKZ9МАРКЗ9 } }" }
+            @{ Place = 'запис storages (ім''я запису з секретом)'; Overlay = "storages: { Alpha_SMB: 'C:\x', password=MARKZ9МАРКЗ9 }" }
+            @{ Place = 'запис infobases (ім''я запису з секретом)'; Overlay = "infobases:`n  'password=MARKZ9МАРКЗ9': { connection: '' }" }
+            @{ Place = 'запис workspaces (ім''я запису з секретом)'; Overlay = "workspaces:`n  'password=MARKZ9МАРКЗ9': { bogus }" }
+        ) {
+            $repo = New-GRepo -Name ('g2-' + [guid]::NewGuid().ToString('N').Substring(0, 6)) -Overlay $Overlay
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike '*Накладка*'
+            Assert-NoMarkers -Text $r.Output
+        }
+        It 'v8project.local.yaml: інший за origin ключ під infobases (<Cmd>): імені немає' -TestCases @(
+            @{ Cmd = 'check' }, @{ Cmd = 'sync' }, @{ Cmd = 'session-check' }
+        ) {
+            $repo = New-GRepo -Name "g3-$Cmd" -Overlay $null
+            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value "infobases: { origin: { connection: 'File=build/ib' }, password=MARKZ9МАРКЗ9 }"
+            $r = Invoke-Kit -Command $Cmd -Repo $repo
+            $r.Output | Should -BeLike '*відмінний від origin*'
+            Assert-NoMarkers -Text $r.Output
+        }
+        It 'маніфест v8storagekit.yaml: невідомий ключ джерела — імені немає' {
+            $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', '      tools: { truth: git, password=MARKZ9МАРКЗ9 }') -join "`n"
+            $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'g4') -Workspaces $ws -ManifestText $text -WithHooks
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike "*ім'я не друкується*"
+            Assert-NoMarkers -Text $r.Output
+        }
+    }
+
+    # Шлях сховища має форму шляху сховища (П23 п. 3, 1c1b8ea).
+    Context '(г2) шлях сховища — лише форма шляху сховища' {
+        It 'скаляр «<V>» (check): відмова без значення, форми перелічено' -TestCases @(
+            @{ V = 'password :MARKZ9МАРКЗ9' }, @{ V = 'password=MARKZ9МАРКЗ9' }, @{ V = 'password MARKZ9МАРКЗ9' }, @{ V = 'MARKZ9МАРКЗ9' }
+        ) {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('h1-' + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '$V'"
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike '*шлях сховища має форму*X:*UNC*tcp://*http://*https://*'
+            $r.Output | Should -Not -BeLike '*MARKZ9*'
+            $r.Output | Should -Not -BeLike '*МАРКЗ9*'
+        }
+        It 'об''єктна форма path: «password:…» (check): відмова без значення' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h2') -WithHooks -WithGitignore -OverlayText "storages:`n  Alpha_SMB: { path: 'password:MARKZ9МАРКЗ9' }"
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike '*шлях сховища має форму*'
+            $r.Output | Should -Not -BeLike '*MARKZ9*'
+            $r.Output | Should -Not -BeLike '*МАРКЗ9*'
+        }
+        It 'маніфест storage.path «password:…» (check): відмова без значення' {
+            $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:', "      Alpha_SMB: { truth: storage, storage: { path: 'password:MARKZ9МАРКЗ9' } }") -join "`n"
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h3') -ManifestText $text -WithHooks
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike '*шлях сховища має форму*'
+            $r.Output | Should -Not -BeLike '*MARKZ9*'
+            $r.Output | Should -Not -BeLike '*МАРКЗ9*'
+        }
+        It 'контроль: законний шлях «<V>» не дає цієї відмови' -TestCases @(
+            @{ V = 'C:\repo' }, @{ V = 'R:\СховищаРозширень_1С\X' }, @{ V = '\\srv\share\repo' }, @{ V = 'tcp://srv/repo' }
+        ) {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('h4-' + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '$V'"
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.Output | Should -Not -BeLike '*шлях сховища має форму*'
+        }
+    }
+
     Context '(в) Usr/Pwd у підключенні дев-бази людини з накладки' {
         BeforeAll {
-            $overlay = @('infobases:', "  dev: { connection: 'File=C:\other\dev;Usr=u;Pwd=СЕКРЕТ-Ж7' }") -join "`n"
+            $overlay = @('infobases:', "  dev: { connection: 'File=C:\other\dev;Usr=u;Pwd=SECRETZ7СЕКРЕТ-Ж7' }") -join "`n"
             $script:RepoC = New-KitFakeRepo -Root (Join-Path $TestDrive 'c') -WithHooks -WithGitattributes -WithGitignore -OverlayText $overlay
         }
         It '<Cmd>: маркера немає ні в stdout, ні в stderr' -TestCases @(
@@ -141,6 +198,7 @@ Describe 'секрети не у виводі (П23)' {
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoC
             $r.Output | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+            $r.Output | Should -Not -BeLike '*SECRETZ7*'
             $r.Output | Should -Not -BeLike '*Pwd=*'
             # вивід не порожній, називає походження (ім'я дев-бази й файл накладки) і несе рецепт —
             # тест не зеленіє від того, що команда змовчала
@@ -168,7 +226,7 @@ Describe 'пароль сховища з " — платформа не запу�
     It 'sync -Apply: відмова префлайту з Origin, Invoke-V8Designer не викликано, маркера немає' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'plat') -WithHooks -WithGitignore -WithAgentBase
         $storageDir = Join-Path $TestDrive 'plat-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
-        $overlay = @('storages:', "  Alpha_SMB: { path: '$storageDir', password: 'ab""ХВІСТ-Ж7' }") -join "`n"
+        $overlay = @('storages:', "  Alpha_SMB: { path: '$storageDir', password: 'ab""TAILZ7ХВІСТ-Ж7' }") -join "`n"
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value $overlay
         Mock -ModuleName StoragePlatform Invoke-V8Designer { throw 'платформа не мала викликатись' }
         Mock -ModuleName StoragePlatform New-ExtensionInfobase { throw 'платформа не мала викликатись' }
@@ -184,6 +242,7 @@ Describe 'пароль сховища з " — платформа не запу�
         $err = $script:Err
         $err | Should -BeLike '*storages.Alpha_SMB.password*'
         "$err$text" | Should -Not -BeLike '*ХВІСТ-Ж7*'
+        "$err$text" | Should -Not -BeLike '*TAILZ7*'
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
         Should -Invoke -ModuleName StoragePlatform New-ExtensionInfobase -Times 0
         Should -Invoke -ModuleName StoragePlatform New-V8FileInfobase -Times 0

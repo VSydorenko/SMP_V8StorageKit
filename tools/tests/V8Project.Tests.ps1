@@ -163,7 +163,8 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
     }
     It 'infobases з іменем, крім origin, — знахідка' {
         $d = New-Ws -Name 'other' -Project $script:Clean -Local @('infobases:', '  dev:', "    connection: 'File=D:\x'")
-        (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike "*'dev'*лише origin*"
+        (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -Not -BeLike "*'dev'*"
+        (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike "*відмінний від origin*лише origin*"
     }
     It 'origin без connection — знахідка, а не тиха відсутність бази (Review Focus 4)' {
         $d = New-Ws -Name 'noconn' -Project $script:Clean -Local @('infobases:', '  origin:', "    user: 'agent'")

@@ -403,8 +403,8 @@ X.Y.Z.» (`Read-KitManifest`, `tools/lib/Manifest.psm1`). У будь-якому
 
 ## 6. Штатні зупинки
 
-- `Маніфест … — невідомий ключ '…'. Дозволені: …` — помилка у YAML; звірити з прикладом у `templates/`.
-- `Джерело '…' … не відповідає жодному name: source-set` — ключ у `sources:` ≠ `name:` у `v8project.yaml`.
+- `Маніфест … — невідомий ключ (ім'я не друкується). Дозволені: …` — помилка у YAML; звірити з прикладом у `templates/`.
+- `Ключ sources воркспейсу '…' (ім'я не друкується) не відповідає жодному name: source-set` — ключ у `sources:` ≠ `name:` у `v8project.yaml`.
 - `check`: `[-] … -text` або `[-] … .gitignore` — розділ 3.4 не завершено.
 - `Ключ '…' з truth: storage повторюється у воркспейсах …` — перейменувати source-set в одному з них.
 - `core.hooksPath не вказує на .githooks` — `install-hooks -Apply` не виконано.

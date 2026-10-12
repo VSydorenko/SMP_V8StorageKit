@@ -157,17 +157,18 @@ Describe 'AgentBase.psm1 — Test-KitSameInfobase (F1: ідентичність 
 
     It 'кидаючий виняток називає нерозбірну сторону за походженням, а не рядком (П23)' {
         $err = $null
-        try { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
+        try { Test-KitSameInfobase -Left 'File=build/ib' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*ЛІВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*ПРАВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*build/ib*'
         $err | Should -Not -BeLike '*D:\x*'
         # права сторона нерозбірна (Pwd) при розібраній лівій — називається права, значення немає
         $err = $null
-        try { Test-KitSameInfobase -Left 'File=D:\ok' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
+        try { Test-KitSameInfobase -Left 'File=D:\ok' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*ПРАВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*ЛІВА-ПОХОДЖЕННЯ*'
         $err | Should -Not -BeLike '*Ж7*'
+        $err | Should -Not -BeLike '*Z7*'
         $err | Should -Not -BeLike '*D:\*'
     }
     It 'Srvr у лапках і без лапок — та сама база (§4.3 п. 4)' {
