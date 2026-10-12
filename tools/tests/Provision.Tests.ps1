@@ -224,7 +224,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
                 $before = Get-Content -LiteralPath $cfg -Raw
                 $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
                 $r.ExitCode | Should -Not -Be 0
-                $r.Output | Should -BeLike '*workPath*збігається з деревом джерела*Виправлення*'
+                $r.Output | Should -BeLike '*workPath*збігається з деревом джерела*Рішення за людиною*'
                 $cfg | Should -Exist
                 (Get-Content -LiteralPath $cfg -Raw) | Should -Be $before
             }
@@ -781,13 +781,13 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
     }
     It 'П26 п. 5: база A лежить в infobases воркспейсу B (пам''ять раннера B) — відмова, -Workspace B' {
         $repo = New-TwoWsRepo -Name 'x-mem-mine'
-        $a = Join-Path $repo 'Beta_SMB/build/infobases/a'
+        $a = Join-Path $repo 'Beta_SMB/build/infobases/origin/a'
         New-Item -ItemType Directory -Path $a -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Value 'база A'
         Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection "File=$a"
         $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike "*база агента воркспейсу 'Alpha_SMB' лежить у 'build/infobases' цього воркспейсу*"
+        $r.Output | Should -BeLike "*база агента воркспейсу 'Alpha_SMB' лежить у пам'яті раннера 'build/infobases/origin' цього воркспейсу*"
         (Get-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Raw).Trim() | Should -Be 'база A'
     }
     It 'П26 п. 5, контроль: build/ibA і build/ibB — дозволено для обох воркспейсів' {
@@ -943,6 +943,51 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.ExitCode | Should -Be 1 -Because $r.Output
         $r.Output | Should -BeLike "*пам'ять раннера воркспейсу 'Beta_SMB' перетинається з пам'яттю раннера цього воркспейсу*"
         (Get-Content -LiteralPath (Join-Path $mem 'hash.txt') -Raw).Trim() | Should -Be 'пам''ять'
+    }
+    It 'П26 п. 7 (Step 15): .dt у build/infobases/other/ — дозволено (ціль видалення — лише origin і база), .dt цілий' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tgt-other') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $repo 'Alpha_SMB/build/infobases/other/my.dt'
+        New-Item -ItemType Directory -Path (Split-Path $dt) -Force | Out-Null
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        (Get-Content -LiteralPath $dt -Raw).Trim() | Should -Be 'dt'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 7 (Step 15): .dt у build/infobases/origin/ — відмова до видалення, .dt і база цілі' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tgt-origin') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $repo 'Alpha_SMB/build/infobases/origin/my.dt'
+        New-Item -ItemType Directory -Path (Split-Path $dt) -Force | Out-Null
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*Шаблон бази (.dt) лежить у теці, яку kit прибирає*'
+        (Get-Content -LiteralPath $dt -Raw).Trim() | Should -Be 'dt'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 7 (Step 15, регресія п. 2): база агента в build/infobases/x — і далі відмова, вміст цілий' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tgt-p2') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/infobases/x'
+        $x = Join-Path $repo 'Alpha_SMB/build/infobases/x'
+        New-Item -ItemType Directory -Path $x -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $x '1Cv8.1CD') -Value 'база'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*Шлях бази агента воркспейсу 'Alpha_SMB' перетинається з*infobases*"
+        (Get-Content -LiteralPath (Join-Path $x '1Cv8.1CD') -Raw).Trim() | Should -Be 'база'
+    }
+    It 'F1: нерозбірний шлях шаблону в накладці іншого воркспейсу — відмова з ключем, без значення' {
+        # NUL у шляху: GetFullPath кидає ArgumentException (YAML-рядок у подвійних лапках з \0).
+        $repo = New-TwoWsRepo -Name 'f1-unparsable' -OverlayText ("workspaces:`n  Beta_SMB:`n    agentBase:`n      template: `"D:\\SECRETPATH\0x.dt`"")
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Alpha_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*workspaces.Beta_SMB.agentBase.template*'
+        $r.Output | Should -Not -BeLike '*SECRETPATH*'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
     }
     It 'П26 п. 7 (N2, межа M-A): дев-база на незмонтованому диску — маркер-фаза не кидає виняток, текстовий рівень діє, команда йде далі' {
         $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object Name)

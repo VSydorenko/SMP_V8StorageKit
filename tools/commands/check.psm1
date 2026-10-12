@@ -516,7 +516,8 @@ function Invoke-KitCheck {
                         if ($c.Kind -eq 'base' -and [string]::CompareOrdinal($ws.Path, $c.Other) -gt 0) { continue }
                         $detail = switch ($c.Kind) {
                             'base' { if ($c.Server) { "база агента воркспейсу '$($ws.Path)' і база агента воркспейсу '$($c.Other)' — та сама серверна база (збігаються сервер і Ref)" } else { "база агента воркспейсу '$($ws.Path)' перетинається з базою агента воркспейсу '$($c.Other)'" } }
-                            'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у '<workPath>/infobases' воркспейсу '$($ws.Path)'" }
+                            'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у пам'яті раннера '<workPath>/infobases/origin' воркспейсу '$($ws.Path)'" }
+                            'memory-both' { "пам'ять раннера воркспейсу '$($ws.Path)' перетинається з пам'яттю раннера воркспейсу '$($c.Other)'" }
                             default { "база агента воркспейсу '$($ws.Path)' лежить у '<workPath>/infobases' воркспейсу '$($c.Other)'" }
                         }
                         & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — provision -Apply -Force одного з воркспейсів знищив би базу іншого. " +

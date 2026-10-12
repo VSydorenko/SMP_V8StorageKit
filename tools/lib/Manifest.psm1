@@ -274,7 +274,12 @@ function Read-KitLocalOverlay {
             $template = $null
             if ($ws.Contains('agentBase')) {
                 Assert-KitMapKeys -Map $ws['agentBase'] -Allowed @('template') -Where "$where, workspaces.$label.agentBase"
-                if ($ws['agentBase'].Contains('template')) { $template = [string]$ws['agentBase']['template'] }
+                if ($ws['agentBase'].Contains('template')) {
+                    $template = [string]$ws['agentBase']['template']
+                    # Порожній шаблон — помилка конфігу, а не «шаблону немає»: тихе читання як відсутнього створило б
+                    # порожню базу замість відновлення з .dt. Значення в текст не потрапляє (П23).
+                    if ([string]::IsNullOrWhiteSpace($template)) { throw "$where — workspaces.$label.agentBase.template порожній: вкажіть шлях до .dt або приберіть ключ." }
+                }
             }
             $result.Workspaces[[string]$wsPath] = [pscustomobject]@{ Path = [string]$wsPath; AgentBaseTemplate = $template }
         }

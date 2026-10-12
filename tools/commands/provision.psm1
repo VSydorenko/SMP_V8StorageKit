@@ -209,8 +209,8 @@ function Invoke-KitProtectedPathsMarkerPhase {
         (Get-KitProtectedPaths, його зберіг перший прохід у плані) перевіряється Test-Path маркера за шляхом
         елемента й за кожним його предком у ВЛАСНОМУ написанні (для файла-шаблону — за наявними предками);
         (3) усі маркери знімаються у finally; (4) є відмова — виняток, і другий прохід (видалення) не
-        починається. Пишеться лише в теки, які прогін і так видаляє, тож «перший прохід без побічних ефектів»
-        лишається правдою: маркер живе лише всередині цієї функції.
+        починається. Перший прохід лишається без записів: маркери пише лише ця фаза, і живуть вони лише
+        всередині цієї функції (див. вище про єдиний запис, який через псевдонім може лягти в теку людини).
 
         Межі, свідомі й безпечні (спека П26 п. 7):
         M-A. Недоступний кандидат-псевдонім (шара офлайн, немає прав) маркер-рівень пропускає: Test-Path дає
@@ -219,7 +219,8 @@ function Invoke-KitProtectedPathsMarkerPhase {
         не запобігала б. Текстовий рівень для такого кандидата діє.
         J5/K3. Дев-базу, що є ПРЕДКОМ теки агента, текстовий рівень відхиляє, а маркер-рівень пропускає: маркер
         видно лише там, де кандидат веде В теку видалення чи в її середину, а предка вона не торкається.
-        Видаляється лише підтека, база людини ціла. Обидва результати безпечні.
+        Видаляється лише підтека, база людини ціла. Обидва результати безпечні. Предок цілі, зокрема через
+        псевдонім, — межа для всіх елементів: видаляється лише перевірене піддерево kit.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Plans)
@@ -262,7 +263,7 @@ function Invoke-KitProtectedPathsMarkerPhase {
                     try { $seen = [bool](Test-Path -LiteralPath (Join-Path $cand $m.Name) -ErrorAction SilentlyContinue) } catch { $seen = $false }
                     if ($seen) {
                         $refusals.Add("  - $($m.What) і $($el.Label) — та сама тека чи одна в одній (через псевдонім шляху, напр. \\localhost\C`$\… чи subst-диск). " +
-                            'kit не прибирає теку, у якій може лежати чужа база чи файл людини. Виправлення: задайте шлях без псевдонімів.')
+                            'kit не прибирає теку, у якій може лежати чужа база чи файл людини. Рішення за людиною: шлях без псевдонімів.')
                         break
                     }
                 }
@@ -309,7 +310,6 @@ function Get-KitProvisionPlan {
     if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
         $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
     }
-
     # Вісь власника — до вибору типу бази (рішення користувача 2026-09-10): порожнє дерево
     # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
     if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
@@ -340,7 +340,7 @@ function Get-KitProvisionPlan {
         $sep = [System.IO.Path]::DirectorySeparatorChar
         if (($agentWorkFull -eq $setFull) -or $agentWorkFull.StartsWith($setFull + $sep, [System.StringComparison]::OrdinalIgnoreCase) -or $setFull.StartsWith($agentWorkFull + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
             throw ("workPath у v8project.yaml воркспейсу '$($ws.Path)' збігається з деревом джерела '$($setSrc.Key)', лежить у ньому чи над ним — " +
-                   'робоча тека агента не може перетинатися з вихідниками. Виправлення: у v8project.yaml задайте workPath окремою текою воркспейсу поза деревами джерел (типово build).')
+                   'робоча тека агента не може перетинатися з вихідниками. Рішення за людиною: workPath у v8project.yaml — окрема тека воркспейсу поза деревами джерел (типово build).')
         }
     }
     Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
@@ -357,7 +357,6 @@ function Get-KitProvisionPlan {
     $protected = @(Get-KitProtectedPaths -Context $Context -Workspace $ws -Template $wsTemplate)
     $targets = @{
         base      = [pscustomobject]@{ Path = $(if ($ab.Kind -eq 'file') { $ab.Path } else { $null }); Connection = $(if ($ab.Kind -eq 'file') { $null } else { $ab.Connection }) }
-        infobases = [pscustomobject]@{ Path = (Join-Path $agentWork 'infobases'); Connection = $null }
         memory    = [pscustomobject]@{ Path = $memoryDir; Connection = $null }
     }
     $hits = @(Find-KitProtectedCollisions -Protected $protected -Targets $targets)
@@ -366,19 +365,19 @@ function Get-KitProvisionPlan {
         # Шаблон (.dt) — файл людини: у теці, яку -Apply зараз прибере (база чи пам'ять раннера), видалення знищило б
         # його, а крок restore посилався б на неіснуючий файл. Відмова до будь-якого видалення.
         throw ("Шаблон бази (.dt) лежить у теці, яку kit прибирає при перестворенні бази агента воркспейсу '$($ws.Path)' (тека бази чи пам'ять раннера під робочою текою). " +
-               'Перенесіть .dt поза робочу теку воркспейсу і повторіть команду.')
+               'Рішення за людиною: де лежатиме .dt — поза робочою текою воркспейсу.')
     }
     if ($hits.Count -gt 0) {
         $what = foreach ($h in $hits) {
             $el = $h.Element
             if ($el.Kind -eq 'otherbase' -and $h.Target -eq 'base') { "її база перетинається з базою агента воркспейсу '$($el.Other)'" }
-            elseif ($el.Kind -eq 'otherbase') { "база агента воркспейсу '$($el.Other)' лежить у '$($ws.Project.WorkPath)/infobases' цього воркспейсу" }
+            elseif ($el.Kind -eq 'otherbase') { "база агента воркспейсу '$($el.Other)' лежить у пам'яті раннера '$($ws.Project.WorkPath)/infobases/origin' цього воркспейсу" }
             elseif ($el.Kind -eq 'othermemory' -and $h.Target -eq 'base') { "її база лежить у '<workPath>/infobases' воркспейсу '$($el.Other)'" }
             elseif ($el.Kind -eq 'othermemory') { "пам'ять раннера воркспейсу '$($el.Other)' перетинається з пам'яттю раннера цього воркспейсу" }
             else { "$($el.Label) перетинається з текою, яку kit прибирає" }
         }
         throw ("База агента воркспейсу '$($ws.Path)' перетинається із захищеним шляхом: " + (@($what | Select-Object -Unique) -join '; ') + '. ' +
-               'kit не прибирає теку, у якій лежить чужа база. Виправлення: у v8project.local.yaml кожного воркспейсу задайте infobases.origin.connection окремою текою (типово build/ib).')
+               'kit не прибирає теку, у якій лежить чужа база. Рішення за людиною: infobases.origin.connection кожного воркспейсу у v8project.local.yaml — окрема тека (типово build/ib).')
     }
 
     $plan = [pscustomobject]@{
@@ -417,14 +416,14 @@ function Get-KitProvisionPlan {
     # (File=build/infobases) не має стирати теку, яка бази не містить.
     if (Test-KitPathsOverlap -Left $ab.Path -Right (Join-Path $agentWork 'infobases')) {
         throw ("Шлях бази агента воркспейсу '$($ws.Path)' перетинається з '$($ws.Project.WorkPath)/infobases' (пам'ять раннера, мітка власника, замок) — " +
-               'kit цього не прибирає. Виправлення: у v8project.local.yaml задайте infobases.origin.connection окремою текою бази (типово build/ib).')
+               'kit цього не прибирає. Рішення за людиною: infobases.origin.connection у v8project.local.yaml — окрема тека бази (типово build/ib).')
     }
     # П26 п. 2 (а): видаляється лише те, що є базою. Наявна непорожня тека без 1Cv8.1CD — не база агента,
     # навіть із -Force (File=build/artifacts не має стирати артефакти).
     if (-not $ab.Exists -and (Test-Path -LiteralPath $ab.Path -PathType Container) -and
             @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction SilentlyContinue).Count -gt 0) {
         throw ("Тека за шляхом бази агента воркспейсу '$($ws.Path)' наявна, непорожня й не містить 1Cv8.1CD — це не база агента, kit її не прибирає, навіть із -Force. " +
-               'Виправлення: у v8project.local.yaml задайте infobases.origin.connection шляхом, де лежить база агента або де нічого немає (типово build/ib).')
+               'Рішення за людиною: infobases.origin.connection у v8project.local.yaml — шлях, де лежить база агента або де нічого немає (типово build/ib).')
     }
     if ($Apply) {
         if ($ab.Exists -and -not $Force) {

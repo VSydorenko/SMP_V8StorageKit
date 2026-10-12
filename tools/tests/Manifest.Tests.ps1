@@ -210,6 +210,17 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         $o.Storages['A'].Path | Should -BeNullOrEmpty
     }
 
+    It 'F1: agentBase.template воркспейсу з пробілів чи порожній — помилка конфігу з ключем; не «шаблону немає»' {
+        foreach ($val in @("' '", "''")) {
+            $p = Write-Yaml 'tpl-blank.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: $val")
+            $m = try { Read-KitLocalOverlay -Path $p } catch { $_.Exception.Message }
+            $m | Should -BeLike '*workspaces.Beta_SMB.agentBase.template порожній*'
+        }
+        # контроль, що може впасти: непорожній шаблон читається
+        $ok = Write-Yaml 'tpl-ok.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: 'D:\x.dt'")
+        (Read-KitLocalOverlay -Path $ok).Workspaces['Beta_SMB'].AgentBaseTemplate | Should -Be 'D:\x.dt'
+    }
+
     It 'порожня накладка — порожні таблиці, не помилка' {
         $p = Write-Yaml 'empty-overlay.yaml' @('# ще нічого')
         $o = Read-KitLocalOverlay -Path $p
