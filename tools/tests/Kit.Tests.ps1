@@ -198,7 +198,7 @@ Describe 'Copy-KitTools — повнота пісочниці' {
     }
 
     It 'check у пісочниці не падає на відсутньому файлі плагіна' {
-        $out = & pwsh -NoProfile -File $script:SandboxKit check -RepoRoot $script:Repo 2>&1 | Out-String
+        $out = & pwsh -NoProfile -File $script:SandboxKit check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
         $code = $LASTEXITCODE
         # Клас «щось не скопіювали» має власний почерк: .NET кидає саме такими фразами,
         # і жодна штатна зупинка kit так не звучить.

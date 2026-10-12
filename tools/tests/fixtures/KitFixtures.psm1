@@ -399,10 +399,31 @@ function Invoke-KitCommand {
     # значенням параметра.
     if ($Repo)    { $cmdArgs.Add('-RepoRoot'); $cmdArgs.Add($Repo) }
     foreach ($m in $More) { $cmdArgs.Add($m) }
+    # check і session-check читають реєстр плагінів машини (версія Уніки — вимога, спека §4.4 п. 4):
+    # без підстановки результат тесту залежав би від того, яка Уніка стоїть на машині. Тест, що
+    # навмисно перевіряє реєстр машини, передає параметр сам.
+    if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-InstalledPluginsPath')) {
+        $cmdArgs.Add('-InstalledPluginsPath'); $cmdArgs.Add((New-KitFakeUnicaRegistry))
+    }
     $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
 }
 
+function New-KitFakeUnicaRegistry {
+    <#
+    .SYNOPSIS
+        Фальшивий installed_plugins.json з Унікою заданої версії — для -InstalledPluginsPath kit check
+        і session-check (спека §10.1 П21). Тести не залежать від того, яка Уніка стоїть на машині.
+    #>
+    [CmdletBinding()]
+    param([string]$Version = '0.13.0')
+    $dir = Join-Path $TestDrive "fake-unica-$Version-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $path = Join-Path $dir 'installed_plugins.json'
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value (
+        @{ plugins = @{ 'unica@unica' = @(@{ version = $Version; installPath = $dir }) } } | ConvertTo-Json -Depth 5)
+    $path
+}
 function Set-KitFakeAgentBase {
     <#
     .SYNOPSIS
@@ -525,4 +546,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
+Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces

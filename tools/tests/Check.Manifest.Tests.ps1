@@ -161,3 +161,26 @@ Describe 'kit check і решта команд — застарілий конф
         Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
     }
 }
+
+Describe 'kit check — версія Уніки (§4.4 п. 4)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+    }
+    It 'Уніка 0.12.3 у реєстрі — код 1, рецепт оновлення' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.12.3'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[-]*0.12.3*claude plugin update unica@unica*'
+    }
+    It 'Уніка 0.13.0 — знахідки unica-version немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'new-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.13.0'))
+        $r.Output | Should -Not -BeLike '*плагін unica*'
+    }
+    It 'session-check прокидає -InstalledPluginsPath у check' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sc-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.12.3'))
+        $r.Output | Should -BeLike '*0.12.3*'
+    }
+}

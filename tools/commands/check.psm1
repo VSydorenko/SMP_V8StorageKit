@@ -29,6 +29,9 @@ function Invoke-KitCheck {
         [Parameter(Mandatory)]$Context,
         [string]$Workspace,
         [string]$Source,
+        # Реєстр плагінів машини, де шукається Уніка (спека §10.1 П21: тестовий шов — параметр, не змінна
+        # оточення). Умовчання — реєстр поточного користувача.
+        [string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json'),
         # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
         # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
         # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
@@ -39,6 +42,12 @@ function Invoke-KitCheck {
     foreach ($f in $Context.Findings) { $findings.Add($f) }
     $add = { param([string]$Level, [string]$Check, [string]$Message) $findings.Add((New-KitFinding -Level $Level -Check $Check -Message $Message)) }
     $root = $Context.RepoRoot
+
+    # Спека 2026-10-11 §4.4 п. 4: версія Уніки — вимога. Реєстр машинний (Уніка — плагін рівня
+    # користувача); параметр -InstalledPluginsPath — той самий інтерфейс, що в check-environment.ps1
+    # (§10.1 П21: жодної змінної оточення заради тестів). Поза if ($Context.Manifest): стан машини.
+    $unicaVerdict = Get-KitUnicaVersionVerdict -Installation (Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath)
+    if ($unicaVerdict.Level -ne 'ok') { & $add $unicaVerdict.Level 'unica-version' $unicaVerdict.Message }
 
     if ($Context.Manifest) {
         $all = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)

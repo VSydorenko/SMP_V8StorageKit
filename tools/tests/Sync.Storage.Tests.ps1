@@ -81,7 +81,7 @@ Describe 'kit sync — реальне сховище (перший і повто
     }
 
     It 'kit check після реплею — без помилок' {
-        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $script:Repo 2>&1 | Out-String
+        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $out
     }
 }

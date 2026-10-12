@@ -70,9 +70,10 @@ $checks.Add((New-EnvironmentCheck -Name 'Pester 5+' -Category 'Розробка 
 # --- Вихідники ---------------------------------------------------------------
 
 $unica = Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath
-$unicaOk = $unica.Installed -and $unica.PathExists
-$unicaDetail = if ($unicaOk) {
-    "версія $($unica.Version), $($unica.InstallPath)"
+$unicaVerdict = Get-KitUnicaVersionVerdict -Installation $unica
+$unicaOk = $unica.Installed -and $unica.PathExists -and $unicaVerdict.Level -ne 'error'
+$unicaDetail = if ($unica.Installed -and $unica.PathExists) {
+    "версія $($unica.Version), $($unica.InstallPath)" + $(if ($unicaVerdict.Level -in 'error', 'warn') { " — $($unicaVerdict.Message)" } else { '' })
 } else {
     $unica.Reason
 }
@@ -130,9 +131,16 @@ if ($warnings.Count -gt 0) {
         # ~/.claude/plugins/known_marketplaces.json, а форма 'unica@unica' — це той
         # самий ключ, яким плагін значиться в installed_plugins.json.
         Write-Host ''
-        Write-Host '  Встановити unica — https://github.com/IngvarConsulting/unica'
-        Write-Host '    claude plugin marketplace add IngvarConsulting/unica-marketplace'
-        Write-Host '    claude plugin install unica@unica'
+        if ($unica.Installed -and $unica.PathExists) {
+            # Уніка стоїть, але старша за 0.13 ($unicaOk інакше був би true): потрібне оновлення, не встановлення.
+            Write-Host '  Оновити unica (і почати нову сесію):'
+            Write-Host '    claude plugin marketplace update unica'
+            Write-Host '    claude plugin update unica@unica'
+        } else {
+            Write-Host '  Встановити unica — https://github.com/IngvarConsulting/unica'
+            Write-Host '    claude plugin marketplace add IngvarConsulting/unica-marketplace'
+            Write-Host '    claude plugin install unica@unica'
+        }
     }
 
     if (-not $pester.Available) {

@@ -13,13 +13,28 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         @{ plugins = @{ 'unica@unica' = @(@{ version = '0.12.3'; installPath = 'C:\nope' }) } } |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:EmptyRegistry -Encoding UTF8
 
+        # Шим запускає справжній kit session-check БЕЗ -InstalledPluginsPath (шим параметра не передає
+        # за дизайном), тож версію Уніки kit читає з реєстру домашнього каталогу. Щоб тест не залежав
+        # від Уніки на машині, підпроцесу шима підставляємо фальшивий дім: форма запису Уніки — з
+        # New-KitFakeUnicaRegistry (друга форма не вигадується), плюс запис v8storagekit.
+        $script:FakeHome = Join-Path $TestDrive 'fake-home'
+        New-Item -ItemType Directory -Path (Join-Path $script:FakeHome '.claude/plugins') -Force | Out-Null
+        $homeRegistry = Get-Content -LiteralPath (New-KitFakeUnicaRegistry -Version '0.13.0') -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+        $homeRegistry.plugins['v8storagekit@smp-v8storagekit'] = @(@{ version = 'test'; installPath = $script:KitRoot })
+        $homeRegistry | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $script:FakeHome '.claude/plugins/installed_plugins.json') -Encoding UTF8
+
         function script:Invoke-Shim {
             param([string]$Cwd, [string]$Registry)
             $env:V8KIT_PLUGINS_REGISTRY = $Registry
+            $prevHome = $env:HOME; $prevProfile = $env:USERPROFILE
+            $env:HOME = $script:FakeHome; $env:USERPROFILE = $script:FakeHome
             try {
                 Push-Location $Cwd
                 try { $out = & pwsh -NoProfile -File $script:Shim 2>&1 | Out-String } finally { Pop-Location }
-            } finally { Remove-Item Env:V8KIT_PLUGINS_REGISTRY -ErrorAction SilentlyContinue }
+            } finally {
+                Remove-Item Env:V8KIT_PLUGINS_REGISTRY -ErrorAction SilentlyContinue
+                $env:HOME = $prevHome; $env:USERPROFILE = $prevProfile
+            }
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
         }
     }

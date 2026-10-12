@@ -209,4 +209,50 @@ Describe 'check-environment.ps1: unica не впливає на код вихо�
         $out | Should -Match 'Попередження'
         $out | Should -Match 'вихідники'
     }
+
+    It 'Уніка 0.12.3 стоїть — радить оновити, а не встановлювати' {
+        $dir = Join-Path $TestDrive 'old-present'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $reg = Join-Path $TestDrive 'old.json'
+        script:New-Registry -Path $reg -Plugins @{ 'unica@unica' = @( @{ installPath = $dir; version = '0.12.3' } ) }
+        $out = & pwsh -NoProfile -File $script:CheckScript -InstalledPluginsPath $reg 2>&1 | Out-String
+        $out | Should -BeLike '*claude plugin update unica@unica*'
+        $out | Should -Not -BeLike '*claude plugin install unica@unica*'
+    }
+    It 'Уніки немає — радить встановити, а не оновити' {
+        $reg = Join-Path $TestDrive 'none.json'
+        script:New-Registry -Path $reg -Plugins @{}
+        $out = & pwsh -NoProfile -File $script:CheckScript -InstalledPluginsPath $reg 2>&1 | Out-String
+        $out | Should -BeLike '*claude plugin install unica@unica*'
+    }
+}
+
+
+Describe 'Get-KitUnicaVersionVerdict (§4.4 п. 4, §10 П11)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force }
+    It '<V> → <Level>' -ForEach @(
+        @{ V = '0.12.3'; Level = 'error' }
+        @{ V = '0.13.0'; Level = 'ok' }
+        @{ V = '0.13.9'; Level = 'ok' }
+        @{ V = '0.14.0'; Level = 'warn' }
+        @{ V = '1.0.0';  Level = 'warn' }
+        @{ V = 'dev';    Level = 'warn' }
+    ) {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = $V; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Level | Should -Be $Level
+    }
+    It 'error називає рецепт оновлення' {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = '0.12.3'; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Message | Should -BeLike '*0.12.3*claude plugin update unica@unica*нову сесію*'
+    }
+    It 'warn називає процедуру E контракту' {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = '0.14.0'; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Message | Should -BeLike '*процедур*E*unica-contract.md*'
+    }
+    It 'Уніки немає — info, kit працює й без неї' {
+        $i = [pscustomobject]@{ Installed = $false; PathExists = $false; Version = ''; InstallPath = ''; Reason = 'немає в реєстрі' }
+        $v = Get-KitUnicaVersionVerdict -Installation $i
+        $v.Level | Should -Be 'info'
+        $v.Message | Should -BeLike '*немає в реєстрі*'
+    }
 }

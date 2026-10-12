@@ -33,6 +33,8 @@ function Invoke-KitSessionCheck {
         [Parameter(Mandatory)]$Context,
         [string]$Workspace,
         [string]$Source,
+        # Реєстр плагінів машини — прокидається в check (там версія Уніки); умовчання те саме.
+        [string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json'),
         # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
         # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
         # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
@@ -46,7 +48,7 @@ function Invoke-KitSessionCheck {
     # --- Повний check першим (спека §5). Виняток із check — теж «репозиторій суперечливий», код 1.
     $checkFindings = @()
     try {
-        $checkFindings = @((Invoke-KitCheck -Context $Context -Workspace $Workspace -Source $Source -Quiet).Findings)
+        $checkFindings = @((Invoke-KitCheck -Context $Context -Workspace $Workspace -Source $Source -InstalledPluginsPath $InstalledPluginsPath -Quiet).Findings)
     } catch {
         $checkFindings = @(New-KitFinding -Level error -Check 'check' -Message "check не відпрацював: $($_.Exception.Message)")
     }

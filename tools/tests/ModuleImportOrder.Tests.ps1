@@ -22,7 +22,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
             'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitSameInfobase',
             'Convert-KitEdtPath', 'Get-KitEdtRenamePlan', 'Get-KitDirtyRecords', 'Backup-KitDirtyFiles',
-            'Get-KitOriginGap', 'Get-KitPluginVersion',
+            'Get-KitOriginGap', 'Get-KitPluginVersion', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
             'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform'
@@ -37,8 +37,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
         }
     }
 
-    It 'module-order.txt містить кожен lib/*.psm1, крім Environment' {
-        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName | Where-Object { $_ -ne 'Environment' })
+    It 'module-order.txt містить кожен lib/*.psm1' {
+        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName)
         foreach ($m in $onDisk) { $script:Modules | Should -Contain $m -Because "модуль $m є в lib/, але не в module-order.txt" }
     }
 

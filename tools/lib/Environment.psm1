@@ -234,4 +234,41 @@ function Get-PesterAvailability {
     return $result
 }
 
-Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability
+# Перевірена мінорна версія Уніки (спека 2026-10-11 §4.4 п. 4, §10 П11): будь-який патч 0.13.x — норма.
+$script:UnicaTestedMinor = [version]'0.13'
+
+function Get-KitUnicaVersionVerdict {
+    <#
+    .SYNOPSIS
+        Висновок про версію встановленої Уніки: ok | info (немає) | warn (новіша чи нерозбірна) | error (< 0.13).
+    .DESCRIPTION
+        Kit говорить лише мовою Уніки 0.13 (рішення 9 спеки): на 0.12 скіли й шаблони посилаються на
+        інструменти, яких там немає, а Уніка, новіша за перевірену, могла знову змінити контракт —
+        тоді спершу процедура E docs/unica-contract.md. Без Уніки конвеєр kit працює (CLAUDE.md
+        «Зв'язок з Unica»), тому це info, а не помилка.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Installation)
+
+    if (-not $Installation.Installed -or -not $Installation.PathExists) {
+        return [pscustomobject]@{ Level = 'info'; Message = ("Плагін unica не знайдено ($($Installation.Reason)): конвеєр kit працює й без нього, " +
+            'але працювати з вихідниками, які він синхронізує, нічим.') }
+    }
+    $raw = [string]$Installation.Version
+    if ($raw -notmatch '^(?<maj>\d+)\.(?<min>\d+)(\.\d+)?') {
+        return [pscustomobject]@{ Level = 'warn'; Message = "Версію плагіна unica '$raw' не розібрано — kit перевірено на Уніці 0.13.x." }
+    }
+    $minor = [version]('{0}.{1}' -f $Matches['maj'], $Matches['min'])
+    if ($minor -lt $script:UnicaTestedMinor) {
+        return [pscustomobject]@{ Level = 'error'; Message = ("Плагін unica $raw старіший за 0.13: kit говорить лише мовою Уніки 0.13 (v8-runner 0.14), " +
+            'старого словника в скілах і шаблонах більше немає. Оновіть Уніку — claude plugin marketplace update unica; ' +
+            'claude plugin update unica@unica — і почніть нову сесію (оновлення перемикає всі репозиторії машини).') }
+    }
+    if ($minor -gt $script:UnicaTestedMinor) {
+        return [pscustomobject]@{ Level = 'warn'; Message = ("Плагін unica $raw новіший за перевірену 0.13.x: перед роботою звірте контракт " +
+            'за процедурою E docs/unica-contract.md (у репозиторії плагіна v8storagekit).') }
+    }
+    [pscustomobject]@{ Level = 'ok'; Message = "Плагін unica $raw." }
+}
+
+Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Get-KitUnicaVersionVerdict, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability
