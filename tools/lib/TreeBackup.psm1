@@ -220,9 +220,11 @@ function Get-KitInvisibleWork {
     <#
     .SYNOPSIS
         Робота під шляхом набору, якої не бачить git status --porcelain, а pull --force чи canon -Apply
-        знищує безслідно (спека §10.2 П24): гітігноровані файли, файли з прапорцем та підмодулі.
+        знищує безслідно (спека §10.2 П24): гітігноровані файли, файли з прапорцем, підмодулі та вкладені репозиторії.
     .DESCRIPTION
         Записи { Path; Kind }:
+        - nested-repo — сам .git (тека чи файл) під шляхом набору, що не є gitlink; Path — тека вкладеного
+          репозиторію. Пошук обходом ФС, від статусу в git не залежить (нижче, після git-видів);
         - ignored — ls-files --others --ignored --exclude-standard, мінус похідне
           ($script:KitDerivedIgnoredPattern);
         - flagged — ls-files -v: тег з малої літери (assume-unchanged, будь-яка) або S (skip-worktree).
@@ -254,6 +256,29 @@ function Get-KitInvisibleWork {
     }
     foreach ($e in (& $run @('ls-files', '-z', '-s'))) {
         if ($e -match '^160000 [0-9a-f]+ \d\t(?<p>.+)$') { $records.Add([pscustomobject]@{ Path = $Matches.p; Kind = 'gitlink' }) }
+    }
+    # nested-repo: сам .git (тека чи файл) під шляхом набору, який не є gitlink. Ознака — файлова система,
+    # а не вигляд виводу git: ігнорований вкладений репозиторій у ls-files --others не з'являється.
+    # Backup-KitDirtyFiles теки пропускає, тож стирання знищило б його разом з історією. Всередину знайденого
+    # .git не заходимо; reparse-point теки не слідуємо (цикли й вихід за межі набору).
+    $gitlinks = @($records | Where-Object Kind -eq 'gitlink' | ForEach-Object { $_.Path.TrimEnd('/') })
+    $rootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $RepoPath))
+    if (Test-Path -LiteralPath $rootFull -PathType Container) {
+        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+        $stack = [System.Collections.Generic.Stack[string]]::new()
+        $stack.Push($rootFull)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            $hasGit = $false
+            foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
+                if ($item.Name -ceq '.git') { $hasGit = $true; continue }
+                if ($item.PSIsContainer -and -not $item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) { $stack.Push($item.FullName) }
+            }
+            if ($hasGit) {
+                $rel = ($dir.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
+                if ($rel -notin $gitlinks) { $records.Add([pscustomobject]@{ Path = $rel; Kind = 'nested-repo' }) }
+            }
+        }
     }
     $records.ToArray()
 }

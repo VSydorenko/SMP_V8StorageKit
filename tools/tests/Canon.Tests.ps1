@@ -584,6 +584,31 @@ Describe 'kit canon -Apply — зупинка на невидимій робот
         Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
         Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
     }
+    It 'вкладений git-репозиторій: <Case> — зупинка (nested-repo), тека ціла, платформа не запускалась' -ForEach @(
+        @{ Case = 'невідстежуваний'; Rel = 'nest'; Ignore = $false }
+        @{ Case = 'ігнорований під .git/info/exclude'; Rel = 'nest'; Ignore = $true }
+        @{ Case = 'на глибині кількох тек'; Rel = 'a/b/c/nest'; Ignore = $false }
+    ) {
+        $repo = New-InvRepo ('inv-nested-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        $nest = Join-Path $repo "Alpha_SMB/cfe/src/$Rel"
+        New-Item -ItemType Directory -Path $nest -Force | Out-Null
+        git -C $nest init -q
+        Set-Content -LiteralPath (Join-Path $nest 'history.txt') -Value 'історія' -Encoding UTF8
+        if ($Ignore) { Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value "Alpha_SMB/cfe/src/$Rel/" -Encoding UTF8 }
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw "*невидима робота під набором*nested-repo*Alpha_SMB/cfe/src/$Rel*"
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Join-Path $nest '.git' | Should -Exist
+        Join-Path $nest 'history.txt' | Should -Exist
+    }
+    It 'контроль: набір без .git усередині — зупинки немає' {
+        $repo = New-InvRepo 'inv-nonested'
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src/plain/dir') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/plain/dir/x.txt') -Value 'x' -Encoding UTF8
+        @(Get-KitInvisibleWork -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' | Where-Object Kind -eq 'nested-repo') | Should -HaveCount 0
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } | Should -Not -Throw
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 1
+    }
     It 'контроль: ConfigDumpInfo.xml і .cf в Ext/ParentConfigurations — похідне, зупинки немає, платформа запущена' {
         $repo = New-InvRepo 'inv-derived'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8

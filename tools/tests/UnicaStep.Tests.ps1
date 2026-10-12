@@ -416,6 +416,16 @@ Describe 'Невидима робота під набором — фікс-ра�
         @($w | Where-Object { $_.Kind -eq 'gitlink' -and $_.Path -eq 'Ws/cf/src/sub' }) | Should -HaveCount 1
         Op-For $r | Should -Be 'push'
     }
+    It 'вкладений git-репозиторій (невідстежуваний) під набором — не чисто, крок push' {
+        $r = New-Mini2
+        $nest = Join-Path $r 'Ws/cf/src/nest'
+        New-Item -ItemType Directory -Path $nest -Force | Out-Null
+        & git -C $nest init -q
+        $w = @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src')
+        @($w | Where-Object { $_.Kind -eq 'nested-repo' -and $_.Path -eq 'Ws/cf/src/nest' }) | Should -HaveCount 1
+        Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeFalse
+        Op-For $r | Should -Be 'push'
+    }
     It 'збій git — виняток, не «чисто»' {
         $notRepo = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $notRepo -Force | Out-Null
