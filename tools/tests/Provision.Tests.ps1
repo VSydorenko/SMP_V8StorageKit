@@ -363,12 +363,14 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $script:StorageWs = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
-        function script:New-TwoWsRepo { param([string]$Name, [switch]$NoBBuild)
+        function script:Test-AdminShare { Test-Path -LiteralPath ('\\localhost\' + ((Split-Path -Qualifier $TestDrive) -replace ':', '$') + '\') }
+        function script:Get-UncAlias { param([string]$Path) '\\localhost\' + ($Path -replace '^([A-Za-z]):', '$1$') }
+        function script:New-TwoWsRepo { param([string]$Name, [switch]$NoBBuild, [string]$OverlayText)
             $ws = [ordered]@{
                 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
                 'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             }
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces $ws -WithHooks -WithAgentBase
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces $ws -WithHooks -WithAgentBase -OverlayText $OverlayText
             foreach ($n in 'Alpha_SMB', 'Beta_SMB') {
                 $dir = Join-Path $repo "$n/cf/src"; New-Item -ItemType Directory -Path $dir -Force | Out-Null
                 Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base')
@@ -817,6 +819,92 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         Test-Path -LiteralPath $mem | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $art 'precious.txt') | Should -BeTrue
     }
+    It 'П26 п. 6 (Step 12): два воркспейси, відмова другого на маркер-рівні (псевдонім) — перший цілий: база й пам''ять раннера, маркерів немає' {
+        if (-not (Test-AdminShare)) { Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return }
+        $name = 'mk-two-ws'
+        $unc = Get-UncAlias (Join-Path (Join-Path $TestDrive $name) 'Beta_SMB\build\ib')
+        $repo = New-TwoWsRepo -Name $name -OverlayText "infobases:`n  dev:`n    connection: 'File=$unc'"
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $mem 'hash.txt') -Value 'пам''ять'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*Перевірка псевдонімів шляху не пройдена*база агента воркспейсу Beta_SMB і дев-база 'dev' — та сама тека чи одна в одній*"
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $mem 'hash.txt') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repo 'Beta_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 6 (Step 12): відмова на пам''яті раннера того самого воркспейсу — база агента теж ціла (раніше її вже було видалено)' {
+        if (-not (Test-AdminShare)) { Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return }
+        $repoPath = Join-Path $TestDrive 'mk-memory'
+        $unc = Get-UncAlias (Join-Path $repoPath 'Alpha_SMB\build\infobases\origin\dev')
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText "infobases:`n  dev:`n    connection: 'File=$unc'"
+        Add-Owner -Repo $repo
+        $dev = Join-Path $repo 'Alpha_SMB/build/infobases/origin/dev'
+        New-Item -ItemType Directory -Path $dev -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Value 'людська база'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*пам'ять раннера бази origin воркспейсу Alpha_SMB і дев-база 'dev' — та сама тека чи одна в одній*"
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 7 (N-1): шаблон записано як \\localhost\C$\…\build\ib\my.dt — відмова до видалення, my.dt і база цілі' {
+        if (-not (Test-AdminShare)) { Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl-alias') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $repo 'Alpha_SMB/build/ib/my.dt'
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', (Get-UncAlias $dt))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*шаблон бази (.dt) — та сама тека чи одна в одній (через псевдонім шляху*'
+        (Get-Content -LiteralPath $dt -Raw).Trim() | Should -Be 'dt'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 7 (N-1, регресія I-3): той самий шаблон звичайним шляхом — відмова, my.dt цілий' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl-plain') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $repo 'Alpha_SMB/build/ib/my.dt'
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Шаблон бази (.dt) лежить у теці, яку kit прибирає*'
+        (Get-Content -LiteralPath $dt -Raw).Trim() | Should -Be 'dt'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 7 (N-1, контроль): шаблон поза теками видалення — дозволено, база прибрана, my.dt цілий, маркерів немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl-out') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $TestDrive 'tpl-out-files/my.dt'
+        New-Item -ItemType Directory -Path (Split-Path $dt) -Force | Out-Null
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        (Get-Content -LiteralPath $dt -Raw).Trim() | Should -Be 'dt'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 5: серверні бази двох воркспейсів з тим самим сервером і Ref — відмова до видалення, пам''ять раннера ціла' {
+        $repo = New-TwoWsRepo -Name 'srv-same-ref'
+        foreach ($n in 'Alpha_SMB', 'Beta_SMB') { Set-KitFakeAgentBase -Repo $repo -Workspace $n -Connection 'Srvr=VSDEV;Ref=agent_shared;' }
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $mem 'hash.txt') -Value 'пам''ять'
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*перетинається з базою агента воркспейсу 'Beta_SMB'*"
+        Test-Path -LiteralPath (Join-Path $mem 'hash.txt') | Should -BeTrue
+    }
+    It 'П26 п. 5, контроль: серверні бази з різним Ref — дозволено' {
+        $repo = New-TwoWsRepo -Name 'srv-diff-ref'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection 'Srvr=VSDEV;Ref=agent_a;'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection 'Srvr=VSDEV;Ref=agent_b;'
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+    }
     It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:provision' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })
@@ -879,6 +967,75 @@ Describe 'kit provision — CreatedBy у результаті (хто створ
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL'; server = 'pg1'; name = 'agent_db'; locale = 'uk' })
         $r = Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -ServerBase New
         $r.Provisioned[0].CreatedBy | Should -Be 'unica'
+    }
+}
+
+Describe 'kit provision — маркер-фаза й єдиний перелік захищених шляхів (П26 п. 6–7), у процесі' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/provision.psm1").Path -Force
+        function script:Add-Owner3 { param([string]$Repo)
+            $dir = Join-Path $Repo 'Alpha_SMB/cf/src'; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base') }
+        function script:Test-AdminShare3 { Test-Path -LiteralPath ('\\localhost\' + ((Split-Path -Qualifier $TestDrive) -replace ':', '$') + '\') }
+    }
+
+    It 'збій запису маркера — відмова (fail-closed), нічого не видалено' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mk-fail') -WithHooks -WithAgentBase
+        Add-Owner3 -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $mem 'hash.txt') -Value 'пам''ять'
+        Mock -ModuleName provision Set-Content { throw 'диск заповнений' } -ParameterFilter { "$LiteralPath" -like '*.kit-alias-probe-*' }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        { Invoke-KitProvision -Context $ctx -Apply $true -Force } | Should -Throw '*не вдалося покласти маркер перевірки псевдонімів шляху*'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $mem 'hash.txt') | Should -BeTrue
+    }
+
+    It 'порядок: для кожної теки спершу Assert-SafeWorkPath, потім маркер; теці, якої немає, маркер не потрібен' {
+        $work = Join-Path $TestDrive 'mk-order/work'
+        $abDir = Join-Path $work 'ib'; $memDir = Join-Path $work 'infobases/origin'
+        New-Item -ItemType Directory -Path $abDir -Force | Out-Null   # пам'яті раннера немає
+        # Замикання (GetNewClosure) ховає параметри мока від його тіла, тож журнал подій — глобальна змінна.
+        $global:KitMarkerEvents = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName provision Assert-SafeWorkPath { $global:KitMarkerEvents.Add('assert:' + (Split-Path "$Path" -Leaf)) }
+        Mock -ModuleName provision Set-Content { $global:KitMarkerEvents.Add('marker:' + (Split-Path (Split-Path "$LiteralPath" -Parent) -Leaf)) } -ParameterFilter { "$LiteralPath" -like '*.kit-alias-probe-*' }
+        $plan = [pscustomobject]@{ Skip = $false; Server = $false; Ws = [pscustomobject]@{ Path = 'W' }; Ab = [pscustomobject]@{ Path = $abDir }
+            AgentWork = $work; MemoryDir = $memDir; Protected = @() }
+        $ctx = [pscustomobject]@{ RepoRoot = $TestDrive }
+        InModuleScope provision -Parameters @{ Ctx = $ctx; Plan = $plan } { param($Ctx, $Plan) Invoke-KitProtectedPathsMarkerPhase -Context $Ctx -Plans @($Plan) }
+        try { $global:KitMarkerEvents -join ',' | Should -Be 'assert:ib,marker:ib,assert:origin' } finally { Remove-Variable -Name KitMarkerEvents -Scope Global -ErrorAction SilentlyContinue }
+    }
+
+    Context 'структурна вимога: перелік будує одна функція, і обидва рівні беруть його звідти' {
+        It 'фіктивний елемент у переліку: текстовий рівень першого проходу його бачить' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-text') -WithHooks -WithAgentBase
+            Add-Owner3 -Repo $repo
+            $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+            $fake = [pscustomobject]@{ Kind = 'fake'; Other = $null; Label = 'ФІКТИВНИЙ-ЕЛЕМЕНТ'; Path = $ibDir; Connection = $null; Candidates = @(); Against = @('base') }
+            Mock -ModuleName provision Get-KitProtectedPaths ({ @($fake) }.GetNewClosure())
+            $ctx = Invoke-KitPreflight -RepoRoot $repo
+            { Invoke-KitProvision -Context $ctx -Apply $true -Force } | Should -Throw '*ФІКТИВНИЙ-ЕЛЕМЕНТ перетинається з текою, яку kit прибирає*'
+            Test-Path -LiteralPath (Join-Path $ibDir '1Cv8.1CD') | Should -BeTrue
+        }
+        It 'фіктивний елемент-псевдонім: текст його пропускає, маркер-фаза бачить — база ціла, маркера немає' {
+            if (-not (Test-AdminShare3)) { Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-alias') -WithHooks -WithAgentBase
+            Add-Owner3 -Repo $repo
+            $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'
+            $unc = '\\localhost\' + ($ibDir -replace '^([A-Za-z]):', '$1$')
+            $fake = [pscustomobject]@{ Kind = 'fake'; Other = $null; Label = 'ФІКТИВНИЙ-ПСЕВДОНІМ'; Path = (Join-Path $TestDrive 'fake-alias-elsewhere'); Connection = $null; Candidates = @($unc); Against = @('base') }
+            Mock -ModuleName provision Get-KitProtectedPaths ({ @($fake) }.GetNewClosure())
+            $ctx = Invoke-KitPreflight -RepoRoot $repo
+            { Invoke-KitProvision -Context $ctx -Apply $true -Force } | Should -Throw '*Перевірка псевдонімів шляху не пройдена*ФІКТИВНИЙ-ПСЕВДОНІМ — та сама тека*'
+            Test-Path -LiteralPath (Join-Path $ibDir '1Cv8.1CD') | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+        }
     }
 }
 

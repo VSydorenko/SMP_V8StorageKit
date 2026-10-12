@@ -515,11 +515,11 @@ function Invoke-KitCheck {
                     foreach ($c in @(Find-KitAgentBaseCollisions -Context $Context -Workspace $ws)) {
                         if ($c.Kind -eq 'base' -and [string]::CompareOrdinal($ws.Path, $c.Other) -gt 0) { continue }
                         $detail = switch ($c.Kind) {
-                            'base' { "база агента воркспейсу '$($ws.Path)' перетинається з базою агента воркспейсу '$($c.Other)'" }
+                            'base' { if ($c.Server) { "база агента воркспейсу '$($ws.Path)' і база агента воркспейсу '$($c.Other)' — та сама серверна база (збігаються сервер і Ref)" } else { "база агента воркспейсу '$($ws.Path)' перетинається з базою агента воркспейсу '$($c.Other)'" } }
                             'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у '<workPath>/infobases' воркспейсу '$($ws.Path)'" }
                             default { "база агента воркспейсу '$($ws.Path)' лежить у '<workPath>/infobases' воркспейсу '$($c.Other)'" }
                         }
-                        & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail (одна тека, вкладена чи батьківська) — provision -Apply -Force одного з воркспейсів знищив би базу іншого. " +
+                        & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — provision -Apply -Force одного з воркспейсів знищив би базу іншого. " +
                             'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:provision).')
                     }
                 } catch {

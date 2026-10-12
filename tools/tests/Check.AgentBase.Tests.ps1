@@ -57,6 +57,34 @@ Describe 'kit check — інваріанти репозиторію-спожив
         ([regex]::Matches($r.Output, 'перетинається з базою агента воркспейсу')).Count | Should -Be 1
     }
 
+    It 'П26 п. 5: база Beta лежить у workPath/infobases воркспейсу Alpha — error з обох боків (гілки memory-mine і memory-theirs), код 1' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-memory') -Workspaces $ws -WithHooks -WithGitignore
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/build/infobases/x'))
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        # memory-mine: з боку Alpha чужа база Beta лежить у його infobases; memory-theirs: з боку Beta його база лежить в infobases Alpha.
+        $r.Output | Should -BeLike "*Alpha_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у '<workPath>/infobases' воркспейсу 'Alpha_SMB'*"
+        $r.Output | Should -BeLike "*Beta_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у '<workPath>/infobases' воркспейсу 'Alpha_SMB'*"
+    }
+
+    It 'П26 п. 5: серверні бази двох воркспейсів з тим самим Ref — error без слів про теку, один раз' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-srv-ref') -Workspaces $ws -WithHooks -WithGitignore
+        foreach ($n in 'Alpha_SMB', 'Beta_SMB') { Set-KitFakeAgentBase -Repo $repo -Workspace $n -Connection 'Srvr=VSDEV;Ref=agent_shared;' }
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*та сама серверна база (збігаються сервер і Ref)*"
+        $r.Output | Should -BeLike '*(збігаються сервер і Ref) — provision*'
+        ([regex]::Matches($r.Output, 'та сама серверна база')).Count | Should -Be 1
+    }
+
     It 'П26 п. 5, контроль: build/ibA і build/ibB — check не скаржиться на перетин' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ibA'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
