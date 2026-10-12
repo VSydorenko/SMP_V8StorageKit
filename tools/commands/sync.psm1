@@ -342,7 +342,7 @@ function Invoke-KitSync {
 
         # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
         $workDir = Join-Path $root 'build/sync' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -Description "робоча тека джерела $($src.Key)"
+        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека джерела $($src.Key)"
         $staleWt = Join-Path $workDir 'wt'
         if (Test-Path -LiteralPath $staleWt) {
             # Ґейт на Test-Path (як у New-KitStorageWorktree): є що знімати лише після
@@ -379,7 +379,7 @@ function Invoke-KitSync {
             # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
             # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
             if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
-            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
+            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir -RepoRoot $root
             $ibUser = ''; $ibPassword = ''
             $fallback = $true
             Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
@@ -542,13 +542,13 @@ function Invoke-KitSync {
                     if ($hasFor -and $v.Version -eq $ForVersion) {
                         # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
                         $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir `
+                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
                             -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
                         $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
                         $dumpedVia = $DumpPlatform
                     } else {
                         $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser -Password $ibPassword
+                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -User $ibUser -Password $ibPassword
                     }
                 } catch {
                     if (Test-KitDumpFailure -ErrorRecord $_) {
@@ -562,7 +562,7 @@ function Invoke-KitSync {
 
                 $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
                 $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
-                    -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp
+                    -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
                 if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
                 $done.Add($v.Version)
             }

@@ -222,8 +222,8 @@ function Invoke-KitProvision {
         # решта kit його шанує (Task 3 будує build/artifacts саме від WorkPath) —
         # жорсткий 'build' відкидав би законну базу агента в репозиторії з workPath: 'out'.
         $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
-        Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -Description "база агента воркспейсу $($ws.Path)"
+        Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
+        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
 
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
         Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
@@ -252,7 +252,7 @@ function Invoke-KitProvision {
         # логіки. New-V8FileInfobase все одно робить власну (V8.psm1) як останній
         # запобіжник безпосередньо перед Remove-Item.
         Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -TemplatePath $wsTemplate
+        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -TemplatePath $wsTemplate
         Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
         Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
 

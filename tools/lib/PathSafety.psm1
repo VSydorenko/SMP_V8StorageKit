@@ -24,7 +24,8 @@ function Assert-SafeWorkPath {
         - нормалізований $Path не є ВЛАСНЕ підтекою $MustBeUnder (рівність з межею —
           саме той порожній-sourcePath випадок — теж відхиляється, не тільки вихід за неї);
         - будь-який наявний компонент від $MustBeUnder (не включно) до $Path (включно) є посиланням — reparse point
-          (П25: kit нічого не видаляє крізь посилання; ціль посилання у виняток не потрапляє).
+          (П25: kit нічого не видаляє крізь посилання; ціль посилання у виняток не потрапляє). Перевірка йде від -RepoRoot (не включно),
+          якщо шлях усередині репо, інакше від -MustBeUnder; посиланням може бути лише -OwnedRoot (див. нижче).
     .EXAMPLE
         Assert-SafeWorkPath -Path $sourceDir -MustBeUnder $productPath -Description "sourceDir продукту $Product"
     #>
@@ -32,7 +33,9 @@ function Assert-SafeWorkPath {
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [Parameter(Mandatory)][string]$Description
+        [Parameter(Mandatory)][string]$Description,
+        [string]$RepoRoot,
+        [string]$OwnedRoot
     )
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -54,21 +57,44 @@ function Assert-SafeWorkPath {
 
     # П25: kit нічого не видаляє крізь посилання. GetFullPath посилань не розгортає, тож перевірка префікса вище
     # junction на проміжному компоненті не бачить — а Directory.Delete / рекурсивне стирання пішли б у ціль посилання,
-    # можливо поза репозиторієм. Йдемо від межі (не включно) до $Path (включно); перший ненаявний компонент зупиняє
-    # обхід (глибше нічого немає). Межа і все вище — поза правилом: репозиторій за посиланням видаляє свій вміст.
-    # У виняток іде компонент відносно межі, а не ціль посилання.
-    $current = $boundary
-    foreach ($seg in ($full.Substring($prefix.Length) -split '[\\/]+' | Where-Object { $_ })) {
+    # можливо поза репозиторієм.
+    # Звідки йдемо: для шляху всередині репозиторію — від КОРЕНЯ РЕПОЗИТОРІЮ (не включно), незалежно від -MustBeUnder
+    # (межа відповідає за «під чим», а не за «звідки перевіряти посилання»: build/adopt лежить усередині репо, і junction
+    # на repo\build інакше лишався б непоміченим); для шляху поза репо чи без -RepoRoot — від межі (не включно).
+    # Посиланням може бути рівно один компонент — корінь власності (-OwnedRoot: build/ репо чи воркспейсу, робоча тека
+    # Уніки), який викликач називає явно; нижче нього й вище нього (до кореня репо) посилань бути не може.
+    # Без -OwnedRoot посилань немає взагалі. Теку набору коренем власності не називають ніколи.
+    # Перший ненаявний компонент зупиняє обхід (глибше нічого немає); помилка читання атрибута наявного — виняток
+    # (fail-closed), а не кінець перевірки. У виняток іде компонент відносно точки старту, а не ціль посилання.
+    $scanFrom = $boundary
+    if ($RepoRoot) {
+        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+        if ($full.StartsWith($repoFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { $scanFrom = $repoFull }
+    }
+    $owned = if ($OwnedRoot) { [System.IO.Path]::GetFullPath($OwnedRoot).TrimEnd('\', '/') } else { $null }
+    $scanPrefix = $scanFrom + [System.IO.Path]::DirectorySeparatorChar
+    $current = $scanFrom
+    foreach ($seg in ($full.Substring($scanPrefix.Length) -split '[\\/]+' | Where-Object { $_ })) {
         $current = Join-Path $current $seg
-        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
-        if ($null -eq $item) { break }
-        if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
-            $rel = $current.Substring($prefix.Length)
-            throw "${Description}: компонент шляху '$rel' під '$MustBeUnder' є посиланням (junction чи symlink) — kit нічого не видаляє крізь посилання; приберіть посилання з шляху."
+        $attr = Get-KitComponentAttributes -Path $current -Description $Description
+        if ($null -eq $attr) { break }
+        if ($attr.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            if ($owned -and [string]::Equals($current.TrimEnd('\', '/'), $owned, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            $rel = $current.Substring($scanPrefix.Length)
+            throw "${Description}: компонент шляху '$rel' є посиланням (junction чи symlink) — kit нічого не видаляє крізь посилання; приберіть посилання з шляху."
         }
     }
 }
 
+function Get-KitComponentAttributes {
+    # Атрибути наявного компонента шляху БЕЗ слідування за посиланням. $null — компонента немає (тоді глибше нічого
+    # немає); будь-яка інша помилка читання — виняток: «не вдалося перевірити» не дорівнює «посилання немає».
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Description)
+    try { return [System.IO.File]::GetAttributes($Path) }
+    catch [System.IO.FileNotFoundException] { return $null }
+    catch [System.IO.DirectoryNotFoundException] { return $null }
+    catch { throw "${Description}: не вдалося перевірити компонент шляху '$Path' на посилання (${_}) — відмовляюсь видаляти чи створювати за таким шляхом." }
+}
 function Remove-KitDirectory {
     <#
     .SYNOPSIS

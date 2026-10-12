@@ -100,7 +100,7 @@ function Export-KitTree {
         [Parameter(Mandatory)][string]$Destination
     )
 
-    Assert-SafeWorkPath -Path $Destination -MustBeUnder (Join-Path $RepoRoot 'build') -Description 'тека вивантаження дерева git'
+    Assert-SafeWorkPath -Path $Destination -MustBeUnder (Join-Path $RepoRoot 'build') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'тека вивантаження дерева git'
     Remove-KitDirectory -Path $Destination
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 

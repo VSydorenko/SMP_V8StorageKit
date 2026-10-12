@@ -357,7 +357,9 @@ function New-V8FileInfobase {
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [string]$TemplatePath,
-        [string]$V8Path
+        [string]$V8Path,
+        [string]$RepoRoot,
+        [string]$OwnedRoot
     )
 
     # $Path стирається без перевірки, що там взагалі інфобаза, а не щось важливе —
@@ -365,7 +367,7 @@ function New-V8FileInfobase {
     # лежати (build/, build/sync/<продукт>, $TestDrive у тестах), а не довіряти
     # аргументу мовчки. Перевірка стоїть до Get-V8Path навмисно: небезпечний шлях має
     # впасти одразу, незалежно від того, чи знайдена платформа на цій машині.
-    Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -Description 'Path інфобази'
+    Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'Path інфобази'
 
     # Той самий принцип — до Get-V8Path: неіснуючий шаблон має впасти одразу, незалежно
     # від того, чи знайдена платформа на цій машині.
@@ -407,12 +409,14 @@ function New-ExtensionInfobase {
         [Parameter(Mandatory)][string]$ExtensionName,
         [Parameter(Mandatory)][string]$StubPath,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [string]$V8Path
+        [string]$V8Path,
+        [string]$RepoRoot,
+        [string]$OwnedRoot
     )
 
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
-    New-V8FileInfobase -Path $Path -MustBeUnder $MustBeUnder -V8Path $V8Path | Out-Null
+    New-V8FileInfobase -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -V8Path $V8Path | Out-Null
     $ibSwitch = '/F "{0}"' -f $Path
 
     $result = Invoke-V8Designer -IbSwitch $ibSwitch -V8Path $V8Path -Arguments @(

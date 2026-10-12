@@ -62,7 +62,7 @@ function Invoke-KitAdopt {
         Write-Host "Джерело: $($src.Workspace)/$($src.Key)  ·  приймаємо з: $mirror"
 
         $workDir = Join-Path $root 'build/adopt' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/adopt') -Description "робоча тека adopt $($src.Key)"
+        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/adopt') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека adopt $($src.Key)"
         Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
@@ -193,7 +193,7 @@ function Invoke-KitAdopt {
         if ($dirty.Count -gt 0) {
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
             $backupDir = Join-Path $ws.FullPath (Join-Path $ws.Project.WorkPath (Join-Path 'adopt-backup' "$($src.Key)-$stamp"))
-            $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $src.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath
+            $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $src.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath -OwnedRoot (Join-Path $ws.FullPath $ws.Project.WorkPath)
             Write-Host "  $($dirty.Count) незакомічених змін — копія перед заміною у $backupDir" -ForegroundColor Yellow
         }
 
@@ -237,10 +237,10 @@ function Invoke-KitAdopt {
             # -MustBeUnder $ws.FullPath, не $root (рев'ю фікс-раунду 1, Minor): те саме звуження,
             # що canon.psm1:83 — коментар вище каже «те саме, що робить canon», і межа guard'а
             # перед Remove-KitDirectory на дереві людини мусить це підтверджувати буквально.
-            Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($src.Key)"
+            Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($src.Key)"
             # Поставка вендора (спека 2026-09-30 §5.2): у дзеркалі .cf немає — повне стирання
             # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).
-            Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath
+            Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root
             # Пофайлово, не Copy-Item <mirror>\* -Recurse: тека Ext тепер може вже існувати (у ній
             # поставка), а рекурсивна копія теки в наявну теку кладе її ВСЕРЕДИНУ (Ext/Ext/…).
             $mirrorFull = (Resolve-Path -LiteralPath $mirrorDir).Path

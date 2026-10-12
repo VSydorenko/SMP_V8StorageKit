@@ -66,3 +66,30 @@ Describe 'TreeBackup.psm1 — знімок незакоміченого пере
             Should -Be 'СТЕЙДЖ: агентська правка, якої вже нема на диску' -Because 'копія з index/ мусить бути застейдженим вмістом, а не тим самим, що й з диска'
     }
 }
+
+Describe 'Get-KitInvisibleWork -WholeTreeDerived — прямий юніт-тест (фікс-раунд 1, Minor)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeBackup.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+    }
+    It 'без перемикача ігнорований файл дає ignored; з перемикачем ignored не обчислюється, а flagged, nested-repo і link — так' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'wtd') -WithHooks
+        $src = Join-Path $repo 'Alpha_SMB/cfe/src'
+        Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value 'Alpha_SMB/cfe/src/mine.txt' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $src 'mine.txt') -Value 'робота' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $src 'Configuration.xml') -Value 'правка' -Encoding UTF8
+        git -C $repo update-index --assume-unchanged Alpha_SMB/cfe/src/Configuration.xml
+        $nest = Join-Path $src 'nest'
+        New-Item -ItemType Directory -Path $nest -Force | Out-Null
+        git -C $nest init -q
+        $target = Join-Path $TestDrive 'wtd-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $src 'lnk') -Target $target | Out-Null
+
+        $kinds = { param($r) @($r | ForEach-Object { $_.Kind } | Sort-Object -Unique) -join ',' }
+        & $kinds @(Get-KitInvisibleWork -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src') | Should -Be 'flagged,ignored,link,nested-repo'
+        & $kinds @(Get-KitInvisibleWork -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' -WholeTreeDerived) | Should -Be 'flagged,link,nested-repo'
+    }
+}

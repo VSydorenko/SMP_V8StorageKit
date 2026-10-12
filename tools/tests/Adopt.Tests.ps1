@@ -367,6 +367,33 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $r.Output   | Should -BeLike '*є посиланням*kit нічого не видаляє крізь посилання*'
         (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
     }
+    It 'П25 контроль: repo\build — junction назовні (корінь власності) → adopt -Apply проходить, чужі файли в цілі цілі' {
+        $repo = New-AdoptRepo -Name 'adopt-p25-buildlink'
+        $target = Join-Path $TestDrive 'adopt-p25-buildlink-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'other.txt') -Value 'чужий файл' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build') -Target $target | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        (git -C $repo log -1 --format=%s) | Should -BeLike 'adopt: Alpha_SMB*'
+        (Get-Content -LiteralPath (Join-Path $target 'other.txt') -Raw).Trim() | Should -Be 'чужий файл'
+        Join-Path $target 'adopt' | Should -Exist -Because 'робоча тека kit лежить у цілі кореня власності'
+    }
+    It 'П25: repo\build\adopt — junction (build справжній) → adopt зупиняється до злиття, ціль ціла' {
+        $repo = New-AdoptRepo -Name 'adopt-p25-adoptlink'
+        $target = Join-Path $TestDrive 'adopt-p25-adoptlink-target'
+        New-Item -ItemType Directory -Path (Join-Path $target 'Alpha_SMB') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'Alpha_SMB/keep.txt') -Value 'чужа ціль' -Encoding UTF8
+        New-Item -ItemType Directory -Path (Join-Path $repo 'build') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build/adopt') -Target $target | Out-Null
+        $head = (git -C $repo rev-parse HEAD).Trim()
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Not -Be 0 -Because $r.Output
+        $r.Output   | Should -BeLike '*є посиланням*'
+        (git -C $repo rev-parse -q --verify MERGE_HEAD) | Should -BeNullOrEmpty
+        (git -C $repo rev-parse HEAD).Trim() | Should -Be $head
+        (Get-Content -LiteralPath (Join-Path $target 'Alpha_SMB/keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+    }
     It 'П24 контроль: похідне (ConfigDumpInfo.xml) під набором — зупинки немає, заміна проходить' {
         $repo = New-AdoptRepo -Name 'adopt-inv-derived'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8

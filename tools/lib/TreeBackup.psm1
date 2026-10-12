@@ -145,12 +145,13 @@ function Backup-KitDirtyFiles {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Records,
         [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][string]$MustBeUnder
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$OwnedRoot
     )
 
     if ($Records.Count -eq 0) { return $null }
 
-    Assert-SafeWorkPath -Path $BackupRoot -MustBeUnder $MustBeUnder -Description 'резервна копія перед видаленням'
+    Assert-SafeWorkPath -Path $BackupRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'резервна копія перед видаленням'
     New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
@@ -205,7 +206,7 @@ function Backup-KitDirtyFiles {
             New-Item -ItemType Directory -Path (Split-Path -Parent $dstFile) -Force | Out-Null
             Move-Item -LiteralPath $rawFile -Destination $dstFile -Force
         }
-        Assert-SafeWorkPath -Path $rawRoot -MustBeUnder $MustBeUnder -Description 'проміжна тека копії застейджених версій'
+        Assert-SafeWorkPath -Path $rawRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'проміжна тека копії застейджених версій'
         Remove-KitDirectory -Path $rawRoot
     }
 

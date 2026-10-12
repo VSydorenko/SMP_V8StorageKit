@@ -421,7 +421,7 @@ function New-KitStorageWorktree {
         [Parameter(Mandatory)][string]$Path
     )
 
-    Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree гілки дзеркала'
+    Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'worktree гілки дзеркала'
 
     if (Test-Path -LiteralPath $Path) {
         git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
@@ -467,7 +467,7 @@ function Remove-KitStorageWorktree {
     git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$Path' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
     if (Test-Path -LiteralPath $Path) {
-        try { Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree гілки дзеркала'; Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
+        try { Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'worktree гілки дзеркала'; Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
         if (Test-Path -LiteralPath $Path) {
             Write-Warning "Не вдалося прибрати worktree '$Path' — приберіть вручну (git worktree remove --force) перед наступним sync."
         }
@@ -482,9 +482,9 @@ function Clear-KitWorktreeSource {
         Порожня тека <wt>/<RepoPath> під дамп версії: /DumpConfigToFiles не видаляє зниклих об'єктів.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath)
+    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath, [string]$RepoRoot)
     $target = Join-Path $WorktreePath $RepoPath
-    Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -Description 'тека джерела у worktree'
+    Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тека джерела у worktree'
     Remove-KitDirectory -Path $target
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     (Resolve-Path -LiteralPath $target).Path
@@ -515,7 +515,8 @@ function Write-KitStorageVersion {
         [Parameter(Mandatory)][string]$Message,
         [Parameter(Mandatory)][string]$AuthorName,
         [Parameter(Mandatory)][string]$AuthorEmail,
-        [Parameter(Mandatory)][datetime]$Timestamp
+        [Parameter(Mandatory)][datetime]$Timestamp,
+        [string]$RepoRoot
     )
 
     $target = Join-Path $WorktreePath $RepoPath
@@ -528,7 +529,7 @@ function Write-KitStorageVersion {
     # `git add -A` нижче забрав би .cf на 0,5–1,1 ГБ у коміт storage/<ключ> — push на GitHub
     # відмовить (ліміт 100 МБ на файл). У дзеркалі лишається лише .bin (ознаки підтримки).
     # Для розширень і конфігурацій без підтримки теки немає — виклик нічого не робить.
-    Remove-KitSupplyDir -TreeRoot $target -MustBeUnder $WorktreePath
+    Remove-KitSupplyDir -TreeRoot $target -MustBeUnder $WorktreePath -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' })
 
     # commit-message.txt лежить поруч із worktree (Split-Path -Parent $WorktreePath), не
     # всередині нього — `git worktree remove` чистить лише сам worktree, тож файл прибирає

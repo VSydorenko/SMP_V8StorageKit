@@ -222,8 +222,8 @@ function Invoke-KitRenameEdt {
     # sync, verify). Remove-KitEmptyDirectory нижче теж рекурсивно видаляє в ЧУЖОМУ репозиторії —
     # без цієї перевірки -SourceRelPath виду '.' чи '../..' вивів би обхід за межі репозиторію.
     # Перевіряється ОБОХ коренів одразу, ще до першого git-виклику.
-    Assert-SafeWorkPath -Path $sourceFull -MustBeUnder $root -Description "EDT-дерево джерела (-SourceRelPath '$SourceRelPath')"
-    Assert-SafeWorkPath -Path $targetFullRoot -MustBeUnder $root -Description "дерево призначення (-TargetRoot '$TargetRoot')"
+    Assert-SafeWorkPath -Path $sourceFull -MustBeUnder $root -RepoRoot $root -Description "EDT-дерево джерела (-SourceRelPath '$SourceRelPath')"
+    Assert-SafeWorkPath -Path $targetFullRoot -MustBeUnder $root -RepoRoot $root -Description "дерево призначення (-TargetRoot '$TargetRoot')"
     if (-not (Test-Path -LiteralPath $sourceFull -PathType Container)) {
         throw "EDT-дерево '$SourceRelPath' не знайдено під $root."
     }

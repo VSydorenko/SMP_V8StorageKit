@@ -163,3 +163,107 @@ Describe 'Assert-SafeWorkPath — kit нічого не видаляє кріз�
         Join-Path $real 'build' | Should -Exist
     }
 }
+
+Describe 'Assert-SafeWorkPath — корені власності: перевірка посилань іде від кореня репозиторію (П25)' {
+    BeforeAll {
+        function script:New-PsRepo { param([string]$Name)
+            $r = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path $r -Force | Out-Null
+            $r }
+        function script:New-PsTarget { param([string]$Name)
+            $t = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path $t -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $t 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+            $t }
+    }
+    It 'контроль: repo\build — junction назовні (корінь власності) → видалення build/adopt/<ключ> дозволене, видалено лише вміст kit, сусіди в цілі цілі' {
+        $repo = New-PsRepo 'own-ctl'
+        $target = New-PsTarget 'own-ctl-target'
+        New-Item -ItemType Directory -Path (Join-Path $target 'adopt/K') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'adopt/K/f.txt') -Value 'kit' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $target 'adopt/sibling.txt') -Value 'сусід' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build') -Target $target | Out-Null
+        $wd = Join-Path $repo 'build/adopt/K'
+        { Assert-SafeWorkPath -Path $wd -MustBeUnder (Join-Path $repo 'build/adopt') -RepoRoot $repo -OwnedRoot (Join-Path $repo 'build') -Description 'тест' } | Should -Not -Throw
+        Remove-KitDirectory -Path $wd
+        Join-Path $target 'adopt/K' | Should -Not -Exist
+        Join-Path $target 'adopt/sibling.txt' | Should -Exist
+        Join-Path $target 'keep.txt' | Should -Exist
+    }
+    It 'repo\build\adopt — junction (build справжній) → зупинка, ціль ціла' {
+        $repo = New-PsRepo 'own-adopt'
+        $target = New-PsTarget 'own-adopt-target'
+        New-Item -ItemType Directory -Path (Join-Path $repo 'build') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build/adopt') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $repo 'build/adopt/K') -MustBeUnder (Join-Path $repo 'build/adopt') -RepoRoot $repo -OwnedRoot (Join-Path $repo 'build') -Description 'тест' } |
+            Should -Throw "*компонент шляху 'build?adopt' є посиланням*"
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+    }
+    It 'компонент між коренем репо і build (теку воркспейсу) — junction → зупинка' {
+        $repo = New-PsRepo 'own-ws'
+        $target = New-PsTarget 'own-ws-target'
+        New-Item -ItemType Directory -Path (Join-Path $target 'build') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'WS') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $repo 'WS/build/ib') -MustBeUnder (Join-Path $repo 'WS/build') -RepoRoot $repo -OwnedRoot (Join-Path $repo 'WS/build') -Description 'тест' } |
+            Should -Throw "*компонент шляху 'WS' є посиланням*"
+    }
+    It 'виклик без -OwnedRoot: junction на repo\build → зупинка (посилань немає взагалі)' {
+        $repo = New-PsRepo 'own-none'
+        $target = New-PsTarget 'own-none-target'
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $repo 'build/adopt/K') -MustBeUnder (Join-Path $repo 'build/adopt') -RepoRoot $repo -Description 'тест' } |
+            Should -Throw "*компонент шляху 'build' є посиланням*"
+    }
+    It 'корінь власності <ws>\build — junction, база під ним (provision) → дозволено; junction теки набору без -OwnedRoot — зупинка' {
+        $repo = New-PsRepo 'own-prov'
+        $target = New-PsTarget 'own-prov-target'
+        New-Item -ItemType Directory -Path (Join-Path $repo 'WS') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'WS/build') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $repo 'WS/build/ib') -MustBeUnder (Join-Path $repo 'WS/build') -RepoRoot $repo -OwnedRoot (Join-Path $repo 'WS/build') -Description 'тест' } | Should -Not -Throw
+        New-Item -ItemType Junction -Path (Join-Path $repo 'WS/cfe') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $repo 'WS/cfe/src') -MustBeUnder (Join-Path $repo 'WS') -RepoRoot $repo -Description 'тест' } | Should -Throw '*є посиланням*'
+    }
+    It 'шлях поза репозиторієм перевіряється від -MustBeUnder: посилання на межі й вище — поза правилом, нижче межі — зупинка' {
+        $repo = New-PsRepo 'own-out'
+        $realExt = New-PsTarget 'own-out-real'
+        New-Item -ItemType Directory -Path (Join-Path $realExt 'base') -Force | Out-Null
+        $linkExt = Join-Path $TestDrive 'own-out-link'
+        New-Item -ItemType Junction -Path $linkExt -Target $realExt | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $linkExt 'base/ib') -MustBeUnder (Join-Path $linkExt 'base') -RepoRoot $repo -Description 'тест' } | Should -Not -Throw
+        $inner = New-PsTarget 'own-out-inner'
+        New-Item -ItemType Junction -Path (Join-Path $realExt 'base/lnk') -Target $inner | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $linkExt 'base/lnk/ib') -MustBeUnder (Join-Path $linkExt 'base') -RepoRoot $repo -Description 'тест' } | Should -Throw "*компонент шляху 'lnk' є посиланням*"
+    }
+}
+
+Describe 'Assert-SafeWorkPath — fail-closed: помилка читання атрибута компонента не дорівнює «посилання немає» (П25)' {
+    It 'Get-KitComponentAttributes: ненаявний компонент — $null, а не виняток' {
+        $r = & (Get-Module PathSafety) { Get-KitComponentAttributes -Path (Join-Path $args[0] 'нема') -Description 'тест' } $TestDrive
+        $r | Should -BeNullOrEmpty
+    }
+    It 'Get-KitComponentAttributes: помилка читання (нульовий символ у шляху) — виняток, не $null' {
+        { & (Get-Module PathSafety) { Get-KitComponentAttributes -Path ($args[0] + "\x`0y") -Description 'тест' } $TestDrive } |
+            Should -Throw '*не вдалося перевірити компонент шляху*'
+    }
+    It 'Assert-SafeWorkPath не ковтає помилку перевірки: мок, що кидає, → виняток, а не «шлях безпечний»' {
+        $b = Join-Path $TestDrive 'fc-boundary'
+        New-Item -ItemType Directory -Path (Join-Path $b 'inner') -Force | Out-Null
+        Mock -ModuleName PathSafety Get-KitComponentAttributes { throw 'збій читання' }
+        { Assert-SafeWorkPath -Path (Join-Path $b 'inner/x') -MustBeUnder $b -Description 'тест' } | Should -Throw '*збій читання*'
+    }
+}
+
+Describe 'Remove-KitDirectory — знімається лише посилання, а не його ціль (П25, Minor)' {
+    # Безпеку тут тримає поведінка .NET (Directory.Delete не заходить у reparse point), не код kit: тест її фіксує.
+    It 'вкладений junction усередині видаленої теки: посилання зникає, файли в цілі цілі' {
+        $d = Join-Path $TestDrive 'rm-nested'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $target = Join-Path $TestDrive 'rm-nested-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $d 'lnk') -Target $target | Out-Null
+        Remove-KitDirectory -Path $d
+        $d | Should -Not -Exist
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+    }
+}

@@ -86,7 +86,7 @@ function Invoke-KitDump {
             continue
         }
 
-        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $wsFull -Description "ціль дампу джерела $($src.Key)"
+        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $wsFull -RepoRoot $root -Description "ціль дампу джерела $($src.Key)"
         Remove-KitDirectory -Path $src.FullPath
         New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
 

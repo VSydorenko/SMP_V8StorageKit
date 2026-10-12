@@ -94,7 +94,7 @@ function Invoke-KitVerify {
         }
 
         $workDir = Join-Path $root 'build/verify' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -Description "робоча тека verify $($src.Key)"
+        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека verify $($src.Key)"
         Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
@@ -110,7 +110,7 @@ function Invoke-KitVerify {
         $bound = $false
         try {
             $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
-            $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -User $agent.User -Password $agent.Password
+            $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -User $agent.User -Password $agent.Password
         } catch {
             # Спека 1.3.1 §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
             # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,

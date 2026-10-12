@@ -143,7 +143,7 @@ function Invoke-KitBuild {
         # шлях (питання 2 брифа, task-3-report.md). Тимчасова ІБ спільна на всі .epf цього
         # прогону — платформі байдуже, з якого воркспейсу файл, /LoadExternalDataProcessorOrReportFromFiles
         # не прив'язаний до конфігурації бази.
-        $ibSwitch = '/F "{0}"' -f (New-V8FileInfobase -Path (Join-Path $root 'build/build-ib') -MustBeUnder (Join-Path $root 'build'))
+        $ibSwitch = '/F "{0}"' -f (New-V8FileInfobase -Path (Join-Path $root 'build/build-ib') -MustBeUnder (Join-Path $root 'build') -RepoRoot $root -OwnedRoot (Join-Path $root 'build'))
         foreach ($p in $plan) {
             $target = Join-Path $outDir "$($p.Descriptor.Name).epf"
             Write-Host "→ $($p.Descriptor.Name).epf"

@@ -64,7 +64,7 @@ function Write-KitStorageImprint {
     # build/session-check — рев'ю Task 8. Перевірка стоїть ПЕРЕД зверненням до сховища: дешева
     # зупинка не має чекати на обхід каталогів.
     $path = Get-KitStorageImprintPath -RepoRoot $RepoRoot -Key $Key
-    Assert-SafeWorkPath -Path $path -MustBeUnder (Join-Path $RepoRoot 'build/session-check') -Description "відбиток сховища $Key"
+    Assert-SafeWorkPath -Path $path -MustBeUnder (Join-Path $RepoRoot 'build/session-check') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description "відбиток сховища $Key"
 
     $activity = Get-KitStorageActivity -StoragePath $StoragePath
     New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null

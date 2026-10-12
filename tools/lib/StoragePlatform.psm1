@@ -64,12 +64,13 @@ function New-KitStorageInfobase {
     param(
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][string]$WorkDir,
-        [string]$StubPath = $script:DefaultStubPath
+        [string]$StubPath = $script:DefaultStubPath,
+        [string]$RepoRoot
     )
     $ibPath = Join-Path $WorkDir 'ib'
     switch ($Source.Type) {
-        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir) }
-        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir)) }
+        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' })) }
+        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }))) }
         default         { throw "Джерело '$($Source.Key)' має тип $($Source.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION." }
     }
 }
@@ -197,6 +198,7 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)][int]$Version,
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$RepoRoot,
         [string]$User = '',
         [string]$Password = ''
     )
@@ -204,7 +206,7 @@ function Invoke-KitStorageCheckout {
     Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User -Password $Password
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
+    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
@@ -261,6 +263,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$WorkDir,
         [Parameter(Mandatory)][string]$AltV8Path,
+        [string]$RepoRoot,
         [string]$User = '',
         [string]$Password = ''
     )
@@ -273,7 +276,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
     # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
     $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
-    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -Description "файл .cf версії $Version"
+    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "файл .cf версії $Version"
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
     if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
     $mainPath = Get-V8Path
@@ -288,8 +291,8 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
     # Крок 3: обрана платформа створює тимчасову ІБ.
     $altIbPath = Join-Path $WorkDir 'alt-ib'
-    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -Description 'тимчасова ІБ обраної платформи'
-    $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -V8Path $AltV8Path
+    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тимчасова ІБ обраної платформи'
+    $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $AltV8Path
     $altSwitch = '/F "{0}"' -f $altIbPath
 
     # Крок 4: обрана платформа, без користувача: LoadCfg, потім DumpConfigToFiles у спорожнену теку.
@@ -298,7 +301,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
         throw "Крок LoadCfg платформи $AltV8Path для версії $Version не вдався: $($load.Output)"
     }
 
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
+    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 

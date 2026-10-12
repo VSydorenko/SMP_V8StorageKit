@@ -76,10 +76,10 @@ function Write-KitSupplyMarker {
 
 function Remove-KitSupplyDir {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder)
+    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [string]$RepoRoot, [string]$OwnedRoot)
     $dir = Join-Path $TreeRoot $script:SupplyRelativePath
     if (-not (Test-Path -LiteralPath $dir)) { return }
-    Assert-SafeWorkPath -Path $dir -MustBeUnder $MustBeUnder -Description 'тека поставки вендора'
+    Assert-SafeWorkPath -Path $dir -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'тека поставки вендора'
     Remove-KitDirectory -Path $dir
 }
 
@@ -91,8 +91,8 @@ function Clear-KitTreeExceptSupply {
         (спайк §4.2, варіант B).
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder)
-    Assert-SafeWorkPath -Path $TreeRoot -MustBeUnder $MustBeUnder -Description 'дерево джерела'
+    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [string]$RepoRoot, [string]$OwnedRoot)
+    Assert-SafeWorkPath -Path $TreeRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'дерево джерела'
     if (-not (Test-Path -LiteralPath $TreeRoot)) { New-Item -ItemType Directory -Path $TreeRoot -Force | Out-Null; return }
     $parts = $script:SupplyRelativePath -split '/'   # 'Ext', 'ParentConfigurations'
     foreach ($item in @(Get-ChildItem -LiteralPath $TreeRoot -Force)) {

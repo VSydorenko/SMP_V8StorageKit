@@ -108,7 +108,7 @@ function Invoke-KitCanon {
         }
 
         foreach ($t in $targets) {
-            Assert-SafeWorkPath -Path $t.FullPath -MustBeUnder $ws.FullPath -Description "дерево джерела $($t.Key)"
+            Assert-SafeWorkPath -Path $t.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($t.Key)"
 
             # C4: знімок незакомічених/невідстежуваних файлів ДО видалення — і збій git
             # тут (C1) зупиняє ДО Remove-Item, тож дерево лишається цілим.
@@ -117,7 +117,7 @@ function Invoke-KitCanon {
             if ($dirty.Count -gt 0) {
                 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
                 $backupDir = Join-Path $ws.FullPath (Join-Path $ws.Project.WorkPath (Join-Path 'canon-backup' "$($t.Key)-$stamp"))
-                $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $t.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath
+                $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $t.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath -OwnedRoot (Join-Path $ws.FullPath $ws.Project.WorkPath)
                 Write-Host "  $($t.Key): $($dirty.Count) незакомічених змін — копія перед canon у $backupDir" -ForegroundColor Yellow
             }
 

@@ -110,6 +110,20 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Configuration.xml' | Should -Exist
     }
 
+    It 'Clear-KitTreeExceptSupply: junction-діти (верхній рівень і всередині Ext) — знімаються самі посилання, файли в цілі цілі (П25)' {
+        $t = New-SupplyTree -Name 'clear-links'
+        $target = Join-Path $TestDrive 'clear-links-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $t 'lnk-top') -Target $target | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $t 'Ext/lnk-inner') -Target $target | Out-Null
+        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive
+        Join-Path $t 'lnk-top' | Should -Not -Exist
+        Join-Path $t 'Ext/lnk-inner' | Should -Not -Exist
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+        Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+
     It 'Remove-KitSupplyDir поза межею — зупинка, тека поставки лишається' {
         $t = New-SupplyTree -Name 'remove-outside'
         { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw

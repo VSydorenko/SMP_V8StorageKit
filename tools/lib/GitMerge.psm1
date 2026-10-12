@@ -60,7 +60,7 @@ function Merge-KitBranchInto {
     # Залишок тимчасового worktree kit ≤ 1.3.1 (build/sync/_main/wt) — прибрати, якщо є: нова схема його не створює.
     $legacy = Join-Path $RepoRoot 'build/sync/_main/wt'
     if (Test-Path -LiteralPath $legacy) {
-        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'залишок worktree головної гілки'
+        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'залишок worktree головної гілки'
         git -C $RepoRoot worktree remove --force $legacy 2>$null | Out-Null
         Remove-KitDirectory -Path $legacy
         git -C $RepoRoot worktree prune 2>$null | Out-Null
