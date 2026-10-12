@@ -233,6 +233,34 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'v8project\.local\.yaml'
         }
     }
+    Context 'provision — цитати зупинок' {
+        It 'кожна фраза зупинки, процитована в розділі «Штатні зупинки», існує дослівно в tools/commands чи tools/lib' {
+            $t = Skill 'provision'
+            $m = [regex]::Match($t, '(?ms)^## 4\. Штатні зупинки\s*$(.*?)(?=^## )')
+            $m.Success | Should -BeTrue -Because 'розділ «## 4. Штатні зупинки» має бути у скілі provision'
+            # Форма цитати в розділі: пункт списку починається з `…` (перший спан у бектиках), «…» — місце змінної частини.
+            $quotes = foreach ($line in ($m.Groups[1].Value -split "`r?`n")) {
+                $q = [regex]::Match($line, '^- `([^`]+)`')
+                if ($q.Success) { $q.Groups[1].Value }
+            }
+            @($quotes).Count | Should -BeGreaterThan 10 -Because 'розділ має містити цитати зупинок у формі «- `текст`»'
+            $toolsDir = (Resolve-Path "$PSScriptRoot/..").Path
+            $code = (Get-ChildItem -LiteralPath $toolsDir -Recurse -Filter '*.psm1' |
+                Where-Object { $_.DirectoryName -match '[\\/](commands|lib)$' } |
+                ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 }) -join "`n"
+            # Нормалізація коду до тексту, який побачить людина: склейка літералів через `+` у рядках, '' -> ', `$ -> $.
+            $code = [regex]::Replace($code, '["'']\s*\+\s*\r?\n\s*["'']', '')
+            $code = $code.Replace("''", "'").Replace('`$', '$')
+            $missing = foreach ($q in $quotes) {
+                foreach ($frag in ($q -split '…')) {
+                    $f = $frag.Trim(' ')
+                    if ($f.Length -lt 6) { continue }
+                    if (-not $code.Contains($f)) { "«$f» (з цитати: $q)" }
+                }
+            }
+            @($missing) | Should -BeNullOrEmpty -Because ("скіл цитує тексти зупинок, яких немає в коді (виправляти скіл, не код):`n" + (@($missing) -join "`n"))
+        }
+    }
     Context 'reconcile' {
         It 'sync → крок, надрукований sync (push force) → canon → adopt; #25' {
             $t = Skill 'reconcile'

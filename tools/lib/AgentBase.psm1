@@ -165,15 +165,16 @@ function Get-KitProtectedPaths {
         - devbase — дев-бази накладки (Kit ніколи не пише в базу людини);
         - otherbase — бази агента ІНШИХ воркспейсів маніфесту;
         - othermemory — <workPath>/infobases інших воркспейсів (пам'ять раннера, мітка власника, замок);
-        - template — файл -Template (.dt) цього воркспейсу: файл людини.
+        - template — файли .dt: -Template прогону й agentBase.template накладки КОЖНОГО воркспейсу
+          (файл людини; шаблон іншого воркспейсу захищений так само).
 
-        Елемент: {Kind; Other; Label; Path; Connection; Candidates; Against}. Label — текст для повідомлення
+        Елемент: {Kind; Other; Label; Path; Connection; Candidates}. Label — текст для повідомлення
         без значень конфігу (П23). Path — абсолютний шлях файлової бази чи файла (null для серверної);
         Connection — підключення серверної бази (для порівняння сервера й Ref). Candidates — Path і всі
         його предки у ВЛАСНОМУ написанні (так псевдонім шляху видно файловій системі, але не канонізації
         тексту): за ними маркер-фаза шукає маркер. Для файла (шаблону) маркер у самому файлі не з'явиться,
-        тож фактично його шукають за наявними предками. Against — з чим текстовий рівень порівнює елемент:
-        base (тека бази цього воркспейсу), infobases (<workPath>/infobases), memory (пам'ять раннера origin).
+        тож фактично його шукають за наявними предками. Кожен елемент перевіряється проти КОЖНОЇ
+        цілі (див. Find-KitProtectedCollisions): вибіркових пар немає.
 
         Дев-база з відносним File= у перелік не потрапляє: Resolve-KitAgentBase ще до плану зупиняє її
         fail-closed. Серверні бази не мають шляху, тож маркер-фаза їх пропускає.
@@ -190,11 +191,11 @@ function Get-KitProtectedPaths {
 
     $items = [System.Collections.Generic.List[object]]::new()
     $add = {
-        param($kind, $other, $label, $path, $connection, $against)
+        param($kind, $other, $label, $path, $connection)
         $cands = if ($path) { Get-KitPathAncestry -Path $path } else { @() }
         $items.Add([pscustomobject]@{
             Kind = $kind; Other = $other; Label = $label; Path = $path; Connection = $connection
-            Candidates = @($cands); Against = @($against)
+            Candidates = @($cands)
         })
     }
     if ('devbase' -in $Kinds -and $Context.Overlay) {
@@ -203,12 +204,12 @@ function Get-KitProtectedPaths {
             $parsed = $null
             try { $parsed = ConvertFrom-V8Connection -Connection $human.Connection }
             catch { throw "Не вдалося розібрати підключення ($label) для перевірки захищених шляхів — kit не може довести, що бази різні." }
-            if ($parsed.Kind -ne 'file') { & $add 'devbase' $null $label $null $human.Connection @('base'); continue }
+            if ($parsed.Kind -ne 'file') { & $add 'devbase' $null $label $null $human.Connection; continue }
             $p = $parsed.File
             if ($p.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) { $p = '\\' + $p.Substring(8) }
             elseif ($p.StartsWith('\\?\') -or $p.StartsWith('\??\')) { $p = $p.Substring(4) }
             if (-not [System.IO.Path]::IsPathRooted($p)) { continue }
-            & $add 'devbase' $null $label $p $null @('base', 'memory')
+            & $add 'devbase' $null $label $p $null
         }
     }
     if ('otherbase' -in $Kinds -or 'othermemory' -in $Kinds) {
@@ -218,17 +219,28 @@ function Get-KitProtectedPaths {
             if ('otherbase' -in $Kinds) {
                 $resolved = Resolve-KitAgentInfobasePath -Project $other.Project -Connection $ib.Connection
                 $label = "база агента воркспейсу '$($other.Path)'"
-                if ($resolved.Kind -eq 'file') { & $add 'otherbase' $other.Path $label $resolved.Path $null @('base', 'infobases') }
-                else { & $add 'otherbase' $other.Path $label $null $ib.Connection @('base', 'infobases') }
+                if ($resolved.Kind -eq 'file') { & $add 'otherbase' $other.Path $label $resolved.Path $null }
+                else { & $add 'otherbase' $other.Path $label $null $ib.Connection }
             }
             if ('othermemory' -in $Kinds) {
                 $mem = Join-Path (Join-Path $other.FullPath $other.Project.WorkPath) 'infobases'
-                & $add 'othermemory' $other.Path "пам'ять раннера воркспейсу '$($other.Path)' (<workPath>/infobases)" $mem $null @('base')
+                & $add 'othermemory' $other.Path "пам'ять раннера воркспейсу '$($other.Path)' (<workPath>/infobases)" $mem $null
             }
         }
     }
-    if ('template' -in $Kinds -and $Template) {
-        & $add 'template' $null 'шаблон бази (.dt)' ([System.IO.Path]::GetFullPath($Template)) $null @('base', 'memory')
+    if ('template' -in $Kinds) {
+        # Шаблон — файл людини: захищені -Template прогону й agentBase.template накладки КОЖНОГО воркспейсу (N1),
+        # не лише цього: .dt іншого воркспейсу чи накладковий шаблон за іншого -Template теж лежить десь на диску людини.
+        $templates = [System.Collections.Generic.List[string]]::new()
+        if ($Template) { $templates.Add($Template) }
+        if ($Context.Overlay) {
+            foreach ($ow in $Context.Overlay.Workspaces.Values) { if ($ow.AgentBaseTemplate) { $templates.Add([string]$ow.AgentBaseTemplate) } }
+        }
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($t in $templates) {
+            $full = [System.IO.Path]::GetFullPath($t)
+            if ($seen.Add($full)) { & $add 'template' $null 'шаблон бази (.dt)' $full $null }
+        }
     }
     $items.ToArray()
 }
@@ -239,8 +251,8 @@ function Find-KitProtectedCollisions {
         Текстовий перетин (з канонізацією) елементів переліку захищених шляхів з текою, яку прибере provision (П26 п. 1, 7).
     .DESCRIPTION
         Перший рівень — дешевий, без побічних ефектів, діє в префлайті й аудиті. Для кожного елемента
-        Get-KitProtectedPaths і кожної назви з його Against беруться цілі з -Targets (base | infobases |
-        memory — об'єкти {Path; Connection}). Файли — Test-KitPathsOverlap (канонізація, перетин);
+        Get-KitProtectedPaths перевіряється проти КОЖНОЇ цілі з -Targets (base | infobases | memory —
+        об'єкти {Path; Connection}) — подвійний цикл «перелік × цілі», без вибору пар. Файли — Test-KitPathsOverlap (канонізація, перетин);
         серверні — Test-KitInfobasesOverlap (сервер і Ref). Нерозбірне — виняток без значень шляху
         (fail-closed). Повертає {Element; Target}. Другий рівень (псевдоніми) — маркер-фаза provision.
     #>
@@ -251,8 +263,7 @@ function Find-KitProtectedCollisions {
     )
     $hits = [System.Collections.Generic.List[object]]::new()
     foreach ($el in @($Protected)) {
-        foreach ($name in @($el.Against)) {
-            if (-not $Targets.ContainsKey($name)) { continue }
+        foreach ($name in @($Targets.Keys)) {
             $t = $Targets[$name]
             $overlap = $false
             if ($el.Path) {

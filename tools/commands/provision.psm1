@@ -197,10 +197,15 @@ function Invoke-KitProtectedPathsMarkerPhase {
         ідентичність за дією, і він стоїть ПІСЛЯ першого проходу й ДО другого, для всіх воркспейсів разом:
         інакше відмова на другому воркспейсі лишала б перший уже видаленим (напівстан, який закриває п. 4).
 
+        Маркер пишеться за шляхом теки, яку kit видаляє. Якщо ця тека через псевдонім виявиться текою людини,
+        маркер на мить лягає туди й одразу знімається — цей єдиний запис і є способом виявлення, інших записів
+        немає. Вікно між маркер-фазою й видаленням (TOCTOU) відкрите лише для іншого процесу — записана межа,
+        вона не лікується.
+
         Порядок: (1) у КОЖНУ наявну теку, яку видалятиме прогін (база агента, пам'ять раннера origin, усіх
         воркспейсів), кладеться маркер з унікальним іменем — лише після Assert-SafeWorkPath для цієї самої
-        теки, щоб маркер не ліг крізь посилання; теці, якої ще немає, маркер не потрібен; збій запису маркера
-        — відмова (fail-closed), а не пропуск цілі; (2) для кожного елемента переліку захищених шляхів
+        теки, щоб маркер не ліг крізь посилання; теці, якої ще немає, маркер не потрібен; збій Assert-SafeWorkPath
+        і збій запису маркера — окремі відмови (fail-closed), а не пропуск цілі; (2) для кожного елемента переліку захищених шляхів
         (Get-KitProtectedPaths, його зберіг перший прохід у плані) перевіряється Test-Path маркера за шляхом
         елемента й за кожним його предком у ВЛАСНОМУ написанні (для файла-шаблону — за наявними предками);
         (3) усі маркери знімаються у finally; (4) є відмова — виняток, і другий прохід (видалення) не
@@ -231,6 +236,12 @@ function Invoke-KitProtectedPathsMarkerPhase {
                 $dir = $d[0]; $what = $d[1]
                 try {
                     Assert-SafeWorkPath -Path $dir -MustBeUnder $plan.AgentWork -RepoRoot $Context.RepoRoot -OwnedRoot $plan.AgentWork -Description $what
+                } catch {
+                    # Збій межі безпечного шляху — не збій запису маркера: маркер ще не писався (M1).
+                    $refusals.Add("  - ${what}: тека не пройшла перевірку безпечної межі видалення — kit не клав маркер і не може довести, що чужого немає в цій теці. Деталі дасть команда без -Apply.")
+                    continue
+                }
+                try {
                     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
                     $name = '.kit-alias-probe-' + [guid]::NewGuid().ToString('N')
                     $marker = Join-Path $dir $name
@@ -245,7 +256,11 @@ function Invoke-KitProtectedPathsMarkerPhase {
         foreach ($m in $markers) {
             foreach ($el in @($m.Plan.Protected)) {
                 foreach ($cand in @($el.Candidates)) {
-                    if (Test-Path -LiteralPath (Join-Path $cand $m.Name) -ErrorAction SilentlyContinue) {
+                    # Межа M-A: недоступний кандидат (незмонтований диск, шара офлайн) — виняток Join-Path/Test-Path
+                    # трактується як «не видно»; текстовий рівень для нього діє.
+                    $seen = $false
+                    try { $seen = [bool](Test-Path -LiteralPath (Join-Path $cand $m.Name) -ErrorAction SilentlyContinue) } catch { $seen = $false }
+                    if ($seen) {
                         $refusals.Add("  - $($m.What) і $($el.Label) — та сама тека чи одна в одній (через псевдонім шляху, напр. \\localhost\C`$\… чи subst-диск). " +
                             'kit не прибирає теку, у якій може лежати чужа база чи файл людини. Виправлення: задайте шлях без псевдонімів.')
                         break
@@ -358,10 +373,11 @@ function Get-KitProvisionPlan {
             $el = $h.Element
             if ($el.Kind -eq 'otherbase' -and $h.Target -eq 'base') { "її база перетинається з базою агента воркспейсу '$($el.Other)'" }
             elseif ($el.Kind -eq 'otherbase') { "база агента воркспейсу '$($el.Other)' лежить у '$($ws.Project.WorkPath)/infobases' цього воркспейсу" }
-            elseif ($el.Kind -eq 'othermemory') { "її база лежить у '<workPath>/infobases' воркспейсу '$($el.Other)'" }
+            elseif ($el.Kind -eq 'othermemory' -and $h.Target -eq 'base') { "її база лежить у '<workPath>/infobases' воркспейсу '$($el.Other)'" }
+            elseif ($el.Kind -eq 'othermemory') { "пам'ять раннера воркспейсу '$($el.Other)' перетинається з пам'яттю раннера цього воркспейсу" }
             else { "$($el.Label) перетинається з текою, яку kit прибирає" }
         }
-        throw ("База агента воркспейсу '$($ws.Path)' перетинається із захищеним шляхом: " + ($what -join '; ') + '. ' +
+        throw ("База агента воркспейсу '$($ws.Path)' перетинається із захищеним шляхом: " + (@($what | Select-Object -Unique) -join '; ') + '. ' +
                'kit не прибирає теку, у якій лежить чужа база. Виправлення: у v8project.local.yaml кожного воркспейсу задайте infobases.origin.connection окремою текою (типово build/ib).')
     }
 
