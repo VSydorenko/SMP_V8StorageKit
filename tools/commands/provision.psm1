@@ -11,14 +11,14 @@ function Test-KitConfigurationOwnerPresent {
         Чи є на диску непорожнє дерево власника (CONFIGURATION source-set) воркспейсу.
     .DESCRIPTION
         Вісь задачі (рішення користувача 2026-09-10, спека §4, d3e539c): «порожня» база
-        агента означає «порожня ІБ, наповнена operation=build з джерел», а build вантажить
+        агента означає «порожня ІБ, наповнена push Уніки з джерел», а push вантажить
         власника з CONFIGURATION source-set (типово cf/src) і лише потім розширення. За
         truth: vendor це дерево гітігнороване (templates/gitignore) і на щойно клонованій
         машині порожнє — «порожня» тоді веде build у мовчазний глухий кут.
 
         Перевірка безумовна: НЕ залежить від того, чи розширення позичає об'єкти
         (ObjectBelonging>Adopted, Get-KitAdoptedObjectCount нижче) — збірка .cfe й
-        operation=build без власника не проходять і для розширення без жодного
+        push без власника не проходять і для розширення без жодного
         запозичення, бо заглушка (tools/assets/empty-extension) не тримає типи власника
         (наприклад, УНФ). Adopted-лічильник нічого тут не вмикає — він лише пояснює
         людині причину зупинки конкретним числом.
@@ -106,25 +106,104 @@ function New-KitOwnerMissingMessage {
     $why = if ($adopted -gt 0) {
         "У розширенні цього воркспейсу $adopted $objectWord позначено ObjectBelonging>Adopted — без власника вони не типізуються (вимір задачі: 45 із 53 об'єктів розширення в SMP_BankExchange)."
     } else {
-        "Розширення цього воркспейсу не позичає жодного об'єкта, але це не рятує: заглушка (tools/assets/empty-extension) не тримає типи власника (наприклад, УНФ), і operation=build без нього так само не проходить."
+        "Розширення цього воркспейсу не позичає жодного об'єкта, але це не рятує: заглушка (tools/assets/empty-extension) не тримає типи власника (наприклад, УНФ), і push без нього так само не проходить."
     }
     "Воркспейсу '$($Workspace.Path)' бракує власника: $configLabel на диску порожнє або відсутнє. $why " +
-    "«Порожня» база агента наповнюється operation=build Уніки, а build спершу вантажить власника з цього дерева — без нього збірка впаде на першому ж об'єкті. " +
+    "«Порожня» база агента наповнюється push Уніки, а push спершу вантажить власника з цього дерева — без нього завантаження впаде на першому ж об'єкті. " +
     'Звідки взяти власника: дамп із дев-бази — kit dump -RepoRoot . -Apply (20–40 хв, 1–2 ГБ, за накладкою infobases:); ' +
     "файл .dt із конфігурацією власника — kit provision -RepoRoot . -Workspace $($Workspace.Path) -Apply -Template <шлях>.dt -Remember; " +
-    "серверна база, яку створює людина в кластері. " +
+    "серверна база, яку дала людина (kit provision -ServerBase Existing). " +
     'Kit не пропонує порожню базу без власника — виберіть варіант і повторіть запуск.'
+}
+
+
+function Get-KitConfigurationFitness {
+    <#
+    .SYNOPSIS
+        Чи придатне дерево основної конфігурації до повного завантаження в базу (спека §3 рішення 4).
+    .DESCRIPTION
+        «Базу створює той, хто першим її наповнює». Придатне → першою наповнює Уніка (infobase.create
+        імпортує набір CONFIGURATION). Не придатне — truth: storage і (i) дерева ще немає або (ii)
+        поставка вендора missing/stale, тобто .bin без .cf — повне завантаження впало б. Тоді першим
+        наповнює kit зі сховища (sync чи verify), і порожню файлову базу створює теж kit. truth:
+        vendor/dump сюди не входять: їхнє дерево приходить з kit dump разом із поставкою, а відсутність
+        власника ловить New-KitOwnerMissingMessage раніше.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Workspace)
+    foreach ($src in @($Workspace.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })) {
+        if (@(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File -ErrorAction SilentlyContinue).Count -eq 0) {
+            return [pscustomobject]@{ Fit = $false; Source = $src; Recipe = 'i'; Supply = $null }
+        }
+        $state = Get-KitSupplyState -TreeRoot $src.FullPath
+        if ($state -in 'missing', 'stale') {
+            return [pscustomobject]@{ Fit = $false; Source = $src; Recipe = 'ii'; Supply = $state }
+        }
+    }
+    [pscustomobject]@{ Fit = $true; Source = $null; Recipe = $null; Supply = $null }
+}
+
+function Get-KitProvisionNextKitStep {
+    <#
+    .SYNOPSIS
+        Крок kit, яким першим наповнюється база за непридатного дерева: рецепт (i) — sync, (ii) — verify.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Fitness, [Parameter(Mandatory)][string]$MainBranch)
+    $k = $Fitness.Source.Key
+    if ($Fitness.Recipe -eq 'i') {
+        return ("kit sync -Source $k -FromLatest -Apply (або -FromVersion N) — на головній гілці чи гілці онбордингу; sync наповнить " +
+                'базу й надрукує крок вирівнювання Уніки (pull і позначку поставки)')
+    }
+    "kit verify -Source $k — на гілці $MainBranch (HEAD = $MainBranch, дерево чисте); очікувано equal, verify наповнить базу й надрукує pull Уніки та kit canon -Source $k -MarkerOnly -Apply"
+}
+
+function Get-KitProvisionSteps {
+    <#
+    .SYNOPSIS
+        Кроки після рішення provision — одна таблиця спеки §4.2 (на 8d94204) замість розгалужень по тексту.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('file-empty', 'file-dt', 'server-new', 'server-existing')][string]$Kind,
+        [Parameter(Mandatory)]$Fitness,
+        [string]$TemplatePath,
+        [Parameter(Mandatory)][string]$MainBranch
+    )
+    $steps = [System.Collections.Generic.List[string]]::new()
+    if ($Kind -eq 'file-empty') {
+        if ($Fitness.Fit) {
+            $steps.Add((Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{})))
+            $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{})))
+        } else {
+            $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch))
+        }
+        return , $steps.ToArray()
+    }
+    if ($Kind -eq 'file-dt')    { $steps.Add((Format-KitUnicaRun -Op 'infobase.restore' -Arguments ([ordered]@{ input = $TemplatePath; mode = 'create' }))) }
+    if ($Kind -eq 'server-new') { $steps.Add((Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{}))) }
+    if ($Fitness.Fit) { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ force = $true }))) }
+    else              { $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch)) }
+    , $steps.ToArray()
 }
 
 function Invoke-KitProvision {
     <#
     .SYNOPSIS
-        База агента (спека §4): порожня файлова або з .dt (CREATEINFOBASE /UseTemplate). Її можна
-        знести й розгорнути знову будь-коли (-Force). Далі — operation=build Уніки.
+        База агента (спека 2026-10-11 §4.2): kit вирішує, перевіряє, прибирає стару базу й пам'ять
+        раннера; створює той, хто першим наповнює (§3 рішення 4).
+    .DESCRIPTION
+        Придатне дерево основної конфігурації — базу створює Уніка (infobase.create / infobase.restore),
+        kit лише прибирає стару теку бази й <workPath>/infobases/origin і друкує кроки. Непридатне
+        (truth: storage без дерева чи з поставкою missing/stale) — першим базу наповнює kit зі сховища,
+        тож порожню файлову базу створює теж kit. Серверну базу kit не створює ніколи: -ServerBase New —
+        створює Уніка, -ServerBase Existing — базу дала людина.
     .PARAMETER Template
         Файл .dt; без нього береться workspaces.<ws>.agentBase.template з накладки; без обох — порожня база.
     .PARAMETER Remember
         Записати -Template у v8storagekit.local.yaml (те, що робить скіл provision після питання).
+    .PARAMETER ServerBase
+        Лише для серверної бази агента: New — створює Уніка з infobases.origin.dbms; Existing — базу дала людина.
     #>
     [CmdletBinding()]
     param(
@@ -134,7 +213,8 @@ function Invoke-KitProvision {
         [bool]$Apply,
         [switch]$Force,
         [string]$Template,
-        [switch]$Remember
+        [switch]$Remember,
+        [ValidateSet('New', 'Existing')][string]$ServerBase
     )
 
     if ($Remember -and -not $Template) { throw 'Параметр -Remember потребує -Template <файл.dt>: нема що записувати в накладку.' }
@@ -157,70 +237,46 @@ function Invoke-KitProvision {
     $done = [System.Collections.Generic.List[object]]::new()
 
     foreach ($ws in $workspaces) {
+        Write-Host ''
+        Write-Host "Воркспейс: $($ws.Path)"
+        # Потребу в базі визначають ТИПИ наборів, не наявність infobases.origin (П16): на свіжому клоні
+        # файлу Уніки ще немає, і воркспейс з розширенням не можна приймати за воркспейс обробок.
+        if (-not (Test-KitWorkspaceNeedsAgentBase -Workspace $ws)) {
+            Write-Host '  У воркспейсі лише зовнішні обробки — бази агента тут не буває.'
+            continue
+        }
         $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
-        if ($null -eq $ab) { Write-Host "- $($ws.Path): у v8project.yaml немає infobase: — бази агента тут не буває (зовнішні обробки)."; continue }
+        if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
 
-        # Правка виконавця (задокументована в брифі задачі): $template — ОКРЕМА локальна
-        # змінна від параметра -Template, а не той самий $Template з іншим регістром.
-        # PowerShell імена змінних реєстронечутливі: $template = $Template було б однією
-        # й тією самою змінною, і шаблон, узятий із накладки для воркспейсу 1, перезаписав
-        # би параметр -Template і протік у воркспейс 2 цього самого циклу.
+        # $wsTemplate — ОКРЕМА змінна від параметра -Template: імена змінних PowerShell реєстронечутливі,
+        # і $template = $Template стало б однією змінною — шаблон з накладки першого воркспейсу
+        # перезаписав би параметр і протік у наступний воркспейс циклу.
         $wsTemplate = $Template
         if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
             $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
         }
-
-        Write-Host ''
-        Write-Host "Воркспейс: $($ws.Path)"
         Write-Host "База:      $($ab.Connection)  ($($ab.Origin))"
-        if ($ab.Kind -eq 'server') {
-            throw ("База агента воркспейсу '$($ws.Path)' серверна (Srvr=). Kit її не створює: серверну базу створює людина в кластері, а розгортання " +
-                   'з .dt на сервері — окремий спайк (спека §13). Далі — operation=init/build Уніки.')
-        }
 
-        # Задача 12 (рішення користувача 2026-09-10): вісь «звідки власник» перевіряється
-        # ДО вибору типу бази — і безумовно, до будь-якого запуску платформи (Assert-SafeWorkPath
-        # нижче теж не звертається до платформи, але сенс той самий: спершу власник). $wsTemplate
-        # відсутній означає саме "порожня" — це якраз шлях, який веде build у глухий кут, коли
-        # CONFIGURATION source-set порожній. Шаблон (.dt) чи серверна база несуть власника
-        # інакше, тож перевірка їх не стосується.
+        # Вісь власника — до вибору типу бази (рішення користувача 2026-09-10): порожнє дерево
+        # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
         if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
             $missing = @(Get-KitMissingOwnerSources -Workspace $ws)
-            # Спека 2026-09-30 §5.3: основна конфігурація під сховищем без дерева — законний
-            # старт нового репозиторію (рецепт (i)). Порожню базу наповнить sync (UpdateCfg на
-            # порожній ІБ працює — спайк B2, спека 2026-09-03 §14), дерево — canon з неї. Це
-            # закриває коло «provision радить sync, sync вимагає базу».
             if (@($missing | Where-Object Truth -ne 'storage').Count -gt 0) { throw (New-KitOwnerMissingMessage -Workspace $ws) }
-            foreach ($m in $missing) {
-                Write-Host (("  Основна конфігурація '{0}' (truth: storage) ще без дерева — порожня база законна (рецепт (i)). " +
-                    'Після створення бази: kit sync -Source {0} -FromLatest -Apply (або -FromVersion N) → kit canon -Source {0} -Apply → operation=build Уніки.') -f $m.Key) -ForegroundColor Cyan
-            }
         }
-        foreach ($cfgSrc in @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'storage' })) {
-            $state = Get-KitSupplyState -TreeRoot $cfgSrc.FullPath
-            if ($state -in 'missing', 'stale') {
-                Write-Host ('  УВАГА: ' + (Get-KitSupplyRecipe -SourceKey $cfgSrc.Key -MainBranch $Context.MainBranch -State $state)) -ForegroundColor Yellow
-            }
+        $fitness = Get-KitConfigurationFitness -Workspace $ws
+        if (-not $fitness.Fit) {
+            $why = if ($fitness.Recipe -eq 'i') { 'дерева ще немає — рецепт (i)' } else { "поставка вендора $($fitness.Supply) — рецепт (ii)" }
+            $unfitNote = ("  Дерево основної конфігурації '{0}' не придатне до завантаження ({1}): першим базу наповнить kit зі сховища, тож порожню файлову базу створює теж kit." -f $fitness.Source.Key, $why)
+            Write-Host $unfitNote -ForegroundColor Cyan
         }
 
-        # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу
-        # (workPath, §2.5/§4), НЕ вся тека воркспейсу. Другий, незалежний від аудиту
-        # принципу 3 (Resolve-KitAgentBase) запобіжник: аудит ловить базу людини під
-        # чужим ім'ям, ця межа ловить БУДЬ-ЯКУ теку поза робочою — навіть якщо аудит
-        # помилився (наприклад, описку infobase.connection: 'File=cfe/src' — законну
-        # підтеку воркспейсу, яку аудит не ловить, бо це не база жодної людини з
-        # накладки). Без неї межа -MustBeUnder $ws.FullPath пропускає будь-яку підтеку
-        # воркспейсу, і New-V8FileInfobase стирає вихідники розширення
-        # (Remove-KitDirectory, V8.psm1) чи всю робочу теку з артефактами.
-        #
-        # Той самий Assert-SafeWorkPath, застосований до самої межі — не власна
-        # перевірка "рівність/поза межею" третьою копією: Assert-SafeWorkPath уже
-        # відхиляє рівність із межею (це і закриває край workPath: '.' — Read-V8Project
-        # не пускає порожній workPath, але не боронить '.'), сегмент ".." і роботу на
-        # ненормалізованому шляху. $ws.Project.WorkPath, не літерал 'build': workPath
-        # конфігурований у v8project.yaml (типове значення 'build', Read-V8Project), і
-        # решта kit його шанує (Task 3 будує build/artifacts саме від WorkPath) —
-        # жорсткий 'build' відкидав би законну базу агента в репозиторії з workPath: 'out'.
+        # F7 (рев'ю B4 Task 1) — межа видалення/створення: РОБОЧА тека воркспейсу (workPath, §2.5/§4),
+        # НЕ вся тека воркспейсу. Другий, незалежний від аудиту принципу 3 (Resolve-KitAgentBase)
+        # запобіжник: аудит ловить базу людини під чужим ім'ям, ця межа ловить БУДЬ-ЯКУ теку поза
+        # робочою — навіть описку infobase.connection: 'File=cfe/src' (законну підтеку воркспейсу).
+        # Той самий Assert-SafeWorkPath застосовано до самої межі: він відхиляє рівність із межею
+        # (край workPath: '.'), сегмент ".." і ненормалізований шлях. $ws.Project.WorkPath, не літерал
+        # 'build': workPath конфігурований у v8project.yaml, і решта kit його шанує.
         $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
         # П25 «Корені власності»: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
         # Тож workPath, що дорівнює кореню набору, лежить у ньому чи містить його, відхиляється ДО будь-якого
@@ -235,23 +291,62 @@ function Invoke-KitProvision {
             }
         }
         Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
-        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
+        # Спека §10 П7: пам'ять раннера знищеної чи чужої бази — інакше старі хеші розширень стали б
+        # «своєю» пам'яттю нової бази, і push пропустив би їх (клас #25). Мітку власника й замок поруч
+        # (інші файли <workPath>/infobases/) не чіпати. Межа та сама: корінь власності — workPath.
+        $memoryDir = Join-Path $agentWork 'infobases/origin'
+        Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
 
+        if ($ab.Kind -eq 'server') {
+            if (-not $ServerBase) {
+                throw ("База агента воркспейсу '$($ws.Path)' серверна ($($ab.Connection)). Вкажіть -ServerBase New — Уніка створить її в " +
+                       'кластері з infobases.origin.dbms, або -ServerBase Existing — базу дала людина, kit лише прибере пам''ять раннера й надрукує крок.')
+            }
+            if ($wsTemplate) { throw '-Template (.dt) для серверної бази агента не підтримується: розгортання .dt на сервері — поза обсягом. Приберіть -Template чи agentBase.template з накладки.' }
+            if ($ServerBase -eq 'New') {
+                $missingDbms = @('kind', 'server', 'name', 'locale' | Where-Object {
+                    $null -eq $ab.Dbms -or -not $ab.Dbms.Contains($_) -or [string]::IsNullOrWhiteSpace([string]$ab.Dbms[$_]) })
+                if ($missingDbms.Count -gt 0) {
+                    throw ("Для -ServerBase New у $($ab.Origin) під infobases.origin.dbms бракує: $($missingDbms -join ', '). " +
+                           'Їх і реквізити адміністратора кластера питає в людини скіл v8storagekit:provision.')
+                }
+                $crWarn = ("  УВАГА: раннер створює базу з CrSQLDB=Y — він МОВЧКИ бере наявну базу даних СУБД з тим самим іменем ('{0}' на '{1}'). " +
+                           "Ім'я бази даних підтверджує людина до кроку. Регламентні завдання в новій базі вимкнено (SchJobDn=Y). " +
+                           'Адміністратор кластера — infobases.origin.cluster {{ user, password }} (SUsr/SPwd).') -f $ab.Dbms['name'], $ab.Dbms['server']
+                Write-Host $crWarn -ForegroundColor Yellow
+            }
+            $serverKind = if ($ServerBase -eq 'New') { 'server-new' } else { 'server-existing' }
+            $serverSteps = Get-KitProvisionSteps -Kind $serverKind -Fitness $fitness -MainBranch $Context.MainBranch
+            if (-not $Apply) {
+                Write-Host "  Це попередній перегляд. Для виконання додайте -Apply (kit прибере пам'ять раннера $memoryDir)." -ForegroundColor Cyan
+                Write-KitNextSteps -Title 'Далі:' -Steps $serverSteps
+                continue
+            }
+            Remove-KitDirectory -Path $memoryDir
+            Write-KitNextSteps -Title 'Далі:' -Steps $serverSteps
+            $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $null; Template = $null
+                CreatedBy = $(if ($ServerBase -eq 'New') { 'unica' } else { 'existing' }); Steps = $serverSteps })
+            continue
+        }
+        if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
+
+        Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
         Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
 
+        $fileKind = if ($wsTemplate) { 'file-dt' } else { 'file-empty' }
+        $templateFull = if ($wsTemplate -and (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { (Resolve-Path -LiteralPath $wsTemplate).Path } else { $wsTemplate }
+        $steps = Get-KitProvisionSteps -Kind $fileKind -Fitness $fitness -TemplatePath $templateFull -MainBranch $Context.MainBranch
+        $kitCreates = ($fileKind -eq 'file-empty' -and -not $fitness.Fit)
+
         if (-not $Apply) {
-            # Правка виконавця (задокументована в брифі задачі): у PowerShell '+' після
-            # виклику команди — окремий позиційний аргумент, не конкатенація рядків
-            # (Write-Host не має параметра з таким позиційним іменем поруч, а '+' і
-            # $(if...) надрукувались би літерально). Рядок збирається в змінну ДО виклику.
+            # '+' після виклику команди — окремий позиційний аргумент, не конкатенація (F2/P4): рядок збирається в змінну ДО виклику.
             $previewNote = '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' })
             Write-Host $previewNote -ForegroundColor Cyan
-            # F6 (рев'ю B4 Task 1) — раніше -Remember без -Apply мовчав: continue стояв
-            # до блоку -Remember, шаблон не запам'ятовувався, і про це ніде не було сказано.
-            if ($Remember) {
-                Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray
-            }
+            if ($kitCreates) { Write-Host '  З -Apply kit сам створить порожню файлову базу.' -ForegroundColor Cyan }
+            Write-KitNextSteps -Title 'Далі:' -Steps $steps
+            # F6 (рев'ю B4 Task 1): -Remember без -Apply не мовчить — шаблон ще не записано.
+            if ($Remember) { Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray }
             continue
         }
         if ($ab.Exists -and -not $Force) {
@@ -259,20 +354,24 @@ function Invoke-KitProvision {
         }
         if ($wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
 
-        # Межу вже перевірено вище (Assert-SafeWorkPath, безумовно, до -Apply) — тут
-        # $ab.Path не змінювався, повторна перевірка була б третьою копією тієї самої
-        # логіки. New-V8FileInfobase все одно робить власну (V8.psm1) як останній
-        # запобіжник безпосередньо перед Remove-Item.
-        Write-Host '  Створюю базу...'
-        $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -TemplatePath $wsTemplate
-        Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
-        Write-Host '  Далі: operation=build Уніки наповнює базу з джерел воркспейсу.' -ForegroundColor DarkGray
+        # Обидва шляхи вже пройшли Assert-SafeWorkPath вище (до -Apply, безумовно) і з того часу не змінювались.
+        Remove-KitDirectory -Path $ab.Path
+        Remove-KitDirectory -Path $memoryDir
+        if ($kitCreates) {
+            Write-Host '  Створюю порожню базу (першим її наповнить kit зі сховища)...'
+            $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork
+            Write-Host "  Готово: $($ab.Path)" -ForegroundColor Green
+        } else {
+            Write-Host "  Стару базу й пам'ять раннера прибрано; базу створює Уніка — крок нижче." -ForegroundColor Green
+        }
+        Write-KitNextSteps -Title 'Далі:' -Steps $steps
 
         if ($Remember) {
             Save-KitOverlayAgentBase -OverlayPath $overlayPath -WorkspacePath $ws.Path -Template $wsTemplate
             Write-Host "  Шаблон записано в $overlayPath (workspaces.$($ws.Path).agentBase.template)." -ForegroundColor DarkGray
         }
-        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $wsTemplate })
+        $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $ab.Path; Template = $wsTemplate
+            CreatedBy = $(if ($kitCreates) { 'kit' } else { 'unica' }); Steps = $steps })
     }
     [pscustomobject]@{ ExitCode = 0; Provisioned = $done.ToArray() }
 }

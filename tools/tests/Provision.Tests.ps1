@@ -130,14 +130,6 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD' | Should -Exist
     }
 
-    It 'серверна база агента — зупинка з поясненням (спайк §13), навіть із -Apply' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv') -WithHooks
-        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent;'
-        $r = Invoke-Provision -Repo $repo -More @('-Apply')
-        $r.ExitCode | Should -Not -Be 0
-        $r.Output | Should -BeLike '*Srvr*кластер*'
-    }
-
     It '-Remember без -Template — зупинка: нема що запам''ятовувати' {
         $r = Invoke-Provision -Repo (New-KitFakeRepo -Root (Join-Path $TestDrive 'remember') -WithHooks) -More @('-Remember')
         $r.ExitCode | Should -Not -Be 0
@@ -298,18 +290,6 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         }
 
-        It 'CONFIGURATION під truth: storage без дерева — не зупинка, а підказка рецепта (i): sync, потім canon (спека 2026-09-30 §5.3)' {
-            $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-storage-truth') -Workspaces $ws -WithHooks -NoSourceTrees
-            # Прев'ю, не -Apply: -Apply створив би файлову ІБ справжньою платформою.
-            $r = Invoke-Provision -Repo $repo
-            $r.ExitCode | Should -Be 0 -Because $r.Output
-            $r.Output | Should -Not -BeLike '*бракує власника*'
-            $r.Output | Should -BeLike "*Основна конфігурація 'base'*"
-            $r.Output | Should -BeLike '*kit sync -Source base*-FromLatest*'
-            $r.Output | Should -BeLike '*kit canon -Source base -Apply*'
-        }
-
         It 'змішаний воркспейс: порожня CONFIGURATION під vendor — зупинка лишається' {
             # Типова фікстура: base — truth: vendor, дерево порожнє. Зупинка — до будь-якого
             # виклику платформи (throw у Invoke-KitProvision стоїть до гілки -Apply).
@@ -320,12 +300,12 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         }
 
-        It 'клієнтський воркспейс, поставка застаріла — попередження з рецептом, не зупинка' {
+        It 'клієнтський воркспейс, поставка застаріла — дерево не придатне, рецепт (ii), не зупинка' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'prov-stale') -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply
             [System.IO.File]::WriteAllBytes((Join-Path $repo 'Client_UNF/cf/src/Ext/ParentConfigurations.bin'), [byte[]](1..77))
             $r = Invoke-Provision -Repo $repo
             $r.ExitCode | Should -Be 0 -Because $r.Output
-            $r.Output | Should -BeLike '*поставка вендора застаріла*'
+            $r.Output | Should -BeLike '*поставка вендора stale*рецепт (ii)*'
         }
 
         It 'непорожній cf/src (власник є) — «порожня» проходить як і раніше, попри Adopted-об''єкти в розширенні' {
@@ -371,6 +351,169 @@ Describe 'kit provision — прев''ю і зупинки без платфор
     }
 }
 
+Describe 'kit provision 1.5.0 — хто створює базу (спека §4.2, §10)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        function script:Invoke-Provision { param([string]$Repo, [string[]]$More = @())
+            Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $Repo -More $More }
+        function script:Add-Owner { param([string]$Repo)
+            $dir = Join-Path $Repo 'Alpha_SMB/cf/src'; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base') }
+        $script:StorageWs = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+    }
+
+    It 'файлова, дерево придатне: прев''ю друкує infobase.create і push, без CREATEINFOBASE' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fit') -WithHooks
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*unica.run {"op":"infobase.create","args":{},"dryRun":true}*'
+        $r.Output | Should -BeLike '*unica.run {"op":"push","args":{},"dryRun":true}*'
+    }
+    It 'файлова придатна, -Apply -Force: прибрано теку бази й пам''ять раннера, бази kit не створював (П7)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fit-force') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path (Join-Path $mem 'hashes') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $mem 'generation.json') -Value '{}' -Encoding UTF8
+        $owner = Join-Path $repo 'Alpha_SMB/build/infobases/owner.json'
+        Set-Content -LiteralPath $owner -Value '{}' -Encoding UTF8
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib') | Should -BeFalse
+        Test-Path -LiteralPath $mem | Should -BeFalse
+        Test-Path -LiteralPath $owner | Should -BeTrue -Because 'мітку власника й замок поруч не чіпати (§10 П7)'
+        $r.Output | Should -BeLike '*"op":"infobase.create"*'
+    }
+    It 'без -Apply нічого не прибирає: ні базу, ні пам''ять раннера' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'preview-keeps') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Force')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        Test-Path -LiteralPath $mem | Should -BeTrue
+    }
+    It 'база існує, -Apply без -Force — зупинка, нічого не прибрано' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'exists') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*База агента вже є*-Force*'
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        Test-Path -LiteralPath $mem | Should -BeTrue
+    }
+    It 'пам''ять раннера — посилання (junction) назовні: відмова до будь-якого видалення, ціль ціла (П25)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mem-link') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $outside = Join-Path $TestDrive 'mem-link-target'
+        New-Item -ItemType Directory -Path $outside -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside 'keep.txt') -Value 'x'
+        $infobases = Join-Path $repo 'Alpha_SMB/build/infobases'
+        New-Item -ItemType Directory -Path $infobases -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $infobases 'origin') -Target $outside | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*посиланням*'
+        Test-Path -LiteralPath (Join-Path $outside 'keep.txt') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue -Because 'база не прибрана, бо відмова передує видаленню'
+    }
+    It 'рецепт (i): truth: storage, дерева немає — прев''ю: kit створить порожню, далі kit sync' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'r1') -Workspaces $script:StorageWs -NoSourceTrees -WithHooks
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*не придатне*рецепт (i)*'
+        $r.Output | Should -BeLike '*kit sync -Source base -FromLatest -Apply*'
+        $r.Output | Should -Not -BeLike '*"op":"infobase.create"*'
+    }
+    It 'рецепт (ii): поставка без .cf — прев''ю: далі kit verify, не push' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'r2') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
+        Get-ChildItem -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations') -Filter '*.cf' | Remove-Item -Force
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*рецепт (ii)*'
+        $r.Output | Should -BeLike '*kit verify -Source base*'
+        $r.Output | Should -Not -BeLike '*"op":"push"*'
+    }
+    It 'з .dt: infobase.restore з абсолютним шляхом, потім push force' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dt') -WithHooks
+        Add-Owner -Repo $repo
+        $dt = Join-Path $TestDrive 'demo.dt'; Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Template', $dt)
+        $r.Output | Should -BeLike '*"op":"infobase.restore","args":{"input":"*demo.dt","mode":"create"}*'
+        $r.Output | Should -BeLike '*"op":"push","args":{"force":true}*'
+    }
+    It 'серверна без -ServerBase — код 1, рецепт з обома варіантами' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-ServerBase New*-ServerBase Existing*'
+    }
+    It 'серверна New без dbms — код 1, називає відсутні ключі' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-nodbms') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL' })
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*server, name, locale*'
+    }
+    It 'серверна New: прев''ю — застереження CrSQLDB з іменем бази даних, infobase.create, push force' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-new') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL'; server = 'pg1'; name = 'agent_db'; locale = 'uk' })
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike "*CrSQLDB=Y*'agent_db'*'pg1'*"
+        $r.Output | Should -BeLike '*infobases.origin.cluster { user, password }*'
+        $r.Output | Should -BeLike '*"op":"infobase.create"*"op":"push","args":{"force":true}*'
+    }
+    It 'серверна Existing: прев''ю не прибирає пам''ять раннера, -Apply прибирає (П7)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-ex') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $p = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing')
+        $p.ExitCode | Should -Be 0 -Because $p.Output
+        Test-Path -LiteralPath $mem | Should -BeTrue
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Test-Path -LiteralPath $mem | Should -BeFalse
+        $r.Output | Should -BeLike '*"op":"push","args":{"force":true}*'
+    }
+    It '-ServerBase на файловій базі — код 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'file-sb') -WithHooks
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*-ServerBase стосується лише серверної бази*'
+    }
+    It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:provision' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
+            'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*не налаштована*v8storagekit:provision*'
+        $r.Output | Should -Not -BeLike '*у v8project.yaml немає infobase:*'
+    }
+    It 'П16: лише зовнішні обробки — код 0, «бази тут не буває»' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'epf') -WithHooks -Workspaces ([ordered]@{
+            'Epf' = @{ Sets = @(@{ Name = 'external-processors'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } })
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -BeLike '*бази агента тут не буває*'
+    }
+}
+
 Describe 'kit provision — платформа: порожня база й база з .dt' -Tag Integration {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -406,26 +549,24 @@ Describe 'kit provision — платформа: порожня база й ба�
         $script:Dt = Join-Path $TestDrive 'empty.dt'
         (Invoke-V8Designer -IbSwitch $ib -Arguments @('/DumpIB "{0}"' -f $script:Dt)).ExitCode | Should -Be 0
     }
-    It 'порожня база агента створюється під <ws>/build/ib' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty') -WithHooks
-        # «Порожня» тут — про ІНФОБАЗУ (без даних/шаблону), не про власника на диску:
-        # Задача 12 блокує саме відсутність власника, тому він тут є (Add-KitOwnerTree),
-        # а сам тест і далі перевіряє механіку створення порожньої ІБ.
-        Add-KitOwnerTree -Repo $repo
+    It 'непридатне дерево (рецепт (i)): kit сам створює порожню базу під <ws>/build/ib' {
+        # Придатне дерево базу не створює kit (її створює Уніка), тож «kit створив порожню
+        # базу» перевіряється на truth: storage без дерева — єдиному випадку, де першим
+        # наповнює kit (спека §3 рішення 4).
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty') -Workspaces $ws -NoSourceTrees -WithHooks
         $out = & pwsh -NoProfile -File $script:Kit provision -RepoRoot $repo -Apply 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $out
         Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD' | Should -Exist
     }
-    It 'база з .dt і -Remember: створена, шаблон записано в накладку; повторно — лише з -Force' {
+    It 'з .dt і -Remember: шаблон записано в накладку, кроки надруковано, базу kit не створював' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'from-dt') -WithHooks
         $out = & pwsh -NoProfile -File $script:Kit provision -RepoRoot $repo -Apply -Template $script:Dt -Remember 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $out
-        Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD' | Should -Exist
+        $out | Should -BeLike '*"op":"infobase.restore"*'
+        Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD' | Should -Not -Exist
         (Get-Content (Join-Path $repo 'v8storagekit.local.yaml') -Raw) | Should -BeLike '*agentBase*empty.dt*'
-        & pwsh -NoProfile -File $script:Kit provision -RepoRoot $repo -Apply 2>&1 | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        & pwsh -NoProfile -File $script:Kit provision -RepoRoot $repo -Apply -Force 2>&1 | Out-Null
-        $LASTEXITCODE | Should -Be 0
     }
 
 }
