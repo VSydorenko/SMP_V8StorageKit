@@ -43,7 +43,7 @@ function Invoke-KitVerify {
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
     if ($sources.Count -eq 0) {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — звіряти нічого.'
-        return [pscustomobject]@{ ExitCode = 0; Results = @() }
+        return [pscustomobject]@{ ExitCode = 0; Results = @(); AlignSteps = @() }
     }
 
     # Fetch нічого не змінює в робочому дереві й не чіпає сховища, а знімає цілий клас хибних
@@ -85,146 +85,173 @@ function Invoke-KitVerify {
         [pscustomobject]@{ Source = $src; Info = $vv; Agent = $agent; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 
-    foreach ($item in $plan) {
-        $src = $item.Source; $vv = $item.Info; $ver = $item.Version; $agent = $item.Agent
-        Write-Host ''
-        Write-Host "Джерело:  $($src.Workspace)/$($src.Key)  ·  ref: $ref  ·  версія сховища: $ver (merge-base $($vv.Commit.Substring(0, 7)))"
-        if ($vv.NewerVersions.Count -gt 0) {
-            Write-Host "  На $($src.Branch) після злитої версії є: $($vv.NewerVersions -join ', ') — сховище попереду '$ref'." -ForegroundColor Yellow
-        }
-
-        $workDir = Join-Path $root 'build/verify' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека verify $($src.Key)"
-        Remove-KitDirectory -Path $workDir
-        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
-
-        $ib = $agent.IbSwitch
-        Write-Host "  База агента ($ib), версія зі сховища, дамп..."
-        # $bound = $false ПЕРЕД try обов'язковий (рев'ю B3 раунд 2, Important 4 — та сама
-        # асиметрія, що вже виправлена в sync.psm1:150-155): під Set-StrictMode -Version Latest
-        # звернення до неприсвоєної змінної у finally само кине й витіснить первинний виняток.
-        # Enter-KitStorageBind — УСЕРЕДИНІ try: якщо прив'язка впаде, Exit- покличеться з
-        # Bound=$false і нічого не спробує зняти — без цього невдала прив'язка лишила б
-        # ConfigurationRepositoryBindCfg без пари Unbind, а це єдиний запис kit у сховище
-        # конфігурації, і межа «сховище лише читання» тримається саме на симетрії цієї пари.
-        $bound = $false
-        try {
-            $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
-            $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -User $agent.User -Password $agent.Password
-        } catch {
-            # Спека 1.3.1 §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
-            # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,
-            # а звірка на версії, яку основна платформа не вивантажує, неможлива.
-            if (Test-KitDumpFailure -ErrorRecord $_) {
-                $d = $_.Exception.Data
-                $pv = Get-KitPlatformVersionFromPath -Path ([string]$d['PlatformPath'])
-                throw ("Версію $ver основна платформа $pv не вивантажує — verify на ній неможливий. " +
-                       'Звірте наступну версію (-Version) або вершину, вивантажену основною платформою. ' +
-                       "Платформа відповіла: $($d['Output'])")
+    # Кроки вирівнювання пам'яті раннера (спека 2026-10-11 §4.1): по одному на набір, базу якого зрушив verify.
+    $alignSteps = [System.Collections.Generic.List[object]]::new()
+    try {
+        foreach ($item in $plan) {
+            $src = $item.Source; $vv = $item.Info; $ver = $item.Version; $agent = $item.Agent
+            Write-Host ''
+            Write-Host "Джерело:  $($src.Workspace)/$($src.Key)  ·  ref: $ref  ·  версія сховища: $ver (merge-base $($vv.Commit.Substring(0, 7)))"
+            if ($vv.NewerVersions.Count -gt 0) {
+                Write-Host "  На $($src.Branch) після злитої версії є: $($vv.NewerVersions -join ', ') — сховище попереду '$ref'." -ForegroundColor Yellow
             }
-            throw
-        } finally {
-            Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
-        }
-        $treeDir = Join-Path $workDir 'tree'
-        $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
-        Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
-        # Групи регістру — з ПЕРЕЛІКУ git, не з диска (спека 2026-10-04 §4.3): на NTFS члени групи вже
-        # злились в один файл при експорті. Запобіжник лічильника: інша розбіжність між переліком і
-        # текою дерева — файлова система з'їла шляхи з невідомої причини, і вердикт був би неправдою.
-        $prefix = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
-        $treeRel = @(Get-KitTreePaths -RepoRoot $root -Ref $ref -Path $prefix |
-            ForEach-Object { $_.Substring($prefix.Length).TrimStart('/') } |
-            Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
-        $collisions = @(Get-KitCaseCollisions -Paths $treeRel)
-        $collapsed = 0
-        foreach ($g in $collisions) { $collapsed += $g.Count - 1 }
-        $onDisk = @(Get-KitRelativeFiles -Root $treeDir).Count
-        if ($onDisk -ne ($treeRel.Count - $collapsed)) {
-            throw ("Дерево '$ref' після експорту має $onDisk файл(ів), а з переліку git очікувалось $($treeRel.Count - $collapsed) " +
-                   "(з поправкою на $($collisions.Count) груп(и) регістр-дублікатів) — файлова система втратила шляхи з невідомої причини; " +
-                   'verify не ручається за звірку.')
-        }
-        Write-Host ("  База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
-            $agent.Workspace, $ver) -ForegroundColor Yellow
 
-        # Ordinal HashSet замість Sort-Object -Unique (рев'ю B3 раунд 2, дрібна правка 7):
-        # Sort-Object -Unique за замовчуванням культурозалежний і регістронечутливий — та
-        # сама політика порівняння шляхів, яку Compare-KitTrees (TreeCompare.psm1) явно
-        # відкидає на користь Ordinal. Тут порядок елементів не важливий (масив іде лише як
-        # вхід у Get-KitBinaryPaths), важлива тільки коректність дедуплікації.
-        $relSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-        foreach ($rel in (@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir))) { $relSet.Add($rel) | Out-Null }
-        $allRel = [string[]]$relSet
-        $binary = Get-KitBinaryPaths -RepoRoot $root -RepoPath $src.RepoPath -RelativePaths $allRel
-        $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary -CaseCollisions $collisions -ClassifyCase
+            $workDir = Join-Path $root 'build/verify' $src.Key
+            Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека verify $($src.Key)"
+            Remove-KitDirectory -Path $workDir
+            New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        $differs = ($diff.CrOnly.Count + $diff.Content.Count + $diff.OnlyInDump.Count + $diff.OnlyInTree.Count + $diff.CaseCollisions.Count + $diff.CaseOnly.Count) -gt 0
-        $verdict = if (-not $differs -and $vv.NewerVersions.Count -eq 0) { 'equal' }
-                   elseif (-not $differs) { 'storage-ahead' }
-                   elseif ($vv.NewerVersions.Count -eq 0) { 'ref-ahead' }
-                   else { 'mixed' }
-
-        Write-Host ("  Побайтово рівних: $($diff.Equal) із $($diff.Total)" +
-            $(if ($diff.CaseCollidedPaths -gt 0) { " (ще $($diff.CaseCollidedPaths) шлях(ів) — у групах регістру, окремий клас нижче)" } else { '' }))
-        Write-KitDiffList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
-        Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
-        Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
-        Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
-        Write-KitDiffList -Title "регістр-дублікати в дереві '$ref' (на Windows — один файл)" -Items @($diff.CaseCollisions | ForEach-Object {
-            $real = $_.InDump
-            ($_.Paths | ForEach-Object { if ($_ -ceq $real) { "$_ (як у дампі)" } else { "$_ (фантом)" } }) -join ' | '
-        })
-        Write-KitDiffList -Title 'лише регістр шляху (дамп ↔ дерево)' -Items @($diff.CaseOnly | ForEach-Object {
-            "$($_.Dump) ↔ $($_.Tree)" + $(if ($_.ContentEqual) { '' } else { ' (вміст теж різниться)' })
-        })
-        if ($diff.CaseCollisions.Count -gt 0) {
-            Write-Host ("  Увага: регістр-дублікати — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
-                        "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 або ручний git add -A після dump/canon " +
-                        "(docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
-        }
-        if ($diff.CaseOnly.Count -gt 0) {
-            Write-Host ("  Увага: у дереві git шлях має старий регістр імені порівняно зі сховищем — це розбіжність імені, а не вмісту; " +
-                        "робота для сховища тут не потрібна (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
-        }
-        if ($diff.OnlyInDump.Count -gt 0) {
-            # -f поза дужками PowerShell зв'язав би як -ForegroundColor (P4 префлайту B3) — оператор формату всередині.
-            Write-Host (("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
-                         "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch) -ForegroundColor Yellow
-        }
-
-        switch ($verdict) {
-            'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
-            'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; $anyAction = $true }
-            'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: kit build і unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
-            'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
-        }
-
-        $merged = $false
-        if ($Apply -and $vv.NewerVersions.Count -gt 0) {
-            # try/catch навколо звірочного коміту (рев'ю B3 раунд 2, Important 3) — той самий
-            # принцип, що sync.psm1 документує для Invoke-KitMainMerge («невдача злиття не
-            # скасовує реплею»): конфлікт злиття одного джерела не має скасовувати verify
-            # решти джерел без try — виняток летів би назовні crash-ом усього прогону, ХОЧА
-            # платформна робота (дамп зі сховища в базі агента, дерево) для вже перевірених і для решти
-            # джерел лишається дорогою й корисною, а структурований Results — важливішим за
-            # один необроблений виняток.
+            $ib = $agent.IbSwitch
+            Write-Host "  База агента ($ib), версія зі сховища, дамп..."
+            # $bound = $false ПЕРЕД try обов'язковий (рев'ю B3 раунд 2, Important 4 — та сама
+            # асиметрія, що вже виправлена в sync.psm1:150-155): під Set-StrictMode -Version Latest
+            # звернення до неприсвоєної змінної у finally само кине й витіснить первинний виняток.
+            # Enter-KitStorageBind — УСЕРЕДИНІ try: якщо прив'язка впаде, Exit- покличеться з
+            # Bound=$false і нічого не спробує зняти — без цього невдала прив'язка лишила б
+            # ConfigurationRepositoryBindCfg без пари Unbind, а це єдиний запис kit у сховище
+            # конфігурації, і межа «сховище лише читання» тримається саме на симетрії цієї пари.
+            $bound = $false
             try {
-                $m = Merge-KitBranchInto -RepoRoot $root -Branch $src.Branch -Into $ref `
-                    -Message "verify: звірочний коміт $($src.Branch) → $ref (версія $($vv.NewerVersions[-1]))"
-                Write-Host "  Звірочний коміт: $($m.Outcome) ($($m.Via)) $($m.Sha.Substring(0, 7))" -ForegroundColor Green
-                $merged = ($m.Outcome -eq 'merged')
+                $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
+                $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -User $agent.User -Password $agent.Password
             } catch {
-                Write-Host "  Звірочний коміт не вдався: $($_.Exception.Message)" -ForegroundColor Red
+                # Спека 1.3.1 §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
+                # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,
+                # а звірка на версії, яку основна платформа не вивантажує, неможлива.
+                if (Test-KitDumpFailure -ErrorRecord $_) {
+                    $d = $_.Exception.Data
+                    $pv = Get-KitPlatformVersionFromPath -Path ([string]$d['PlatformPath'])
+                    throw ("Версію $ver основна платформа $pv не вивантажує — verify на ній неможливий. " +
+                           'Звірте наступну версію (-Version) або вершину, вивантажену основною платформою. ' +
+                           "Платформа відповіла: $($d['Output'])")
+                }
+                throw
+            } finally {
+                Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
             }
-        } elseif ($Apply) {
-            Write-Host '  -Apply: нових версій на дзеркалі немає — зливати нічого.' -ForegroundColor DarkGray
-        }
+            $treeDir = Join-Path $workDir 'tree'
+            $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
+            Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
+            # Групи регістру — з ПЕРЕЛІКУ git, не з диска (спека 2026-10-04 §4.3): на NTFS члени групи вже
+            # злились в один файл при експорті. Запобіжник лічильника: інша розбіжність між переліком і
+            # текою дерева — файлова система з'їла шляхи з невідомої причини, і вердикт був би неправдою.
+            $prefix = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
+            $treeRel = @(Get-KitTreePaths -RepoRoot $root -Ref $ref -Path $prefix |
+                ForEach-Object { $_.Substring($prefix.Length).TrimStart('/') } |
+                Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
+            $collisions = @(Get-KitCaseCollisions -Paths $treeRel)
+            $collapsed = 0
+            foreach ($g in $collisions) { $collapsed += $g.Count - 1 }
+            $onDisk = @(Get-KitRelativeFiles -Root $treeDir).Count
+            if ($onDisk -ne ($treeRel.Count - $collapsed)) {
+                throw ("Дерево '$ref' після експорту має $onDisk файл(ів), а з переліку git очікувалось $($treeRel.Count - $collapsed) " +
+                       "(з поправкою на $($collisions.Count) груп(и) регістр-дублікатів) — файлова система втратила шляхи з невідомої причини; " +
+                       'verify не ручається за звірку.')
+            }
+            Write-Host ("  База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт verify, не збій." -f `
+                $agent.Workspace, $ver) -ForegroundColor Yellow
 
-        $results.Add([pscustomobject]@{ Key = $src.Key; Ref = $ref; Version = $ver; Verdict = $verdict; Diff = $diff; Merged = $merged })
+            # Ordinal HashSet замість Sort-Object -Unique (рев'ю B3 раунд 2, дрібна правка 7):
+            # Sort-Object -Unique за замовчуванням культурозалежний і регістронечутливий — та
+            # сама політика порівняння шляхів, яку Compare-KitTrees (TreeCompare.psm1) явно
+            # відкидає на користь Ordinal. Тут порядок елементів не важливий (масив іде лише як
+            # вхід у Get-KitBinaryPaths), важлива тільки коректність дедуплікації.
+            $relSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            foreach ($rel in (@(Get-KitRelativeFiles -Root (Join-Path $workDir 'dump')) + @(Get-KitRelativeFiles -Root $treeDir))) { $relSet.Add($rel) | Out-Null }
+            $allRel = [string[]]$relSet
+            $binary = Get-KitBinaryPaths -RepoRoot $root -RepoPath $src.RepoPath -RelativePaths $allRel
+            $diff   = Compare-KitTrees -DumpDir (Join-Path $workDir 'dump') -TreeDir $treeDir -BinaryPaths $binary -CaseCollisions $collisions -ClassifyCase
+
+            $differs = ($diff.CrOnly.Count + $diff.Content.Count + $diff.OnlyInDump.Count + $diff.OnlyInTree.Count + $diff.CaseCollisions.Count + $diff.CaseOnly.Count) -gt 0
+            $verdict = if (-not $differs -and $vv.NewerVersions.Count -eq 0) { 'equal' }
+                       elseif (-not $differs) { 'storage-ahead' }
+                       elseif ($vv.NewerVersions.Count -eq 0) { 'ref-ahead' }
+                       else { 'mixed' }
+
+            Write-Host ("  Побайтово рівних: $($diff.Equal) із $($diff.Total)" +
+                $(if ($diff.CaseCollidedPaths -gt 0) { " (ще $($diff.CaseCollidedPaths) шлях(ів) — у групах регістру, окремий клас нижче)" } else { '' }))
+            Write-KitDiffList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
+            Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
+            Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
+            Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
+            Write-KitDiffList -Title "регістр-дублікати в дереві '$ref' (на Windows — один файл)" -Items @($diff.CaseCollisions | ForEach-Object {
+                $real = $_.InDump
+                ($_.Paths | ForEach-Object { if ($_ -ceq $real) { "$_ (як у дампі)" } else { "$_ (фантом)" } }) -join ' | '
+            })
+            Write-KitDiffList -Title 'лише регістр шляху (дамп ↔ дерево)' -Items @($diff.CaseOnly | ForEach-Object {
+                "$($_.Dump) ↔ $($_.Tree)" + $(if ($_.ContentEqual) { '' } else { ' (вміст теж різниться)' })
+            })
+            if ($diff.CaseCollisions.Count -gt 0) {
+                Write-Host ("  Увага: регістр-дублікати — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
+                            "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 або ручний git add -A після dump/canon " +
+                            "(docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
+            }
+            if ($diff.CaseOnly.Count -gt 0) {
+                Write-Host ("  Увага: у дереві git шлях має старий регістр імені порівняно зі сховищем — це розбіжність імені, а не вмісту; " +
+                            "робота для сховища тут не потрібна (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
+            }
+            if ($diff.OnlyInDump.Count -gt 0) {
+                # -f поза дужками PowerShell зв'язав би як -ForegroundColor (P4 префлайту B3) — оператор формату всередині.
+                Write-Host (("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
+                             "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch) -ForegroundColor Yellow
+            }
+
+            switch ($verdict) {
+                'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
+                'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; $anyAction = $true }
+                'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: kit build і unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
+                'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
+            }
+
+            # Спека 2026-10-11 §4.1, §10 П4: verify зрушив базу агента (UpdateCfg до версії merge-base).
+            # pull — лише коли kit довів рівність: вердикт equal, звіряли саме HEAD, дерево набору чисте.
+            # -Ref передається як є (sha, тег, ім'я гілки): Test-KitRefIsHead порівнює коміти через ^{commit}.
+            # Функції критерію кидають виняток (RepoRoot ≠ корінь репозиторію, порожній шлях набору, збій git) —
+            # fail-closed. Тут це не зупинка (спека 3129c0d, П24): базу вже зрушено, агентові потрібен крок, а
+            # push force нічого в дереві не стирає. Критерій = $false, далі звичайний Get-KitAlignStep
+            # (за поставки missing/stale — blocked).
+            try {
+                $criterion = ($verdict -eq 'equal') -and (Test-KitRefIsHead -RepoRoot $root -Ref $ref) -and
+                             (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
+            } catch {
+                $criterion = $false
+                Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
+            }
+            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
+            Write-KitAlignStep -Step $alignStep
+            $alignSteps.Add($alignStep)
+
+            $merged = $false
+            if ($Apply -and $vv.NewerVersions.Count -gt 0) {
+                # try/catch навколо звірочного коміту (рев'ю B3 раунд 2, Important 3) — той самий
+                # принцип, що sync.psm1 документує для Invoke-KitMainMerge («невдача злиття не
+                # скасовує реплею»): конфлікт злиття одного джерела не має скасовувати verify
+                # решти джерел без try — виняток летів би назовні crash-ом усього прогону, ХОЧА
+                # платформна робота (дамп зі сховища в базі агента, дерево) для вже перевірених і для решти
+                # джерел лишається дорогою й корисною, а структурований Results — важливішим за
+                # один необроблений виняток.
+                try {
+                    $m = Merge-KitBranchInto -RepoRoot $root -Branch $src.Branch -Into $ref `
+                        -Message "verify: звірочний коміт $($src.Branch) → $ref (версія $($vv.NewerVersions[-1]))"
+                    Write-Host "  Звірочний коміт: $($m.Outcome) ($($m.Via)) $($m.Sha.Substring(0, 7))" -ForegroundColor Green
+                    $merged = ($m.Outcome -eq 'merged')
+                } catch {
+                    Write-Host "  Звірочний коміт не вдався: $($_.Exception.Message)" -ForegroundColor Red
+                }
+            } elseif ($Apply) {
+                Write-Host '  -Apply: нових версій на дзеркалі немає — зливати нічого.' -ForegroundColor DarkGray
+            }
+
+            $results.Add([pscustomobject]@{ Key = $src.Key; Ref = $ref; Version = $ver; Verdict = $verdict; Diff = $diff; Merged = $merged; AlignStep = $alignStep })
+        }
+    } finally {
+        # ЗУПИНКА — останніми, і в finally: виняток у пізнішому наборі (дамп, дерево, звірочний коміт) не мусить
+        # губити крок, який агентові вже потрібен від попередніх наборів (спека 0174871). Код виходу не змінюється —
+        # виняток летить далі, змінюється лише те, що бачить агент.
+        Write-KitAlignStops -Steps $alignSteps.ToArray()
     }
 
-    [pscustomobject]@{ ExitCode = $(if ($anyAction) { 3 } else { 0 }); Results = $results.ToArray() }
+    [pscustomobject]@{ ExitCode = $(if ($anyAction) { 3 } else { 0 }); Results = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitVerify
