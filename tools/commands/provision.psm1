@@ -187,6 +187,95 @@ function Get-KitProvisionSteps {
     , $steps.ToArray()
 }
 
+function Get-KitAliasProbeTargets {
+    <#
+    .SYNOPSIS
+        Бази, яких не можна зачепити видаленням: дев-бази накладки і бази агента ІНШИХ воркспейсів (П26 п. 6).
+    .DESCRIPTION
+        Повертає {Label; Candidates}: Label — текст для повідомлення без значень конфігу, Candidates — шлях бази
+        і всі її предки у ВЛАСНОМУ написанні бази (\\localhost\C$\…, subst-диск — як записано), бо саме так
+        псевдонім шляху видно файловій системі, але не канонізації тексту. Серверні бази пропускаються.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Workspace)
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    $add = {
+        param($label, $connection, $baseDir)
+        $parsed = $null
+        try { $parsed = ConvertFrom-V8Connection -Connection $connection }
+        catch { throw "Не вдалося розібрати підключення ($label) для перевірки псевдонімів шляху — kit не може довести, що бази різні." }
+        if ($parsed.Kind -ne 'file') { return }
+        $p = $parsed.File
+        if ($p.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) { $p = '\\' + $p.Substring(8) }
+        elseif ($p.StartsWith('\\?\') -or $p.StartsWith('\??\')) { $p = $p.Substring(4) }
+        if (-not [System.IO.Path]::IsPathRooted($p)) {
+            if (-not $baseDir) { return }
+            $p = [System.IO.Path]::GetFullPath((Join-Path $baseDir $p))
+        }
+        $cands = [System.Collections.Generic.List[string]]::new()
+        $cur = $p.TrimEnd('\', '/')
+        for ($i = 0; $i -lt 64 -and $cur; $i++) {
+            $cands.Add($cur)
+            $parent = $null
+            try { $parent = Split-Path -Parent $cur } catch { $parent = $null }
+            if (-not $parent -or $parent -eq $cur) { break }
+            $cur = $parent
+        }
+        $targets.Add([pscustomobject]@{ Label = $label; Candidates = $cands.ToArray() })
+    }
+    if ($Context.Overlay) {
+        foreach ($human in $Context.Overlay.Infobases.Values) { & $add "дев-база '$($human.Name)'" $human.Connection $null }
+    }
+    foreach ($other in @($Context.Workspaces | Where-Object { $_.Path -ne $Workspace.Path })) {
+        $ib = Resolve-V8AgentInfobase -Project $other.Project
+        if ($null -ne $ib) { & $add "база агента воркспейсу '$($other.Path)'" $ib.Connection $other.Project.Directory }
+    }
+    $targets.ToArray()
+}
+
+function Remove-KitDirectoryGuarded {
+    <#
+    .SYNOPSIS
+        Видалення теки бази агента чи пам'яті раннера з перевіркою «ідентичність за дією» (П26 п. 6).
+    .DESCRIPTION
+        Текстова канонізація не зводить псевдоніми шляху (\\localhost\C$\…, subst-диск) до локального шляху, тож
+        дев-база людини під псевдонімом лишалась невидимою для аудиту перетину. Тут — другий рівень, рівно
+        перед видаленням: у теку, яку видалятимемо, кладеться маркер з унікальним іменем; для кожної бази з
+        -Foreign перевіряється Test-Path маркера за її шляхом і за кожним її наявним предком у ВЛАСНОМУ
+        написанні бази. Маркер видно → відмова до видалення: база дорівнює цій теці або лежить усередині неї.
+        Зворотний випадок (база — предок теки) для бази людини нешкідливий. Маркер пишеться лише після
+        Assert-SafeWorkPath для цієї самої теки (щоб сам не ліг крізь посилання) і знімається у finally.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$OwnedRoot,
+        [Parameter(Mandatory)][string]$Description,
+        [AllowEmptyCollection()][object[]]$Foreign = @()
+    )
+    Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description $Description
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return }
+    $name = '.kit-alias-probe-' + [guid]::NewGuid().ToString('N')
+    $marker = Join-Path $Path $name
+    try {
+        Set-Content -LiteralPath $marker -Value 'kit' -Encoding UTF8
+        foreach ($f in @($Foreign | Where-Object { $_ })) {
+            foreach ($cand in $f.Candidates) {
+                if (Test-Path -LiteralPath (Join-Path $cand $name)) {
+                    throw ("$Description і $($f.Label) — та сама тека чи одна в одній (через псевдонім шляху, напр. \\localhost\C`$\… чи subst-диск). " +
+                           'kit не прибирає теку, у якій може лежати чужа база. Виправлення: задайте базі окремий шлях без псевдонімів.')
+                }
+            }
+        }
+        Remove-KitDirectory -Path $Path
+    } finally {
+        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-KitProvisionPlan {
     <#
     .SYNOPSIS
@@ -260,6 +349,21 @@ function Get-KitProvisionPlan {
     # (інші файли <workPath>/infobases/) не чіпати. Межа та сама: корінь власності — workPath.
     $memoryDir = Join-Path $agentWork 'infobases/origin'
     Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
+
+    # П26 п. 5: бази агента різних воркспейсів не перетинаються — перевірка йде проти ВСІХ воркспейсів
+    # маніфесту, не лише проти воркспейсів прогону (-Workspace B інакше не бачив би A, вкладену в теку B).
+    $collisions = @(Find-KitAgentBaseCollisions -Context $Context -Workspace $ws)
+    if ($collisions.Count -gt 0) {
+        $what = foreach ($c in $collisions) {
+            switch ($c.Kind) {
+                'base' { "її база перетинається з базою агента воркспейсу '$($c.Other)'" }
+                'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у '$($ws.Project.WorkPath)/infobases' цього воркспейсу" }
+                default { "її база лежить у '<workPath>/infobases' воркспейсу '$($c.Other)'" }
+            }
+        }
+        throw ("База агента воркспейсу '$($ws.Path)' перетинається з іншим воркспейсом: " + ($what -join '; ') + '. ' +
+               'kit не прибирає теку, у якій лежить чужа база. Виправлення: у v8project.local.yaml кожного воркспейсу задайте infobases.origin.connection окремою текою (типово build/ib).')
+    }
 
     $plan = [pscustomobject]@{
         Ws = $ws; Skip = $false; Ab = $ab; WsTemplate = $wsTemplate; Fitness = $fitness; UnfitNote = $unfitNote
@@ -414,7 +518,8 @@ function Invoke-KitProvision {
         $agentWork = $plan.AgentWork
         $memoryDir = $plan.MemoryDir
         $steps = $plan.Steps
-        Write-Host "База:      $($ab.Connection)  ($($ab.Origin))"
+        $foreign = if ($Apply) { @(Get-KitAliasProbeTargets -Context $Context -Workspace $ws) } else { @() }
+        Write-Host "База:$($ab.Connection)  ($($ab.Origin))"
         if ($plan.UnfitNote) { Write-Host $plan.UnfitNote -ForegroundColor Cyan }
 
         if ($plan.Server) {
@@ -425,7 +530,7 @@ function Invoke-KitProvision {
                 continue
             }
             Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
-            Remove-KitDirectory -Path $memoryDir
+            Remove-KitDirectoryGuarded -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)" -Foreign $foreign
             Write-KitNextSteps -Title 'Далі:' -Steps $steps
             $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $null; Template = $null; CreatedBy = $plan.CreatedBy; Steps = $steps })
             continue
@@ -450,8 +555,8 @@ function Invoke-KitProvision {
         # Перевірки зроблено в першому проході; тут — повторний запобіжник безпосередньо перед видаленням.
         Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
         Assert-SafeWorkPath -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)"
-        Remove-KitDirectory -Path $ab.Path
-        Remove-KitDirectory -Path $memoryDir
+        Remove-KitDirectoryGuarded -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)" -Foreign $foreign
+        Remove-KitDirectoryGuarded -Path $memoryDir -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "пам'ять раннера бази origin воркспейсу $($ws.Path)" -Foreign $foreign
         if ($plan.KitCreates) {
             Write-Host '  Створюю порожню базу (першим її наповнить kit зі сховища)...'
             $null = New-V8FileInfobase -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork

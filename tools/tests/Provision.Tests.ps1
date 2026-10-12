@@ -363,6 +363,18 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $script:StorageWs = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        function script:New-TwoWsRepo { param([string]$Name, [switch]$NoBBuild)
+            $ws = [ordered]@{
+                'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+                'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces $ws -WithHooks -WithAgentBase
+            foreach ($n in 'Alpha_SMB', 'Beta_SMB') {
+                $dir = Join-Path $repo "$n/cf/src"; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base')
+            }
+            if ($NoBBuild) { Remove-Item -LiteralPath (Join-Path $repo 'Beta_SMB/build') -Recurse -Force }
+            $repo }
     }
 
     It 'файлова, дерево придатне: прев''ю друкує infobase.create і push, без CREATEINFOBASE' {
@@ -656,6 +668,130 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty-dir') -WithHooks
         Add-Owner -Repo $repo
         New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+    }
+    It 'П26 п. 6 (G3): дев-база записана як \\localhost\C$\… (та сама тека) — відмова до видалення, дев-база ціла, маркера не лишилось' {
+        $repoPath = Join-Path $TestDrive 'alias-unc'
+        $agent = Join-Path $repoPath 'Alpha_SMB\build\ib'
+        $unc = '\\localhost\' + ($agent -replace '^([A-Za-z]):', '$1$')
+        if (-not (Test-Path -LiteralPath ('\\localhost\' + ((Split-Path -Qualifier $TestDrive) -replace ':', '$') + '\'))) {
+            Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return
+        }
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$unc'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*дев-база 'dev' — та сама тека чи одна в одній (через псевдонім шляху*"
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 6: дев-база всередині теки агента через псевдонім \\localhost\C$\… — відмова (перевірка предків), дев-база ціла' {
+        $repoPath = Join-Path $TestDrive 'alias-unc-nested'
+        $agent = Join-Path $repoPath 'Alpha_SMB\build\ib'
+        $unc = '\\localhost\' + ($agent -replace '^([A-Za-z]):', '$1$')
+        if (-not (Test-Path -LiteralPath ('\\localhost\' + ((Split-Path -Qualifier $TestDrive) -replace ':', '$') + '\'))) {
+            Set-ItResult -Skipped -Because 'адмін-шар \\localhost\C$ недоступний на цій машині'; return
+        }
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$unc\dev\base'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $dev = Join-Path $repo 'Alpha_SMB/build/ib/dev/base'
+        New-Item -ItemType Directory -Path $dev -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Value 'людська база'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*дев-база 'dev' — та сама тека чи одна в одній*"
+        (Get-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 6: дев-база через subst-диск — відмова, дев-база ціла' {
+        $letter = @('Z', 'Y', 'X', 'W', 'V', 'U') | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+        $repoPath = Join-Path $TestDrive 'alias-subst'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=${letter}:\ib'"
+        $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $null = & subst "${letter}:" (Join-Path $repo 'Alpha_SMB\build') 2>&1
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath "${letter}:\ib")) {
+            Set-ItResult -Skipped -Because 'subst недоступний на цій машині'; return
+        }
+        try {
+            $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        } finally { $null = & subst "${letter}:" /d 2>&1 }
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*дев-база 'dev' — та сама тека чи одна в одній*"
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 6, контроль: дев-база на іншому шляху без перетину — видалення дозволене, маркера не лишилось' {
+        $dev = Join-Path $TestDrive 'alias-control-dev'
+        New-Item -ItemType Directory -Path $dev -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Value 'людська база'
+        $overlay = "infobases:`n  dev:`n    connection: 'File=$dev'"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'alias-control') -WithHooks -WithAgentBase -OverlayText $overlay
+        Add-Owner -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib') | Should -BeFalse
+        Test-Path -LiteralPath $mem | Should -BeFalse
+        (Get-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
+        @(Get-ChildItem -LiteralPath $repo -Recurse -Force -Filter '.kit-alias-probe-*').Count | Should -Be 0
+    }
+    It 'П26 п. 5: база A збігається з базою B (абсолютний File= на ту саму теку) — відмова, -Workspace B' {
+        $repo = New-TwoWsRepo -Name 'x-same'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection ('File=' + (Join-Path $repo 'Beta_SMB/build/ib'))
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*перетинається з базою агента воркспейсу 'Alpha_SMB'*"
+        Test-Path -LiteralPath (Join-Path $repo 'Beta_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 5 (головний): -Workspace B при базі A, вкладеній у теку B — відмова, база A ціла за вмістом' {
+        $repo = New-TwoWsRepo -Name 'x-nested'
+        $a = Join-Path $repo 'Beta_SMB/build/ib/a'
+        New-Item -ItemType Directory -Path $a -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Value 'база A'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection "File=$a"
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*перетинається з базою агента воркспейсу 'Alpha_SMB'*"
+        (Get-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Raw).Trim() | Should -Be 'база A'
+    }
+    It 'П26 п. 5: база A — батько бази B — відмова, база A ціла' {
+        $repo = New-TwoWsRepo -Name 'x-parent'
+        $keep = Join-Path $repo 'Beta_SMB/build/keep.txt'
+        Set-Content -LiteralPath $keep -Value 'база A'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection ('File=' + (Join-Path $repo 'Beta_SMB/build'))
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*перетинається з базою агента воркспейсу 'Alpha_SMB'*"
+        Test-Path -LiteralPath $keep | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repo 'Beta_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'П26 п. 5: база B перетинається з infobases воркспейсу A (build B — junction на build A) — відмова' {
+        $repo = New-TwoWsRepo -Name 'x-mem-theirs' -NoBBuild
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Beta_SMB/build') -Target (Join-Path $repo 'Alpha_SMB/build') | Out-Null
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection 'File=build/infobases/x'
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*лежить у '<workPath>/infobases' воркспейсу 'Alpha_SMB'*"
+    }
+    It 'П26 п. 5: база A лежить в infobases воркспейсу B (пам''ять раннера B) — відмова, -Workspace B' {
+        $repo = New-TwoWsRepo -Name 'x-mem-mine'
+        $a = Join-Path $repo 'Beta_SMB/build/infobases/a'
+        New-Item -ItemType Directory -Path $a -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Value 'база A'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection "File=$a"
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB', '-Apply', '-Force')
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*база агента воркспейсу 'Alpha_SMB' лежить у 'build/infobases' цього воркспейсу*"
+        (Get-Content -LiteralPath (Join-Path $a '1Cv8.1CD') -Raw).Trim() | Should -Be 'база A'
+    }
+    It 'П26 п. 5, контроль: build/ibA і build/ibB — дозволено для обох воркспейсів' {
+        $repo = New-TwoWsRepo -Name 'x-control'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection 'File=build/ibA'
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection 'File=build/ibB'
         $r = Invoke-Provision -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
     }

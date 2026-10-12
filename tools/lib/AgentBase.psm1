@@ -125,9 +125,58 @@ function Test-KitPathsOverlap {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Left, [Parameter(Mandatory)][string]$Right)
-    $a = (Get-KitCanonicalPath -Path $Left).TrimEnd('\', '/') + '\'
-    $b = (Get-KitCanonicalPath -Path $Right).TrimEnd('\', '/') + '\'
+    Test-KitCanonicalPathsOverlap -Left (Get-KitCanonicalPath -Path $Left) -Right (Get-KitCanonicalPath -Path $Right)
+}
+
+function Test-KitCanonicalPathsOverlap {
+    # Єдина копія порівняння з роздільником — для вже канонізованих шляхів (не експортується).
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Left, [Parameter(Mandatory)][string]$Right)
+    $a = $Left.TrimEnd('\', '/') + '\'
+    $b = $Right.TrimEnd('\', '/') + '\'
     $a.StartsWith($b, [System.StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Find-KitAgentBaseCollisions {
+    <#
+    .SYNOPSIS
+        Перетини бази агента воркспейсу з базами агента ІНШИХ воркспейсів маніфесту (П26 п. 5).
+    .DESCRIPTION
+        Дивиться за межі прогону: -Workspace B не бачить A, і без цього provision знищив би базу A, вкладену
+        в теку B. Кожен інший воркспейс із налаштованою базою агента перевіряється тим самим предикатом
+        Test-KitInfobasesOverlap: (1) його база проти бази цього воркспейсу; (2) його база проти
+        <workPath>/infobases цього воркспейсу (туди ведуть видалення пам'яті раннера); (3) база цього
+        воркспейсу проти <workPath>/infobases іншого. Повертає {Other; Kind} (Kind = base | memory) —
+        без значень конфігу, тексти будують викликачі. Нерозбірне — виняток за походженням (fail-closed).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Workspace)
+
+    $found = [System.Collections.Generic.List[object]]::new()
+    $mine = Resolve-V8AgentInfobase -Project $Workspace.Project
+    if ($null -eq $mine) { return @() }
+    $myResolved = Resolve-KitAgentInfobasePath -Project $Workspace.Project -Connection $mine.Connection
+    $myConn = if ($myResolved.Kind -eq 'file') { 'File={0}' -f $myResolved.Path } else { $mine.Connection }
+    $myMemory = 'File={0}' -f (Join-Path (Join-Path $Workspace.FullPath $Workspace.Project.WorkPath) 'infobases')
+    $myOrigin = "база агента воркспейсу '$($Workspace.Path)' (infobases.origin)"
+    foreach ($other in @($Context.Workspaces | Where-Object { $_.Path -ne $Workspace.Path })) {
+        $theirs = Resolve-V8AgentInfobase -Project $other.Project
+        if ($null -eq $theirs) { continue }
+        $theirResolved = Resolve-KitAgentInfobasePath -Project $other.Project -Connection $theirs.Connection
+        $theirConn = if ($theirResolved.Kind -eq 'file') { 'File={0}' -f $theirResolved.Path } else { $theirs.Connection }
+        $theirMemory = 'File={0}' -f (Join-Path (Join-Path $other.FullPath $other.Project.WorkPath) 'infobases')
+        $theirOrigin = "база агента воркспейсу '$($other.Path)' (infobases.origin)"
+        if (Test-KitInfobasesOverlap -Left $myConn -Right $theirConn -LeftOrigin $myOrigin -RightOrigin $theirOrigin) {
+            $found.Add([pscustomobject]@{ Other = $other.Path; Kind = 'base' })
+        }
+        if (Test-KitInfobasesOverlap -Left $theirConn -Right $myMemory -LeftOrigin $theirOrigin -RightOrigin $myOrigin) {
+            $found.Add([pscustomobject]@{ Other = $other.Path; Kind = 'memory-mine' })
+        }
+        if (Test-KitInfobasesOverlap -Left $myConn -Right $theirMemory -LeftOrigin $myOrigin -RightOrigin $theirOrigin) {
+            $found.Add([pscustomobject]@{ Other = $other.Path; Kind = 'memory-theirs' })
+        }
+    }
+    $found.ToArray()
 }
 
 function Test-KitInfobasesOverlap {
@@ -224,9 +273,8 @@ function Test-KitInfobasesOverlap {
     if ($l.Kind -ne $r.Kind) { return $false }
     if ($l.Kind -eq 'file') {
         # Перетин, не рівність (П26): база всередині теки іншої, чи над нею, знищується разом із нею.
-        $a = $l.Path.TrimEnd('\', '/') + '\'
-        $b = $r.Path.TrimEnd('\', '/') + '\'
-        return ($a.StartsWith($b, [System.StringComparison]::OrdinalIgnoreCase) -or $b.StartsWith($a, [System.StringComparison]::OrdinalIgnoreCase))
+        # Шляхи вже канонізовано (Get-KitInfobaseCanonicalForm) — предикат той самий, що в Test-KitPathsOverlap.
+        return (Test-KitCanonicalPathsOverlap -Left $l.Path -Right $r.Path)
     }
     $l.Identity -eq $r.Identity
 }
@@ -306,4 +354,4 @@ function New-KitAgentBaseMissingMessage {
      '(файл гітігнорований — на свіжому клоні його ще немає). Налаштувати й розгорнути базу — скіл v8storagekit:provision, тоді повторіть команду.')
 }
 
-Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitInfobasesOverlap, Test-KitPathsOverlap, Get-KitCanonicalPath, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage
+Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitInfobasesOverlap, Test-KitPathsOverlap, Find-KitAgentBaseCollisions, Get-KitCanonicalPath, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage

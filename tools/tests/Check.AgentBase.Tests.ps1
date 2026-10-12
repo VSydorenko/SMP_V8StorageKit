@@ -43,6 +43,30 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*дев-базою людини*'
     }
 
+    It 'П26 п. 5: бази агента двох воркспейсів перетинаються — error з обома воркспейсами, код 1' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-two-ws') -Workspaces $ws -WithHooks -WithGitignore
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Alpha_SMB' -Connection ('File=' + (Join-Path $repo 'Beta_SMB/build/ib/a'))
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*Alpha_SMB*перетинається з базою агента воркспейсу 'Beta_SMB'*"
+        # пара симетрична — повідомлено один раз
+        ([regex]::Matches($r.Output, 'перетинається з базою агента воркспейсу')).Count | Should -Be 1
+    }
+
+    It 'П26 п. 5, контроль: build/ibA і build/ibB — check не скаржиться на перетин' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ibA'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ibB'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-two-ws-ok') -Workspaces $ws -WithHooks -WithGitignore
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -Not -BeLike '*перетинається з базою агента воркспейсу*'
+    }
+
     It 'стара форма infobase: лише у v8project.local.yaml — error зі знахідкою "стара форма", код 1' {
         $repo = New-GoodRepo 'old-form-local'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value "infobase:`n  connection: 'File=build/ib'"
