@@ -215,6 +215,8 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
             $p = Write-Yaml 'tpl-blank.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: $val")
             $m = try { Read-KitLocalOverlay -Path $p } catch { $_.Exception.Message }
             $m | Should -BeLike '*workspaces.Beta_SMB.agentBase.template порожній*'
+            $m | Should -BeLike '*вкажіть правильний шлях до .dt; рішення прибрати шаблон — за людиною*'
+            $m | Should -Not -BeLike '*приберіть ключ*'
         }
         # контроль, що може впасти: непорожній шаблон читається
         $ok = Write-Yaml 'tpl-ok.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: 'D:\x.dt'")

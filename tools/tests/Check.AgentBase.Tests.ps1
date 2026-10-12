@@ -102,6 +102,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*workspaces.Alpha_SMB.agentBase.template порожній*'
+        $r.Output | Should -BeLike '*рішення прибрати шаблон — за людиною*'
+        $r.Output | Should -Not -BeLike '*приберіть ключ*'
     }
 
     It 'П26 п. 5: серверні бази двох воркспейсів з тим самим Ref — error без слів про теку, один раз' {

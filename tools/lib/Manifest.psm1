@@ -278,7 +278,7 @@ function Read-KitLocalOverlay {
                     $template = [string]$ws['agentBase']['template']
                     # Порожній шаблон — помилка конфігу, а не «шаблону немає»: тихе читання як відсутнього створило б
                     # порожню базу замість відновлення з .dt. Значення в текст не потрапляє (П23).
-                    if ([string]::IsNullOrWhiteSpace($template)) { throw "$where — workspaces.$label.agentBase.template порожній: вкажіть шлях до .dt або приберіть ключ." }
+                    if ([string]::IsNullOrWhiteSpace($template)) { throw "$where — workspaces.$label.agentBase.template порожній: вкажіть правильний шлях до .dt; рішення прибрати шаблон — за людиною." }
                 }
             }
             $result.Workspaces[[string]$wsPath] = [pscustomobject]@{ Path = [string]$wsPath; AgentBaseTemplate = $template }
