@@ -332,6 +332,104 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $r.Results[0].Verdict | Should -Be 'equal'
             $r.AlignSteps[0].Op | Should -Be 'pull'
             $r.AlignSteps[0].Steps[0] | Should -BeLike '*"op":"pull"*"sourceSet":"Alpha_SMB"*'
+            # Той самий крок — і в елементі Results (споживачі читають його звідти).
+            $r.Results[0].AlignStep | Should -Be $r.AlignSteps[0]
+            $r.Results[0].AlignStep.Op | Should -Be 'pull'
+        }
+        It 'HEAD рухається між порівнянням і критерієм (коміт у main зі зміною набору) — push, не pull' {
+            $repo = New-AlignVerifyRepo -Name 'al-race' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Write-KitDiffList викликається після порівняння дерев і до критерію: тут і лягає чужий коміт.
+            Mock -ModuleName verify Write-KitDiffList {
+                if (-not $script:RaceDone) {
+                    $script:RaceDone = $true
+                    Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- чужий коміт -->'
+                    git -C $script:RaceRepo commit -qam 'чужий коміт між порівнянням і критерієм'
+                }
+            }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'HEAD рухається між перевіркою чистоти і перевіркою HEAD — push, не pull' {
+            $repo = New-AlignVerifyRepo -Name 'al-race2' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Справжню Test-KitSetClean кличе той самий мок (чистота рахується насправді), а вже після неї лягає коміт.
+            Mock -ModuleName verify Test-KitSetClean {
+                $real = & (Get-Module UnicaStep) { param($r, $p) Test-KitSetClean -RepoRoot $r -RepoPath $p } $RepoRoot $RepoPath
+                if (-not $script:RaceDone) {
+                    $script:RaceDone = $true
+                    Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- коміт після чистоти -->'
+                    git -C $script:RaceRepo commit -qam 'коміт між чистотою і перевіркою HEAD'
+                }
+                $real
+            }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'коміт у main після фіксації sha, до експорту дерева — дерево береться зі старого коміту (equal), крок push' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-x' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Дамп із бази агента (мок) — останній крок перед Export-KitTree: тут лягає чужий коміт зі зміною набору.
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path $Target -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+                $script:RaceDone = $true
+                Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- чужий коміт -->'
+                git -C $script:RaceRepo commit -qam 'чужий коміт перед експортом'
+                1 }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            # За іменем Export-KitTree прочитав би новий коміт і вердикт став би ref-ahead.
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'коміт у main між експортом дерева і переліком шляхів — перелік з того ж коміту, без хибної зупинки лічильника' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-p' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            Mock -ModuleName verify Export-KitTree {
+                $n = & (Get-Module TreeCompare) { param($a, $b, $c, $d) Export-KitTree -RepoRoot $a -Ref $b -RepoPath $c -Destination $d } $RepoRoot $Ref $RepoPath $Destination
+                $script:RaceDone = $true
+                Set-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Нова.xml') -Value 'x' -Encoding UTF8
+                git -C $script:RaceRepo add -- 'Alpha_SMB/cfe/src/Нова.xml'
+                git -C $script:RaceRepo commit -qm 'чужий коміт: новий файл набору'
+                $n }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'нова версія сховища зливається в main після фіксації sha — версія й merge-base зі старого коміту' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-v' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Select-KitSources іде після фіксації sha і до Get-KitVerifyVersion.
+            Mock -ModuleName verify Select-KitSources {
+                $s = & (Get-Module Preflight) { param($c, $w, $so, $tr) Select-KitSources -Context $c -Workspace $w -Source $so -Truth $tr } $Context $Workspace $Source $Truth
+                if (-not $script:RaceDone) {
+                    $script:RaceDone = $true
+                    Add-KitFakeStorageCommit -Repo $script:RaceRepo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                        -FileName 'Configuration.xml' -Content ($script:MockContent + '<!-- v2 -->') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
+                    $env:V8KIT_SYNC = '1'
+                    try { git -C $script:RaceRepo merge -q --no-edit storage/Alpha_SMB } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+                }
+                $s }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            # За іменем main merge-base був би новою версією 2 і вердикт — equal; за sha — версія 1, сховище попереду.
+            $r.Results[0].Version | Should -Be 1
+            $r.Results[0].Verdict | Should -Be 'storage-ahead'
+        }
+        It 'серверна база агента, equal + HEAD + чисте — push force (pull серверній немає, #184)' {
+            $repo = New-AlignVerifyRepo -Name 'al-server' -Merge
+            Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].BaseKind | Should -Be 'server'
+            $r.AlignSteps[0].Op | Should -Be 'push'
         }
         It 'ref-ahead на HEAD — push force' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'al-ahead') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase

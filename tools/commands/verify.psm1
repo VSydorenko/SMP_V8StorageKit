@@ -39,6 +39,12 @@ function Invoke-KitVerify {
 
     $root = $Context.RepoRoot
     $ref  = if ($Ref) { $Ref } else { $Context.MainBranch }
+    # Ім'я -Ref читається один раз у sha: порівняння дерев (Export-KitTree, Get-KitTreePaths) і критерій pull
+    # (Test-KitRefIsHead) мають дивитись на ТОЙ САМИЙ коміт. Інакше коміт у main між порівнянням і критерієм
+    # зсунув би гілку й HEAD разом, і equal на старому дереві дав би хибний pull. Людині показується ім'я.
+    $refRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', "$ref^{commit}")
+    if ($refRes.ExitCode -ne 0) { throw "-Ref '$ref' не вказує на коміт цього репозиторію." }
+    $refSha = $refRes.Stdout.Trim()
 
     $sources = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source -Truth storage)
     if ($sources.Count -eq 0) {
@@ -70,7 +76,7 @@ function Invoke-KitVerify {
     $plan = @(foreach ($src in $sources) {
         # Порядок: спершу інваріанти git (дзеркало, merge-base, ref) — вони перевіряються без сховища й дають
         # точнішу зупинку; шлях сховища — другим (P1 префлайту B3).
-        $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $ref -Branch $src.Branch
+        $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $refSha -Branch $src.Branch
         if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
         # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17
         # §2, той самий принцип, що sync.psm1): обидва боки порівняння verify мають бути
@@ -130,13 +136,13 @@ function Invoke-KitVerify {
                 Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
             }
             $treeDir = Join-Path $workDir 'tree'
-            $treeCount = Export-KitTree -RepoRoot $root -Ref $ref -RepoPath $src.RepoPath -Destination $treeDir
+            $treeCount = Export-KitTree -RepoRoot $root -Ref $refSha -RepoPath $src.RepoPath -Destination $treeDir
             Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
             # Групи регістру — з ПЕРЕЛІКУ git, не з диска (спека 2026-10-04 §4.3): на NTFS члени групи вже
             # злились в один файл при експорті. Запобіжник лічильника: інша розбіжність між переліком і
             # текою дерева — файлова система з'їла шляхи з невідомої причини, і вердикт був би неправдою.
             $prefix = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
-            $treeRel = @(Get-KitTreePaths -RepoRoot $root -Ref $ref -Path $prefix |
+            $treeRel = @(Get-KitTreePaths -RepoRoot $root -Ref $refSha -Path $prefix |
                 ForEach-Object { $_.Substring($prefix.Length).TrimStart('/') } |
                 Where-Object { Test-KitComparableRelativePath -RelativePath $_ })
             $collisions = @(Get-KitCaseCollisions -Paths $treeRel)
@@ -205,14 +211,16 @@ function Invoke-KitVerify {
 
             # Спека 2026-10-11 §4.1, §10 П4: verify зрушив базу агента (UpdateCfg до версії merge-base).
             # pull — лише коли kit довів рівність: вердикт equal, звіряли саме HEAD, дерево набору чисте.
+            # Порядок суттєвий: «sha == HEAD» — ОСТАННІМ, після чистоти. Коміт у HEAD між двома перевірками інакше
+            # лишив би вікно: HEAD зрушив, копія чиста, а pull повернув би старе дерево.
             # -Ref передається як є (sha, тег, ім'я гілки): Test-KitRefIsHead порівнює коміти через ^{commit}.
             # Функції критерію кидають виняток (RepoRoot ≠ корінь репозиторію, порожній шлях набору, збій git) —
             # fail-closed. Тут це не зупинка (спека 3129c0d, П24): базу вже зрушено, агентові потрібен крок, а
             # push force нічого в дереві не стирає. Критерій = $false, далі звичайний Get-KitAlignStep
             # (за поставки missing/stale — blocked).
             try {
-                $criterion = ($verdict -eq 'equal') -and (Test-KitRefIsHead -RepoRoot $root -Ref $ref) -and
-                             (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
+                $criterion = ($verdict -eq 'equal') -and (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
+                             (Test-KitRefIsHead -RepoRoot $root -Ref $refSha)
             } catch {
                 $criterion = $false
                 Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
