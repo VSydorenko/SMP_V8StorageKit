@@ -71,12 +71,10 @@ Describe 'onboarding — шаблон v8project.yaml (Task 6: колишній p
             Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
-    It 'шаблон оголошує власну базу воркспейсу' {
-        # Без цього блоку infobase.connection приходить з v8project.local.yaml і
-        # вказує на серверну дев-базу - тобто Уніка мутує базу, де людина працює
-        # Конфігуратором. Це і була першопричина всього розбору.
-        $script:Skill | Should -Match "(?m)^\s*infobase:\s*$"
-        $script:Skill | Should -Match "connection:\s*'File=build/ib'"
+    It 'шаблон v8project.yaml не оголошує бази агента: вона машинна, у infobases.origin v8project.local.yaml (спека §4.3 п. 2–3)' {
+        $script:Skill | Should -Not -Match "(?m)^\s*infobase:\s*$"
+        $script:Skill | Should -Match "(?m)^\s*providers:\s*$"
+        $script:Skill | Should -Match "connection:\s*'File=build/ib'"   # тепер — у блоці v8project.local.yaml розділу 3.2.1
     }
 
     It 'імʼя EXTENSION-джерела — реальне ім''я розширення, не ім''я теки продукту' {
@@ -204,7 +202,15 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
 
     It 'C2 Task 7: абзац «Збірка .cfe» називає output відносним до воркспейсу, не абсолютним' {
         $script:TemplateClaudeMd | Should -Match 'Збірка `\.cfe`'
-        $script:TemplateClaudeMd | Should -Match 'output=build/artifacts/<Ім''я>\.cfe'
+        $script:TemplateClaudeMd | Should -Match '"output":"build/artifacts/<Ім''я>\.cfe"'
         $script:TemplateClaudeMd | Should -Not -Match 'output=<корінь'
+    }
+
+    It 'templates/CLAUDE.md говорить мовою Уніки 0.13' {
+        $c = $script:TemplateClaudeMd
+        $c | Should -Not -Match 'operation='
+        $c | Should -Match 'infobases\.origin'
+        $c | Should -Match '"op":"make"'
+        $c | Should -Match 'unica\.check'
     }
 }

@@ -146,10 +146,19 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'гітігноровано'
             $t | Should -Match 'мовчазного дефолту немає|Мовчазних дефолтів'
         }
-        It 'шаблон v8project.yaml: база агента File=build/ib, name EXTENSION = ім''я розширення' {
+        It 'шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout і без бази; база — infobases.origin у блоці local' {
             $t = Skill 'onboarding'
-            $t | Should -Match "connection:\s*'File=build/ib'"
-            $t | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            $blocks = [regex]::Matches($t, '(?ms)^```yaml\s*\r?\n(.*?)^```') | ForEach-Object { $_.Groups[1].Value }
+            $committed = @($blocks | Where-Object { $_ -match '(?m)^format:\s*DESIGNER' })
+            $committed | Should -HaveCount 1
+            $c = $committed[0]
+            $c | Should -Match '(?m)^providers:\s*$'
+            foreach ($op in 'push', 'pull', 'download') { $c | Should -Match "(?m)^\s+${op}:\s*designer" }
+            $c | Should -Not -Match '(?m)^\s*(builder|execution_timeout|infobase|infobases):'
+            $c | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            $local = @($blocks | Where-Object { $_ -match '(?m)^infobases:\s*$' -and $_ -match '(?m)^\s+origin:\s*$' })
+            $local | Should -Not -BeNullOrEmpty
+            $t.IndexOf('v8project.local.yaml') | Should -BeLessThan $t.IndexOf($local[0]) -Because 'блок бази стоїть після назви файлу, у який його пишуть'
         }
         It 'ставить хуки командою install-hooks, дописує -text і .gitignore під фактичні шляхи, перший коміт до -Apply' {
             $t = Skill 'onboarding'
@@ -210,21 +219,27 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'provision' {
-        It 'питає тип бази трьома варіантами й записує вибір у накладку; серверна — поза межами' {
+        It 'три типи бази, -ServerBase New|Existing, CrSQLDB, infobases.origin, -Remember, крок з виводу' {
             $t = Skill 'provision'
             $t | Should -Match '\*\*порожня\*\*'
             $t | Should -Match '\*\*з `?\.dt`?\*\*|\*\*з \.dt\*\*'
             $t | Should -Match '\*\*серверна\*\*'
+            $t | Should -Match '-ServerBase New'
+            $t | Should -Match '-ServerBase Existing'
+            $t | Should -Match 'CrSQLDB'
+            $t | Should -Match 'infobases\.origin'
             $t | Should -Match '-Remember'
-            $t | Should -Match 'operation=build'
+            $t | Should -Match 'надрукован'
             $t | Should -Match 'v8project\.local\.yaml'
         }
     }
     Context 'reconcile' {
-        It 'sync → operation=build → canon → adopt (заміна, прев''ю обох списків)' {
+        It 'sync → крок, надрукований sync (push force) → canon → adopt; #25' {
             $t = Skill 'reconcile'
             $t | Should -Match 'kit\.ps1" sync'
-            $t | Should -Match 'operation=build'
+            $t | Should -Match 'надрукован'
+            $t | Should -Match '"force":true'
+            $t | Should -Match 'infobase_state_unverified'
             $t | Should -Match 'kit\.ps1" canon'
             $t | Should -Match 'kit\.ps1" adopt'
             $t | Should -Match 'зникне з гілки'
@@ -238,9 +253,11 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'finish' {
-        It 'sync → canon → adopt → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
+        It 'sync → canon → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build',
+                           'unica\.check', '"op":"make"', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            $t | Should -Not -Match 'testRunner'
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
             # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
             $t | Should -Match 'суттєв'
@@ -257,14 +274,14 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'finish ставить operation=build між verify і тестами' {
+    It 'finish ставить крок, надрукований verify, між verify і unica.check' {
         $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/finish/SKILL.md') -Raw -Encoding UTF8
         $posVerify = $text.IndexOf('kit.ps1" verify')
-        $posBuild  = $text.IndexOf('operation=build', $posVerify)
-        $posTests  = $text.IndexOf('operation=syntax', $posVerify)
+        $posStep   = $text.IndexOf('надрукован', $posVerify)
+        $posCheck  = $text.IndexOf('unica.check', $posVerify)
         $posVerify | Should -BeGreaterThan -1
-        $posBuild  | Should -BeGreaterThan $posVerify
-        $posTests  | Should -BeGreaterThan $posBuild
+        $posStep   | Should -BeGreaterThan $posVerify
+        $posCheck  | Should -BeGreaterThan $posStep
     }
 
     It 'sync, verify і reconcile попереджають, що база лишається у стані сховища' {
@@ -274,14 +291,28 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # перелік неповний, і це знає код, а не текст.
         foreach ($s in @('sync', 'verify', 'reconcile')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
-            # Два твердження, не одне: голе 'operation=build' регресії НЕ ловить для reconcile —
-            # цей підрядок був там і ДО C1 (тричі, з іншої причини — страховка canon), тож
-            # відкот кроку 2 до старого формулювання лишив би тест зеленим (рев'ю Task 6,
-            # Important). Друге твердження тримає саме те, що додав C1: стан бази після sync
-            # названо ОГОЛОШЕНИМ КОНТРАКТОМ, а не збоєм. До C1 слова «контракт» не було ЖОДНОГО
-            # разу в жодному з двох файлів (звірено проти ea4decc) — це й робить його guard'ом.
-            $text | Should -BeLike '*operation=build*'
+            # Два твердження, не одне (історія C1, лишається): перше тримає, що скіл відсилає до кроку,
+            # який надрукувала команда (раніше це був голий operation=build, і для reconcile підрядок
+            # був і до C1 — з іншої причини, страховки canon, тож його одного відкіт не ловив).
+            # Друге тримає саме те, що додав C1: стан бази після sync/verify названо ОГОЛОШЕНИМ
+            # КОНТРАКТОМ, а не збоєм; без нього агент читав би зрушену базу як поломку.
+            $text | Should -BeLike '*надрукован*'
             $text | Should -BeLike '*контракт*'
+        }
+    }
+
+    It 'using-v8storagekit: маршрутизація 0.13, крок з виводу, сітка infobase_state_unverified, виняток force (П17), ЗУПИНКА, #13' {
+        $t = Skill 'using-v8storagekit'
+        foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow', 'unica\.task\.result',
+                       '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
+                       'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків') {
+            $t | Should -Match $m
+        }
+        $t | Should -Not -Match 'одинадцять'   # кількість — не в постійному тексті
+    }
+    It 'sync, verify, reconcile наказують перевірити ЗУПИНКА й не йти далі' {
+        foreach ($s in @('sync', 'verify', 'reconcile')) {
+            (Skill $s) | Should -Match 'ЗУПИНКА' -Because "$s мусить зупиняти агента на кроці blocked (умова архітектора)"
         }
     }
 }
