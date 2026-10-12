@@ -30,7 +30,7 @@ function Assert-KitMapKeys {
     }
     foreach ($k in @($Map.Keys)) {
         if ($Allowed -notcontains [string]$k) {
-            throw "$Where — невідомий ключ '$k'. Дозволені: $($Allowed -join ', ')."
+            throw "$Where — невідомий ключ $(Format-KitKeyForMessage -Key ([string]$k)). Дозволені: $($Allowed -join ', ')."
         }
     }
 }
@@ -189,9 +189,9 @@ function Read-KitLocalOverlay {
         if ($o['infobases'] -isnot [System.Collections.IDictionary]) { throw "$where — infobases: має бути мапою «ім'я → { connection, user }»." }
         foreach ($name in @($o['infobases'].Keys)) {
             $ib = $o['infobases'][$name]
-            Assert-KitMapKeys -Map $ib -Allowed @('connection', 'user') -Required @('connection') -Where "$where, infobases.$name"
+            Assert-KitMapKeys -Map $ib -Allowed @('connection', 'user') -Required @('connection') -Where "$where, infobases.$(Format-KitKeyForMessage -Key ([string]$name) -Bare)"
             $conn = [string]$ib['connection']
-            if ([string]::IsNullOrWhiteSpace($conn)) { throw "$where — infobases.$name.connection порожній." }
+            if ([string]::IsNullOrWhiteSpace($conn)) { throw "$where — infobases.$(Format-KitKeyForMessage -Key ([string]$name) -Bare).connection порожній." }
             $user = ''
             if ($ib.Contains('user')) { $user = [string]$ib['user'] }
             $result.Infobases[[string]$name] = [pscustomobject]@{ Name = [string]$name; Connection = $conn; User = $user }
@@ -202,16 +202,24 @@ function Read-KitLocalOverlay {
         if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях або { path, user, password }»." }
         foreach ($key in @($o['storages'].Keys)) {
             $v = $o['storages'][$key]
+            $storageKeys = @('path', 'user', 'password')
             $entry = [pscustomobject]@{ Path = $null; User = $null; Password = $null }
             if ($v -is [System.Collections.IDictionary]) {
-                Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$key"
-                if ($v.Count -eq 0) { throw "$where — storages.$key порожній: вкажіть path, user або password." }
+                Assert-KitMapKeys -Map $v -Allowed $storageKeys -Where "$where, storages.$(Format-KitKeyForMessage -Key ([string]$key) -Bare)"
+                if ($v.Count -eq 0) { throw "$where — storages.$(Format-KitKeyForMessage -Key ([string]$key) -Bare) порожній: вкажіть path, user або password." }
                 foreach ($k in 'path', 'user', 'password') {
                     if ($v.Contains($k) -and -not [string]::IsNullOrWhiteSpace([string]$v[$k])) { $entry.($k.Substring(0,1).ToUpper() + $k.Substring(1)) = [string]$v[$k] }
                 }
             } else {
                 $p = [string]$v
-                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$key порожній." }
+                # П23 п. 3: скаляр, що починається з '<ім'я ключа об'єктної форми>:', — друкарська помилка (password:X);
+                # значення в текст не йде. Шлях C:\… чи tcp://… під це не підпадає.
+                foreach ($sk in $storageKeys) {
+                    if ($p.TrimStart().StartsWith("${sk}:", [System.StringComparison]::OrdinalIgnoreCase)) {
+                        throw "$where — storages.$(Format-KitKeyForMessage -Key ([string]$key) -Bare): значення починається з '${sk}:' — пропущено пробіл після ':'? Об'єктна форма: { path: …, user: …, password: … }."
+                    }
+                }
+                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$(Format-KitKeyForMessage -Key ([string]$key) -Bare) порожній." }
                 $entry.Path = $p
             }
             $result.Storages[[string]$key] = $entry
@@ -222,10 +230,10 @@ function Read-KitLocalOverlay {
         if ($o['workspaces'] -isnot [System.Collections.IDictionary]) { throw "$where — workspaces: має бути мапою «тека воркспейсу → { agentBase }»." }
         foreach ($wsPath in @($o['workspaces'].Keys)) {
             $ws = $o['workspaces'][$wsPath]
-            Assert-KitMapKeys -Map $ws -Allowed @('agentBase') -Where "$where, workspaces.$wsPath"
+            Assert-KitMapKeys -Map $ws -Allowed @('agentBase') -Where "$where, workspaces.$(Format-KitKeyForMessage -Key ([string]$wsPath) -Bare)"
             $template = $null
             if ($ws.Contains('agentBase')) {
-                Assert-KitMapKeys -Map $ws['agentBase'] -Allowed @('template') -Where "$where, workspaces.$wsPath.agentBase"
+                Assert-KitMapKeys -Map $ws['agentBase'] -Allowed @('template') -Where "$where, workspaces.$(Format-KitKeyForMessage -Key ([string]$wsPath) -Bare).agentBase"
                 if ($ws['agentBase'].Contains('template')) { $template = [string]$ws['agentBase']['template'] }
             }
             $result.Workspaces[[string]$wsPath] = [pscustomobject]@{ Path = [string]$wsPath; AgentBaseTemplate = $template }

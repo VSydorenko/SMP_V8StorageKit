@@ -193,7 +193,7 @@ function Get-V8ProjectConfigProblems {
             } else {
                 foreach ($name in @($data['infobases'].Keys)) {
                     if ($name -ne 'origin') {
-                        $problems.Add("${p}: infobases.'$name' — Уніка обслуговує лише origin, і kit читає лише origin; інша назва означала б, що аудит перевіряє не ту базу. Перейменуйте на origin або приберіть.")
+                        $problems.Add("${p}: infobases.$(Format-KitKeyForMessage -Key ([string]$name)) — Уніка обслуговує лише origin, і kit читає лише origin; інша назва означала б, що аудит перевіряє не ту базу. Перейменуйте на origin або приберіть.")
                     }
                 }
                 if ($data['infobases'].Contains('origin')) {

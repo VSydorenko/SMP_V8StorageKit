@@ -361,6 +361,7 @@ Describe 'ConvertFrom-V8Connection — текст винятку без вхід
         @{ Name = 'Srvr разом з File';      C = 'Srvr=СЕКРЕТ-Ж7;Ref=B;File=C:\СЕКРЕТ-Ж7' }
         @{ Name = 'серверна без Ref';       C = 'Srvr=СЕКРЕТ-Ж7' }
         @{ Name = 'серверна без Srvr';      C = 'Ref=СЕКРЕТ-Ж7' }
+        @{ Name = '= у значенні';           C = 'File=C:СЕКРЕТ-Ж7,Pwd=СЕКРЕТ-Ж7' }
     ) {
         $err = Get-ConnError $C
         $err | Should -Not -BeNullOrEmpty

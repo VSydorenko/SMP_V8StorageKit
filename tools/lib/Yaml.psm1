@@ -104,4 +104,21 @@ function Read-KitYaml {
     $data
 }
 
-Export-ModuleMember -Function Test-KitYamlModule, Import-KitYamlModule, Read-KitYaml, ConvertTo-KitYaml
+function Format-KitKeyForMessage {
+    <#
+    .SYNOPSIS
+        Ключ мапи YAML для тексту помилки: без ':' — як є, з ':' — лише до першої ':' з підказкою (П23 п. 3).
+    .DESCRIPTION
+        Друкарська помилка «без пробілу після ':'» (password:X замість password: X) робить із пароля
+        частину ключа. Невідомий ключ, що містить ':', тому друкується лише до першої ':' — значення
+        в тексті не буває; ключ без ':' значення містити не може. Правило єдине для кожної перевірки
+        ключів kit, тож усі вони кличуть цю функцію, а не друкують ключ самі.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Key, [switch]$Bare)
+    $i = $Key.IndexOf(':')
+    $q = if ($Bare) { '' } else { "'" }
+    if ($i -lt 0) { return "$q$Key$q" }
+    "$q$($Key.Substring(0, $i))$q (пропущено пробіл після ':'?)"
+}
+Export-ModuleMember -Function Format-KitKeyForMessage, Test-KitYamlModule, Import-KitYamlModule, Read-KitYaml, ConvertTo-KitYaml

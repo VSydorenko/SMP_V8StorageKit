@@ -185,7 +185,15 @@ function Invoke-KitPreflight {
         try { $project = Read-V8Project -Path $projectPath }
         catch { & $fail 'workspace' $_.Exception.Message; continue }
 
-        $sources = [System.Collections.Generic.List[object]]::new()
+        # П23 п. 5: " у паролі бази агента — відмова тут (і в kit check), а не лише при запуску платформи.
+        # Та сама Assert-V8SecretQuoteFree, що для пароля сховища; Invoke-V8Designer лишає свою перевірку.
+        try {
+            $agentIb = Read-V8ProjectLocalInfobase -Path (Join-Path $wsFull 'v8project.local.yaml')
+            if ($agentIb) { Assert-V8SecretQuoteFree -Value $agentIb.Password -Origin "Пароль бази агента ($($ws.Path)/v8project.local.yaml, infobases.origin.password)" }
+        }
+        catch { & $fail 'workspace' $_.Exception.Message; continue }
+
+        $sources =[System.Collections.Generic.List[object]]::new()
         foreach ($src in $ws.Sources) {
             $set = $project.SourceSets | Where-Object Name -eq $src.Key | Select-Object -First 1
             if (-not $set) {
