@@ -211,4 +211,51 @@ function Backup-KitDirtyFiles {
     $BackupRoot
 }
 
-Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles
+# Похідні артефакти платформи й kit під набором — гітігноровані законно, і втрата їх не є втратою
+# роботи агента (відновлюються вивантаженням/canon). Одне джерело: рядки ConfigDumpInfo.xml,
+# DumpFilesIndex.txt і **/Ext/ParentConfigurations/ у templates/gitignore. Змінюючи тут — змінити там.
+$script:KitDerivedIgnoredPattern = '(^|/)(ConfigDumpInfo\.xml|DumpFilesIndex\.txt)$|(^|/)Ext/ParentConfigurations/'
+
+function Get-KitInvisibleWork {
+    <#
+    .SYNOPSIS
+        Робота під шляхом набору, якої не бачить git status --porcelain, а pull --force чи canon -Apply
+        знищує безслідно (спека §10.2 П24): гітігноровані файли, файли з прапорцем та підмодулі.
+    .DESCRIPTION
+        Записи { Path; Kind }:
+        - ignored — ls-files --others --ignored --exclude-standard, мінус похідне
+          ($script:KitDerivedIgnoredPattern);
+        - flagged — ls-files -v: тег з малої літери (assume-unchanged, будь-яка) або S (skip-worktree).
+          Тег M (unmerged) — не прапорець, конфлікт видно в status як UU;
+        - gitlink — режим 160000 (ls-files -s): підмодуль під набором. --ignore-submodules не
+          використовується: відмова проста й не залежить від налаштувань.
+        Збій будь-якого git-виклику — виняток, не «чисто» (через Invoke-KitGitProcess, як
+        Get-KitDirtyRecords). Єдина функція на kit; Get-KitDirtyRecords і формат canon-backup
+        не змінюються.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
+
+    $run = {
+        param($gitArgs)
+        $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments (@('-c', 'core.quotepath=false') + $gitArgs + @('--', $RepoPath))
+        if ($r.ExitCode -ne 0) { throw "git $($gitArgs -join ' ') для '$RepoPath' завершився з кодом $($r.ExitCode): $($r.Stderr)" }
+        @($r.Stdout -split "`0" | Where-Object { $_ -ne '' })
+    }
+    $records = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($p in (& $run @('ls-files', '-z', '--others', '--ignored', '--exclude-standard'))) {
+        if ($p -notmatch $script:KitDerivedIgnoredPattern) { $records.Add([pscustomobject]@{ Path = $p; Kind = 'ignored' }) }
+    }
+    foreach ($e in (& $run @('ls-files', '-z', '-v'))) {
+        if ($e.Length -gt 2 -and ($e[0] -cmatch '[a-z]' -or $e[0] -ceq 'S')) {
+            $records.Add([pscustomobject]@{ Path = $e.Substring(2); Kind = 'flagged' })
+        }
+    }
+    foreach ($e in (& $run @('ls-files', '-z', '-s'))) {
+        if ($e -match '^160000 [0-9a-f]+ \d\t(?<p>.+)$') { $records.Add([pscustomobject]@{ Path = $Matches.p; Kind = 'gitlink' }) }
+    }
+    $records.ToArray()
+}
+
+Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles, Get-KitInvisibleWork

@@ -70,12 +70,26 @@ Describe 'Критерій вирівнювання на справжньому 
         finally { Remove-Item -LiteralPath $f -Force }
         Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
     }
-    It 'гітігнорований файл під шляхом набору — дерево чисте' {
+    It 'похідне гітігноване (.cf поставки, ConfigDumpInfo.xml) під шляхом набору — дерево чисте; власний гітігнорований файл — ні (П24)' {
         $d = Join-Path $script:Repo 'Alpha_SMB/cfe/src/Ext/ParentConfigurations'
         New-Item -ItemType Directory -Path $d -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $d 'Vendor.cf') -Value 'cf' -Encoding ascii
-        try { Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue }
-        finally { Remove-KitDirectory -Path (Join-Path $script:Repo 'Alpha_SMB/cfe/src/Ext') }
+        $info = Join-Path $script:Repo 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml'
+        Set-Content -LiteralPath $info -Value '<x/>' -Encoding UTF8
+        $own = Join-Path $script:Repo 'Alpha_SMB/cfe/src/build/own.txt'
+        try {
+            git -C $script:Repo check-ignore -q 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml'; $LASTEXITCODE | Should -Be 0 -Because 'контроль має спиратись на справді ігнорований файл'
+            Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
+            New-Item -ItemType Directory -Path (Split-Path $own) -Force | Out-Null
+            Set-Content -LiteralPath $own -Value 'робота агента' -Encoding UTF8
+            git -C $script:Repo check-ignore -q 'Alpha_SMB/cfe/src/build/own.txt'; $LASTEXITCODE | Should -Be 0
+            Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeFalse
+        }
+        finally {
+            Remove-KitDirectory -Path (Join-Path $script:Repo 'Alpha_SMB/cfe/src/Ext')
+            Remove-KitDirectory -Path (Join-Path $script:Repo 'Alpha_SMB/cfe/src/build')
+            Remove-Item -LiteralPath $info -Force -ErrorAction SilentlyContinue
+        }
     }
     It 'Test-KitRefIsHead: ім''я гілки, sha і від''єднаний HEAD — через ^{commit} (Review Focus 5)' {
         $sha = (git -C $script:Repo rev-parse HEAD).Trim()
@@ -327,5 +341,97 @@ Describe 'Критерій вирівнювання — фікс-раунд 1 (f
             $out = & { Write-KitAlignStops -Steps @($b1, $p, $b2) } 6>&1 | Out-String
             @($out -split "`r?`n" | Where-Object { $_ -like 'ЗУПИНКА:*' }) | Should -HaveCount 2
         }
+    }
+}
+
+Describe 'Невидима робота під набором — фікс-раунд 2 (спека §10.2 П24)' {
+    BeforeAll {
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        function script:G { param([string]$R) & git -C $R @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args -> $LASTEXITCODE" } }
+        function script:New-Mini2 {
+            $r = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path (Join-Path $r 'Ws/cf/src') -Force | Out-Null
+            G $r init -q; G $r config user.email 't@example.invalid'; G $r config user.name T
+            G $r config commit.gpgsign false; G $r config core.autocrlf false
+            G $r symbolic-ref HEAD refs/heads/main
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'start' -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $r '.gitignore') -Value "ConfigDumpInfo.xml`nDumpFilesIndex.txt`n**/Ext/ParentConfigurations/`n" -Encoding UTF8
+            G $r add -A; G $r commit -q -m first
+            $r
+        }
+        function script:New-Set2 { param([string]$Type)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            [pscustomobject]@{ Key = 'base'; Type = $Type; FullPath = $root; RepoPath = 'Ws/cf/src'; Workspace = 'Ws' }
+        }
+        function script:Op-For { param([string]$R)
+            $c = Test-KitSetClean -RepoRoot $R -RepoPath 'Ws/cf/src'
+            (Get-KitAlignStep -Source (New-Set2 -Type 'EXTENSION') -Criterion $c -BaseKind 'file').Op
+        }
+    }
+
+    It 'файл агента під .git/info/exclude (ignored) — не чисто, крок push' {
+        $r = New-Mini2
+        Add-Content -LiteralPath (Join-Path $r '.git/info/exclude') -Value 'Ws/cf/src/mine.txt' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/mine.txt') -Value 'робота' -Encoding UTF8
+        @(Get-KitDirtyRecords -RepoRoot $r -RepoPath 'Ws/cf/src') | Should -HaveCount 0 -Because 'status цього файлу не бачить'
+        $w = @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src')
+        $w | Should -HaveCount 1
+        $w[0].Kind | Should -Be 'ignored'
+        $w[0].Path | Should -Be 'Ws/cf/src/mine.txt'
+        Op-For $r | Should -Be 'push'
+    }
+    It 'контроль: ConfigDumpInfo.xml, DumpFilesIndex.txt і .cf в Ext/ParentConfigurations ігноровані — невидимої роботи немає, pull можливий' {
+        $r = New-Mini2
+        New-Item -ItemType Directory -Path (Join-Path $r 'Ws/cf/src/Ext/ParentConfigurations') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/Ext/ParentConfigurations/V.cf') -Value 'cf' -Encoding ascii
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/DumpFilesIndex.txt') -Value 'i' -Encoding UTF8
+        git -C $r ls-files --others --ignored --exclude-standard -- Ws/cf/src | Should -HaveCount 3 -Because 'контроль має спиратись на справді ігноровані файли'
+        @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src') | Should -HaveCount 0
+        Op-For $r | Should -Be 'pull'
+    }
+    It '<Flag> на зміненому файлі: status мовчить, критерій — не чисто, крок push' -ForEach @(
+        @{ Flag = 'assume-unchanged'; Kind = 'flagged' }
+        @{ Flag = 'skip-worktree'; Kind = 'flagged' }
+    ) {
+        $r = New-Mini2
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'правка агента' -Encoding UTF8
+        G $r update-index "--$Flag" Ws/cf/src/a.txt
+        @(Get-KitDirtyRecords -RepoRoot $r -RepoPath 'Ws/cf/src') | Should -HaveCount 0 -Because 'status цього не бачить'
+        $w = @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src')
+        $w | Should -HaveCount 1
+        $w[0].Kind | Should -Be $Kind
+        $w[0].Path | Should -Be 'Ws/cf/src/a.txt'
+        Op-For $r | Should -Be 'push'
+    }
+    It 'gitlink (підмодуль) під набором — не чисто, крок push' {
+        $r = New-Mini2
+        $sha = (git -C $r rev-parse HEAD).Trim()
+        G $r update-index --add --cacheinfo "160000,$sha,Ws/cf/src/sub"
+        $w = @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src')
+        @($w | Where-Object { $_.Kind -eq 'gitlink' -and $_.Path -eq 'Ws/cf/src/sub' }) | Should -HaveCount 1
+        Op-For $r | Should -Be 'push'
+    }
+    It 'збій git — виняток, не «чисто»' {
+        $notRepo = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $notRepo -Force | Out-Null
+        { Get-KitInvisibleWork -RepoRoot $notRepo -RepoPath 'Ws/cf/src' } | Should -Throw
+    }
+    It 'контроль меж: конфлікт злиття (тег M у ls-files -v) — не прапорець, але status дає UU, тож не чисто' {
+        $r = New-Mini2
+        G $r checkout -q -b other
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'в other' -Encoding UTF8
+        G $r commit -q -a -m o
+        G $r checkout -q main
+        Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'в main' -Encoding UTF8
+        G $r commit -q -a -m m
+        & git -C $r merge other 2>&1 | Out-Null
+        (git -C $r status --porcelain -- Ws/cf/src) | Should -BeLike 'UU*'
+        @(Get-KitInvisibleWork -RepoRoot $r -RepoPath 'Ws/cf/src') | Should -HaveCount 0
+        Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeFalse
     }
 }

@@ -97,14 +97,19 @@ function Test-KitSetClean {
         Чи чисте робоче дерево набору (§4.1) — та сама семантика, що в страховці canon (Get-KitDirtyRecords).
     .DESCRIPTION
         Невідстежувані файли рахуються: pull force переписує дерево з бази, і невідстежувана нова
-        форма агента зникла б безслідно (Review Focus 3) — тому не git diff. Гітігноровані файли
-        (поставка вендора) не рахуються. Одна функція «брудне дерево» на kit (kit-dev: друга
+        форма агента зникла б безслідно (Review Focus 3) — тому не git diff. Невидиме для status
+        (Get-KitInvisibleWork: ігноровані файли, крім похідних, прапорці assume-unchanged/skip-worktree,
+        підмодулі) теж робить дерево «не чистим»; похідне (поставка вендора, ConfigDumpInfo.xml,
+        DumpFilesIndex.txt) не рахується. Одна функція «брудне дерево» на kit (kit-dev: друга
         перевірка з іншою логікою гірша за жодну).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
     Assert-KitCriterionInput -RepoRoot $RepoRoot -RepoPath $RepoPath
-    @(Get-KitDirtyRecords -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0
+    # Дві частини однієї відповіді: видима (status) і невидима для status (ігноровані, прапорці, підмодулі;
+    # §10.2 П24) — pull --force знищує обидві. Невидима робота є → «не чисто» → push force.
+    (@(Get-KitDirtyRecords -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0) -and
+        (@(Get-KitInvisibleWork -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0)
 }
 
 function Test-KitRefIsHead {
