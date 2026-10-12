@@ -113,6 +113,18 @@ Describe 'kit sync — запасний шлях для розширення б�
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0 -Scope It
     }
 
+    It 'запасний шлях — кроку вирівнювання немає: база агента не зрушена, нічого вирівнювати (§4.1)' {
+        $repo = New-FallbackRepo 'fb-noalign'
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true } 6>&1 | Out-String
+        $r = $h.R
+        $r.Synced[0].Fallback | Should -BeTrue
+        @($r.AlignSteps) | Should -HaveCount 0
+        $r.Synced[0].AlignStep | Should -BeNullOrEmpty
+        $text | Should -Not -BeLike '*"op":"pull"*'
+        $text | Should -Not -BeLike '*"op":"push"*'
+    }
+
     It 'розширення, яке Є в базі агента — запасний шлях не вмикається' {
         $repo = New-FallbackRepo 'fb-present'
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 1) }

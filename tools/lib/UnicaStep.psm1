@@ -156,10 +156,24 @@ function Get-KitAlignStep {
 
     $set = $Source.Key
     $ws = $Source.Workspace
-    $supply = if ($Source.Type -eq 'CONFIGURATION') { Get-KitSupplyState -TreeRoot $Source.FullPath } else { 'none' }
+    # Виняток стану поставки (спека 0174871) — не зупинка команди: база вже зрушена, агентові потрібен
+    # крок. Невідомий стан = 'unknown' → blocked (не push: повне завантаження без .cf падає, П5, тож
+    # невідоме трактується як відсутнє). Рядок друкує спільна Write-KitSupplyStateNotComputed.
+    $supplyUnknown = $false
+    $supply = 'none'
+    if ($Source.Type -eq 'CONFIGURATION') {
+        try { $supply = Get-KitSupplyState -TreeRoot $Source.FullPath }
+        catch { $supply = 'unknown'; $supplyUnknown = $true; Write-KitSupplyStateNotComputed -SourceSet $set -Reason $_.Exception.Message }
+    }
     $step = [pscustomobject]@{ SourceSet = $set; Workspace = $ws; RepoPath = $Source.RepoPath; BaseKind = $BaseKind
         Op = $null; Supply = $supply; MarkerOnly = $false; Steps = @(); Recipe = $null }
     $pushForce = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true })
+    if ($supplyUnknown) {
+        $step.Op = 'blocked'
+        $step.Recipe = ("Вирівняти пам'ять раннера для '$set' (воркспейс $ws) зараз неможливо: стан поставки вендора не обчислено, а push force без .cf упав би на повному завантаженні. " +
+            "Рецепт — на головній гілці (HEAD = головна, дерево чисте): kit verify -Workspace $ws -Source $set → крок, який він надрукує. Зупинка й доповідь людині, без обходу.")
+        return $step
+    }
 
     if ($Criterion -and $BaseKind -eq 'file') {
         $step.Op = 'pull'
@@ -213,6 +227,18 @@ function Write-KitCriterionNotComputed {
     Write-Host "  критерій не обчислено: $one (набір '$SourceSet')" -ForegroundColor Yellow
 }
 
+function Write-KitSupplyStateNotComputed {
+    <#
+    .SYNOPSIS
+        Єдиний рядок «стан поставки не обчислено: <причина>» — сестра Write-KitCriterionNotComputed.
+        Друкує Get-KitAlignStep, коли Get-KitSupplyState кинула виняток; крок стає 'blocked'.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$SourceSet, [Parameter(Mandatory)][AllowEmptyString()][string]$Reason)
+    $one = ($Reason -replace '\s+', ' ').Trim()
+    Write-Host "  стан поставки не обчислено: $one (набір '$SourceSet')" -ForegroundColor Yellow
+}
+
 function Write-KitAlignStep {
     <#
     .SYNOPSIS
@@ -241,4 +267,4 @@ function Write-KitAlignStops {
     }
 }
 
-Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitCriterionNotComputed, Write-KitAlignStep, Write-KitAlignStops
+Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitCriterionNotComputed, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops

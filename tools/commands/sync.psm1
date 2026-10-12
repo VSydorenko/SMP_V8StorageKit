@@ -294,345 +294,353 @@ function Invoke-KitSync {
     # Кроки вирівнювання пам'яті раннера (спека 2026-10-11 §4.1): по одному на набір, базу якого зрушив sync.
     $alignSteps = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($src in $sources) {
-        Write-Host ''
-        Write-Host "Джерело:    $($src.Workspace)/$($src.Key) ($($src.Type))"
-        Write-Host "Сховище:    $($src.StoragePath) (користувач $($src.StorageUser))"
-        Write-Host "Гілка:      $($src.Branch)"
-        if (-not (Test-Path -LiteralPath $src.StoragePath)) {
-            throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
-        }
-
-        # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17 §2):
-        # серіалізація розширення залежить від присутності конфігурації-власника, і дамп зі
-        # стаба давав GUID там, де canon дає імена. Get-KitSourceInfobase несе запобіжник
-        # «це не дев-база людини» — критичний саме тут, бо UpdateCfg замінює конфігурацію в базі.
-        # Перевірка дешева (читання YAML) і стоїть поруч із перевіркою каталогу сховища вище,
-        # ДО створення робочої теки нижче.
-        $agent = Get-KitSourceInfobase -Context $Context -Source $src
-
-        # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
-        # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
-        # Загортати його в інше повідомлення чи вгадувати стан — не можна.
-        $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
-        # M-4 (фінальне рев'ю B6): рядок мусить враховувати ОБРАНУ глибину першого реплею. Безумовне
-        # «реплей усіх версій зі звіту» друкувалось рівно тоді, коли -FromVersion/-FromLatest і
-        # застосовні (гілки ще немає): оператор SMP_SMB_ukr_DEV (1 041 версія) запускає -FromLatest
-        # саме щоб уникнути повного реплею — і першим рядком читає опис тієї катастрофи, заради
-        # уникнення якої прапорець і додали.
-        $mirrorNote = 'гілки ще немає — реплей усіх версій зі звіту'
-        if ($null -ne $last) {
-            $mirrorNote = "версія $last"
-        } elseif ($FromLatest) {
-            $mirrorNote = 'гілки ще немає — перший реплей лише з ОСТАННЬОЇ версії звіту (-FromLatest)'
-        } elseif ($null -ne $FromVersion) {
-            $mirrorNote = "гілки ще немає — перший реплей зі звіту, починаючи з версії $FromVersion (-FromVersion)"
-        }
-        Write-Host "Дзеркало:   $mirrorNote"
-
-        # -FromVersion/-FromLatest визначають ЗВІДКИ починати ПЕРШИЙ реплей — на гілці, що вже
-        # має версії, "звідки почати" вже вирішено самим дзеркалом (трейлер Storage-Version
-        # вершини), і мовчки їх ігнорувати означало б приховати від людини, що параметр не
-        # подіяв. Перевірка тут, ДО першого звернення до платформи для цього джерела — ще один
-        # шар "не платити платформою за очевидну помилку виклику", той самий принцип, що
-        # валідація на самому вході функції вище.
-        if ($null -ne $last -and ($null -ne $FromVersion -or $FromLatest)) {
-            throw ("Гілка $($src.Branch) не порожня — вершина вже має трейлер Storage-Version: $last. " +
-                   '-FromVersion і -FromLatest визначають, ЗВІДКИ почати ПЕРШИЙ реплей порожньої гілки; ' +
-                   'на непорожній гілці дозаливку веде звичайний sync (за потреби — -MaxVersions).')
-        }
-
-        # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
-        $workDir = Join-Path $root 'build/sync' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека джерела $($src.Key)"
-        $staleWt = Join-Path $workDir 'wt'
-        if (Test-Path -LiteralPath $staleWt) {
-            # Ґейт на Test-Path (як у New-KitStorageWorktree): є що знімати лише після
-            # перерваного прогону. На звичайному запуску 'wt' під ще не створеним $workDir не
-            # існує, і git worktree remove на незареєстрованій теці штатно завершується кодом
-            # 128 ("not a working tree") — перевірка коду тут БЕЗ цього ґейту попереджала б на
-            # кожному нормальному прогоні, а не на дійсній аномалії. Неуспішне зняття реєстрації
-            # не зупиняє sync (Remove-Item нижче однаково прибере теку з диска), але лишає
-            # осиротілий запис у git worktree list — про це варто попередити.
-            git -C $root worktree remove --force $staleWt 2>$null | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "  УВАГА: не вдалося зняти реєстрацію worktree '$staleWt' від перерваного прогону (код ${LASTEXITCODE}) — теку прибере наступний крок, але запис у git worktree list може лишитись осиротілим." -ForegroundColor Yellow
+    # Друк уже обчислених кроків і ЗУПИНКА — у finally: виняток у пізнішому джерелі (звіт, платформа, автори)
+    # не мусить губити крок, який агентові вже потрібен від попередніх наборів (спека 0174871). Код виходу
+    # не змінюється — виняток летить далі, змінюється лише те, що бачить агент.
+    $completed = $false
+    try {
+        foreach ($src in $sources) {
+            Write-Host ''
+            Write-Host "Джерело:    $($src.Workspace)/$($src.Key) ($($src.Type))"
+            Write-Host "Сховище:    $($src.StoragePath) (користувач $($src.StorageUser))"
+            Write-Host "Гілка:      $($src.Branch)"
+            if (-not (Test-Path -LiteralPath $src.StoragePath)) {
+                throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
             }
-        }
-        git -C $root worktree prune 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  УВАГА: git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." -ForegroundColor Yellow
-        }
-        Remove-KitDirectory -Path $workDir
-        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $ibPassword = $agent.Password; $fallback = $false
-        Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
-        Write-Host 'Читаю історію сховища...'
+            # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17 §2):
+            # серіалізація розширення залежить від присутності конфігурації-власника, і дамп зі
+            # стаба давав GUID там, де canon дає імена. Get-KitSourceInfobase несе запобіжник
+            # «це не дев-база людини» — критичний саме тут, бо UpdateCfg замінює конфігурацію в базі.
+            # Перевірка дешева (читання YAML) і стоїть поруч із перевіркою каталогу сховища вище,
+            # ДО створення робочої теки нижче.
+            $agent = Get-KitSourceInfobase -Context $Context -Source $src
 
-        try {
-            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
-                -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
-        } catch {
-            # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
-            # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
-            # порожній ІБ із заглушкою. Лише EXTENSION: для основної конфігурації «не знайдено»
-            # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
-            # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
-            if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
-            $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir -RepoRoot $root
-            $ibUser = ''; $ibPassword = ''
-            $fallback = $true
-            Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
-                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й push Уніки з "force":true для цього розширення ' +
-                '(його ще немає в пам''яті раннера, звичайний push відповів би no_memory) наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
-            $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
-                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
-        }
-        $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
-        Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
-
-        # Відбиток — ОДРАЗУ після звіту, ДО розгалуження "нових версій немає" нижче (Task 8,
-        # task-8-brief.md, Важливе №1): саме в гілці "нема нових версій" уся конструкція й потрібна
-        # — для неактивного запакованого сховища pending завжди порожній, і якби запис стояв
-        # ПІСЛЯ цього continue, відбиток ніколи не оновився б рівно в тому випадку, заради якого
-        # його зробили. $all.Count -eq 0 (сховище зовсім без версій) — писати нема чого, $maxVersion
-        # тут рядок 'немає', не число. try/catch: збій запису кешу — робочої теки МАШИНИ, не стану
-        # git/сховища/бази — не має валити синхронізацію, лише попередження.
-        if ($all.Count -gt 0) {
-            try {
-                Write-KitStorageImprint -RepoRoot $root -Key $src.Key -StoragePath $src.StoragePath -Version ([int]$maxVersion) | Out-Null
-            } catch {
-                Write-Host "  УВАГА: не вдалося записати відбиток сховища (build/session-check/$($src.Key).json): $($_.Exception.Message)" -ForegroundColor Yellow
+            # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
+            # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
+            # Загортати його в інше повідомлення чи вгадувати стан — не можна.
+            $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
+            # M-4 (фінальне рев'ю B6): рядок мусить враховувати ОБРАНУ глибину першого реплею. Безумовне
+            # «реплей усіх версій зі звіту» друкувалось рівно тоді, коли -FromVersion/-FromLatest і
+            # застосовні (гілки ще немає): оператор SMP_SMB_ukr_DEV (1 041 версія) запускає -FromLatest
+            # саме щоб уникнути повного реплею — і першим рядком читає опис тієї катастрофи, заради
+            # уникнення якої прапорець і додали.
+            $mirrorNote = 'гілки ще немає — реплей усіх версій зі звіту'
+            if ($null -ne $last) {
+                $mirrorNote = "версія $last"
+            } elseif ($FromLatest) {
+                $mirrorNote = 'гілки ще немає — перший реплей лише з ОСТАННЬОЇ версії звіту (-FromLatest)'
+            } elseif ($null -ne $FromVersion) {
+                $mirrorNote = "гілки ще немає — перший реплей зі звіту, починаючи з версії $FromVersion (-FromVersion)"
             }
-        }
+            Write-Host "Дзеркало:   $mirrorNote"
 
-        $skipShow = $null
-        if ($hasFor -or $hasSkip) {
-            # §4.3/§6.1.2: і -ForVersion, і -SkipVersion — лише для ПЕРШОЇ неперенесеної версії, тож
-            # дивимось на перелік без -MaxVersions (він пропущену не рахує, §4.4). Усі зупинки —
-            # до першого UpdateCfg і до перевірки авторів (для пропущеної автор не потрібен).
-            $pendingAll = Get-KitPendingVersions -AllVersions $all -LastVersion $last `
-                -FromVersion $FromVersion -FromLatest:$FromLatest
-            $optName = if ($hasFor) { "-ForVersion $ForVersion" } else { "-SkipVersion $SkipVersion" }
-            $wanted = if ($hasFor) { $ForVersion } else { $SkipVersion }
-            if ($pendingAll.Count -eq 0) {
-                throw "${optName}: неперенесених версій немає — застосувати нічого."
+            # -FromVersion/-FromLatest визначають ЗВІДКИ починати ПЕРШИЙ реплей — на гілці, що вже
+            # має версії, "звідки почати" вже вирішено самим дзеркалом (трейлер Storage-Version
+            # вершини), і мовчки їх ігнорувати означало б приховати від людини, що параметр не
+            # подіяв. Перевірка тут, ДО першого звернення до платформи для цього джерела — ще один
+            # шар "не платити платформою за очевидну помилку виклику", той самий принцип, що
+            # валідація на самому вході функції вище.
+            if ($null -ne $last -and ($null -ne $FromVersion -or $FromLatest)) {
+                throw ("Гілка $($src.Branch) не порожня — вершина вже має трейлер Storage-Version: $last. " +
+                       '-FromVersion і -FromLatest визначають, ЗВІДКИ почати ПЕРШИЙ реплей порожньої гілки; ' +
+                       'на непорожній гілці дозаливку веде звичайний sync (за потреби — -MaxVersions).')
             }
-            if ($pendingAll[0].Version -ne $wanted) {
-                throw ("${optName}: це не перша неперенесена версія — вона $($pendingAll[0].Version). " +
-                       'Версію можна вивантажити іншою платформою чи пропустити лише тоді, коли вона наступна в черзі дзеркала.')
-            }
-            if ($hasSkip) {
-                if ($pendingAll.Count -lt 2) {
-                    throw "-SkipVersion ${SkipVersion}: пропуск можливий, лише коли у звіті є версія після ${SkipVersion} — дочекайтесь її."
+
+            # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
+            $workDir = Join-Path $root 'build/sync' $src.Key
+            Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека джерела $($src.Key)"
+            $staleWt = Join-Path $workDir 'wt'
+            if (Test-Path -LiteralPath $staleWt) {
+                # Ґейт на Test-Path (як у New-KitStorageWorktree): є що знімати лише після
+                # перерваного прогону. На звичайному запуску 'wt' під ще не створеним $workDir не
+                # існує, і git worktree remove на незареєстрованій теці штатно завершується кодом
+                # 128 ("not a working tree") — перевірка коду тут БЕЗ цього ґейту попереджала б на
+                # кожному нормальному прогоні, а не на дійсній аномалії. Неуспішне зняття реєстрації
+                # не зупиняє sync (Remove-Item нижче однаково прибере теку з диска), але лишає
+                # осиротілий запис у git worktree list — про це варто попередити.
+                git -C $root worktree remove --force $staleWt 2>$null | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "  УВАГА: не вдалося зняти реєстрацію worktree '$staleWt' від перерваного прогону (код ${LASTEXITCODE}) — теку прибере наступний крок, але запис у git worktree list може лишитись осиротілим." -ForegroundColor Yellow
                 }
-                $skipShow = $pendingAll[0]
-                $pending = @($pendingAll | Select-Object -Skip 1)
-                if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
-            } else {
-                $pending = $pendingAll
-                if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
             }
-        } else {
-            $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions `
-                -FromVersion $FromVersion -FromLatest:$FromLatest
-        }
-        # Без if-виразу: порожній $pending розгорнувся б у $null (і Pending зв'язався б із null).
-        $gapPending = @($pending)
-        if ($null -ne $skipShow) { $gapPending = @($skipShow) + $gapPending }
-        $gap = Get-KitVersionGapNote -Pending $gapPending -LastVersion $last
-        if ($gap) { Write-Host "  $gap" -ForegroundColor DarkGray }
+            git -C $root worktree prune 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  УВАГА: git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." -ForegroundColor Yellow
+            }
+            Remove-KitDirectory -Path $workDir
+            New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        if ($pending.Count -eq 0) {
-            Write-Host 'Нових версій немає — дзеркало синхронне зі сховищем.'
+            $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $ibPassword = $agent.Password; $fallback = $false
+            Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
+            Write-Host 'Читаю історію сховища...'
 
-            # M-4-подібна знахідка (фінальне рев'ю, Important §6): дзеркало могло лишитись
-            # попереду origin від ПОПЕРЕДНЬОГО прогону sync (наприклад, git push тоді не
-            # виконали) — цей прогін нових версій не приносить, але попередження про
-            # непушений push усе одно стосується поточного стану гілки й не має мовчати
-            # лише тому, що цей рядок стоїть у гілці коду "pending порожній".
+            try {
+                $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
+                    -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
+                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
+            } catch {
+                # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
+                # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
+                # порожній ІБ із заглушкою. Лише EXTENSION: для основної конфігурації «не знайдено»
+                # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
+                # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
+                if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
+                $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir -RepoRoot $root
+                $ibUser = ''; $ibPassword = ''
+                $fallback = $true
+                Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
+                    'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й push Уніки з "force":true для цього розширення ' +
+                    '(його ще немає в пам''яті раннера, звичайний push відповів би no_memory) наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
+                $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
+                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
+            }
+            $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
+            Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
+
+            # Відбиток — ОДРАЗУ після звіту, ДО розгалуження "нових версій немає" нижче (Task 8,
+            # task-8-brief.md, Важливе №1): саме в гілці "нема нових версій" уся конструкція й потрібна
+            # — для неактивного запакованого сховища pending завжди порожній, і якби запис стояв
+            # ПІСЛЯ цього continue, відбиток ніколи не оновився б рівно в тому випадку, заради якого
+            # його зробили. $all.Count -eq 0 (сховище зовсім без версій) — писати нема чого, $maxVersion
+            # тут рядок 'немає', не число. try/catch: збій запису кешу — робочої теки МАШИНИ, не стану
+            # git/сховища/бази — не має валити синхронізацію, лише попередження.
+            if ($all.Count -gt 0) {
+                try {
+                    Write-KitStorageImprint -RepoRoot $root -Key $src.Key -StoragePath $src.StoragePath -Version ([int]$maxVersion) | Out-Null
+                } catch {
+                    Write-Host "  УВАГА: не вдалося записати відбиток сховища (build/session-check/$($src.Key).json): $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
+
+            $skipShow = $null
+            if ($hasFor -or $hasSkip) {
+                # §4.3/§6.1.2: і -ForVersion, і -SkipVersion — лише для ПЕРШОЇ неперенесеної версії, тож
+                # дивимось на перелік без -MaxVersions (він пропущену не рахує, §4.4). Усі зупинки —
+                # до першого UpdateCfg і до перевірки авторів (для пропущеної автор не потрібен).
+                $pendingAll = Get-KitPendingVersions -AllVersions $all -LastVersion $last `
+                    -FromVersion $FromVersion -FromLatest:$FromLatest
+                $optName = if ($hasFor) { "-ForVersion $ForVersion" } else { "-SkipVersion $SkipVersion" }
+                $wanted = if ($hasFor) { $ForVersion } else { $SkipVersion }
+                if ($pendingAll.Count -eq 0) {
+                    throw "${optName}: неперенесених версій немає — застосувати нічого."
+                }
+                if ($pendingAll[0].Version -ne $wanted) {
+                    throw ("${optName}: це не перша неперенесена версія — вона $($pendingAll[0].Version). " +
+                           'Версію можна вивантажити іншою платформою чи пропустити лише тоді, коли вона наступна в черзі дзеркала.')
+                }
+                if ($hasSkip) {
+                    if ($pendingAll.Count -lt 2) {
+                        throw "-SkipVersion ${SkipVersion}: пропуск можливий, лише коли у звіті є версія після ${SkipVersion} — дочекайтесь її."
+                    }
+                    $skipShow = $pendingAll[0]
+                    $pending = @($pendingAll | Select-Object -Skip 1)
+                    if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+                } else {
+                    $pending = $pendingAll
+                    if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
+                }
+            } else {
+                $pending = Get-KitPendingVersions -AllVersions $all -LastVersion $last -MaxVersions $MaxVersions `
+                    -FromVersion $FromVersion -FromLatest:$FromLatest
+            }
+            # Без if-виразу: порожній $pending розгорнувся б у $null (і Pending зв'язався б із null).
+            $gapPending = @($pending)
+            if ($null -ne $skipShow) { $gapPending = @($skipShow) + $gapPending }
+            $gap = Get-KitVersionGapNote -Pending $gapPending -LastVersion $last
+            if ($gap) { Write-Host "  $gap" -ForegroundColor DarkGray }
+
+            if ($pending.Count -eq 0) {
+                Write-Host 'Нових версій немає — дзеркало синхронне зі сховищем.'
+
+                # M-4-подібна знахідка (фінальне рев'ю, Important §6): дзеркало могло лишитись
+                # попереду origin від ПОПЕРЕДНЬОГО прогону sync (наприклад, git push тоді не
+                # виконали) — цей прогін нових версій не приносить, але попередження про
+                # непушений push усе одно стосується поточного стану гілки й не має мовчати
+                # лише тому, що цей рядок стоїть у гілці коду "pending порожній".
+                $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+                if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+                }
+
+                $merged = $false
+                if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
+                $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $null; Skipped = [int[]]@(); AlignStep = $null })
+                continue
+            }
+
+            # Спека 2026-09-30 §6.8: автор може бути на логін АБО на конкретну версію. Спільний логін
+            # в AUTHORS не вноситься — тоді кожна його версія тут і зупиняє прогін готовим рядком.
+            # Форма виводу: рядок на логін, під ним ОКРЕМИЙ блок рядків версій підряд (щоб потрібний
+            # рядок не губився серед коментарів), а опис версій — окремим блоком після нього. Кожен
+            # рядок-заготовка — «<ключ>=Ім'я <пошта>» без хвоста: Complete-Authors (Sync.Storage.Tests.ps1)
+            # впізнає його за цим шаблоном, хвіст «# …» його б не пропустив.
+            # Без @(...) навколо виклику: функція повертає масив унарною комою (F7), і @() зробив би
+            # з нього масив із одного елемента-масиву — Group-Object тоді не бачить .User.
+            $unattributed = Get-KitUnattributedVersions -Map $authors -SourceKey $src.Key -Versions $pending
+            if ($unattributed.Count -gt 0) {
+                Write-Host ''
+                Write-Host ('Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, ' +
+                    'якщо під логіном різні люди):') -ForegroundColor Yellow
+                foreach ($g in ($unattributed | Group-Object { if ([string]::IsNullOrWhiteSpace($_.User)) { '' } else { $_.User } })) {
+                    $login = $g.Name
+                    Write-Host ("  логін «{0}» — версій {1}:" -f $(if ($login) { $login } else { '<порожній у звіті>' }), $g.Count)
+                    if ($login) {
+                        Write-Host "    $login=Ім'я <пошта>"
+                        Write-Host '    якщо за цим логіном різні люди — замість рядка вище, по рядку на кожну версію:'
+                    } else {
+                        Write-Host '    логін у звіті порожній — лише рядок на кожну версію:'
+                    }
+                    foreach ($v in $g.Group) { Write-Host "    $($src.Key)#$($v.Version)=Ім'я <пошта>" }
+                    Write-Host '    що це за версії:'
+                    foreach ($v in $g.Group) {
+                        $first = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+                        Write-Host ("      версія {0}, {1:yyyy-MM-dd HH:mm}{2}" -f $v.Version, $v.Timestamp, $(if ($first) { ", «$first»" } else { '' })) -ForegroundColor DarkGray
+                    }
+                }
+                throw 'Синхронізацію зупинено через невідомих авторів.'
+            }
+
+            Write-Host ''
+            Write-Host "До перенесення версій: $($pending.Count)"
+            foreach ($v in @(if ($null -ne $skipShow) { $skipShow }) + @($pending)) {
+                $isSkipped = $null -ne $skipShow -and $v.Version -eq $skipShow.Version
+                # Для пропущеної версії автор не потрібен (§4.4) — Resolve-Author на ній міг би зупинити.
+                $authorName = if ($isSkipped) { '—' } else { (Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version).Name }
+                $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+                if (-not $first) { $first = "Версія сховища $($v.Version)" }
+                $mark = if ($isSkipped) { '  ← буде пропущено' }
+                        elseif ($hasFor -and $v.Version -eq $ForVersion) { "  ← платформою $DumpPlatform" }
+                        else { '' }
+                Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}{4}" -f $v.Version, $v.Timestamp, $authorName, $first, $mark)
+            }
+
+            if (-not $Apply) {
+                Write-Host ''
+                Write-Host 'Це попередній перегляд. Для виконання додайте -Apply.' -ForegroundColor Cyan
+                continue
+            }
+
+            # Шлях обраної платформи — до worktree й до першого UpdateCfg: відсутня платформа зупиняє дешево.
+            $altV8Path = if ($hasDump) { Get-V8Path -Version $DumpPlatform } else { $null }
+            $skipNoted = $false
+            $dumpedVia = $null
+
+            $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
+            $done  = [System.Collections.Generic.List[int]]::new()
+            # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
+            # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
+            # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
+            # — ВСЕРЕДИНІ try (рев'ю Task 1, Important #1): якщо прив'язка впаде, worktree все одно
+            # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
+            $bound = $false
+            try {
+                $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $ibUser
+                foreach ($v in $pending) {
+                    $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
+                    Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
+
+                    # Зупинка спеки 1.3.1 §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
+                    # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
+                    # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
+                    # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
+                    $msgArgs = @{}
+                    try {
+                        if ($hasFor -and $v.Version -eq $ForVersion) {
+                            # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
+                            $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
+                                -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
+                            $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
+                            $dumpedVia = $DumpPlatform
+                        } else {
+                            $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -User $ibUser -Password $ibPassword
+                        }
+                    } catch {
+                        if (Test-KitDumpFailure -ErrorRecord $_) {
+                            $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
+                            $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
+                            throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
+                        }
+                        throw
+                    }
+                    if ($hasSkip -and -not $skipNoted) { $msgArgs.SkippedVersion = @([int]$SkipVersion); $skipNoted = $true }
+
+                    $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
+                    $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
+                        -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
+                    if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
+                    $done.Add($v.Version)
+                }
+            } finally {
+                Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
+                Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
+            }
+            Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
+
             $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
             if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
                 Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
             }
 
+            # Контракт спеки 2026-09-17 §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента — це
+            # оголошена поведінка. Після неї пам'ять покоління раннера (v8-runner 0.14) розходиться з базою,
+            # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
+            # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
+            if ($fallback) {
+                Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
+                    "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
+            } else {
+                Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
+                    $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+            }
+
             $merged = $false
-            if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
-            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $null; Skipped = [int[]]@(); AlignStep = $null })
-            continue
-        }
-
-        # Спека 2026-09-30 §6.8: автор може бути на логін АБО на конкретну версію. Спільний логін
-        # в AUTHORS не вноситься — тоді кожна його версія тут і зупиняє прогін готовим рядком.
-        # Форма виводу: рядок на логін, під ним ОКРЕМИЙ блок рядків версій підряд (щоб потрібний
-        # рядок не губився серед коментарів), а опис версій — окремим блоком після нього. Кожен
-        # рядок-заготовка — «<ключ>=Ім'я <пошта>» без хвоста: Complete-Authors (Sync.Storage.Tests.ps1)
-        # впізнає його за цим шаблоном, хвіст «# …» його б не пропустив.
-        # Без @(...) навколо виклику: функція повертає масив унарною комою (F7), і @() зробив би
-        # з нього масив із одного елемента-масиву — Group-Object тоді не бачить .User.
-        $unattributed = Get-KitUnattributedVersions -Map $authors -SourceKey $src.Key -Versions $pending
-        if ($unattributed.Count -gt 0) {
-            Write-Host ''
-            Write-Host ('Невідомі автори — додайте в AUTHORS перед прогоном (рядок на логін, АБО рядок на кожну версію, ' +
-                'якщо під логіном різні люди):') -ForegroundColor Yellow
-            foreach ($g in ($unattributed | Group-Object { if ([string]::IsNullOrWhiteSpace($_.User)) { '' } else { $_.User } })) {
-                $login = $g.Name
-                Write-Host ("  логін «{0}» — версій {1}:" -f $(if ($login) { $login } else { '<порожній у звіті>' }), $g.Count)
-                if ($login) {
-                    Write-Host "    $login=Ім'я <пошта>"
-                    Write-Host '    якщо за цим логіном різні люди — замість рядка вище, по рядку на кожну версію:'
-                } else {
-                    Write-Host '    логін у звіті порожній — лише рядок на кожну версію:'
-                }
-                foreach ($v in $g.Group) { Write-Host "    $($src.Key)#$($v.Version)=Ім'я <пошта>" }
-                Write-Host '    що це за версії:'
-                foreach ($v in $g.Group) {
-                    $first = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
-                    Write-Host ("      версія {0}, {1:yyyy-MM-dd HH:mm}{2}" -f $v.Version, $v.Timestamp, $(if ($first) { ", «$first»" } else { '' })) -ForegroundColor DarkGray
-                }
+            if ($wt.Created -or $MergeMain) {
+                $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
+                if (-not $merged) { $mergeFailed = $true }
             }
-            throw 'Синхронізацію зупинено через невідомих авторів.'
-        }
 
-        Write-Host ''
-        Write-Host "До перенесення версій: $($pending.Count)"
-        foreach ($v in @(if ($null -ne $skipShow) { $skipShow }) + @($pending)) {
-            $isSkipped = $null -ne $skipShow -and $v.Version -eq $skipShow.Version
-            # Для пропущеної версії автор не потрібен (§4.4) — Resolve-Author на ній міг би зупинити.
-            $authorName = if ($isSkipped) { '—' } else { (Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version).Name }
-            $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
-            if (-not $first) { $first = "Версія сховища $($v.Version)" }
-            $mark = if ($isSkipped) { '  ← буде пропущено' }
-                    elseif ($hasFor -and $v.Version -eq $ForVersion) { "  ← платформою $DumpPlatform" }
-                    else { '' }
-            Write-Host ("  v{0,-4} {1:yyyy-MM-dd HH:mm}  {2,-22} {3}{4}" -f $v.Version, $v.Timestamp, $authorName, $first, $mark)
-        }
-
-        if (-not $Apply) {
-            Write-Host ''
-            Write-Host 'Це попередній перегляд. Для виконання додайте -Apply.' -ForegroundColor Cyan
-            continue
-        }
-
-        # Шлях обраної платформи — до worktree й до першого UpdateCfg: відсутня платформа зупиняє дешево.
-        $altV8Path = if ($hasDump) { Get-V8Path -Version $DumpPlatform } else { $null }
-        $skipNoted = $false
-        $dumpedVia = $null
-
-        $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
-        $done  = [System.Collections.Generic.List[int]]::new()
-        # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
-        # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
-        # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
-        # — ВСЕРЕДИНІ try (рев'ю Task 1, Important #1): якщо прив'язка впаде, worktree все одно
-        # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
-        $bound = $false
-        try {
-            $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $ibUser
-            foreach ($v in $pending) {
-                $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
-                Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
-
-                # Зупинка спеки 1.3.1 §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
-                # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
-                # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
-                # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
-                $msgArgs = @{}
+            # Критерій pull (§10 П3) — дерево, а не факт злиття: kit довів, що дерево набору в робочій
+            # копії дорівнює тому, що він щойно вивантажив (вершина дзеркала), і що воно чисте. Злиття, що
+            # впало, лишає дерево брудним чи іншим — і дає push force без окремої гілки коду.
+            $alignStep = $null
+            if (-not $fallback -and $done.Count -gt 0) {
+                # Остання версія з -DumpPlatform — дерево дзеркала дала інша платформа, рівність із тим,
+                # що віддасть база основною платформою, не доведено.
+                $lastViaAlt = $hasFor -and ($done[-1] -eq [int]$ForVersion)
+                # Функції критерію кидають виняток (порожній шлях набору, RepoRoot ≠ корінь репозиторію,
+                # зламаний індекс, збій git) — fail-closed. Тут це не зупинка (спека 3129c0d, П24): версії
+                # вже перенесено й злито, агентові потрібен крок, а push force нічого в дереві не стирає.
+                # Критерій = $false, далі звичайний Get-KitAlignStep (за поставки missing/stale — blocked).
                 try {
-                    if ($hasFor -and $v.Version -eq $ForVersion) {
-                        # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
-                        $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
-                            -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
-                        $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
-                        $dumpedVia = $DumpPlatform
-                    } else {
-                        $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -User $ibUser -Password $ibPassword
-                    }
+                    $criterion = (-not $lastViaAlt) -and
+                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
+                                 (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
                 } catch {
-                    if (Test-KitDumpFailure -ErrorRecord $_) {
-                        $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
-                        $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
-                        throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
-                    }
-                    throw
+                    $criterion = $false
+                    Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
                 }
-                if ($hasSkip -and -not $skipNoted) { $msgArgs.SkippedVersion = @([int]$SkipVersion); $skipNoted = $true }
-
-                $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
-                $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
-                    -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
-                if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
-                $done.Add($v.Version)
+                $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
+                Write-KitAlignStep -Step $alignStep
+                $alignSteps.Add($alignStep)
             }
-        } finally {
-            Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
-            Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
+            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }); AlignStep = $alignStep })
         }
-        Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
-
-        $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
-        if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-            Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+        $completed = $true
+    } finally {
+        Write-Host ''
+        # Рядки ЗУПИНКА — останніми, після підсумку; для набору зі зупинкою підсумок не каже «Готово»,
+        # а після винятку (цикл не дійшов до кінця) — не каже його теж.
+        $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
+        if ($blocked.Count -gt 0) {
+            Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
+        } elseif ($completed) {
+            Write-Host 'Готово.' -ForegroundColor Green
         }
-
-        # Контракт спеки 2026-09-17 §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента — це
-        # оголошена поведінка. Після неї пам'ять покоління раннера (v8-runner 0.14) розходиться з базою,
-        # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
-        # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
-        if ($fallback) {
-            Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
-                "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
-        } else {
-            Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
-                $agent.Workspace, $done[-1]) -ForegroundColor Yellow
-        }
-
-        $merged = $false
-        if ($wt.Created -or $MergeMain) {
-            $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
-            if (-not $merged) { $mergeFailed = $true }
-        }
-
-        # Критерій pull (§10 П3) — дерево, а не факт злиття: kit довів, що дерево набору в робочій
-        # копії дорівнює тому, що він щойно вивантажив (вершина дзеркала), і що воно чисте. Злиття, що
-        # впало, лишає дерево брудним чи іншим — і дає push force без окремої гілки коду.
-        $alignStep = $null
-        if (-not $fallback -and $done.Count -gt 0) {
-            # Остання версія з -DumpPlatform — дерево дзеркала дала інша платформа, рівність із тим,
-            # що віддасть база основною платформою, не доведено.
-            $lastViaAlt = $hasFor -and ($done[-1] -eq [int]$ForVersion)
-            # Функції критерію кидають виняток (порожній шлях набору, RepoRoot ≠ корінь репозиторію,
-            # зламаний індекс, збій git) — fail-closed. Тут це не зупинка (спека 3129c0d, П24): версії
-            # вже перенесено й злито, агентові потрібен крок, а push force нічого в дереві не стирає.
-            # Критерій = $false, далі звичайний Get-KitAlignStep (за поставки missing/stale — blocked).
-            try {
-                $criterion = (-not $lastViaAlt) -and
-                             (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
-                             (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
-            } catch {
-                $criterion = $false
-                Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
-            }
-            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
-            Write-KitAlignStep -Step $alignStep
-            $alignSteps.Add($alignStep)
-        }
-        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }); AlignStep = $alignStep })
+        Write-KitAlignStops -Steps $alignSteps.ToArray()
     }
-
-    Write-Host ''
-    # Рядки ЗУПИНКА — останніми, після підсумку; для набору зі зупинкою підсумок не каже «Готово».
-    $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
-    if ($blocked.Count -eq 0) {
-        Write-Host 'Готово.' -ForegroundColor Green
-    } else {
-        Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
-    }
-    Write-KitAlignStops -Steps $alignSteps.ToArray()
     [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 2 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 

@@ -22,7 +22,6 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
             $storageDir = Join-Path $TestDrive "$Name-storage"; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
             $repo }
-        $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
     }
     BeforeEach {
         $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
@@ -180,6 +179,48 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
             $repo = New-AlignRepo -Name 'exc-none'
             $text = & { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
             $text | Should -Not -BeLike '*критерій не обчислено*'
+        }
+    }
+
+    Context 'стан поставки не обчислено і виняток у пізнішому джерелі (спека 0174871)' {
+        It 'виняток Get-KitSupplyState після злиття — blocked і рядок «стан поставки не обчислено», не push' {
+            $script:MockContent = New-KitFakeConfigurationXml -Name 'base'
+            $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'
+                Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sup-exc') -Workspaces $ws -WithHooks -WithAgentBase -WithGitignore
+            $storageDir = Join-Path $TestDrive 'sup-exc-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$storageDir'") -join "`n")
+            Mock -ModuleName UnicaStep Get-KitSupplyState { throw 'збій читання поставки' }
+            $h = @{}
+            $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+            $text | Should -BeLike '*стан поставки не обчислено: збій читання поставки*'
+            $h.R.AlignSteps[0].Op | Should -Be 'blocked'
+            $h.R.ExitCode | Should -Be 0
+            $text | Should -Not -BeLike '*"op":"push"*'
+            @($text -split "`r?`n" | Where-Object { $_.Trim() })[-1] | Should -BeLike 'ЗУПИНКА:*'
+        }
+        It 'виняток у другому джерелі не губить ЗУПИНКА першого — друк у finally, виняток летить далі' {
+            $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+                @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+                @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'two') -Workspaces $ws -WithHooks -WithAgentBase -WithGitignore
+            $d1 = Join-Path $TestDrive 'two-s1'; $d2 = Join-Path $TestDrive 'two-s2'
+            New-Item -ItemType Directory -Path $d1, $d2 -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$d1'", "  Alpha_SMB: '$d2'") -join "`n")
+            Mock -ModuleName sync Get-StorageVersions {
+                param($ExtensionName)
+                if ($ExtensionName -eq 'Alpha_SMB') { throw 'збій звіту другого джерела' }
+                , @(New-KitFakeStorageVersion -Version 7) }
+            Mock -ModuleName sync Get-KitAlignStep { [pscustomobject]@{ SourceSet = 'base'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cf/src'
+                BaseKind = 'file'; Op = 'blocked'; Supply = 'missing'; MarkerOnly = $false; Steps = @(); Recipe = 'рецепт першого' } }
+            $h = @{}
+            $text = & {
+                try { Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true | Out-Null }
+                catch { $h.Err = $_.Exception.Message }
+            } 6>&1 | Out-String
+            $h.Err | Should -BeLike '*збій звіту другого джерела*'
+            $text | Should -BeLike '*ЗУПИНКА: рецепт першого*'
+            $text | Should -Not -BeLike '*Готово.*'
         }
     }
 }

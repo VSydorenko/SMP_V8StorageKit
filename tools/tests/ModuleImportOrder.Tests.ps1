@@ -26,7 +26,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
             'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',
-            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Test-KitSetTreeEqual', 'Test-KitSetClean', 'Test-KitRefIsHead', 'Get-KitAlignStep', 'Write-KitCriterionNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
+            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Test-KitSetTreeEqual', 'Test-KitSetClean', 'Test-KitRefIsHead', 'Get-KitAlignStep', 'Write-KitCriterionNotComputed', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
             'New-KitAgentBaseMissingMessage', 'Get-V8ProjectConfigProblems'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
