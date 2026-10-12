@@ -243,7 +243,7 @@ function Invoke-KitSync {
     $sources = @(Sort-KitSyncSources -Sources $sources)
     if ($sources.Count -eq 0) {
         Write-Host 'У маніфесті (з урахуванням -Workspace/-Source) немає джерел із truth: storage — синхронізувати нічого.'
-        return [pscustomobject]@{ ExitCode = 0; Synced = @() }
+        return [pscustomobject]@{ ExitCode = 0; Synced = @(); AlignSteps = @() }
     }
 
     foreach ($src in $sources) {
@@ -291,6 +291,8 @@ function Invoke-KitSync {
     $authors  = Read-AuthorMap -Path (Join-Path $root 'AUTHORS')
     $results  = [System.Collections.Generic.List[object]]::new()
     $mergeFailed = $false
+    # Кроки вирівнювання пам'яті раннера (спека 2026-10-11 §4.1): по одному на набір, базу якого зрушив sync.
+    $alignSteps = [System.Collections.Generic.List[object]]::new()
 
     foreach ($src in $sources) {
         Write-Host ''
@@ -458,7 +460,7 @@ function Invoke-KitSync {
 
             $merged = $false
             if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
-            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $null; Skipped = [int[]]@() })
+            $results.Add([pscustomobject]@{ Key = $src.Key; Versions = @(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $null; Skipped = [int[]]@(); AlignStep = $null })
             continue
         }
 
@@ -577,14 +579,15 @@ function Invoke-KitSync {
             Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
         }
 
-        # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база
-        # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
-        # поведінка — мовчати про неї означало б, що наступний unica.run з op=syntax чи op=test побіжить
-        # не на тому стані, який агент вважає своїм.
+        # Контракт спеки 2026-09-17 §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента — це
+        # оголошена поведінка. Після неї пам'ять покоління раннера (v8-runner 0.14) розходиться з базою,
+        # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
+        # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
         if ($fallback) {
-            Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → operation=build Уніки — розширення з'явиться в базі агента." -ForegroundColor Yellow
+            Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
+                "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
         } else {
-            Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища. Перед роботою: operation=build Уніки." -f `
+            Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
                 $agent.Workspace, $done[-1]) -ForegroundColor Yellow
         }
 
@@ -593,12 +596,44 @@ function Invoke-KitSync {
             $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
             if (-not $merged) { $mergeFailed = $true }
         }
-        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }) })
+
+        # Критерій pull (§10 П3) — дерево, а не факт злиття: kit довів, що дерево набору в робочій
+        # копії дорівнює тому, що він щойно вивантажив (вершина дзеркала), і що воно чисте. Злиття, що
+        # впало, лишає дерево брудним чи іншим — і дає push force без окремої гілки коду.
+        $alignStep = $null
+        if (-not $fallback -and $done.Count -gt 0) {
+            # Остання версія з -DumpPlatform — дерево дзеркала дала інша платформа, рівність із тим,
+            # що віддасть база основною платформою, не доведено.
+            $lastViaAlt = $hasFor -and ($done[-1] -eq [int]$ForVersion)
+            # Функції критерію кидають виняток (порожній шлях набору, RepoRoot ≠ корінь репозиторію,
+            # зламаний індекс, збій git) — fail-closed. Тут це не зупинка (спека 3129c0d, П24): версії
+            # вже перенесено й злито, агентові потрібен крок, а push force нічого в дереві не стирає.
+            # Критерій = $false, далі звичайний Get-KitAlignStep (за поставки missing/stale — blocked).
+            try {
+                $criterion = (-not $lastViaAlt) -and
+                             (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
+                             (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
+            } catch {
+                $criterion = $false
+                Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
+            }
+            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
+            Write-KitAlignStep -Step $alignStep
+            $alignSteps.Add($alignStep)
+        }
+        $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }); AlignStep = $alignStep })
     }
 
     Write-Host ''
-    Write-Host 'Готово.' -ForegroundColor Green
-    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 2 } else { 0 }); Synced = $results.ToArray() }
+    # Рядки ЗУПИНКА — останніми, після підсумку; для набору зі зупинкою підсумок не каже «Готово».
+    $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
+    if ($blocked.Count -eq 0) {
+        Write-Host 'Готово.' -ForegroundColor Green
+    } else {
+        Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
+    }
+    Write-KitAlignStops -Steps $alignSteps.ToArray()
+    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 2 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitSync

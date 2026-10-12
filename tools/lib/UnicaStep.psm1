@@ -195,6 +195,24 @@ function Get-KitAlignStep {
     $step
 }
 
+function Write-KitCriterionNotComputed {
+    <#
+    .SYNOPSIS
+        Єдиний рядок «критерій не обчислено: <причина>» — друкує викликач (sync, verify), коли функція
+        критерію кинула виняток (спека 3129c0d, П24).
+    .DESCRIPTION
+        Це запасний крок, а не зупинка: версії вже перенесено, злиття зроблено, агентові потрібен крок, а
+        push force нічого в дереві не стирає (хибне «брудне» коштує лише повного завантаження). Викликач
+        ставить Criterion=$false і далі йде звичайним Get-KitAlignStep. Причина — текст винятку функцій
+        критерію (Assert-KitCriterionInput, збій git): значень конфігу в ньому немає (П23). Одна фраза
+        на kit — друга копія розійшлась би з першою (kit-dev, case 5).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$SourceSet, [Parameter(Mandatory)][AllowEmptyString()][string]$Reason)
+    $one = ($Reason -replace '\s+', ' ').Trim()
+    Write-Host "  критерій не обчислено: $one (набір '$SourceSet')" -ForegroundColor Yellow
+}
+
 function Write-KitAlignStep {
     <#
     .SYNOPSIS
@@ -223,4 +241,4 @@ function Write-KitAlignStops {
     }
 }
 
-Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitAlignStep, Write-KitAlignStops
+Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitCriterionNotComputed, Write-KitAlignStep, Write-KitAlignStops
