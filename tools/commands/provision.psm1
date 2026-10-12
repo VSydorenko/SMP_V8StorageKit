@@ -266,7 +266,7 @@ function Invoke-KitProvision {
         $fitness = Get-KitConfigurationFitness -Workspace $ws
         if (-not $fitness.Fit) {
             $why = if ($fitness.Recipe -eq 'i') { 'дерева ще немає — рецепт (i)' } else { "поставка вендора $($fitness.Supply) — рецепт (ii)" }
-            $unfitNote = ("  Дерево основної конфігурації '{0}' не придатне до завантаження ({1}): першим базу наповнить kit зі сховища, тож порожню файлову базу створює теж kit." -f $fitness.Source.Key, $why)
+            $unfitNote = ("  Дерево основної конфігурації '{0}' не придатне до завантаження ({1}): першим базу наповнить kit зі сховища" + $(if ($ab.Kind -eq 'file' -and -not $wsTemplate) { ', тож порожню файлову базу створює теж kit.' } else { '; створює її Уніка (create/restore).' })) -f $fitness.Source.Key, $why
             Write-Host $unfitNote -ForegroundColor Cyan
         }
 
@@ -331,6 +331,18 @@ function Invoke-KitProvision {
         if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
 
         Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
+        # Шаблон (.dt) — файл людини: якщо він лежить у теці, яку -Apply зараз прибере (база чи пам'ять раннера),
+        # видалення знищило б його, а крок restore посилався б на неіснуючий файл. Відмова до будь-якого видалення.
+        if ($wsTemplate) {
+            $tplFull = [System.IO.Path]::GetFullPath($wsTemplate)
+            foreach ($doomed in @($ab.Path, $memoryDir)) {
+                $doomedFull = [System.IO.Path]::GetFullPath($doomed).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+                if ($tplFull.StartsWith($doomedFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw ("Шаблон бази (.dt) лежить у теці, яку kit прибирає при перестворенні бази агента воркспейсу '$($ws.Path)' (тека бази чи пам'ять раннера під робочою текою). " +
+                           'Перенесіть .dt поза робочу теку воркспейсу і повторіть команду.')
+                }
+            }
+        }
         Write-Host ('Шлях:      ' + $ab.Path + $(if ($ab.Exists) { '  (існує)' } else { '  (ще немає)' }))
         Write-Host ('Шаблон:    ' + $(if ($wsTemplate) { $wsTemplate } else { 'порожня база (без .dt)' }))
 
@@ -344,6 +356,7 @@ function Invoke-KitProvision {
             $previewNote = '  Це попередній перегляд. Для виконання додайте -Apply' + $(if ($ab.Exists) { ' -Force (база існує й буде перестворена).' } else { '.' })
             Write-Host $previewNote -ForegroundColor Cyan
             if ($kitCreates) { Write-Host '  З -Apply kit сам створить порожню файлову базу.' -ForegroundColor Cyan }
+            elseif (-not $fitness.Fit) { Write-Host '  Першим базу наповнить kit; створює її Уніка (create/restore) — крок нижче.' -ForegroundColor Cyan }
             Write-KitNextSteps -Title 'Далі:' -Steps $steps
             # F6 (рев'ю B4 Task 1): -Remember без -Apply не мовчить — шаблон ще не записано.
             if ($Remember) { Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray }

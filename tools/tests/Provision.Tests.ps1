@@ -496,6 +496,80 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*-ServerBase стосується лише серверної бази*'
     }
+    It 'шаблон .dt усередині теки бази — відмова до видалення, файл цілий (файл людини)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl-in-base') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $dt = Join-Path $repo 'Alpha_SMB/build/ib/my.dt'
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Шаблон бази (.dt) лежить у теці, яку kit прибирає*'
+        Test-Path -LiteralPath $dt | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'шаблон .dt усередині пам''яті раннера — відмова до видалення, файл цілий' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tpl-in-mem') -WithHooks -WithAgentBase
+        Add-Owner -Repo $repo
+        $mem = Join-Path $repo 'Alpha_SMB/build/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        $dt = Join-Path $mem 'my.dt'
+        Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force', '-Template', $dt)
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Шаблон бази (.dt) лежить у теці, яку kit прибирає*'
+        Test-Path -LiteralPath $dt | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
+    }
+    It 'серверна -ServerBase New, дерево непридатне: крок kit sync, без push' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-new-unfit') -Workspaces $script:StorageWs -NoSourceTrees -WithHooks
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL'; server = 'pg1'; name = 'agent_db'; locale = 'uk' })
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*"op":"infobase.create"*'
+        $r.Output | Should -BeLike '*kit sync -Source base -FromLatest -Apply*'
+        $r.Output | Should -Not -BeLike '*"op":"push"*'
+        $r.Output | Should -BeLike '*створює її Уніка*'
+        $r.Output | Should -Not -BeLike '*створює теж kit*'
+    }
+    It 'серверна -ServerBase Existing, дерево непридатне: крок kit sync, без push' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-ex-unfit') -Workspaces $script:StorageWs -NoSourceTrees -WithHooks
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*kit sync -Source base -FromLatest -Apply*'
+        $r.Output | Should -Not -BeLike '*"op":"push"*'
+        $r.Output | Should -Not -BeLike '*"op":"infobase.create"*'
+    }
+    It 'файлова з .dt, дерево непридатне: restore і крок kit, без push; базу створює Уніка, не kit' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dt-unfit') -Workspaces $script:StorageWs -NoSourceTrees -WithHooks
+        $dt = Join-Path $TestDrive 'unfit.dt'; Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-Template', $dt)
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*"op":"infobase.restore"*'
+        $r.Output | Should -BeLike '*kit sync -Source base -FromLatest -Apply*'
+        $r.Output | Should -Not -BeLike '*"op":"push"*'
+        $r.Output | Should -BeLike '*створює її Уніка*'
+        $r.Output | Should -Not -BeLike '*створює теж kit*'
+        $r.Output | Should -Not -BeLike '*kit сам створить*'
+    }
+    It 'серверна + -Template — відмова' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-tpl') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $dt = Join-Path $TestDrive 'srv.dt'; Set-Content -LiteralPath $dt -Value 'dt'
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'Existing', '-Template', $dt)
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*для серверної бази агента не підтримується*'
+    }
+    It 'серверна New: паролі dbms і cluster не потрапляють у вивід' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-pwd') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL'; server = 'pg1'; name = 'agent_db'; locale = 'uk'; password = 'SECRET-dbms' })
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value "`n    cluster:`n      user: 'adm'`n      password: 'SECRET-cluster'"
+        $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
+        $r.ExitCode | Should -Be 0 -Because ($r.Output -replace 'SECRET', 'S*CRET')
+        $r.Output | Should -Not -BeLike '*SECRET*'
+    }
     It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:provision' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })
@@ -511,6 +585,53 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r = Invoke-Provision -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*бази агента тут не буває*'
+    }
+}
+
+Describe 'kit provision — CreatedBy у результаті (хто створив базу), у процесі' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/provision.psm1").Path -Force
+        $script:StorageWs2 = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        function script:Add-Owner2 { param([string]$Repo)
+            $dir = Join-Path $Repo 'Alpha_SMB/cf/src'; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir 'Configuration.xml') -Encoding UTF8 -NoNewline -Value (New-KitFakeConfigurationXml -Name 'base') }
+    }
+    It 'непридатне дерево, файлова порожня: CreatedBy = kit (платформу замокано)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-kit') -Workspaces $script:StorageWs2 -NoSourceTrees -WithHooks
+        Mock -ModuleName provision New-V8FileInfobase { }
+        $r = Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        @($r.Provisioned).Count | Should -Be 1
+        $r.Provisioned[0].CreatedBy | Should -Be 'kit'
+        Should -Invoke -ModuleName provision New-V8FileInfobase -Times 1
+    }
+    It 'придатне дерево, файлова порожня: CreatedBy = unica, kit платформу не кличе' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-unica') -WithHooks
+        Add-Owner2 -Repo $repo
+        Mock -ModuleName provision New-V8FileInfobase { }
+        $r = Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $r.Provisioned[0].CreatedBy | Should -Be 'unica'
+        Should -Invoke -ModuleName provision New-V8FileInfobase -Times 0
+    }
+    It 'серверна Existing: CreatedBy = existing' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-existing') -WithHooks
+        Add-Owner2 -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
+        $r = Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -ServerBase Existing
+        $r.Provisioned[0].CreatedBy | Should -Be 'existing'
+    }
+    It 'серверна New: CreatedBy = unica' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-srvnew') -WithHooks
+        Add-Owner2 -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;' -Dbms ([ordered]@{ kind = 'PostgreSQL'; server = 'pg1'; name = 'agent_db'; locale = 'uk' })
+        $r = Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -ServerBase New
+        $r.Provisioned[0].CreatedBy | Should -Be 'unica'
     }
 }
 
