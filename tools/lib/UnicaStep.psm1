@@ -49,6 +49,28 @@ function Write-KitNextSteps {
     }
 }
 
+function Assert-KitCriterionInput {
+    <#
+    .SYNOPSIS
+        Fail-closed запобіжник критерію вирівнювання: порожній шлях набору й RepoRoot, що не є коренем
+        репозиторію, — виняток, а не мовчазне «чисто/рівно».
+    .DESCRIPTION
+        Порожній нормалізований шлях (/, \, '') зробив би Test-KitSetTreeEqual порівнянням кореневих
+        дерев, а Test-KitSetClean — перевіркою всього репо. RepoRoot-підтека дає git status тільки
+        для підтеки, тож брудна робоча копія виглядала б чистою. Критерій — властивість безпеки:
+        хибне «чисто» призвело б до pull force, що стер би незакомічену роботу.
+    #>
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][AllowEmptyString()][string]$RepoPath)
+    $p = ($RepoPath -replace '\\', '/').Trim('/')
+    if ($p -eq '') { throw "Шлях набору порожній після нормалізації ('$RepoPath') — критерій вирівнювання не обчислюється для всього репозиторію." }
+    $top = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--show-toplevel')
+    if ($top.ExitCode -ne 0) { throw "git rev-parse --show-toplevel для '$RepoRoot' завершився з кодом $($top.ExitCode): $($top.Stderr)" }
+    $norm = { param($x) ([System.IO.Path]::GetFullPath($x.Trim()) -replace '\\', '/').TrimEnd('/') }
+    if (-not (& $norm $top.Stdout).Equals((& $norm $RepoRoot), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "RepoRoot '$RepoRoot' не є коренем репозиторію (корінь: '$($top.Stdout.Trim())') — критерій вирівнювання не обчислюється."
+    }
+}
+
 function Test-KitSetTreeEqual {
     <#
     .SYNOPSIS
@@ -61,8 +83,9 @@ function Test-KitSetTreeEqual {
         [Parameter(Mandatory)][string]$Left,
         [Parameter(Mandatory)][string]$Right
     )
-    $p = ($RepoPath -replace '\\', '/').TrimEnd('/')
-    $l = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "${Left}:$p")
+    Assert-KitCriterionInput -RepoRoot $RepoRoot -RepoPath $RepoPath
+    $p = ($RepoPath -replace '\\', '/').Trim('/')
+    $l =Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "${Left}:$p")
     $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "${Right}:$p")
     if ($l.ExitCode -ne 0 -or $r.ExitCode -ne 0) { return $false }
     $l.Stdout.Trim() -eq $r.Stdout.Trim()
@@ -80,6 +103,7 @@ function Test-KitSetClean {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
+    Assert-KitCriterionInput -RepoRoot $RepoRoot -RepoPath $RepoPath
     @(Get-KitDirtyRecords -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0
 }
 
@@ -149,7 +173,8 @@ function Get-KitAlignStep {
     }
     if ($Criterion -and $BaseKind -eq 'server') {
         $step.Op = 'push'
-        $step.Steps = if ($supply -in 'missing', 'stale') { @("kit canon -Workspace $ws -Source $set -Apply", $pushForce) } else { @($pushForce) }
+        # @(…) довкола if: вираз-if розгортає масив з одного елемента в рядок, і Steps[0] стало б першим символом.
+        $step.Steps = @(if ($supply -in 'missing', 'stale') { "kit canon -Workspace $ws -Source $set -Apply"; $pushForce } else { $pushForce })
         return $step
     }
     if ($supply -in 'none', 'current') {

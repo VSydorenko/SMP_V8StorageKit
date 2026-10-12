@@ -158,3 +158,174 @@ Describe 'Get-KitAlignStep — таблиця §10 П5' {
         @($out -split "`r?`n" | Where-Object { $_ -like '*ЗУПИНКА:*' }).Count | Should -Be 1
     }
 }
+
+Describe 'Критерій вирівнювання — фікс-раунд 1 (fail-closed, негативні випадки)' {
+    BeforeAll {
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        function script:G { param([string]$R) & git -C $R @args 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "git $args -> $LASTEXITCODE" } }
+        function script:New-Mini {
+            $r = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $r -Force | Out-Null
+            G $r init -q; G $r config user.email 't@example.invalid'; G $r config user.name T
+            G $r config commit.gpgsign false; G $r config core.autocrlf false
+            G $r symbolic-ref HEAD refs/heads/main
+            foreach ($d in 'Ws/cf/src', 'Ws/cf2/src', 'Other') {
+                New-Item -ItemType Directory -Path (Join-Path $r $d) -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $r "$d/a.txt") -Value "start $d" -Encoding UTF8
+            }
+            G $r add -A; G $r commit -q -m first
+            $r
+        }
+        function script:New-Set { param([string]$Type, [string]$Supply)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path (Join-Path $root 'Ext/ParentConfigurations') -Force | Out-Null
+            if ($Supply -ne 'none') {
+                [System.IO.File]::WriteAllBytes((Join-Path $root 'Ext/ParentConfigurations.bin'), [byte[]](1..32))
+                $sha = (Get-FileHash -LiteralPath (Join-Path $root 'Ext/ParentConfigurations.bin') -Algorithm SHA1).Hash.ToLowerInvariant()
+                if ($Supply -in 'current', 'stale') { Set-Content -LiteralPath (Join-Path $root 'Ext/ParentConfigurations/V.cf') -Value 'cf' -Encoding ascii }
+                if ($Supply -eq 'current') { [System.IO.File]::WriteAllText((Join-Path $root 'Ext/ParentConfigurations/.kit-bin-sha1'), $sha) }
+                if ($Supply -eq 'stale')   { [System.IO.File]::WriteAllText((Join-Path $root 'Ext/ParentConfigurations/.kit-bin-sha1'), 'deadbeef') }
+            }
+            [pscustomobject]@{ Key = 'base'; Type = $Type; FullPath = $root; RepoPath = 'Ws/cf/src'; Workspace = 'Ws' }
+        }
+    }
+
+    Context 'Test-KitSetTreeEqual' {
+        It 'вміст набору різний (додатковий коміт у дзеркалі) — не рівні' {
+            $r = New-Mini
+            G $r branch storage/X
+            G $r checkout -q storage/X
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'інакше' -Encoding UTF8
+            G $r commit -q -a -m zmina
+            G $r checkout -q main
+            Test-KitSetTreeEqual -RepoRoot $r -RepoPath 'Ws/cf/src' -Left 'main' -Right 'storage/X' | Should -BeFalse
+            Test-KitSetTreeEqual -RepoRoot $r -RepoPath 'Ws/cf2/src' -Left 'main' -Right 'storage/X' | Should -BeTrue
+        }
+        It 'шлях є лише в Left і лише в Right — не рівні в обидва боки' {
+            $r = New-Mini
+            G $r branch storage/X
+            New-Item -ItemType Directory -Path (Join-Path $r 'Ws/lonly') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $r 'Ws/lonly/f.txt') -Value 'x' -Encoding UTF8
+            G $r add -A; G $r commit -q -m lonly
+            Test-KitSetTreeEqual -RepoRoot $r -RepoPath 'Ws/lonly' -Left 'main' -Right 'storage/X' | Should -BeFalse
+            Test-KitSetTreeEqual -RepoRoot $r -RepoPath 'Ws/lonly' -Left 'storage/X' -Right 'main' | Should -BeFalse
+        }
+        It '<P>: порожній нормалізований шлях — виняток, не порівняння коренів' -ForEach @(@{ P = '/' }, @{ P = '\' }, @{ P = '' }) {
+            $r = New-Mini
+            { Test-KitSetTreeEqual -RepoRoot $r -RepoPath $P -Left 'main' -Right 'main' } | Should -Throw
+        }
+        It 'RepoRoot — підтека репозиторію: виняток' {
+            $r = New-Mini
+            { Test-KitSetTreeEqual -RepoRoot (Join-Path $r 'Ws') -RepoPath 'cf/src' -Left 'main' -Right 'main' } | Should -Throw '*не є коренем*'
+        }
+    }
+
+    Context 'Test-KitRefIsHead' {
+        It 'анотований тег на HEAD — true; анотований тег на іншому коміті — false' {
+            $r = New-Mini
+            G $r tag -a v1 -m x
+            Set-Content -LiteralPath (Join-Path $r 'Other/a.txt') -Value 'ще' -Encoding UTF8
+            G $r commit -q -a -m second
+            G $r tag -a v2 -m y
+            Test-KitRefIsHead -RepoRoot $r -Ref 'v2' | Should -BeTrue
+            Test-KitRefIsHead -RepoRoot $r -Ref 'v1' | Should -BeFalse
+        }
+        It 'неіснуючий Ref — false' {
+            Test-KitRefIsHead -RepoRoot (New-Mini) -Ref 'nema-takogo' | Should -BeFalse
+        }
+    }
+
+    Context 'Test-KitSetClean' {
+        It 'змінений відстежуваний — не чисто' {
+            $r = New-Mini
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'правка' -Encoding UTF8
+            Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeFalse
+        }
+        It 'застейджений — не чисто' {
+            $r = New-Mini
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'правка' -Encoding UTF8
+            G $r add Ws/cf/src/a.txt
+            Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeFalse
+        }
+        It 'видалений — не чисто' {
+            $r = New-Mini
+            Remove-Item -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Force
+            Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeFalse
+        }
+        It 'брудне поза RepoPath і в сусідньому наборі з префіксом (cf2) — не рахується' {
+            $r = New-Mini
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf2/src/a.txt') -Value 'сусід' -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $r 'Other/a.txt') -Value 'поза' -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf2/src/new.txt') -Value 'нове' -Encoding UTF8
+            Test-KitSetClean -RepoRoot $r -RepoPath 'Ws/cf/src' | Should -BeTrue
+        }
+        It '<P>: порожній нормалізований шлях — виняток, не перевірка всього репо' -ForEach @(@{ P = '/' }, @{ P = '\' }, @{ P = '' }) {
+            { Test-KitSetClean -RepoRoot (New-Mini) -RepoPath $P } | Should -Throw
+        }
+        It 'RepoRoot — підтека репозиторію з брудним деревом: виняток, не «чисто»' {
+            $r = New-Mini
+            Set-Content -LiteralPath (Join-Path $r 'Ws/cf/src/a.txt') -Value 'правка' -Encoding UTF8
+            { Test-KitSetClean -RepoRoot (Join-Path $r 'Ws') -RepoPath 'cf/src' } | Should -Throw '*не є коренем*'
+        }
+    }
+
+    Context 'Get-KitAlignStep — комірки таблиці, яких бракувало' {
+        It 'server/CONFIGURATION/stale, критерій є: Steps[0] = kit canon -Apply, Steps[1] = push force' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'stale') -Criterion $true -BaseKind 'server'
+            $s.Op | Should -Be 'push'
+            $s.Steps[0] | Should -BeExactly 'kit canon -Workspace Ws -Source base -Apply'
+            $s.Steps[1] | Should -BeLike 'unica.run {"op":"push"*'
+        }
+        It 'server/CONFIGURATION/current, критерій є: рівно один крок, без canon' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'current') -Criterion $true -BaseKind 'server'
+            @($s.Steps) | Should -HaveCount 1
+            $s.Steps[0] | Should -BeLike 'unica.run {"op":"push"*'
+        }
+        It 'EXTENSION з Ext/ParentConfigurations на диску: pull без -MarkerOnly, один крок' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'current') -Criterion $true -BaseKind 'file'
+            $s.Op | Should -Be 'pull'
+            $s.Supply | Should -Be 'none'
+            $s.MarkerOnly | Should -BeFalse
+            @($s.Steps) | Should -HaveCount 1
+        }
+        It 'file/CONFIGURATION/stale, критерій є: pull + canon -MarkerOnly' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'stale') -Criterion $true -BaseKind 'file'
+            $s.Op | Should -Be 'pull'
+            $s.MarkerOnly | Should -BeTrue
+            $s.Steps[1] | Should -BeExactly 'kit canon -Workspace Ws -Source base -MarkerOnly -Apply'
+        }
+        It 'file/CONFIGURATION/none, критерію немає: push з одним кроком' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'none') -Criterion $false -BaseKind 'file'
+            $s.Op | Should -Be 'push'
+            @($s.Steps) | Should -HaveCount 1
+        }
+    }
+
+    Context 'Друк кроків' {
+        It 'pull: кроки й рядок про перевірку після pull, шлях набору названо' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $true -BaseKind 'file'
+            $out = & { Write-KitAlignStep -Step $s } 6>&1 | Out-String
+            $out | Should -Match ([regex]::Escape('"op":"pull"'))
+            $out | Should -Match ([regex]::Escape('kit canon -Workspace Ws -Source base -MarkerOnly -Apply'))
+            $out | Should -Match 'Після pull: git status --porcelain -- Ws/cf/src'
+        }
+        It 'push: кроки є, рядка про перевірку після pull немає' {
+            $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -Criterion $false -BaseKind 'file'
+            $out = & { Write-KitAlignStep -Step $s } 6>&1 | Out-String
+            $out | Should -Match ([regex]::Escape('"op":"push"'))
+            $out | Should -Not -Match 'Після pull'
+        }
+        It 'Write-KitAlignStops: без blocked — порожньо; кілька blocked — по рядку на кожен' {
+            $p = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -Criterion $false -BaseKind 'file'
+            (& { Write-KitAlignStops -Steps @($p) } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
+            (& { Write-KitAlignStops -Steps @() } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
+            $b1 = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -Criterion $false -BaseKind 'file'
+            $b2 = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'stale') -Criterion $false -BaseKind 'server'
+            $out = & { Write-KitAlignStops -Steps @($b1, $p, $b2) } 6>&1 | Out-String
+            @($out -split "`r?`n" | Where-Object { $_ -like 'ЗУПИНКА:*' }) | Should -HaveCount 2
+        }
+    }
+}
