@@ -147,6 +147,28 @@ Describe 'kit verify — мок платформного шару: щаслив�
         Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
     }
 
+    It '#26: verify передає пароль бази агента в Invoke-KitStorageCheckout' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-pwd') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'V3rify-pw'
+        $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        $storageDir = Join-Path $TestDrive 'mock-pwd-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder, $User, $Password)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+            1
+        }
+        $null = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB' 6>$null
+        Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1 -Exactly -ParameterFilter { $Password -eq 'V3rify-pw' -and $User -eq 'agent' }
+    }
+
     It 'основна платформа не вивантажує версію (розпізнаваний виняток) — власний текст verify, без порад sync' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-dumpfail') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `

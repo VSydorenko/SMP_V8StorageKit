@@ -92,15 +92,21 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2 -Exactly -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' }
         }
         It 'Invoke-KitStorageCheckoutViaPlatform: пароль — у UpdateCfg і DumpCfg бази агента, НЕ в LoadCfg/дампі тимчасової alt-ib' {
-            Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            # Мок має створити .cf за шляхом із /DumpCfg, інакше функція кидає «не створив файл» ще до alt-ib
+            # і негативна асерція нічого б не стерегла.
+            Mock -ModuleName StoragePlatform Get-V8Path { 'C:\main\1cv8.exe' }
             Mock -ModuleName StoragePlatform New-V8FileInfobase { $Path }
+            Mock -ModuleName StoragePlatform Invoke-V8Designer {
+                if (($Arguments -join ' ') -match '/DumpCfg "([^"]+)"') { Set-Content -LiteralPath $Matches[1] -Value 'cf' }
+                [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
             $src = [pscustomobject]@{ Key = 'base'; Type = 'CONFIGURATION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
             $wd = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
-            try {
-                $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target (Join-Path $wd 'out') `
-                    -MustBeUnder $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
-            } catch { }   # виклик може впасти далі на відсутньому .cf від моку — перевіряємо лише аргументи викликів платформи
+            $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target (Join-Path $wd 'out') `
+                -MustBeUnder $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -eq '/F "C:\ib"' -and $Password -eq 'pw' } -Times 2 -Exactly
+            # Виклики alt-ib справді відбулися (LoadCfg і DumpConfigToFiles) — і без пароля.
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -ne '/F "C:\ib"' } -Times 2 -Exactly
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -ne '/F "C:\ib"' -and $Password } -Times 0 -Exactly
         }
     }

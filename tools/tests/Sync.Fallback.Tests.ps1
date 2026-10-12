@@ -119,4 +119,28 @@ Describe 'kit sync — запасний шлях для розширення б�
         $null = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) 6>$null
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0 -Scope It
     }
+
+    It '#26: запасний шлях — тимчасова ІБ не отримує пароль бази агента (звіт і checkout)' {
+        $repo = New-FallbackRepo 'fb-pwd'
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'Fb-agent-pw'
+        $script:Pw = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName sync Get-StorageVersions {
+            param($IbSwitch, $StoragePath, $ExtensionName, $StorageUser, $StoragePassword, $WorkDir, $User, $Password)
+            $script:Pw.Add("report:$IbSwitch|$Password")
+            if ($IbSwitch -ne $script:TmpIb) { throw $script:NotFound }
+            , @((New-KitFakeStorageVersion -Version 1))
+        }
+        Mock -ModuleName StoragePlatform Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User, $Password)
+            $script:Pw.Add("designer:$IbSwitch|$Password")
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        $null = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true 6>$null
+        # Контроль: до перемикання звіт по базі агента справді ніс її пароль.
+        @($script:Pw | Where-Object { $_ -like 'report:*build*Fb-agent-pw' }).Count | Should -Be 1
+        # Після перемикання — і звіт, і платформні виклики в тимчасовій ІБ без пароля.
+        $tmp = @($script:Pw | Where-Object { $_ -like "*:$($script:TmpIb)|*" })
+        $tmp.Count | Should -BeGreaterThan 1
+        @($tmp | Where-Object { $_ -notlike '*|' }).Count | Should -Be 0
+    }
 }
