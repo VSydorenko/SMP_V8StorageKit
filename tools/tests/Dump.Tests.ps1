@@ -364,3 +364,47 @@ Describe 'kit dump -Apply — vendor: решта видів невидимої �
         Join-Path $repo 'Alpha_SMB/ext2/src/Нова.xml' | Should -Exist
     }
 }
+
+Describe 'kit dump -Apply — набір за junction (П25): kit нічого не видаляє крізь посилання' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/dump.psm1").Path -Force
+        $script:Overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;'`n    user: 'Адмін'"
+        # П25: переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
+        # компоненті ВИЩЕ кореня набору (Alpha_SMB/<Parent>), e1 — сам корінь набору (Alpha_SMB/<Parent>/<Leaf>).
+        # Повертає ціль (поза репо) з контрольним файлом keep.txt.
+        function script:Set-SetBehindLink { param([string]$Repo, [string]$Mode, [string]$Parent, [string]$Leaf, [string]$Tag)
+            $linkPath = if ($Mode -eq 'e2') { Join-Path $Repo "Alpha_SMB/$Parent" } else { Join-Path $Repo "Alpha_SMB/$Parent/$Leaf" }
+            $target = Join-Path $TestDrive "outside-$Tag-$Mode"
+            Move-Item -LiteralPath $linkPath -Destination $target
+            Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+            New-Item -ItemType Junction -Path $linkPath -Target $target | Out-Null
+            $target }
+        function script:Get-LinkTargetState { param([string]$Target)
+            (Get-ChildItem -LiteralPath $Target -Recurse -File -Force | Sort-Object FullName | ForEach-Object { "$($_.FullName.Substring($Target.Length))=$((Get-Content -LiteralPath $_.FullName -Raw))" }) -join '|' }
+    }
+    BeforeEach {
+        Mock -ModuleName dump Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+    }
+    It '<Mode>: junction назовні — зупинка (link), платформа не запускалась, вміст цілі цілий' -ForEach @(
+        @{ Mode = 'e2' }
+        @{ Mode = 'e1' }
+    ) {
+        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
+            '      Alpha_SMB: { truth: dump, dump: { from: dev } }') -join "`n"
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "dp25-$Mode") -Workspaces $ws -ManifestText $manifest -OverlayText $script:Overlay -WithGitignore -WithHooks
+        $target = Set-SetBehindLink -Repo $repo -Mode $Mode -Parent 'cfe' -Leaf 'src' -Tag 'dump'
+        $before = Get-LinkTargetState $target
+        $expected = if ($Mode -eq 'e2') { 'Alpha_SMB/cfe' } else { 'Alpha_SMB/cfe/src' }
+        { Invoke-KitDump -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } |
+            Should -Throw "*невидима робота під набором*link*$expected*"
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
+        Get-LinkTargetState $target | Should -Be $before
+        $before | Should -BeLike '*keep.txt=чужа ціль*'
+    }
+}

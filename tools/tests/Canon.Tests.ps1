@@ -547,6 +547,18 @@ Describe 'kit canon -Apply — зупинка на невидимій робот
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
         function script:New-InvRepo { param([string]$Name)
             New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces $script:InvWs -WithSupply -WithGitignore -WithHooks -WithAgentBase }
+        # П25: переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
+        # компоненті ВИЩЕ кореня набору (Alpha_SMB/<Parent>), e1 — сам корінь набору (Alpha_SMB/<Parent>/<Leaf>).
+        # Повертає ціль (поза репо) з контрольним файлом keep.txt.
+        function script:Set-SetBehindLink { param([string]$Repo, [string]$Mode, [string]$Parent, [string]$Leaf, [string]$Tag)
+            $linkPath = if ($Mode -eq 'e2') { Join-Path $Repo "Alpha_SMB/$Parent" } else { Join-Path $Repo "Alpha_SMB/$Parent/$Leaf" }
+            $target = Join-Path $TestDrive "outside-$Tag-$Mode"
+            Move-Item -LiteralPath $linkPath -Destination $target
+            Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+            New-Item -ItemType Junction -Path $linkPath -Target $target | Out-Null
+            $target }
+        function script:Get-LinkTargetState { param([string]$Target)
+            (Get-ChildItem -LiteralPath $Target -Recurse -File -Force | Sort-Object FullName | ForEach-Object { "$($_.FullName.Substring($Target.Length))=$((Get-Content -LiteralPath $_.FullName -Raw))" }) -join '|' }
     }
     BeforeEach {
         # Платформа мокована; лічильник викликів доводить, що наступний крок не відбувся.
@@ -628,6 +640,20 @@ Describe 'kit canon -Apply — зупинка на невидимій робот
     It 'контроль: набір без посилань — записів link немає' {
         $repo = New-InvRepo 'inv-nolink'
         @(Get-KitInvisibleWork -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' | Where-Object Kind -eq 'link') | Should -HaveCount 0
+    }
+    It 'П25 <Mode>: набір за junction назовні — зупинка (link), платформа не запускалась, вміст цілі цілий' -ForEach @(
+        @{ Mode = 'e2' }
+        @{ Mode = 'e1' }
+    ) {
+        $repo = New-InvRepo "inv-p25-$Mode"
+        $target = Set-SetBehindLink -Repo $repo -Mode $Mode -Parent 'cfe' -Leaf 'src' -Tag 'canon'
+        $before = Get-LinkTargetState $target
+        $expected = if ($Mode -eq 'e2') { 'Alpha_SMB/cfe' } else { 'Alpha_SMB/cfe/src' }
+        { Invoke-KitCanon -Context (Invoke-KitPreflight -RepoRoot $repo) -Source 'Alpha_SMB' -Apply $true } |
+            Should -Throw "*невидима робота під набором*link*$expected*"
+        Should -Invoke -ModuleName canon Invoke-V8Designer -Times 0
+        Get-LinkTargetState $target | Should -Be $before
+        $before | Should -BeLike '*keep.txt=чужа ціль*'
     }
     It 'контроль: набір без .git усередині — зупинки немає' {
         $repo = New-InvRepo 'inv-nonested'

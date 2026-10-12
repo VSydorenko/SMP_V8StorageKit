@@ -123,3 +123,43 @@ Describe 'Запобіжник #34: жодного Remove-Item -Recurse у ко�
         @($hits) | Should -BeNullOrEmpty -Because 'рекурсивне видалення — лише Remove-KitDirectory (#34)'
     }
 }
+
+Describe 'Assert-SafeWorkPath — kit нічого не видаляє крізь посилання (П25)' {
+    BeforeAll {
+        # Ціль посилання лежить поза межею; у ній файл, вміст якого має пережити будь-який виклик.
+        function script:New-OutsideTarget { param([string]$Name)
+            $t = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path $t -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $t 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+            $t }
+    }
+    It 'junction на проміжному компоненті (під межею) — виняток, що називає компонент і не називає ціль' {
+        $b = Join-Path $TestDrive 'ps-boundary'
+        New-Item -ItemType Directory -Path $b -Force | Out-Null
+        $target = New-OutsideTarget 'ps-outside-target'
+        New-Item -ItemType Junction -Path (Join-Path $b 'mid') -Target $target | Out-Null
+        $err = $null
+        try { Assert-SafeWorkPath -Path (Join-Path $b 'mid/inner') -MustBeUnder $b -Description 'тест' } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike "*компонент шляху 'mid'*є посиланням*"
+        $err | Should -Not -BeLike '*ps-outside-target*'
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+    }
+    It 'сама ціль видалення — junction: виняток' {
+        $b = Join-Path $TestDrive 'ps-boundary2'
+        New-Item -ItemType Directory -Path $b -Force | Out-Null
+        $target = New-OutsideTarget 'ps-outside-target2'
+        New-Item -ItemType Junction -Path (Join-Path $b 'lnk') -Target $target | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $b 'lnk') -MustBeUnder $b -Description 'тест' } | Should -Throw '*є посиланням*'
+    }
+    It 'контроль: корінь репозиторію сам за junction (межа — його корінь) — видалення під ним дозволене' {
+        $real = Join-Path $TestDrive 'ps-real-repo'
+        New-Item -ItemType Directory -Path (Join-Path $real 'build/x') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $real 'build/x/f.txt') -Value 'x' -Encoding UTF8
+        $viaLink = Join-Path $TestDrive 'ps-repo-link'
+        New-Item -ItemType Junction -Path $viaLink -Target $real | Out-Null
+        { Assert-SafeWorkPath -Path (Join-Path $viaLink 'build/x') -MustBeUnder $viaLink -Description 'тест' } | Should -Not -Throw
+        Remove-KitDirectory -Path (Join-Path $viaLink 'build/x')
+        Join-Path $real 'build/x' | Should -Not -Exist
+        Join-Path $real 'build' | Should -Exist
+    }
+}

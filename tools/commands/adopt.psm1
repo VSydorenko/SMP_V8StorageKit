@@ -25,6 +25,10 @@ function Invoke-KitAdopt {
         дзеркала — коміт лишається РІВНО тим замінним вмістом, що й раніше, а другий предок рухає
         ancestry, на якій тримається verify. Зі злиття НЕ протікає жодного вмісту за визначенням.
 
+        Джерела перевіряються й приймаються ПО ОДНОМУ: кожне — окремий узгоджений коміт (злиття + заміна піддерева),
+        зупинка на другому джерелі лишає перше вже прийнятим, а повтор adopt для нього — no-op («вже збігається»).
+        Це свідомо не вирівняно з dump, який перевіряє всі джерела до першого видалення.
+
         Прев'ю (без -Apply) — не формальність, а єдиний момент, коли видно ціну заміни: що прийде
         зі сховища і ЩО ЗНИКНЕ З ГІЛКИ. Друге важливіше: це робота агента, яку людина не взяла.
         Вона не втрачається (лишається в історії гілки до заміни), але рішення без неї
@@ -145,6 +149,16 @@ function Invoke-KitAdopt {
                    "ОКРЕМИМ комітом до adopt (файли на диску лишаться): git rm -r --cached -- '$supplyRel' , потім " +
                    "git commit -m <повідомлення> (без шляхів; якщо в індексі застейджено ще щось — спершу розберіться з цим), і повторіть adopt.")
         }
+        # П24: невидима для git status робота під набором. Копія нижче її не покриває, а Clear-KitTreeExceptSupply
+        # стер би її безслідно. Зупинка — ДО першого руйнівного кроку (git reset, потім merge -s ours): після
+        # початого злиття зупинка лишила б репозиторій у стані MERGE_HEAD. Збій git — виняток, не «чисто».
+        $invisible = @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $src.RepoPath | ForEach-Object {
+            [pscustomobject]@{ Key = $src.Key; Kind = $_.Kind; Path = $_.Path }
+        })
+        if ($invisible.Count -gt 0) {
+            throw (Format-KitInvisibleWorkStop -Command 'adopt' -Records $invisible -Backup 'adopt-backup' -Untouched 'Теку набору не чіпано, злиття не почато.')
+        }
+
         # Guard критичного рев'ю C2 (Critical, спека §5 «Чотири умови», п.1) — ДО Remove-Item,
         # поки дерево ще ЦІЛЕ. Причина: нижче гілка задачі приймає версію сховища ЗЛИТТЯМ
         # (git merge -s ours), щоб зрушити ancestry, на якій тримається verify
@@ -170,16 +184,6 @@ function Invoke-KitAdopt {
                    "партійний коміт під час злиття git забороняє — плаский коміт забрав би ці шляхи непомітно. " +
                    "Закомітьте їх або приберіть (НЕ git checkout --/restore/stash/clean — спільна робоча копія, " +
                    "CLAUDE.md) і повторіть adopt. Шляхи:`n$paths")
-        }
-
-        # П24: невидима для git status робота під набором. Копія нижче її не покриває, а Clear-KitTreeExceptSupply
-        # стер би її безслідно. Зупинка — ДО першого руйнівного кроку (git reset, потім merge -s ours): після
-        # початого злиття зупинка лишила б репозиторій у стані MERGE_HEAD. Збій git — виняток, не «чисто».
-        $invisible = @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $src.RepoPath | ForEach-Object {
-            [pscustomobject]@{ Key = $src.Key; Kind = $_.Kind; Path = $_.Path }
-        })
-        if ($invisible.Count -gt 0) {
-            throw (Format-KitInvisibleWorkStop -Command 'adopt' -Records $invisible -Backup 'adopt-backup' -Untouched 'Теку набору не чіпано, злиття не почато.')
         }
 
         # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у

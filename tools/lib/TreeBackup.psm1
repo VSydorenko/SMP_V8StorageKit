@@ -205,6 +205,7 @@ function Backup-KitDirtyFiles {
             New-Item -ItemType Directory -Path (Split-Path -Parent $dstFile) -Force | Out-Null
             Move-Item -LiteralPath $rawFile -Destination $dstFile -Force
         }
+        Assert-SafeWorkPath -Path $rawRoot -MustBeUnder $MustBeUnder -Description 'проміжна тека копії застейджених версій'
         Remove-KitDirectory -Path $rawRoot
     }
 
@@ -231,7 +232,9 @@ function Get-KitInvisibleWork {
           Тег M (unmerged) — не прапорець, конфлікт видно в status як UU;
         - link — junction чи symlink (атрибут ReparsePoint, тека або файл) під шляхом набору: не підтримується;
           Path — саме посилання, всередину обхід не заходить. Хмарні файли-заглушки (OneDrive) теж мають ReparsePoint
-          і дають зупинку — безпечний бік, не лікується;
+          і дають зупинку — безпечний бік, не лікується. Посиланням є й будь-який компонент шляху від кореня
+          репозиторію (не включно) до кореня набору (включно) — П25; тоді Path — цей компонент, інших записів немає, git не
+          викликається. Корінь репозиторію і все вище — поза правилом;
         - gitlink — режим 160000 (ls-files -s): підмодуль під набором. --ignore-submodules не
           використовується: відмова проста й не залежить від налаштувань.
         Похідне — одне поняття з двома обсягами, обидва тут: службові файли платформи й kit ($script:KitDerivedIgnoredPattern,
@@ -255,6 +258,23 @@ function Get-KitInvisibleWork {
         @($r.Stdout -split "`0" | Where-Object { $_ -ne '' })
     }
     $records = [System.Collections.Generic.List[object]]::new()
+
+    # П25: компоненти шляху від кореня репозиторію (не включно) до кореня набору (включно), що є посиланням.
+    # Видалення теки набору пішло б крізь них (у ціль, можливо поза репозиторієм), а pull --force раннера теж.
+    # Корінь репозиторію і все вище — поза правилом. Знайшли — повертаємо саме це й далі не йдемо: ні git-викликів
+    # крізь посилання, ні входу всередину.
+    $walk = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+    $relParts = [System.Collections.Generic.List[string]]::new()
+    foreach ($seg in ($RepoPath -split '[\\/]+' | Where-Object { $_ })) {
+        $walk = Join-Path $walk $seg
+        $relParts.Add($seg)
+        $it = Get-Item -LiteralPath $walk -Force -ErrorAction SilentlyContinue
+        if ($null -eq $it) { break }
+        if ($it.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            $records.Add([pscustomobject]@{ Path = ($relParts -join '/'); Kind = 'link' })
+            return $records.ToArray()
+        }
+    }
 
     # -WholeTreeDerived: вид ignored не обчислюється зовсім (дорогий ls-files --others --ignored не запускається).
     if (-not $WholeTreeDerived) {

@@ -79,6 +79,21 @@ Describe 'Критерій вирівнювання на справжньому 
         finally { (Get-Item -LiteralPath $link -Force).Delete() }
         Test-KitSetClean -RepoRoot $script:Repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
     }
+    It 'П25 <Mode>: набір за junction назовні — дерево НЕ чисте (критерій дає push, не pull)' -ForEach @(
+        @{ Mode = 'e2' }
+        @{ Mode = 'e1' }
+    ) {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "crit-p25-$Mode") -WithHooks -WithGitignore
+        $linkPath = if ($Mode -eq 'e2') { Join-Path $repo 'Alpha_SMB/cfe' } else { Join-Path $repo 'Alpha_SMB/cfe/src' }
+        $target = Join-Path $TestDrive "crit-p25-outside-$Mode"
+        Move-Item -LiteralPath $linkPath -Destination $target
+        New-Item -ItemType Junction -Path $linkPath -Target $target | Out-Null
+        Test-KitSetClean -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeFalse
+        # контроль, що може впасти: без посилання той самий репозиторій чистий
+        (Get-Item -LiteralPath $linkPath -Force).Delete()
+        Move-Item -LiteralPath $target -Destination $linkPath
+        Test-KitSetClean -RepoRoot $repo -RepoPath 'Alpha_SMB/cfe/src' | Should -BeTrue
+    }
     It 'похідне гітігноване (.cf поставки, ConfigDumpInfo.xml) під шляхом набору — дерево чисте; власний гітігнорований файл — ні (П24)' {
         $d = Join-Path $script:Repo 'Alpha_SMB/cfe/src/Ext/ParentConfigurations'
         New-Item -ItemType Directory -Path $d -Force | Out-Null

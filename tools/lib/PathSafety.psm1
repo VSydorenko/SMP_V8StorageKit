@@ -22,7 +22,9 @@ function Assert-SafeWorkPath {
           закомодженому storage.json чи в аргументі скрипта підозріла незалежно від
           того, чи виводить він за межу після згортання);
         - нормалізований $Path не є ВЛАСНЕ підтекою $MustBeUnder (рівність з межею —
-          саме той порожній-sourcePath випадок — теж відхиляється, не тільки вихід за неї).
+          саме той порожній-sourcePath випадок — теж відхиляється, не тільки вихід за неї);
+        - будь-який наявний компонент від $MustBeUnder (не включно) до $Path (включно) є посиланням — reparse point
+          (П25: kit нічого не видаляє крізь посилання; ціль посилання у виняток не потрапляє).
     .EXAMPLE
         Assert-SafeWorkPath -Path $sourceDir -MustBeUnder $productPath -Description "sourceDir продукту $Product"
     #>
@@ -48,6 +50,22 @@ function Assert-SafeWorkPath {
 
     if (($full -eq $boundary) -or (-not $full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase))) {
         throw "$Description ('$Path') не є підтекою '$MustBeUnder' — відмовляюсь видаляти чи створювати за таким шляхом."
+    }
+
+    # П25: kit нічого не видаляє крізь посилання. GetFullPath посилань не розгортає, тож перевірка префікса вище
+    # junction на проміжному компоненті не бачить — а Directory.Delete / рекурсивне стирання пішли б у ціль посилання,
+    # можливо поза репозиторієм. Йдемо від межі (не включно) до $Path (включно); перший ненаявний компонент зупиняє
+    # обхід (глибше нічого немає). Межа і все вище — поза правилом: репозиторій за посиланням видаляє свій вміст.
+    # У виняток іде компонент відносно межі, а не ціль посилання.
+    $current = $boundary
+    foreach ($seg in ($full.Substring($prefix.Length) -split '[\\/]+' | Where-Object { $_ })) {
+        $current = Join-Path $current $seg
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item) { break }
+        if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            $rel = $current.Substring($prefix.Length)
+            throw "${Description}: компонент шляху '$rel' під '$MustBeUnder' є посиланням (junction чи symlink) — kit нічого не видаляє крізь посилання; приберіть посилання з шляху."
+        }
     }
 }
 

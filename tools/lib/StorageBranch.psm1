@@ -467,7 +467,7 @@ function Remove-KitStorageWorktree {
     git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$Path' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
     if (Test-Path -LiteralPath $Path) {
-        try { Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
+        try { Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'worktree гілки дзеркала'; Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
         if (Test-Path -LiteralPath $Path) {
             Write-Warning "Не вдалося прибрати worktree '$Path' — приберіть вручну (git worktree remove --force) перед наступним sync."
         }

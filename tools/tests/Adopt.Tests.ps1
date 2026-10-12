@@ -66,6 +66,18 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             (git -C $Repo diff --cached | Out-String) | Should -Be $cachedBefore
             Join-Path $Repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
         }
+        # П25: переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
+        # компоненті ВИЩЕ кореня набору (Alpha_SMB/<Parent>), e1 — сам корінь набору (Alpha_SMB/<Parent>/<Leaf>).
+        # Повертає ціль (поза репо) з контрольним файлом keep.txt.
+        function script:Set-SetBehindLink { param([string]$Repo, [string]$Mode, [string]$Parent, [string]$Leaf, [string]$Tag)
+            $linkPath = if ($Mode -eq 'e2') { Join-Path $Repo "Alpha_SMB/$Parent" } else { Join-Path $Repo "Alpha_SMB/$Parent/$Leaf" }
+            $target = Join-Path $TestDrive "outside-$Tag-$Mode"
+            Move-Item -LiteralPath $linkPath -Destination $target
+            Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+            New-Item -ItemType Junction -Path $linkPath -Target $target | Out-Null
+            $target }
+        function script:Get-LinkTargetState { param([string]$Target)
+            (Get-ChildItem -LiteralPath $Target -Recurse -File -Force | Sort-Object FullName | ForEach-Object { "$($_.FullName.Substring($Target.Length))=$((Get-Content -LiteralPath $_.FullName -Raw))" }) -join '|' }
     }
 
     It 'без -Apply нічого не змінює й називає обидва боки' {
@@ -325,6 +337,35 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         New-Item -ItemType Junction -Path (Join-Path $repo 'Alpha_SMB/cfe/src/lnk') -Target $target | Out-Null
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*link*Alpha_SMB/cfe/src/lnk*прибрати посилання з набору*'
         Join-Path $target 'keep.txt' | Should -Exist
+    }
+    It 'П25 <Mode>: набір за junction назовні — зупинка (link) до злиття, MERGE_HEAD немає, HEAD на місці, вміст цілі цілий' -ForEach @(
+        @{ Mode = 'e2' }
+        @{ Mode = 'e1' }
+    ) {
+        $repo = New-AdoptRepo -Name "adopt-p25-$Mode"
+        $target = Set-SetBehindLink -Repo $repo -Mode $Mode -Parent 'cfe' -Leaf 'src' -Tag 'adopt'
+        $before = Get-LinkTargetState $target
+        $head = (git -C $repo rev-parse HEAD).Trim()
+        $expected = if ($Mode -eq 'e2') { 'Alpha_SMB/cfe' } else { 'Alpha_SMB/cfe/src' }
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Not -Be 0 -Because $r.Output
+        $r.Output   | Should -BeLike "*невидима робота під набором*link*$expected*"
+        (git -C $repo rev-parse -q --verify MERGE_HEAD) | Should -BeNullOrEmpty
+        (git -C $repo rev-parse HEAD).Trim() | Should -Be $head
+        Get-LinkTargetState $target | Should -Be $before
+        $before | Should -BeLike '*keep.txt=чужа ціль*'
+    }
+    It 'П25: junction у робочій теці build/adopt — виняток guard Assert-SafeWorkPath, ціль не стерта' {
+        $repo = New-AdoptRepo -Name 'adopt-p25-build'
+        $target = Join-Path $TestDrive 'adopt-p25-build-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+        New-Item -ItemType Directory -Path (Join-Path $repo 'build/adopt') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'build/adopt/Alpha_SMB') -Target $target | Out-Null
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Not -Be 0 -Because $r.Output
+        $r.Output   | Should -BeLike '*є посиланням*kit нічого не видаляє крізь посилання*'
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
     }
     It 'П24 контроль: похідне (ConfigDumpInfo.xml) під набором — зупинки немає, заміна проходить' {
         $repo = New-AdoptRepo -Name 'adopt-inv-derived'
