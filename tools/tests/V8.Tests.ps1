@@ -26,8 +26,12 @@ Describe 'ConvertTo-V8IbSwitch' {
         { ConvertTo-V8IbSwitch -Connection '' } | Should -Throw
     }
 
-    It 'кидає виняток на формі в лапках (Уніка на ній не підключається до серверної бази, issue #9)' {
-        { ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } | Should -Throw '*лапк*'
+    It 'парні лапки знімаються: перемикач той самий, що без лапок' {
+        ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' | Should -Be '/S "SRV01\DEMO_BASE"'
+    }
+
+    It 'кидає виняток на непарній лапці' {
+        { ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01;Ref=DEMO_BASE;' } | Should -Throw '*непарні лапки*'
     }
 }
 
@@ -76,16 +80,29 @@ Describe 'ConvertFrom-V8Connection — єдиний розбір рядка пі
         { ConvertFrom-V8Connection -Connection '' } | Should -Throw
     }
 
-    It 'кидає на значенні в лапках і показує виправлену форму без лапок' {
-        $err = $null
-        try { ConvertFrom-V8Connection -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } catch { $err = $_.Exception.Message }
-        $err | Should -Not -BeNullOrEmpty
-        $err | Should -BeLike '*лапк*'
-        $err | Should -BeLike '*Srvr=SRV01;Ref=DEMO_BASE;*'
+    It 'парні лапки навколо значень знімаються: <C>' -ForEach @(
+        @{ C = 'Srvr="VSDEV";Ref="SMP_UNF";'; Kind = 'server'; S = 'VSDEV'; R = 'SMP_UNF'; F = $null }
+        @{ C = 'File="D:\Bases\X"';          Kind = 'file';   S = $null;   R = $null;     F = 'D:\Bases\X' }
+        @{ C = 'Srvr=VSDEV;Ref="SMP_UNF"';    Kind = 'server'; S = 'VSDEV'; R = 'SMP_UNF'; F = $null }
+    ) {
+        $p = ConvertFrom-V8Connection -Connection $C
+        $p.Kind | Should -Be $Kind; $p.Server | Should -Be $S; $p.Ref | Should -Be $R; $p.File | Should -Be $F
     }
 
-    It 'кидає на лапках і в File= теж' {
-        { ConvertFrom-V8Connection -Connection 'File="C:\bases\demo"' } | Should -Throw '*лапк*'
+    It 'непарна лапка — виняток з ключем: <C>' -ForEach @(
+        @{ C = 'Srvr="VSDEV;Ref=SMP_UNF' }
+        @{ C = 'Srvr=VS"DEV;Ref=SMP_UNF' }
+        @{ C = 'File="D:\a;b"' }
+    ) {
+        { ConvertFrom-V8Connection -Connection $C } | Should -Throw '*непарні лапки*'
+    }
+
+    It 'лапки в імені ключа — виняток' {
+        { ConvertFrom-V8Connection -Connection '"Srvr"=VSDEV;Ref=X' } | Should -Throw '*імені ключа*'
+    }
+
+    It 'порожнє значення в лапках (Ref="") — порожнє значення, не база з порожнім Ref' {
+        { ConvertFrom-V8Connection -Connection 'Srvr=VSDEV;Ref="";' } | Should -Throw '*порожнє значення*'
     }
 
     It 'кидає на Srvr= без Ref=' {

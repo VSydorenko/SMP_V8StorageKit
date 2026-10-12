@@ -128,11 +128,17 @@ Describe 'AgentBase.psm1 — Test-KitSameInfobase (F1: ідентичність 
         $err | Should -BeLike '*D:\x*'
     }
 
-    It 'значення в лапках — не еквівалент, а fail-closed (issue #9): лапки лише з ОДНОГО боку теж кидають' {
-        # До фіксу лапки й відсутність лапок читались як той самий запис (Get-KitInfobaseCanonicalForm
-        # знімала їх регекспом) — 'Srvr="VSDEV";Ref="SMP_UNF";' і 'Srvr=VSDEV;Ref=SMP_UNF;' збігались
-        # би. Тепер це подвійний режим, якого свідомо позбулись: лапки — сама по собі помилка розбору,
-        # незалежно від того, що на іншому боці.
-        { Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Throw '*лапк*'
+    It 'Srvr у лапках і без лапок — та сама база (§4.3 п. 4)' {
+        # Властивість безпеки: якби лапки робили запис «іншою базою», аудит «база агента ≠ база
+        # людини» пропустив би колізію (мовчазний дозвіл до provision -Apply -Force).
+        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref=smp_unf;Srvr=vsdev' | Should -BeTrue
+    }
+
+    It 'парні лапки не роблять різні бази однаковими' {
+        Test-KitSameInfobase -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Srvr=VSDEV;Ref=Other;' | Should -BeFalse
+    }
+
+    It 'непарна лапка — fail-closed: кидає, навіть коли на іншому боці коректний запис' {
+        { Test-KitSameInfobase -Left 'Srvr="VSDEV;Ref=SMP_UNF;' -Right 'Srvr=VSDEV;Ref=SMP_UNF;' } | Should -Throw '*непарні лапки*'
     }
 }

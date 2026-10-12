@@ -68,13 +68,22 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*нерозбірне*'
     }
 
-    It 'issue #9: infobase.connection = Srvr="SRV";Ref="BASE"; (у лапках) — знахідка error з текстом про лапки, не падіння check' {
+    It '§4.3 п. 4: infobase.connection = Srvr="SRV";Ref="BASE"; (парні лапки) — знахідки про нерозбірне підключення немає' {
         $repo = New-GoodRepo 'quotes-agent'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
             -Value "infobase:`n  connection: 'Srvr=""SRV"";Ref=""BASE"";'"
         $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -Not -BeLike '*лапк*'
+    }
+
+    It '§4.3 п. 4: infobase.connection = Srvr="SRV;Ref=BASE; (непарна лапка) — знахідка error з текстом про непарні лапки, не падіння check' {
+        $repo = New-GoodRepo 'quotes-unpaired-agent'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
+            -Value "infobase:`n  connection: 'Srvr=""SRV;Ref=BASE;'"
+        $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*лапк*'
+        $r.Output | Should -BeLike '*непарні лапки*'
     }
 
     It 'issue #9: local-audit файлової бази агента без truth: storage (лише через v8project.local.yaml) — File= без лапок теж ловить збіг' {
@@ -105,15 +114,14 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
-    It 'задача 3 (issue #9): дев-база з накладки в лапках без бази агента для звірки — warn overlay-connection, код не error-овий' {
+    It 'задача 3 (issue #9): дев-база з накладки з непарною лапкою без бази агента для звірки — warn overlay-connection, код не error-овий' {
         # До задачі 3 ConvertFrom-V8Connection на дев-базі з infobases: викликала лише
         # звірка з базою агента (Resolve-KitAgentBase, труба truth: storage) або local-audit
         # (v8project.local.yaml). Тут немає ні того, ні того — жодне джерело не truth:
         # storage (Resolve-KitAgentBase не викликається взагалі, той самий прийом ізоляції,
         # що й у тесті вище), і v8project.local.yaml у воркспейсі немає (Infobase у $ws не
-        # задано) — жоден інший аудит на цій дев-базі спрацювати не може. Стара форма в
-        # лапках (яку kit сам роздавав у templates/v8storagekit.local.yaml.example до цієї
-        # гілки) до фіксу проходила б check кодом 0 без жодного рядка.
+        # задано) — жоден інший аудит на цій дев-базі спрацювати не може. Нерозбірне підключення
+        # (непарна лапка тощо) до задачі 3 проходило б check кодом 0 без жодного рядка.
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
@@ -124,11 +132,29 @@ Describe 'kit check — інваріанти репозиторію-спожив
             '      Alpha_SMB: { truth: git }'
         ) -join "`n"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-conn-quoted') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
-        $overlay = @('infobases:', '  dev: { connection: ''Srvr="SRV";Ref="BASE";'' }') -join "`n"
+        $overlay = @('infobases:', '  dev: { connection: ''Srvr="SRV;Ref=BASE;'' }') -join "`n"
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Not -Be 1
-        $r.Output | Should -BeLike '*[!]*Дев-база ''dev''*лапках*'
+        $r.Output | Should -BeLike '*[!]*Дев-база ''dev''*непарні лапки*'
+    }
+
+    It '§4.3 п. 4: дев-база з накладки в парних лапках — знахідки overlay-connection немає' {
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
+            @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
+        $manifest = @(
+            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            '  - path: Alpha_SMB', '    sources:',
+            '      base: { truth: vendor, dump: { from: dev } }',
+            '      Alpha_SMB: { truth: git }'
+        ) -join "`n"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-conn-paired') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
+        $overlay = @('infobases:', '  dev: { connection: ''Srvr="SRV";Ref="BASE";'' }') -join "`n"
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0
+        $r.Output | Should -Not -BeLike '*Дев-база*'
     }
 
     It 'задача 3 (issue #9): та сама дев-база без лапок — знахідки overlay-connection немає' {
@@ -149,7 +175,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*Дев-база*'
     }
 
-    It 'задача 3 (issue #9): дев-база в лапках без бази агента для звірки — kit session-check не виходить кодом 1' {
+    It 'задача 3 (issue #9): дев-база з непарною лапкою без бази агента для звірки — kit session-check не виходить кодом 1' {
         # session-check спершу кличе Invoke-KitCheck -Quiet (session-check.psm1): лише
         # error-знахідки піднімають його до коду 1 ("Сигнали не обчислювались"). Ця дев-база
         # дає щойно додану WARN 'overlay-connection' — код 1 тут означав би, що новий
@@ -164,11 +190,11 @@ Describe 'kit check — інваріанти репозиторію-спожив
             '      Alpha_SMB: { truth: git }'
         ) -join "`n"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-conn-quoted-session') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
-        $overlay = @('infobases:', '  dev: { connection: ''Srvr="SRV";Ref="BASE";'' }') -join "`n"
+        $overlay = @('infobases:', '  dev: { connection: ''Srvr="SRV;Ref=BASE;'' }') -join "`n"
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
         $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo
         $r.ExitCode | Should -Not -Be 1
-        $r.Output | Should -BeLike '*[!]*Дев-база ''dev''*лапках*'
+        $r.Output | Should -BeLike '*[!]*Дев-база ''dev''*непарні лапки*'
     }
 
     It 'devInfobase: (стара конвенція) не мовчить — warn із порадою про infobases:' {
