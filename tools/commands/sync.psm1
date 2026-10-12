@@ -364,14 +364,14 @@ function Invoke-KitSync {
         Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $fallback = $false
+        $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $ibPassword = $agent.Password; $fallback = $false
         Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
         Write-Host 'Читаю історію сховища...'
 
         try {
             $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
                 -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
         } catch {
             # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
             # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
@@ -380,13 +380,13 @@ function Invoke-KitSync {
             # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
             if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
             $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir
-            $ibUser = ''
+            $ibUser = ''; $ibPassword = ''
             $fallback = $true
             Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
                 'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й operation=build ' +
                 'наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
             $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
-                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser
+                -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
         }
         $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
         Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
@@ -543,12 +543,12 @@ function Invoke-KitSync {
                         # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
                         $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
                             -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir `
-                            -AltV8Path $altV8Path -User $ibUser
+                            -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
                         $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
                         $dumpedVia = $DumpPlatform
                     } else {
                         $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser
+                            -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -User $ibUser -Password $ibPassword
                     }
                 } catch {
                     if (Test-KitDumpFailure -ErrorRecord $_) {

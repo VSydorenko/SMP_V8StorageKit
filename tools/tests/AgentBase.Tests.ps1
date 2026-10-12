@@ -37,10 +37,44 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*людини*devUNF*'
     }
 
-    It 'воркспейс без infobase: — $null' {
+    It 'воркспейс без infobases.origin — $null' {
         $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
         $ctx = Invoke-KitPreflight -RepoRoot (New-KitFakeRepo -Root (Join-Path $TestDrive 'none') -Workspaces $ws)
         Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] | Should -BeNullOrEmpty
+    }
+
+    It 'пароль і dbms з infobases.origin доходять до результату' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'with-pwd')
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'S3cr3t'
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $ab = Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0]
+        $ab.User | Should -Be 'agent'
+        $ab.Password | Should -Be 'S3cr3t'
+        $ab.PSObject.Properties.Name | Should -Contain 'Dbms'
+    }
+
+    It 'П16: воркспейс з EXTENSION без infobases.origin — потребує бази, Resolve-KitAgentBase дає $null' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -Workspaces ([ordered]@{
+            'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } })
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $ws = $ctx.Workspaces[0]
+        Test-KitWorkspaceNeedsAgentBase -Workspace $ws | Should -BeTrue
+        Resolve-KitAgentBase -Context $ctx -Workspace $ws | Should -BeNullOrEmpty
+        New-KitAgentBaseMissingMessage -WorkspacePath 'Alpha_SMB' | Should -BeLike '*infobases.origin*v8storagekit:provision*'
+    }
+
+    It 'П16: воркспейс лише з EXTERNAL_DATA_PROCESSORS — бази не потребує' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'epf') -Workspaces ([ordered]@{
+            'Epf' = @{ Sets = @(@{ Name = 'external-processors'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } })
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        Test-KitWorkspaceNeedsAgentBase -Workspace $ctx.Workspaces[0] | Should -BeFalse
+    }
+
+    It 'збіг з дев-базою людини: повідомлення називає infobases.origin, не стару форму' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human-msg') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=SMP_UNF;'
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*приберіть infobases.origin*'
     }
 
     It 'F1-регресія: кінцевий роздільник у File= — раніше текстовий $norm бачив розбіжність у тій самій теці, тепер зупинка' {

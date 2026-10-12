@@ -251,3 +251,14 @@ Describe 'Get-StorageVersions — відмова автентифікації с
         $err.Exception.Message | Should -Not -Match 'secret'
     }
 }
+
+Describe 'Get-StorageVersions — пароль бази агента (#26)' {
+    It 'Get-StorageVersions передає пароль бази агента в Invoke-V8Designer, а пароль сховища — лише аргументом /ConfigurationRepositoryP' {
+        Mock -ModuleName StorageReport Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        $wd = Join-Path $TestDrive 'rep'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
+        try { $null = Get-StorageVersions -IbSwitch '/F "C:\ib"' -StoragePath 'C:\s' -StorageUser 'su' -StoragePassword 'sp' -WorkDir $wd -User 'agent' -Password 'pw' } catch { }
+        Should -Invoke -ModuleName StorageReport Invoke-V8Designer -Times 1 -ParameterFilter {
+            $Password -eq 'pw' -and $User -eq 'agent' -and ($Arguments -join ' ') -like '*/ConfigurationRepositoryP "sp"*'
+        }
+    }
+}

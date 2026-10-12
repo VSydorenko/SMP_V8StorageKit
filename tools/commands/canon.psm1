@@ -67,7 +67,7 @@ function Invoke-KitCanon {
         if ($targets.Count -eq 0) { continue }
 
         $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
-        if ($null -eq $ab) { Write-Host "  у v8project.yaml немає infobase: — бази агента немає, канонізувати нічим."; continue }
+        if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
         Write-Host "  База агента: $($ab.IbSwitch)  ($($ab.Origin))"
         foreach ($t in $targets) { Write-Host "  - $($t.Key) → $($t.RepoPath)" }
 
@@ -76,7 +76,7 @@ function Invoke-KitCanon {
             continue
         }
         if ($ab.Kind -eq 'file' -and -not $ab.Exists) {
-            throw "Бази агента ще немає: $($ab.Path). Спершу kit provision -Workspace $($ws.Path) -Apply, потім operation=build Уніки, тоді canon."
+            throw "Бази агента ще немає: $($ab.Path). Спершу v8storagekit:provision, тоді canon."
         }
 
         foreach ($t in $targets) {
@@ -97,7 +97,7 @@ function Invoke-KitCanon {
             New-Item -ItemType Directory -Path $t.FullPath -Force | Out-Null
 
             $ext = if ($t.Type -eq 'EXTENSION') { " -Extension $($t.Key)" } else { '' }
-            $r = Invoke-V8Designer -IbSwitch $ab.IbSwitch -User $ab.User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $t.FullPath, $ext))
+            $r = Invoke-V8Designer -IbSwitch $ab.IbSwitch -User $ab.User -Password $ab.Password -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $t.FullPath, $ext))
             if ($r.ExitCode -ne 0) {
                 Assert-V8InfobaseNotBusy -Output $r.Output -Infobase "агента ($($ws.Path))"
                 throw "Канонізація $($t.Key) не вдалася: $($r.Output)"

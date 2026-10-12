@@ -59,7 +59,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         git -C $repo branch 'storage/Alpha_SMB' 2>&1 | Out-Null
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*kit provision*'
+        $r.Output   | Should -BeLike '*v8storagekit:provision*'
         Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
     }
 

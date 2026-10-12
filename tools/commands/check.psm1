@@ -98,10 +98,11 @@ function Invoke-KitCheck {
                 & $add 'error' 'agent-base-required' "$($ws.Path): $($_.Exception.Message)"
                 continue
             }
-            if ($null -eq $ab -or ($ab.Kind -eq 'file' -and -not $ab.Exists)) {
-                & $add 'warn' 'agent-base-required' (
-                    "Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
-                    "воркспейсу '$($ws.Path)' немає: kit provision -Workspace $($ws.Path) -Apply, потім operation=build Уніки.")
+            if ($null -eq $ab) {
+                & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації. " + (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path))
+            } elseif ($ab.Kind -eq 'file' -and -not $ab.Exists) {
+                & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
+                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:provision.")
             }
         }
 

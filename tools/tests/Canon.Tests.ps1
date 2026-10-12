@@ -407,3 +407,28 @@ Describe 'kit canon — round-trip дає нуль розбіжностей на
         $out2 | Should -BeLike '*змінено файлів: 0*'
     }
 }
+
+Describe 'kit canon — пароль бази агента доходить до платформи й не потрапляє у вивід (#26, §10 П12)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
+        $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+        foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
+        Import-Module (Resolve-Path "$PSScriptRoot/../commands/canon.psm1").Path -Force
+    }
+    It 'canon -Apply: /P "***" у Verbose, справжній пароль — лише в аргументах Start-Process' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'pwd') -WithHooks -WithAgentBase
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'S3cr3t-Пароль'
+        # Без моку Get-V8Path тест залежав би від установленої платформи 8.3.27.x (kit-dev (б)).
+        Mock -ModuleName V8 Get-V8Path { 'C:\fake\1cv8.exe' }
+        Mock -ModuleName V8 Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $old = $global:VerbosePreference; $global:VerbosePreference = 'Continue'
+        try { $out = & { Invoke-KitCanon -Context $ctx -Source 'Alpha_SMB' -Apply $true } *>&1 | Out-String }
+        finally { $global:VerbosePreference = $old }
+        $out | Should -Not -BeLike '*S3cr3t*'
+        $out | Should -BeLike '*/P "[*][*][*]"*'
+        Should -Invoke -ModuleName V8 Start-Process -ParameterFilter { $ArgumentList -like '*/N "agent"*/P "S3cr3t-Пароль"*' }
+    }
+}

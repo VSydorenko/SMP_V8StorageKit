@@ -127,11 +127,12 @@ function Resolve-KitAgentBase {
         База агента воркспейсу — так, як її бачить Unica (§2.5) — плюс аудит: це не база людини.
     .DESCRIPTION
         Принцип 3: kit ніколи не пише в базу людини. Підключення бази агента (з
-        v8project.local.yaml або v8project.yaml — Resolve-V8AgentInfobase) звіряється проти
+        `infobases.origin` у v8project.local.yaml — Resolve-V8AgentInfobase) звіряється проти
         КОЖНОЇ дев-бази з infobases: накладки kit через Test-KitSameInfobase — порівняння за
         ідентичністю бази, не за текстом підключення (F1). Збіг або нерозбірне підключення
-        (з будь-якого боку) — throw до будь-якої дії. $null — у воркспейсі бази немає
-        (зовнішні обробки).
+        (з будь-якого боку) — throw до будь-якої дії. $null — «бази не налаштовано на цій
+        машині»: що це означає, вирішує викликач через Test-KitWorkspaceNeedsAgentBase
+        (воркспейс зовнішніх обробок бази не потребує, воркспейс з конфігурацією чи розширенням — потребує).
 
         Файлову базу агента звіряють уже РОЗВ'ЯЗАНОЮ до абсолютного шляху
         (Resolve-KitAgentInfobasePath, чиста функція — виклик до звірки нічого не змінює,
@@ -154,16 +155,43 @@ function Resolve-KitAgentBase {
         foreach ($human in $Context.Overlay.Infobases.Values) {
             if (Test-KitSameInfobase -Left $agentConn -Right $human.Connection) {
                 throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit. " +
-                       'Kit ніколи не пише в базу людини (принцип 3): приберіть infobase: з v8project.local.yaml або дайте агентові окрему базу.')
+                       'Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.')
             }
         }
     }
 
     [pscustomobject]@{
-        Workspace = $Workspace.Path; Connection = $ib.Connection; User = $ib.User; Origin = $ib.Origin
+        Workspace = $Workspace.Path; Connection = $ib.Connection; User = $ib.User; Password = $ib.Password; Dbms = $ib.Dbms
+        Origin = $ib.Origin
         Kind = $resolved.Kind; Path = $resolved.Path; IbSwitch = $resolved.IbSwitch
         Exists = $(if ($resolved.Kind -eq 'file') { Test-Path -LiteralPath (Join-Path $resolved.Path '1Cv8.1CD') -PathType Leaf } else { $true })
     }
 }
 
-Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase
+function Test-KitWorkspaceNeedsAgentBase {
+    <#
+    .SYNOPSIS
+        Чи потребує воркспейс бази агента — за ТИПАМИ наборів, не за наявністю бази (спека §10 П16).
+    .DESCRIPTION
+        До 1.5.0 «у v8project.yaml немає infobase:» означало «зовнішні обробки». Тепер база живе
+        лише в гітігнорованому v8project.local.yaml, і на свіжому клоні її немає ніде — без цієї
+        функції свіжий клон воркспейсу з розширенням виглядав би як воркспейс обробок, і kit
+        мовчав би там, де мусить зупинити з рецептом.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Workspace)
+    @($Workspace.Project.SourceSets | Where-Object { $_.Type -in 'CONFIGURATION', 'EXTENSION' }).Count -gt 0
+}
+
+function New-KitAgentBaseMissingMessage {
+    <#
+    .SYNOPSIS
+        Єдиний текст «бази агента воркспейсу не налаштовано» — для зупинок і знахідок check.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorkspacePath)
+    ("База агента воркспейсу '$WorkspacePath' не налаштована: у $WorkspacePath/v8project.local.yaml немає infobases.origin " +
+     '(файл гітігнорований — на свіжому клоні його ще немає). Налаштувати й розгорнути базу — скіл v8storagekit:provision, тоді повторіть команду.')
+}
+
+Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitSameInfobase, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage

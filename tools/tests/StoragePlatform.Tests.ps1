@@ -45,32 +45,34 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $script:Src = [pscustomobject]@{ Key = 'Alpha_SMB'; Type = 'EXTENSION'; Workspace = 'Alpha_SMB' }
         }
 
-        It 'бази немає в v8project.yaml — зупинка з рецептом provision і build' {
+        It 'бази немає (infobases.origin відсутній) — зупинка з рецептом v8storagekit:provision' {
             Mock -ModuleName StoragePlatform Resolve-KitAgentBase { $null }
             { Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src } |
-                Should -Throw '*kit provision*operation=build*'
+                Should -Throw '*v8storagekit:provision*'
         }
 
         It 'база оголошена, але файлу немає — та сама зупинка, з іменем воркспейсу' {
             Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
-                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = ''; Kind = 'file'; Exists = $false }
+                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = ''; Password = ''; Kind = 'file'; Path = 'R:\repo\Alpha_SMB\build\ib'; Exists = $false }
             }
             { Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src } | Should -Throw '*Alpha_SMB*'
         }
 
         It 'база на місці — повертає підключення й користувача' {
             Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
-                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = 'agent'; Kind = 'file'; Exists = $true }
+                [pscustomobject]@{ IbSwitch = '/F "R:\repo\Alpha_SMB\build\ib"'; User = 'agent'; Password = 'pw'; Kind = 'file'; Exists = $true }
             }
             $r = Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src
             $r.IbSwitch  | Should -Be '/F "R:\repo\Alpha_SMB\build\ib"'
             $r.User      | Should -Be 'agent'
+            $r.Password  | Should -Be 'pw'
+            $r.Kind      | Should -Be 'file'
             $r.Workspace | Should -Be 'Alpha_SMB'
         }
 
         It 'серверна база — Exists не перевіряється, підключення віддається як є' {
             Mock -ModuleName StoragePlatform Resolve-KitAgentBase {
-                [pscustomobject]@{ IbSwitch = '/S "VSDEV\Alpha"'; User = 'agent'; Kind = 'server'; Exists = $true }
+                [pscustomobject]@{ IbSwitch = '/S "VSDEV\Alpha"'; User = 'agent'; Password = ''; Kind = 'server'; Exists = $true }
             }
             (Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src).IbSwitch | Should -Be '/S "VSDEV\Alpha"'
         }
@@ -78,6 +80,28 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         It 'воркспейсу джерела немає в контексті — зупинка, а не мовчазний $null' {
             $bad = [pscustomobject]@{ Key = 'X'; Type = 'EXTENSION'; Workspace = 'Beta' }
             { Get-KitSourceInfobase -Context $script:Ctx -Source $bad } | Should -Throw '*Beta*'
+        }
+    }
+
+    Context 'пароль бази агента доходить до платформи (#26)' {
+        It 'Invoke-KitStorageCheckout передає -Password в обидва виклики платформи (UpdateCfg і DumpConfigToFiles)' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            $src = [pscustomobject]@{ Key = 'Alpha_SMB'; Type = 'EXTENSION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
+            $t = Join-Path $TestDrive 'co'
+            $null = Invoke-KitStorageCheckout -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target $t -MustBeUnder $TestDrive -User 'agent' -Password 'pw'
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2 -Exactly -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' }
+        }
+        It 'Invoke-KitStorageCheckoutViaPlatform: пароль — у UpdateCfg і DumpCfg бази агента, НЕ в LoadCfg/дампі тимчасової alt-ib' {
+            Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+            Mock -ModuleName StoragePlatform New-V8FileInfobase { $Path }
+            $src = [pscustomobject]@{ Key = 'base'; Type = 'CONFIGURATION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
+            $wd = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
+            try {
+                $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target (Join-Path $wd 'out') `
+                    -MustBeUnder $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
+            } catch { }   # виклик може впасти далі на відсутньому .cf від моку — перевіряємо лише аргументи викликів платформи
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -eq '/F "C:\ib"' -and $Password -eq 'pw' } -Times 2 -Exactly
+            Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -ne '/F "C:\ib"' -and $Password } -Times 0 -Exactly
         }
     }
 

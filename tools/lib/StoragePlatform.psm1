@@ -104,13 +104,13 @@ function Get-KitSourceInfobase {
     }
 
     $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
-    $recipe = ("Джерело '$($Source.Key)' (truth: storage) вивантажується в контексті базової конфігурації — " +
-               "потрібна база агента воркспейсу '$($ws.Path)'. Спершу: kit provision -Workspace $($ws.Path) -Apply, " +
-               'потім operation=build Уніки, тоді повторіть команду.')
-    if ($null -eq $ab) { throw "У v8project.yaml воркспейсу '$($ws.Path)' немає infobase:. $recipe" }
-    if ($ab.Kind -eq 'file' -and -not $ab.Exists) { throw "Бази агента ще немає на диску. $recipe" }
-
-    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Workspace = $ws.Path }
+    if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
+    if ($ab.Kind -eq 'file' -and -not $ab.Exists) {
+        throw ("Бази агента воркспейсу '$($ws.Path)' ще немає на диску ($($ab.Path)), а джерело '$($Source.Key)' (truth: storage) " +
+               'вивантажується в контексті базової конфігурації. Спершу v8storagekit:provision (kit provision -Workspace ' +
+               "$($ws.Path) -Apply і надрукований ним крок), тоді повторіть команду.")
+    }
+    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path }
 }
 
 function Enter-KitStorageBind {
@@ -143,10 +143,11 @@ function Invoke-KitStorageUpdate {
         [Parameter(Mandatory)][string]$IbSwitch,
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][int]$Version,
-        [string]$User = ''
+        [string]$User = '',
+        [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
     if ($upd.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
@@ -190,17 +191,18 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)][int]$Version,
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [string]$User = ''
+        [string]$User = '',
+        [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User -Password $Password
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
-    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
+    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
         # Спека 1.3.1 §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний
@@ -253,14 +255,15 @@ function Invoke-KitStorageCheckoutViaPlatform {
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$WorkDir,
         [Parameter(Mandatory)][string]$AltV8Path,
-        [string]$User = ''
+        [string]$User = '',
+        [string]$Password = ''
     )
     if ($Source.Type -eq 'EXTENSION') {
         throw "Вивантаження іншою платформою для EXTENSION не підтримується в 1.3.1 (джерело '$($Source.Key)')."
     }
 
     # Крок 1: основна платформа, той самий UpdateCfg.
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User -Password $Password
 
     # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
     $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
@@ -268,7 +271,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
     if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
     $mainPath = Get-V8Path
-    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpCfg "{0}"' -f $cf))
+    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments @(('/DumpCfg "{0}"' -f $cf))
     if ($dumpCf.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dumpCf.Output -Infobase 'агента'
         throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не вдався: $($dumpCf.Output)"

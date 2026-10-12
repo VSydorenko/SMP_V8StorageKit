@@ -272,7 +272,8 @@ function Get-StorageVersions {
         [Parameter(Mandatory)][string]$StorageUser,
         [string]$StoragePassword = '',
         [Parameter(Mandatory)][string]$WorkDir,
-        [string]$User = ''
+        [string]$User = '',
+        [string]$Password = ''
     )
 
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
@@ -281,7 +282,7 @@ function Get-StorageVersions {
 
     # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
     # яка його й формує.
-    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments (Get-StorageReportArguments `
+    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments (Get-StorageReportArguments `
         -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser `
         -StoragePassword $StoragePassword -ExtensionName $ExtensionName)
 

@@ -257,6 +257,11 @@ function Invoke-V8Designer {
         [string]$V8Path
     )
 
+    if ($Password -and $Password.Contains('"')) {
+        throw ('Пароль бази містить подвійну лапку — платформа не приймає його в /P "…", а маска виводу (Hide-V8Secrets) ' +
+               'обірвалась би на ній і показала б решту пароля. Змініть пароль користувача бази.')
+    }
+
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
     $log = [System.IO.Path]::Combine(

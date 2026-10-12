@@ -317,3 +317,23 @@ Describe 'Get-KitInstalledPlatforms — платформи оточення (с�
         { Get-V8Path -Version '8.3.22.1' -Roots $script:Roots } | Should -Throw '*8.3.25.1445*'
     }
 }
+
+Describe 'Invoke-V8Designer — пароль (#26, Review Focus 2)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+    It 'пароль із подвійною лапкою — відмова до запуску платформи, пароль у тексті не з''являється' {
+        $err = $null
+        try { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/DumpCfg "C:\y.cf"') -Password 'ab"c-секрет' -V8Path 'C:\no-such\1cv8.exe' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*подвійну лапку*'
+        $err | Should -Not -BeLike '*секрет*'
+    }
+    It 'пароль у Write-Verbose замасковано, але платформа його отримує' {
+        Mock -ModuleName V8 Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+        $old = $global:VerbosePreference; $global:VerbosePreference = 'Continue'
+        try { $out = & { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/DumpCfg "C:\y.cf"') -User 'agent' -Password 'S3cr3t-Пароль' -V8Path 'C:\fake\1cv8.exe' } 4>&1 | Out-String }
+        finally { $global:VerbosePreference = $old }
+        $out | Should -Not -BeLike '*S3cr3t*'
+        $out | Should -BeLike '*/P "[*][*][*]"*'
+        Should -Invoke -ModuleName V8 Start-Process -Times 1 -ParameterFilter { $ArgumentList -like '*/P "S3cr3t-Пароль"*' }
+    }
+}

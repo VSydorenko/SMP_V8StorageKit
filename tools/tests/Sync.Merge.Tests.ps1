@@ -295,4 +295,16 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $imprint.Version | Should -Be 7
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
+
+    It '#26: sync передає пароль бази агента в Get-StorageVersions і в Invoke-KitStorageCheckout' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'pwd-sync') -WithHooks -WithAgentBase -WithGitignore
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'pw'
+        $storageDir = Join-Path $TestDrive 'pwd-sync-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7) }
+        $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        Should -Invoke -ModuleName sync Get-StorageVersions -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' } -Times 1
+        Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $Password -eq 'pw' } -Times 2
+    }
 }
