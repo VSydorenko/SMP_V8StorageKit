@@ -37,19 +37,20 @@ function Assert-KitMapKeys {
     }
 }
 
-function Get-KitEntryLabel {
+function Assert-KitEntryHasValue {
     <#
     .SYNOPSIS
-        Підпис запису мапи накладки для тексту помилки: ім'я, якщо воно схоже на ідентифікатор, інакше — номер запису.
+        Запис мапи накладки має значення; запис без значення (null) називається номером, а не іменем (П23 п. 3, 4621a36).
     .DESCRIPTION
-        Ключ запису (infobases.<ім'я>, storages.<ключ>, workspaces.<шлях>) — вибір людини, і зазвичай це
-        ідентифікатор. Але при хибному відступі чи друкарській помилці в ключ потрапляє пароль (password=X,
-        password X): ключ із пробілом, '=', ':' чи іншим не-ідентифікаторним символом тому не друкується.
+        Ознака структурна, не текстова: у flow-мапі `{ dev: {…}, Secret123 }`, у `password=X` і в рядку `X:` блочної
+        форми YAML робить ключем текст, який ключем не був, а значення в запису немає. Такий запис імені не
+        друкує; запис зі значенням друкується іменем.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Key, [Parameter(Mandatory)][int]$Index)
-    if ($Key -match '^[\p{L}\p{N}_.\-]+$') { return $Key }
-    "<запис №$Index>"
+    param([AllowNull()]$Value, [Parameter(Mandatory)][int]$Index, [Parameter(Mandatory)][string]$Where)
+    if ($null -eq $Value) {
+        throw "$Where — запис №$Index без значення (ім'я не друкується). Перевірте пробіл після ':' і форму 'ключ: значення'."
+    }
 }
 
 function Assert-KitStoragePathForm {
@@ -223,8 +224,9 @@ function Read-KitLocalOverlay {
         if ($o['infobases'] -isnot [System.Collections.IDictionary]) { throw "$where — infobases: має бути мапою «ім'я → { connection, user }»." }
         $idx = 0
         foreach ($name in @($o['infobases'].Keys)) {
-            $idx++; $label = Get-KitEntryLabel -Key ([string]$name) -Index $idx
+            $idx++; $label = [string]$name
             $ib = $o['infobases'][$name]
+            Assert-KitEntryHasValue -Value $ib -Index $idx -Where "$where, infobases"
             Assert-KitMapKeys -Map $ib -Allowed @('connection', 'user') -Required @('connection') -Where "$where, infobases.$label"
             $conn = [string]$ib['connection']
             if ([string]::IsNullOrWhiteSpace($conn)) { throw "$where — infobases.$label.connection порожній." }
@@ -238,8 +240,9 @@ function Read-KitLocalOverlay {
         if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях або { path, user, password }»." }
         $idx = 0
         foreach ($key in @($o['storages'].Keys)) {
-            $idx++; $label = Get-KitEntryLabel -Key ([string]$key) -Index $idx
+            $idx++; $label = [string]$key
             $v = $o['storages'][$key]
+            Assert-KitEntryHasValue -Value $v -Index $idx -Where "$where, storages"
             $entry = [pscustomobject]@{ Path = $null; User = $null; Password = $null }
             if ($v -is [System.Collections.IDictionary]) {
                 Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$label"
@@ -264,8 +267,9 @@ function Read-KitLocalOverlay {
         if ($o['workspaces'] -isnot [System.Collections.IDictionary]) { throw "$where — workspaces: має бути мапою «тека воркспейсу → { agentBase }»." }
         $idx = 0
         foreach ($wsPath in @($o['workspaces'].Keys)) {
-            $idx++; $label = Get-KitEntryLabel -Key ([string]$wsPath) -Index $idx
+            $idx++; $label = [string]$wsPath
             $ws = $o['workspaces'][$wsPath]
+            Assert-KitEntryHasValue -Value $ws -Index $idx -Where "$where, workspaces"
             Assert-KitMapKeys -Map $ws -Allowed @('agentBase') -Where "$where, workspaces.$label"
             $template = $null
             if ($ws.Contains('agentBase')) {

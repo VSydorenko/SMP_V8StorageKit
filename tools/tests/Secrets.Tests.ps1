@@ -120,8 +120,6 @@ Describe 'секрети не у виводі (П23)' {
             @{ Place = 'workspaces.<шлях>'; Overlay = "workspaces:`n  Alpha_SMB: { password=MARKZ9МАРКЗ9 }" }
             @{ Place = 'workspaces.<шлях>.agentBase'; Overlay = "workspaces:`n  Alpha_SMB: { agentBase: { password=MARKZ9МАРКЗ9 } }" }
             @{ Place = 'запис storages (ім''я запису з секретом)'; Overlay = "storages: { Alpha_SMB: 'C:\x', password=MARKZ9МАРКЗ9 }" }
-            @{ Place = 'запис infobases (ім''я запису з секретом)'; Overlay = "infobases:`n  'password=MARKZ9МАРКЗ9': { connection: '' }" }
-            @{ Place = 'запис workspaces (ім''я запису з секретом)'; Overlay = "workspaces:`n  'password=MARKZ9МАРКЗ9': { bogus }" }
         ) {
             $repo = New-GRepo -Name ('g2-' + [guid]::NewGuid().ToString('N').Substring(0, 6)) -Overlay $Overlay
             $r = Invoke-Kit -Command 'check' -Repo $repo
@@ -146,6 +144,48 @@ Describe 'секрети не у виводі (П23)' {
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -BeLike "*ім'я не друкується*"
             Assert-NoMarkers -Text $r.Output
+        }
+    }
+
+    # Ім'я запису мапи накладки (П23 п. 3, 4621a36): друкується, якщо запис має значення; запис без значення (null) —
+    # сигнатура тієї самої помилки (YAML зробив ключем текст, який ключем не був) — називається номером, без імені.
+    Context '(г3) ім''я запису мапи без значення не друкується' {
+        BeforeAll {
+            function script:Assert-NoMarkers3 { param([string]$Text)
+                $Text | Should -Not -BeLike '*MARKZ9*'
+                $Text | Should -Not -BeLike '*МАРКЗ9*'
+            }
+            function script:New-G3Repo { param([string]$Name, [string]$Overlay)
+                New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithGitignore -OverlayText $Overlay
+            }
+        }
+        It '<Map>, <Form> (<Cmd>): запис без значення — номер і підказка, маркера немає' -TestCases @(
+            foreach ($cmd in @(@{ C = 'check'; M = @() }, @{ C = 'sync'; M = @() }, @{ C = 'session-check'; M = @() }, @{ C = 'session-check'; M = @('-AsJson') })) {
+                foreach ($c in @(
+                    @{ Map = 'infobases';  Form = 'блочна'; Overlay = "infobases:`n  dev: { connection: 'File=C:\a' }`n  MARKZ9МАРКЗ9:" }
+                    @{ Map = 'infobases';  Form = 'flow';   Overlay = "infobases: { dev: { connection: 'File=C:\a' }, MARKZ9МАРКЗ9 }" }
+                    @{ Map = 'infobases';  Form = 'flow, password=X'; Overlay = "infobases: { dev: { connection: 'File=C:\a' }, password=MARKZ9МАРКЗ9 }" }
+                    @{ Map = 'storages';   Form = 'блочна'; Overlay = "storages:`n  Alpha_SMB: 'C:\x'`n  MARKZ9МАРКЗ9:" }
+                    @{ Map = 'storages';   Form = 'flow';   Overlay = "storages: { Alpha_SMB: 'C:\x', MARKZ9МАРКЗ9 }" }
+                    @{ Map = 'workspaces'; Form = 'блочна'; Overlay = "workspaces:`n  Alpha_SMB: { agentBase: { template: 'x.dt' } }`n  MARKZ9МАРКЗ9:" }
+                    @{ Map = 'workspaces'; Form = 'flow';   Overlay = "workspaces: { Alpha_SMB: { agentBase: { template: 'x.dt' } }, MARKZ9МАРКЗ9 }" }
+                )) { @{ Cmd = $cmd.C; More = $cmd.M; Map = $c.Map; Form = $c.Form; Overlay = $c.Overlay } }
+            }
+        ) {
+            $repo = New-G3Repo -Name ('g5-' + [guid]::NewGuid().ToString('N').Substring(0, 6)) -Overlay $Overlay
+            $r = Invoke-Kit -Command $Cmd -Repo $repo -More $More
+            # session-check -AsJson при відмові check друкує порожній масив сигналів (текст відмови — не в JSON): там перевіряється лише маркер.
+            if ($More -notcontains '-AsJson') {
+                $r.Output | Should -BeLike "*запис №*без значення (ім'я не друкується)*Перевірте пробіл після ':' і форму 'ключ: значення'*"
+            }
+            Assert-NoMarkers3 -Text $r.Output
+        }
+        It 'контроль: законний запис «dev» зі значенням і помилкою всередині друкує ім''я' {
+            $repo = New-G3Repo -Name 'g5-ctl' -Overlay "infobases:`n  dev: { connection: '' }"
+            $r = Invoke-Kit -Command 'check' -Repo $repo
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike "*infobases.dev.connection порожній*"
+            $r.Output | Should -Not -BeLike '*без значення (ім''я не друкується)*'
         }
     }
 
