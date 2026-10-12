@@ -212,6 +212,31 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r.Output | Should -BeLike '*workPath*'
             $r.Output | Should -Not -BeLike '*База агента*'
         }
+
+        # П25 «Корені власності»: workPath не може бути коренем набору, лежати в ньому чи над ним (тека набору
+        # коренем власності не стає ніколи). Відмова ДО видалення: файли набору цілі, текст — рецепт без значень поза репо.
+        foreach ($case in @(
+            @{ Name = 'дорівнює теці набору'; WorkPath = 'cfe/src' }
+            @{ Name = 'лежить у теці набору';  WorkPath = 'cfe/src/work' }
+            @{ Name = 'лежить над текою набору (містить її)'; WorkPath = 'cfe' }
+        )) {
+            It "П25: workPath $($case.Name) — відмова з рецептом, нічого не видалено" -TestCases @($case) {
+                param($Name, $WorkPath)
+                $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('workpath-set-' + [guid]::NewGuid().ToString('N').Substring(0, 8))) -WithHooks
+                Add-KitOwnerTree -Repo $repo
+                $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
+                ((Get-Content -LiteralPath $vp -Raw) -replace "workPath: 'build'", "workPath: '$WorkPath'") |
+                    Set-Content -LiteralPath $vp -Encoding UTF8 -NoNewline
+                $cfg = Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'
+                $cfg | Should -Exist
+                $before = Get-Content -LiteralPath $cfg -Raw
+                $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Force')
+                $r.ExitCode | Should -Not -Be 0
+                $r.Output | Should -BeLike '*workPath*збігається з деревом джерела*Виправлення*'
+                $cfg | Should -Exist
+                (Get-Content -LiteralPath $cfg -Raw) | Should -Be $before
+            }
+        }
     }
 
     Context 'Задача 12 — власник конфігурації перевіряється до вибору типу бази' {
@@ -377,7 +402,7 @@ Describe 'kit provision — платформа: порожня база й ба�
         }
         # .dt робимо самі: порожня ІБ → /DumpIB. Так тест не залежить від чужих файлів.
         $tmp = Join-Path $TestDrive 'dt-src'
-        $ib = '/F "{0}"' -f (New-V8FileInfobase -Path (Join-Path $tmp 'ib') -MustBeUnder $tmp)
+        $ib = '/F "{0}"' -f (New-V8FileInfobase -Path (Join-Path $tmp 'ib') -MustBeUnder $tmp -RepoRoot $tmp)
         $script:Dt = Join-Path $TestDrive 'empty.dt'
         (Invoke-V8Designer -IbSwitch $ib -Arguments @('/DumpIB "{0}"' -f $script:Dt)).ExitCode | Should -Be 0
     }

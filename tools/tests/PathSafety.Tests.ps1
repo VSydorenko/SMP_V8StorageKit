@@ -10,7 +10,7 @@ Describe 'Assert-SafeWorkPath' {
 
     It 'пропускає власну підтеку межі, нічого не кидаючи' {
         $safe = Join-Path $script:Boundary 'cfe/src'
-        { Assert-SafeWorkPath -Path $safe -MustBeUnder $script:Boundary -Description 'тест' } |
+        { Assert-SafeWorkPath -Path $safe -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'тест' } |
             Should -Not -Throw
     }
 
@@ -19,17 +19,17 @@ Describe 'Assert-SafeWorkPath' {
         # "sourcePath": "" у storage.json, який реально видаляв весь каталог продукту
         # разом із негітованим v8project.local.yaml (I2 у фінальному ревʼю).
         $collapsedToBoundary = Join-Path $script:Boundary ''
-        { Assert-SafeWorkPath -Path $collapsedToBoundary -MustBeUnder $script:Boundary -Description 'sourceDir' } |
+        { Assert-SafeWorkPath -Path $collapsedToBoundary -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw
     }
 
     It 'кидає виняток на самій лише пробільній стрічці' {
-        { Assert-SafeWorkPath -Path '   ' -MustBeUnder $script:Boundary -Description 'sourceDir' } |
+        { Assert-SafeWorkPath -Path '   ' -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw
     }
 
     It 'кидає виняток, якщо шлях дорівнює самій межі (не власна підтека)' {
-        { Assert-SafeWorkPath -Path $script:Boundary -MustBeUnder $script:Boundary -Description 'sourceDir' } |
+        { Assert-SafeWorkPath -Path $script:Boundary -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw '*не є підтекою*'
     }
 
@@ -41,18 +41,18 @@ Describe 'Assert-SafeWorkPath' {
         # сегмент*' — фраза лише з повідомлення перевірки сегмента; повідомлення перевірки
         # підтеки ("не є підтекою") цього слова не несе, тож патерн дискримінує гілку.
         $escaping = Join-Path $script:Boundary '..\..\Windows'
-        { Assert-SafeWorkPath -Path $escaping -MustBeUnder $script:Boundary -Description 'sourceDir' } |
+        { Assert-SafeWorkPath -Path $escaping -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw '*містить сегмент*'
     }
 
     It 'кидає виняток, якщо шлях лежить поза межею навіть без ".."' {
         $outside = Join-Path $TestDrive 'not-the-product'
-        { Assert-SafeWorkPath -Path $outside -MustBeUnder $script:Boundary -Description 'sourceDir' } |
+        { Assert-SafeWorkPath -Path $outside -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw '*не є підтекою*'
     }
 
     It 'повідомлення про помилку називає Description, щоб було видно, яке саме поле завинило' {
-        { Assert-SafeWorkPath -Path '' -MustBeUnder $script:Boundary -Description 'sourcePath у storage.json продукту XYZ' } |
+        { Assert-SafeWorkPath -Path '' -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourcePath у storage.json продукту XYZ' } |
             Should -Throw '*sourcePath у storage.json продукту XYZ*'
     }
 }
@@ -139,7 +139,7 @@ Describe 'Assert-SafeWorkPath — kit нічого не видаляє кріз�
         $target = New-OutsideTarget 'ps-outside-target'
         New-Item -ItemType Junction -Path (Join-Path $b 'mid') -Target $target | Out-Null
         $err = $null
-        try { Assert-SafeWorkPath -Path (Join-Path $b 'mid/inner') -MustBeUnder $b -Description 'тест' } catch { $err = $_.Exception.Message }
+        try { Assert-SafeWorkPath -Path (Join-Path $b 'mid/inner') -MustBeUnder $b -RepoRoot $b -Description 'тест' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike "*компонент шляху 'mid'*є посиланням*"
         $err | Should -Not -BeLike '*ps-outside-target*'
         (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
@@ -149,7 +149,7 @@ Describe 'Assert-SafeWorkPath — kit нічого не видаляє кріз�
         New-Item -ItemType Directory -Path $b -Force | Out-Null
         $target = New-OutsideTarget 'ps-outside-target2'
         New-Item -ItemType Junction -Path (Join-Path $b 'lnk') -Target $target | Out-Null
-        { Assert-SafeWorkPath -Path (Join-Path $b 'lnk') -MustBeUnder $b -Description 'тест' } | Should -Throw '*є посиланням*'
+        { Assert-SafeWorkPath -Path (Join-Path $b 'lnk') -MustBeUnder $b -RepoRoot $b -Description 'тест' } | Should -Throw '*є посиланням*'
     }
     It 'контроль: корінь репозиторію сам за junction (межа — його корінь) — видалення під ним дозволене' {
         $real = Join-Path $TestDrive 'ps-real-repo'
@@ -157,7 +157,7 @@ Describe 'Assert-SafeWorkPath — kit нічого не видаляє кріз�
         Set-Content -LiteralPath (Join-Path $real 'build/x/f.txt') -Value 'x' -Encoding UTF8
         $viaLink = Join-Path $TestDrive 'ps-repo-link'
         New-Item -ItemType Junction -Path $viaLink -Target $real | Out-Null
-        { Assert-SafeWorkPath -Path (Join-Path $viaLink 'build/x') -MustBeUnder $viaLink -Description 'тест' } | Should -Not -Throw
+        { Assert-SafeWorkPath -Path (Join-Path $viaLink 'build/x') -MustBeUnder $viaLink -RepoRoot $viaLink -Description 'тест' } | Should -Not -Throw
         Remove-KitDirectory -Path (Join-Path $viaLink 'build/x')
         Join-Path $real 'build/x' | Should -Not -Exist
         Join-Path $real 'build' | Should -Exist
@@ -249,7 +249,7 @@ Describe 'Assert-SafeWorkPath — fail-closed: помилка читання а�
         $b = Join-Path $TestDrive 'fc-boundary'
         New-Item -ItemType Directory -Path (Join-Path $b 'inner') -Force | Out-Null
         Mock -ModuleName PathSafety Get-KitComponentAttributes { throw 'збій читання' }
-        { Assert-SafeWorkPath -Path (Join-Path $b 'inner/x') -MustBeUnder $b -Description 'тест' } | Should -Throw '*збій читання*'
+        { Assert-SafeWorkPath -Path (Join-Path $b 'inner/x') -MustBeUnder $b -RepoRoot $b -Description 'тест' } | Should -Throw '*збій читання*'
     }
 }
 

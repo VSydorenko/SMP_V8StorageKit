@@ -22,4 +22,21 @@ Describe 'Запобіжник П25: кожному Remove-KitDirectory у ко�
         $calls | Should -BeGreaterThan 10 -Because 'у kit десятки викликів Remove-KitDirectory; нуль означає, що пошук сліпий'
         @($bad) | Should -HaveCount 0 -Because ("виклики без Assert-SafeWorkPath перед ними: " + ($bad -join ', '))
     }
+
+    It 'структурно (AST): кожен виклик Assert-SafeWorkPath передає -RepoRoot' {
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..') -Recurse -Include *.psm1, *.ps1 -File |
+            Where-Object { ($_.FullName -notmatch '[\\/]tests[\\/]' -or $_.Name -eq 'Run-Tests.ps1') -and $_.Name -ne 'PathSafety.psm1' })
+        $calls = 0
+        $bad = foreach ($f in $files) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+            $cmds = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Assert-SafeWorkPath' }, $true)
+            foreach ($c in @($cmds)) {
+                $calls++
+                $has = @($c.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'RepoRoot' }).Count -gt 0
+                if (-not $has) { "$($f.Name):$($c.Extent.StartLineNumber)" }
+            }
+        }
+        $calls | Should -BeGreaterThan 10 -Because 'у kit десятки викликів Assert-SafeWorkPath; нуль означає, що пошук сліпий'
+        @($bad) | Should -HaveCount 0 -Because ("виклики Assert-SafeWorkPath без -RepoRoot: " + ($bad -join ', '))
+    }
 }

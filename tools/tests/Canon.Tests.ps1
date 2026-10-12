@@ -410,7 +410,7 @@ Describe 'kit canon — round-trip дає нуль розбіжностей на
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'rt') -WithHooks -WithGitattributes -WithGitignore
         # база агента зі стабом Alpha_SMB (як робив би operation=build)
         $ib = New-ExtensionInfobase -Path (Join-Path $script:Repo 'Alpha_SMB/build/ib') -ExtensionName 'Alpha_SMB' `
-            -StubPath (Resolve-Path "$PSScriptRoot/../assets/empty-extension").Path -MustBeUnder (Join-Path $script:Repo 'Alpha_SMB')
+            -StubPath (Resolve-Path "$PSScriptRoot/../assets/empty-extension").Path -MustBeUnder (Join-Path $script:Repo 'Alpha_SMB') -RepoRoot $script:Repo
     }
     It 'перший canon переписує дерево платформою; другий не змінює жодного файла' {
         $out = & pwsh -NoProfile -File $script:Kit canon -RepoRoot $script:Repo -Source Alpha_SMB -Apply 2>&1 | Out-String

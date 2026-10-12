@@ -19,7 +19,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
     }
 
     It 'New-KitStorageInfobase відмовляє зовнішнім обробкам до звернення до платформи' {
-        { New-KitStorageInfobase -Source $script:Epf -WorkDir $TestDrive } | Should -Throw '*EXTERNAL_DATA_PROCESSORS*'
+        { New-KitStorageInfobase -Source $script:Epf -WorkDir $TestDrive -RepoRoot $TestDrive } | Should -Throw '*EXTERNAL_DATA_PROCESSORS*'
         Join-Path $TestDrive 'ib' | Should -Not -Exist
     }
 
@@ -88,7 +88,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             $src = [pscustomobject]@{ Key = 'Alpha_SMB'; Type = 'EXTENSION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
             $t = Join-Path $TestDrive 'co'
-            $null = Invoke-KitStorageCheckout -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target $t -MustBeUnder $TestDrive -User 'agent' -Password 'pw'
+            $null = Invoke-KitStorageCheckout -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target $t -MustBeUnder $TestDrive -RepoRoot $TestDrive -User 'agent' -Password 'pw'
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2 -Exactly -ParameterFilter { $Password -eq 'pw' -and $User -eq 'agent' }
         }
         It 'Invoke-KitStorageCheckoutViaPlatform: пароль — у UpdateCfg і DumpCfg бази агента, НЕ в LoadCfg/дампі тимчасової alt-ib' {
@@ -103,7 +103,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $src = [pscustomobject]@{ Key = 'base'; Type = 'CONFIGURATION'; StoragePath = 'C:\s'; StorageUser = 'u'; StoragePassword = '' }
             $wd = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
             $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "C:\ib"' -Source $src -Version 3 -Target (Join-Path $wd 'out') `
-                -MustBeUnder $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
+                -MustBeUnder $wd -RepoRoot $wd -WorkDir $wd -AltV8Path 'C:\alt\1cv8.exe' -User 'agent' -Password 'pw'
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -eq '/F "C:\ib"' -and $Password -eq 'pw' } -Times 2 -Exactly
             # Виклики alt-ib справді відбулися (LoadCfg і DumpConfigToFiles) — і без пароля.
             Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -ParameterFilter { $IbSwitch -ne '/F "C:\ib"' } -Times 2 -Exactly
@@ -121,7 +121,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             }
             $target = Join-Path $TestDrive 'dump'
             Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
-                -Target $target -MustBeUnder $TestDrive -User 'agent' | Out-Null
+                -Target $target -MustBeUnder $TestDrive -RepoRoot $TestDrive -User 'agent' | Out-Null
             $script:seen | Should -Contain 'agent'
         }
 
@@ -134,7 +134,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             }
             $target = Join-Path $TestDrive 'dump2'
             Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
-                -Target $target -MustBeUnder $TestDrive | Out-Null
+                -Target $target -MustBeUnder $TestDrive -RepoRoot $TestDrive | Out-Null
             $script:seen | Should -Not -Contain 'agent'
         }
     }
@@ -147,7 +147,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
                 [pscustomobject]@{ ExitCode = 1; Output = 'Расширение "SMP_X" не найдено в конфигурации.' }
             }
             { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
-                -Target (Join-Path $TestDrive 'dump-ext-notfound') -MustBeUnder $TestDrive } |
+                -Target (Join-Path $TestDrive 'dump-ext-notfound') -MustBeUnder $TestDrive -RepoRoot $TestDrive } |
                 Should -Throw '*"op":"push"*"sourceSet":"*'
         }
 
@@ -158,7 +158,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $err = $null
             try {
                 Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
-                    -Target (Join-Path $TestDrive 'dump-ext-othererror') -MustBeUnder $TestDrive
+                    -Target (Join-Path $TestDrive 'dump-ext-othererror') -MustBeUnder $TestDrive -RepoRoot $TestDrive
             } catch { $err = $_.Exception.Message }
             $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
             $err | Should -Not -BeLike '*"op":"push"*'
@@ -171,7 +171,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $err = $null
             try {
                 Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 7 `
-                    -Target (Join-Path $TestDrive 'dump-cfg-notfound') -MustBeUnder $TestDrive
+                    -Target (Join-Path $TestDrive 'dump-cfg-notfound') -MustBeUnder $TestDrive -RepoRoot $TestDrive
             } catch { $err = $_.Exception.Message }
             $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
             $err | Should -Not -BeLike '*"op":"push"*'
@@ -187,7 +187,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             }
             Mock -ModuleName StoragePlatform Get-V8Path { 'C:\pf\8.3.27.1644\bin\1cv8.exe' }
             $rec = $null
-            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34') -MustBeUnder $TestDrive }
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34') -MustBeUnder $TestDrive -RepoRoot $TestDrive }
             catch { $rec = $_ }
             Test-KitDumpFailure -ErrorRecord $rec | Should -BeTrue
             $rec.Exception.Message | Should -BeLike '*Вивантаження версії 34 не вдалося*Схема не зарегистрирована*'
@@ -199,7 +199,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         It 'збій UpdateCfg — НЕ розпізнаваний виняток вивантаження' {
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 1; Output = 'Внутренняя ошибка' } }
             $rec = $null
-            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34u') -MustBeUnder $TestDrive } catch { $rec = $_ }
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34u') -MustBeUnder $TestDrive -RepoRoot $TestDrive } catch { $rec = $_ }
             $rec | Should -Not -BeNullOrEmpty
             Test-KitDumpFailure -ErrorRecord $rec | Should -BeFalse
         }
@@ -211,7 +211,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
                 [pscustomobject]@{ ExitCode = 0; Output = '' }
             }
             $rec = $null
-            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34b') -MustBeUnder $TestDrive } catch { $rec = $_ }
+            try { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 -Target (Join-Path $TestDrive 'd34b') -MustBeUnder $TestDrive -RepoRoot $TestDrive } catch { $rec = $_ }
             $rec.Exception.Message | Should -BeLike '*зайнята*'
             Test-KitDumpFailure -ErrorRecord $rec | Should -BeFalse
         }
@@ -239,7 +239,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $tree = Join-Path $work 'tree'; New-Item -ItemType Directory -Path $tree -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $tree 'stale.xml') -Value 'old' -Encoding ascii
             $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/S "srv\agent"' -Source $script:Cfg -Version 34 `
-                -Target $tree -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' -User 'agent'
+                -Target $tree -MustBeUnder $work -RepoRoot $work -WorkDir $work -AltV8Path 'ALT' -User 'agent'
             $altIb = '/F "{0}"' -f (Join-Path $work 'alt-ib')
             @($script:Calls) | Should -Be @(
                 'UpdateCfg|MAIN|/S "srv\agent"|u=agent'
@@ -269,7 +269,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $work = Join-Path $TestDrive 'via-nocf'; New-Item -ItemType Directory -Path $work -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $work 'v34.cf') -Value 'stale' -Encoding ascii
             { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 `
-                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*DumpCfg*не створив*'
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -RepoRoot $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*DumpCfg*не створив*'
             @($script:Calls | Where-Object { $_ -match 'LoadCfg' }).Count | Should -Be 0
         }
 
@@ -280,7 +280,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             Mock -ModuleName StoragePlatform Invoke-V8Designer { $script:Calls.Add('designer'); [pscustomobject]@{ ExitCode = 0; Output = '' } }
             $work = Join-Path $TestDrive 'via-ext'; New-Item -ItemType Directory -Path $work -Force | Out-Null
             { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Ext -Version 34 `
-                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*EXTENSION не підтримується в 1.3.1*'
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -RepoRoot $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*EXTENSION не підтримується в 1.3.1*'
             @($script:Calls).Count | Should -Be 0
         }
 
@@ -296,7 +296,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             }
             $work = Join-Path $TestDrive 'via-fail'; New-Item -ItemType Directory -Path $work -Force | Out-Null
             { Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/F "x"' -Source $script:Cfg -Version 34 `
-                -Target (Join-Path $work 'tree') -MustBeUnder $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*LoadCfg*ALT*файл пошкоджено*'
+                -Target (Join-Path $work 'tree') -MustBeUnder $work -RepoRoot $work -WorkDir $work -AltV8Path 'ALT' } | Should -Throw '*LoadCfg*ALT*файл пошкоджено*'
         }
     }
 }

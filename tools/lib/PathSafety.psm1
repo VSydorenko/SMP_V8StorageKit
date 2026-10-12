@@ -34,7 +34,7 @@ function Assert-SafeWorkPath {
         [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$Description,
-        [string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoRoot,
         [string]$OwnedRoot
     )
 
@@ -60,17 +60,15 @@ function Assert-SafeWorkPath {
     # можливо поза репозиторієм.
     # Звідки йдемо: для шляху всередині репозиторію — від КОРЕНЯ РЕПОЗИТОРІЮ (не включно), незалежно від -MustBeUnder
     # (межа відповідає за «під чим», а не за «звідки перевіряти посилання»: build/adopt лежить усередині репо, і junction
-    # на repo\build інакше лишався б непоміченим); для шляху поза репо чи без -RepoRoot — від межі (не включно).
+    # на repo\build інакше лишався б непоміченим); для шляху поза репо — від межі (-RepoRoot обов'язковий: без нього перевірка йшла б від межі й повертала діру repo\build-junction).
     # Посиланням може бути рівно один компонент — корінь власності (-OwnedRoot: build/ репо чи воркспейсу, робоча тека
     # Уніки), який викликач називає явно; нижче нього й вище нього (до кореня репо) посилань бути не може.
     # Без -OwnedRoot посилань немає взагалі. Теку набору коренем власності не називають ніколи.
     # Перший ненаявний компонент зупиняє обхід (глибше нічого немає); помилка читання атрибута наявного — виняток
     # (fail-closed), а не кінець перевірки. У виняток іде компонент відносно точки старту, а не ціль посилання.
     $scanFrom = $boundary
-    if ($RepoRoot) {
-        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
-        if ($full.StartsWith($repoFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { $scanFrom = $repoFull }
-    }
+    $repoFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+    if ($full.StartsWith($repoFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { $scanFrom = $repoFull }
     $owned = if ($OwnedRoot) { [System.IO.Path]::GetFullPath($OwnedRoot).TrimEnd('\', '/') } else { $null }
     $scanPrefix = $scanFrom + [System.IO.Path]::DirectorySeparatorChar
     $current = $scanFrom

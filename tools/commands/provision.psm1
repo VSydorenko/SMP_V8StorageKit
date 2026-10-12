@@ -222,6 +222,18 @@ function Invoke-KitProvision {
         # решта kit його шанує (Task 3 будує build/artifacts саме від WorkPath) —
         # жорсткий 'build' відкидав би законну базу агента в репозиторії з workPath: 'out'.
         $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
+        # П25 «Корені власності»: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
+        # Тож workPath, що дорівнює кореню набору, лежить у ньому чи містить його, відхиляється ДО будь-якого
+        # видалення. У повідомлення — лише шляхи відносно воркспейсу (значення конфігу поза ними не друкуємо).
+        $agentWorkFull = [System.IO.Path]::GetFullPath($agentWork).TrimEnd('\', '/')
+        foreach ($setSrc in @($ws.Sources)) {
+            $setFull = [System.IO.Path]::GetFullPath($setSrc.FullPath).TrimEnd('\', '/')
+            $sep = [System.IO.Path]::DirectorySeparatorChar
+            if (($agentWorkFull -eq $setFull) -or $agentWorkFull.StartsWith($setFull + $sep, [System.StringComparison]::OrdinalIgnoreCase) -or $setFull.StartsWith($agentWorkFull + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw ("workPath у v8project.yaml воркспейсу '$($ws.Path)' збігається з деревом джерела '$($setSrc.Key)', лежить у ньому чи над ним — " +
+                       'робоча тека агента не може перетинатися з вихідниками. Виправлення: у v8project.yaml задайте workPath окремою текою воркспейсу поза деревами джерел (типово build).')
+            }
+        }
         Assert-SafeWorkPath -Path $agentWork -MustBeUnder $ws.FullPath -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "робоча тека воркспейсу $($ws.Path) (workPath у v8project.yaml)"
         Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
 

@@ -89,7 +89,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
 
     It 'Remove-KitSupplyDir прибирає теку поставки, .bin лишає' {
         $t = New-SupplyTree -Name 'remove'
-        Remove-KitSupplyDir -TreeRoot $t -MustBeUnder $TestDrive
+        Remove-KitSupplyDir -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
         Join-Path $t 'Ext/ParentConfigurations' | Should -Not -Exist
         Join-Path $t 'Ext/ParentConfigurations.bin' | Should -Exist
     }
@@ -97,7 +97,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
     It 'Clear-KitTreeExceptSupply стирає все, крім теки поставки' {
         $t = New-SupplyTree -Name 'clear'
         Set-Content -LiteralPath (Join-Path $t 'Ext/Other.xml') -Value 'x' -Encoding UTF8
-        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive
+        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
         Join-Path $t 'Configuration.xml' | Should -Not -Exist
         Join-Path $t 'Ext/Other.xml' | Should -Not -Exist
         Join-Path $t 'Ext/ParentConfigurations.bin' | Should -Not -Exist
@@ -106,7 +106,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
 
     It 'Clear-KitTreeExceptSupply поза межею — зупинка' {
         $t = New-SupplyTree -Name 'outside'
-        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw
+        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') -RepoRoot $TestDrive } | Should -Throw
         Join-Path $t 'Configuration.xml' | Should -Exist
     }
 
@@ -117,16 +117,29 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
         New-Item -ItemType Junction -Path (Join-Path $t 'lnk-top') -Target $target | Out-Null
         New-Item -ItemType Junction -Path (Join-Path $t 'Ext/lnk-inner') -Target $target | Out-Null
-        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive
+        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
         Join-Path $t 'lnk-top' | Should -Not -Exist
         Join-Path $t 'Ext/lnk-inner' | Should -Not -Exist
         (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 
+    It 'Clear-KitTreeExceptSupply: Ext — junction на зовнішню теку: виняток, файли в цілі цілі (останній рубіж П25)' {
+        $t = Join-Path $TestDrive 'clear-ext-link'
+        New-Item -ItemType Directory -Path $t -Force | Out-Null
+        $outside = Join-Path $TestDrive 'clear-ext-outside'
+        New-Item -ItemType Directory -Path (Join-Path $outside 'inner') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside 'a.txt') -Value 'чужий a' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $outside 'inner/b.txt') -Value 'чужий b' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $t 'Ext') -Target $outside | Out-Null
+        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive } | Should -Throw '*Ext*є посиланням*'
+        (Get-Content -LiteralPath (Join-Path $outside 'a.txt') -Raw).Trim() | Should -Be 'чужий a'
+        (Get-Content -LiteralPath (Join-Path $outside 'inner/b.txt') -Raw).Trim() | Should -Be 'чужий b'
+    }
+
     It 'Remove-KitSupplyDir поза межею — зупинка, тека поставки лишається' {
         $t = New-SupplyTree -Name 'remove-outside'
-        { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw
+        { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') -RepoRoot $TestDrive } | Should -Throw
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 

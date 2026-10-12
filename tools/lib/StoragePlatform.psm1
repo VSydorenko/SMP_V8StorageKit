@@ -65,7 +65,7 @@ function New-KitStorageInfobase {
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][string]$WorkDir,
         [string]$StubPath = $script:DefaultStubPath,
-        [string]$RepoRoot
+        [Parameter(Mandatory)][string]$RepoRoot
     )
     $ibPath = Join-Path $WorkDir 'ib'
     switch ($Source.Type) {
@@ -198,7 +198,7 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)][int]$Version,
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoRoot,
         [string]$User = '',
         [string]$Password = ''
     )
@@ -263,7 +263,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$WorkDir,
         [Parameter(Mandatory)][string]$AltV8Path,
-        [string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoRoot,
         [string]$User = '',
         [string]$Password = ''
     )

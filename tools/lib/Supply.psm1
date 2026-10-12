@@ -76,7 +76,7 @@ function Write-KitSupplyMarker {
 
 function Remove-KitSupplyDir {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [string]$RepoRoot, [string]$OwnedRoot)
+    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [Parameter(Mandatory)][string]$RepoRoot, [string]$OwnedRoot)
     $dir = Join-Path $TreeRoot $script:SupplyRelativePath
     if (-not (Test-Path -LiteralPath $dir)) { return }
     Assert-SafeWorkPath -Path $dir -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'тека поставки вендора'
@@ -91,12 +91,17 @@ function Clear-KitTreeExceptSupply {
         (спайк §4.2, варіант B).
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [string]$RepoRoot, [string]$OwnedRoot)
+    param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [Parameter(Mandatory)][string]$RepoRoot, [string]$OwnedRoot)
     Assert-SafeWorkPath -Path $TreeRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'дерево джерела'
     if (-not (Test-Path -LiteralPath $TreeRoot)) { New-Item -ItemType Directory -Path $TreeRoot -Force | Out-Null; return }
     $parts = $script:SupplyRelativePath -split '/'   # 'Ext', 'ParentConfigurations'
     foreach ($item in @(Get-ChildItem -LiteralPath $TreeRoot -Force)) {
         if ($item.PSIsContainer -and $item.Name -ieq $parts[0]) {
+            # Останній рубіж П25: у теку Ext функція ЗАХОДИТЬ (її не видаляють цілою), тож посилання на ній
+            # повело б видалення дітей у ціль. Guard вище бачить лише TreeRoot.
+            if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+                throw "дерево джерела: компонент шляху '$($item.Name)' є посиланням (junction чи symlink) — kit нічого не видаляє крізь посилання; приберіть посилання з шляху."
+            }
             foreach ($inner in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
                 if ($inner.PSIsContainer -and $inner.Name -ieq $parts[1]) { continue }
                 if ($inner.PSIsContainer) { Remove-KitDirectory -Path $inner.FullName } else { Remove-Item -LiteralPath $inner.FullName -Force }

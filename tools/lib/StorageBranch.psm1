@@ -482,7 +482,7 @@ function Clear-KitWorktreeSource {
         Порожня тека <wt>/<RepoPath> під дамп версії: /DumpConfigToFiles не видаляє зниклих об'єктів.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath, [string]$RepoRoot)
+    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$RepoRoot)
     $target = Join-Path $WorktreePath $RepoPath
     Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тека джерела у worktree'
     Remove-KitDirectory -Path $target
@@ -516,7 +516,7 @@ function Write-KitStorageVersion {
         [Parameter(Mandatory)][string]$AuthorName,
         [Parameter(Mandatory)][string]$AuthorEmail,
         [Parameter(Mandatory)][datetime]$Timestamp,
-        [string]$RepoRoot
+        [Parameter(Mandatory)][string]$RepoRoot
     )
 
     $target = Join-Path $WorktreePath $RepoPath

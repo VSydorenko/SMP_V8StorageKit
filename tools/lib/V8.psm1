@@ -358,7 +358,7 @@ function New-V8FileInfobase {
         [Parameter(Mandatory)][string]$MustBeUnder,
         [string]$TemplatePath,
         [string]$V8Path,
-        [string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoRoot,
         [string]$OwnedRoot
     )
 
@@ -410,7 +410,7 @@ function New-ExtensionInfobase {
         [Parameter(Mandatory)][string]$StubPath,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [string]$V8Path,
-        [string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoRoot,
         [string]$OwnedRoot
     )
 
