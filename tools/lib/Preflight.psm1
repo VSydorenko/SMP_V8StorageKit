@@ -174,6 +174,11 @@ function Invoke-KitPreflight {
             & $fail 'workspace' "У воркспейсі '$($ws.Path)' немає v8project.yaml — структуру джерел описує саме він (спека §2.1)."
             continue
         }
+        $cfgProblems = @()
+        try { $cfgProblems = @(Get-V8ProjectConfigProblems -Directory $wsFull) }
+        catch { & $fail 'workspace' "Конфіг Уніки воркспейсу '$($ws.Path)' не читається: $($_.Exception.Message)"; continue }
+        foreach ($problem in $cfgProblems) { & $fail 'workspace' $problem }
+        if ($cfgProblems.Count -gt 0) { continue }
         $project = $null
         try { $project = Read-V8Project -Path $projectPath }
         catch { & $fail 'workspace' $_.Exception.Message; continue }

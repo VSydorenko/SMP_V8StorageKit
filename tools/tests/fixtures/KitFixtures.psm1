@@ -102,6 +102,9 @@ function New-KitFakeRepo {
     # LF" щоразу, коли autocrlf глобально ввімкнено, — вивід тестів мав би залежати від
     # налаштувань чужого середовища.
     Invoke-KitFakeGit -C $Root config core.autocrlf false | Out-Null
+    # Файл Уніки гітігнорований у кожного споживача; без цього `git add -A` фікстури закомітив би його,
+    # а злиття в main відмовило б на брудній копії.
+    Add-Content -LiteralPath (Join-Path $Root '.git/info/exclude') -Value 'v8project.local.yaml' -Encoding UTF8
     # Головна гілка — main незалежно від init.defaultBranch цієї машини.
     Invoke-KitFakeGit -C $Root symbolic-ref HEAD refs/heads/main | Out-Null
 
@@ -155,9 +158,11 @@ function New-KitFakeRepo {
         New-Item -ItemType Directory -Path $wsDir -Force | Out-Null
 
         $proj = [System.Collections.Generic.List[string]]::new()
-        $proj.Add('format: DESIGNER'); $proj.Add('builder: DESIGNER'); $proj.Add("workPath: 'build'")
+        $proj.Add('format: DESIGNER'); $proj.Add("workPath: 'build'")
+        $proj.Add('providers:'); $proj.Add('  push: designer'); $proj.Add('  pull: designer'); $proj.Add('  download: designer')
         if ($ws.Contains('Infobase') -and $ws['Infobase']) {
-            $proj.Add('infobase:'); $proj.Add("  connection: '$($ws['Infobase'])'")
+            Set-Content -LiteralPath (Join-Path $wsDir 'v8project.local.yaml') -Encoding UTF8 -Value (
+                @('infobases:', '  origin:', "    connection: '$($ws['Infobase'])'") -join "`n")
             if ($WithAgentBase) {
                 # Той самий ідіом, що Canon.Tests.ps1/Provision.Tests.ps1 (1Cv8.1CD — ознака
                 # наявної файлової бази для Resolve-KitAgentBase.Exists): sync (Task 3) тепер
@@ -398,6 +403,31 @@ function Invoke-KitCommand {
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
 }
 
+function Set-KitFakeAgentBase {
+    <#
+    .SYNOPSIS
+        Пише <Workspace>/v8project.local.yaml у формі 0.13 (infobases.origin) — замість ручного Set-Content у тестах.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [string]$Workspace = 'Alpha_SMB',
+        [Parameter(Mandatory)][string]$Connection,
+        [string]$User,
+        [string]$Password,
+        [System.Collections.IDictionary]$Dbms
+    )
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('infobases:'); $lines.Add('  origin:'); $lines.Add("    connection: '$Connection'")
+    if ($User)     { $lines.Add("    user: '$User'") }
+    if ($Password) { $lines.Add("    password: '$Password'") }
+    if ($Dbms) {
+        $lines.Add('    dbms:')
+        foreach ($k in @($Dbms.Keys)) { $lines.Add("      ${k}: '$($Dbms[$k])'") }
+    }
+    Set-Content -LiteralPath (Join-Path (Join-Path $Repo $Workspace) 'v8project.local.yaml') -Encoding UTF8 -Value ($lines -join "`n")
+}
+
 function Set-KitFakeBranchTree {
     <#
     .SYNOPSIS
@@ -495,4 +525,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
+Export-ModuleMember -Function Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces

@@ -79,15 +79,21 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # корінь), цей файл живе В КОЖНОМУ воркспейсі поруч зі своїм v8project.yaml.
     It 'v8project.local.yaml (файл Уніки) гітігноровано ПРАВИЛОМ, але вже закомічено — код 1, факт відстеження' {
         $repo = New-GoodRepo 'local-tracked'
-        # CRLF — та сама причина, що в тесті вище про v8storagekit.local.yaml.
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`r`n  connection: 'File=build/agent_ib'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/agent_ib'
         git -C $repo add -f -- Alpha_SMB/v8project.local.yaml
         git -C $repo commit -qm 'фікстура: v8project.local.yaml закомічено силою попри .gitignore'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*git rm --cached*Alpha_SMB/v8project.local.yaml*'
         $r.Output | Should -BeLike '*ІСТОРІЇ*'
+    }
+
+    It 'v8project.local.yaml не гітігноровано правилом репозиторію — error local-ignored (exclude фікстури прибрано)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'local-not-ignored') -WithHooks
+        $ex = Join-Path $repo '.git/info/exclude'
+        Set-Content -LiteralPath $ex -Value (@(Get-Content -LiteralPath $ex | Where-Object { $_ -ne 'v8project.local.yaml' })) -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*v8project.local.yaml не гітігноровано*'
     }
 
     It 'без маніфесту — код 1 і підказка на onboarding' {
@@ -132,5 +138,26 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Match '\[i\].*main'
         $r.Output | Should -BeLike "*Свіжий репозиторій*'main'*ще немає*перший коміт*"
         $r.Output | Should -Not -BeLike '*перевірте mainBranch*'
+    }
+}
+
+Describe 'kit check і решта команд — застарілий конфіг Уніки зупиняє все (§10 П9)' {
+    BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
+
+    It 'check: builder і infobase: у v8project.yaml — код 1, обидві знахідки' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-cfg') -WithHooks -WithGitignore
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('builder: DESIGNER', 'infobase:', "  connection: 'File=build/ib'")
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*'builder'*"
+        $r.Output | Should -BeLike "*стара форма 'infobase:'*"
+    }
+    It 'sync на застарілому конфігу — зупинка на префлайті, build/sync не створено' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-sync') -WithHooks -WithGitignore
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value 'execution_timeout: 600000'
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'sync' -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*'execution_timeout'*"
+        Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
     }
 }

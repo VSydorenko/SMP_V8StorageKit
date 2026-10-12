@@ -132,7 +132,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
 
     It 'серверна база агента — зупинка з поясненням (спайк §13), навіть із -Apply' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv') -WithHooks
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=agent;'")
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent;'
         $r = Invoke-Provision -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*Srvr*кластер*'
@@ -160,7 +160,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             # Власника кладемо, щоб перевіряти саме межу шляху (F7), а не Задачу 12 —
             # інакше перша ж зупинка (власник) заступила б собою ту, що досліджує цей тест.
             Add-KitOwnerTree -Repo $repo
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=cfe/src'")
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=cfe/src'
             $cfg = Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'
             $cfg | Should -Exist
             $r = Invoke-Provision -Repo $repo -More @('-Apply')
@@ -174,7 +174,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         It 'F5: infobase.connection = File=D:\ (за межами воркспейсу і репозиторію) — відмова, платформа не викликається' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'outside-drive') -WithHooks
             Add-KitOwnerTree -Repo $repo
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=D:\'")
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=D:\'
             $r = Invoke-Provision -Repo $repo -More @('-Apply')
             $r.ExitCode | Should -Not -Be 0
             Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
@@ -194,7 +194,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
             ((Get-Content -LiteralPath $vp -Raw) -replace "workPath: 'build'", "workPath: 'out'") |
                 Set-Content -LiteralPath $vp -Encoding UTF8 -NoNewline
-            Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=out/ib'")
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=out/ib'
             $r = Invoke-Provision -Repo $repo
             $r.ExitCode | Should -Be 0
             $r.Output | Should -BeLike '*out*ib*'

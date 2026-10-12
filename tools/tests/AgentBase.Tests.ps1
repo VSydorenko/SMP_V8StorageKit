@@ -6,19 +6,19 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
     }
 
-    It 'файлова база з v8project.yaml: шлях під воркспейсом, ще не існує' {
+    It 'файлова база з infobases.origin: шлях під воркспейсом, ще не існує' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'file')
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         $ab = Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0]
         $ab.Kind | Should -Be 'file'
         $ab.Path | Should -Be ([System.IO.Path]::GetFullPath((Join-Path $repo 'Alpha_SMB/build/ib')))
         $ab.Exists | Should -BeFalse
-        $ab.Origin | Should -BeLike '*v8project.yaml'
+        $ab.Origin | Should -BeLike '*v8project.local.yaml'
     }
 
     It 'v8project.local.yaml перекриває на серверну; Origin — накладка Уніки' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'server')
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=agent_alpha;'")
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         $ab = Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0]
         $ab.Kind | Should -Be 'server'
@@ -28,7 +28,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
 
     It 'підключення бази агента збігається з дев-базою людини з накладки kit — зупинка (принцип 3)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'Srvr=VSDEV;Ref=SMP_UNF;'")
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=SMP_UNF;'
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         # Правка виконавця (обов'язкова, ухвалена заздалегідь): у брифі тест мав патерн
         # '*devUNF*людини*', але саме повідомлення функції несе зворотний порядок —
@@ -49,7 +49,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — принцип 3
         # не спрацював би, і provision -Apply -Force стер би базу людини.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'trailing-slash') -OverlayText "infobases:`n  devUNF:`n    connection: 'File=D:\Bases\SMP_UNF\'"
-        Set-Content (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=D:\Bases\SMP_UNF'")
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=D:\Bases\SMP_UNF'
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*людини*devUNF*'
     }

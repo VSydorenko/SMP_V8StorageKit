@@ -15,8 +15,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     It '§2.5: infobase.connection у v8project.local.yaml збігається з дев-базою з накладки — код 1' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'`n    user: 'Адмін'"
         $repo = New-GoodRepo 'local-audit' @{ OverlayText = $overlay }
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=SMP_UNF;'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
@@ -30,8 +29,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         # попереднього (побайтово однакового), який пройшов би і без неї.
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'`n    user: 'Адмін'"
         $repo = New-GoodRepo 'local-audit-normalized' @{ OverlayText = $overlay }
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'srvr=vsdev; ref=smp_unf'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'srvr=vsdev; ref=smp_unf'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
@@ -44,8 +42,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         # впасти й не мовчати — суперечливий репозиторій має бути видимий у звіті check.
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
         $repo = New-GoodRepo 'local-audit-unparseable' @{ OverlayText = $overlay }
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=VSDEV;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8project.local.yaml*'
@@ -54,15 +51,13 @@ Describe 'kit check — інваріанти репозиторію-спожив
     It '§2.5: серверна база АГЕНТА у v8project.local.yaml, якої немає в накладці, — не помилка' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
         $repo = New-GoodRepo 'local-agent' @{ OverlayText = $overlay }
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=VSDEV;Ref=agent_alpha;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
         (Invoke-Check -Repo $repo).ExitCode | Should -Be 0
     }
 
     It 'issue #9: infobase.connection = Srvr=SRV;Ref=BASE; (без лапок) — немає знахідки про нерозбірне підключення' {
         $repo = New-GoodRepo 'quotes-none'
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=SRV;Ref=BASE;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=SRV;Ref=BASE;'
         $r = Invoke-Check -Repo $repo
         $r.Output | Should -Not -BeLike '*лапк*'
         $r.Output | Should -Not -BeLike '*нерозбірне*'
@@ -70,8 +65,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
 
     It '§4.3 п. 4: infobase.connection = Srvr="SRV";Ref="BASE"; (парні лапки) — знахідки про нерозбірне підключення немає' {
         $repo = New-GoodRepo 'quotes-agent'
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=""SRV"";Ref=""BASE"";'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr="SRV";Ref="BASE";'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -Not -BeLike '*лапк*'
@@ -79,8 +73,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
 
     It '§4.3 п. 4: infobase.connection = Srvr="SRV;Ref=BASE; (непарна лапка) — знахідка error з текстом про непарні лапки, не падіння check' {
         $repo = New-GoodRepo 'quotes-unpaired-agent'
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=""SRV;Ref=BASE;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr="SRV;Ref=BASE;'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*непарні лапки*'
@@ -107,8 +100,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $ibDir = [System.IO.Path]::GetFullPath((Join-Path $repo 'Alpha_SMB/build/ib'))
         $overlay = @('infobases:', "  dev: { connection: 'File=$ibDir' }") -join "`n"
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Value $overlay -Encoding UTF8
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'File=build/ib'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
@@ -220,8 +212,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         # лишається зеленим. Той самий урок, що двічі коштував блоку Critical — перевіряти
         # треба не лише те, що правило забороняє, а й те, що воно мусить пропускати.
         $repo = New-GoodRepo 'modern-infobase' @{}
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`n  connection: 'Srvr=VSDEV;Ref=agent_alpha;'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
         $r = Invoke-Check -Repo $repo
         $r.Output | Should -Not -BeLike '*devInfobase*'
         $r.ExitCode | Should -Be 0

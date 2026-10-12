@@ -179,10 +179,10 @@ function Invoke-KitCheck {
         # (гілка Resolve-KitAgentBase вище, truth: storage) — для воркспейсів лише з
         # truth: dump/vendor або без бази агента нерозбірне підключення (непарна лапка,
         # голий шлях без File=, Srvr= без Ref= — форми, які kit свого часу сам роздавав у
-        # templates/v8storagekit.local.yaml.example) проходило check кодом 0 і падало лише на kit dump — мовчазна пастка при
-        # міграції старих накладок. Один раз на дев-базу, незалежно від кількості
-        # воркспейсів, — тому цикл тут, поза foreach ($src in $all) нижче. warn, не error:
-        # error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
+        # templates/v8storagekit.local.yaml.example) проходило check кодом 0 і падало лише на
+        # kit dump — мовчазна пастка при міграції старих накладок. Один раз на дев-базу,
+        # незалежно від кількості воркспейсів, — тому цикл тут, поза foreach ($src in $all)
+        # нижче. warn, не error: error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
         # kit dump. Там, де та сама дев-база вже дала error 'agent-base-required' у гілці
         # Resolve-KitAgentBase вище, ця знахідка законно дублюється — розводити їх
         # ускладнило б код заради усунення дубля повідомлення.
@@ -495,7 +495,7 @@ function Invoke-KitCheck {
             }
 
             $localConn = $null
-            try { $localConn = Read-V8ProjectLocalInfobase -Path $localPath }
+            try { $localIb = Read-V8ProjectLocalInfobase -Path $localPath; if ($localIb) { $localConn = $localIb.Connection } }
             catch { & $add error local-audit "$($ws.Path)/v8project.local.yaml не читається: $($_.Exception.Message)" }
             if ($localConn -and $Context.Overlay) {
                 # F1 (рев'ю B4 Task 1): та сама формула ідентичності бази, що в
@@ -515,14 +515,14 @@ function Invoke-KitCheck {
                     $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File={0}' -f $localResolved.Path } else { $localConn }
                     foreach ($human in $Context.Overlay.Infobases.Values) {
                         if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection) {
-                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobase.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
-                                'це база людини під ключем Unica, і operation=build писав би в неї. Приберіть infobase: звідти; ' +
-                                'у цьому файлі може бути лише серверна база АГЕНТА (§2.5).')
+                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
+                                'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
+                                'й дайте агентові окрему базу (v8storagekit:provision).')
                             break
                         }
                     }
                 } catch {
-                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobase.connection проти дев-баз накладки впав: $($_.Exception.Message)"
+                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobases.origin.connection проти дев-баз накладки впав: $($_.Exception.Message)"
                 }
             }
             elseif (Test-Path -LiteralPath $localPath -PathType Leaf) {
