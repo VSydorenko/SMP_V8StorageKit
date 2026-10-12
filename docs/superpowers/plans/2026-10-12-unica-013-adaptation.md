@@ -1770,6 +1770,23 @@ Export: `Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, T
 
 - [ ] **Step 6 (контролер, з дозволу людини): Коміт.** Тема: `§4.1, §10 П3–П5: критерій і крок вирівнювання пам'яті раннера`.
 
+- [ ] **Step 7: Фікс-раунд 2 — невидима робота під набором (спека `69fee5a`, §10.2 П24; за адверсарним рев'ю `b08edd4`).** `git status --porcelain` не бачить трьох видів роботи: гітігнорованих файлів під набором (I1), файлів з прапорцем `assume-unchanged` чи `skip-worktree` (I2) і підмодуля (M2). А `pull --force` (і `canon -Apply`, Task 8) знищує їх безслідно.
+  - **Одна функція на kit** — у `tools/lib/TreeBackup.psm1`, поруч із `Get-KitDirtyRecords`, а не всередині неї. Наприклад, `Get-KitInvisibleWork -RepoRoot -RepoPath` → `object[]` записів `{Path; Kind = 'ignored'|'flagged'|'gitlink'}`; ім'я вибирає виконавець, вимога одна — функція на весь kit одна. `Get-KitDirtyRecords` і формат `canon-backup` не чіпати. Функція вимірює:
+    - I1: `git ls-files --others --ignored --exclude-standard -- <шлях>` мінус похідне (`ConfigDumpInfo.xml`, `DumpFilesIndex.txt`, `Ext/ParentConfigurations/**`). Перелік похідного — одна константа з коментарем-посиланням на `templates/gitignore`.
+    - I2: `git ls-files -v -- <шлях>` — тег у нижньому регістрі (assume-unchanged; будь-яка мала літера, не лише `h`) або `S` (skip-worktree).
+    - M2: будь-який gitlink (режим `160000`, `git ls-files -s -- <шлях>`) під шляхом. `--ignore-submodules` не потрібен: відмова простіша і не залежить від налаштувань.
+    - Збій будь-якого git-виклику → виняток, а не «чисто»; через `Invoke-KitGitProcess`, як у `Get-KitDirtyRecords`.
+  - **Застосування в критерії** (П3/П4). Якщо невидима робота є, `Test-KitSetClean` повертає `$false` → `push force`: хибне «брудне» коштує лише повного завантаження. Застосування в `canon -Apply` (зупинка) — Task 8, Step 5а.
+  - **Тест брифу «ігнорований → чисте» переписати** на нову властивість: зараз він закріплює діру.
+  - **Тести** — на справжніх git-репозиторіях:
+    - файл агента під набором, що потрапив під `.git/info/exclude` → `push`;
+    - контроль, що може впасти: `ConfigDumpInfo.xml` і `.cf` у `Ext/ParentConfigurations/` ігноровані → `pull` лишається можливим;
+    - `git update-index --assume-unchanged` і `--skip-worktree` на зміненому файлі → `push`;
+    - gitlink → `push`;
+    - збій git → виняток.
+  - **Мутації** на копії дерева — прибрати кожну з трьох перевірок окремо → червоний; тексти падіння — у звіт.
+  - Коміт (контролер): тема `§10.2 П24: невидима робота під набором — критерій вирівнювання`.
+
 ### Task 8: `canon -MarkerOnly`; рецепт поставки (§10 П5)
 
 **Рівень ризику:** спільний код.
