@@ -139,19 +139,19 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         }
     }
 
-    Context '«розширення не знайдено» — переклад у рецепт operation=build (Task 3, Step 6)' {
+    Context '«розширення не знайдено» — переклад у рецепт push Уніки (Task 3, Step 6)' {
         # UpdateCfg падає до Target/MustBeUnder — шлях сюди не доходить, тож тека $TestDrive
         # нижче ніколи не читається й не пишеться, лише формально задовольняє Mandatory-параметри.
-        It 'EXTENSION, платформа каже «расширение … не найдено» — виняток називає operation=build' {
+        It 'EXTENSION, платформа каже «расширение … не найдено» — виняток називає push Уніки з force' {
             Mock -ModuleName StoragePlatform Invoke-V8Designer {
                 [pscustomobject]@{ ExitCode = 1; Output = 'Расширение "SMP_X" не найдено в конфигурации.' }
             }
             { Invoke-KitStorageCheckout -IbSwitch '/F "x"' -Source $script:Ext -Version 7 `
                 -Target (Join-Path $TestDrive 'dump-ext-notfound') -MustBeUnder $TestDrive } |
-                Should -Throw '*operation=build*'
+                Should -Throw '*"op":"push"*"sourceSet":"*'
         }
 
-        It 'EXTENSION, інший текст платформи — звичайна зупинка, БЕЗ operation=build (регекс не збігається з будь-чим)' {
+        It 'EXTENSION, інший текст платформи — звичайна зупинка, БЕЗ рецепта push (регекс не збігається з будь-чим)' {
             Mock -ModuleName StoragePlatform Invoke-V8Designer {
                 [pscustomobject]@{ ExitCode = 1; Output = 'Внутренняя ошибка платформы.' }
             }
@@ -161,7 +161,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
                     -Target (Join-Path $TestDrive 'dump-ext-othererror') -MustBeUnder $TestDrive
             } catch { $err = $_.Exception.Message }
             $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
-            $err | Should -Not -BeLike '*operation=build*'
+            $err | Should -Not -BeLike '*"op":"push"*'
         }
 
         It 'CONFIGURATION, той самий текст «не найдено» — звичайна зупинка, гілка обмежена типом EXTENSION' {
@@ -174,7 +174,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
                     -Target (Join-Path $TestDrive 'dump-cfg-notfound') -MustBeUnder $TestDrive
             } catch { $err = $_.Exception.Message }
             $err | Should -BeLike '*Оновлення до версії 7 не вдалося*'
-            $err | Should -Not -BeLike '*operation=build*'
+            $err | Should -Not -BeLike '*"op":"push"*'
         }
     }
 

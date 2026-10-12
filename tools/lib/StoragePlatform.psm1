@@ -7,6 +7,9 @@ Import-Module "$PSScriptRoot/V8.psm1"
 # стоїть раніше за StoragePlatform, тож у kit.ps1 функція вже є глобально; явний імпорт тут
 # потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
 Import-Module "$PSScriptRoot/AgentBase.psm1"
+# UnicaStep (Format-KitUnicaRun) — так само без -Force: у kit.ps1 він уже є глобально, явний імпорт
+# потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
+Import-Module "$PSScriptRoot/UnicaStep.psm1"
 
 # Результат спайку B2 (спека §14, «Результат спайку»): чи потребує UpdateCfg для ОСНОВНОЇ
 # конфігурації прив'язки ІБ до сховища. $true — kit робить ConfigurationRepositoryBindCfg під
@@ -39,7 +42,7 @@ function Test-KitExtensionNotFound {
     <#
     .SYNOPSIS
         Відповідь платформи «розширення з таким іменем не знайдено» (рос./укр.) — ЄДИНЕ місце
-        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу operation=build») і запасний шлях
+        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу push Уніки») і запасний шлях
         sync (спека 2026-09-30 §6.9). Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
     #>
     [CmdletBinding()]
@@ -151,12 +154,15 @@ function Invoke-KitStorageUpdate {
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
     if ($upd.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
-        # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
+        # База агента є, але порожня: push Уніки у неї ще не вантажив розширення, і сховище
         # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
         # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
         if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
-            throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
-                   "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
+            # force:true — набору ще немає в пам'яті раннера, звичайний push відповів би no_memory (спека §2.2).
+            $push = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $Source.Key; force = $true })
+            $ws = if ($Source.PSObject.Properties['Workspace']) { " (воркспейс '$($Source.Workspace)')" } else { '' }
+            throw ("У базі агента немає розширення '$($Source.Key)' — дерево розширення ще не завантажене в базу. " +
+                   "Спершу$ws`: $push, потім той самий виклик з `"dryRun`":false; тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
         }
         throw "Оновлення до версії $Version не вдалося: $($upd.Output)"
     }

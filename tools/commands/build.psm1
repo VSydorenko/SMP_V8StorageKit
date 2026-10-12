@@ -45,10 +45,10 @@ function Copy-KitWorkspaceArtifacts {
         Цю функцію Invoke-KitBuild кличе ПІСЛЯ циклу, що сам щойно збудував свіжі .epf у тому
         самому $Destination (через платформу), з тим самим Copy-Item -Force. Коли сюди раніше
         потрапляли й .epf/.erf, стара копія з <воркспейс>/build/artifacts (залишок минулого
-        build чи чужого operation=make під тією самою назвою) мовчки перезаписувала ЩОЙНО
+        build чи чужого unica.run op=make під тією самою назвою) мовчки перезаписувала ЩОЙНО
         зібраний файл — вивід при цьому казав "← зібрано з воркспейсу", що читалось як успіх, а
         $Artifacts діставав той самий шлях удруге. Запасний шлях Q6 (SYNOPSIS вище) існує
-        рівно для того, чого build САМ не робить — .cf/.cfe, які кладе operation=make Уніки.
+        рівно для того, чого build САМ не робить — .cf/.cfe, які кладе unica.run op=make Уніки.
         .epf/.erf build робить сам і зобов'язаний довіряти лише щойно зібраному, не тому, що
         колись лежало у воркспейсі — тому вони прибрані з цього фільтра, не позначені як
         "не перезаписувати той самий шлях": другий підхід тримав би зайву відповідальність
@@ -86,9 +86,9 @@ function Invoke-KitBuild {
     <#
     .SYNOPSIS
         .epf через платформу (/LoadExternalDataProcessorOrReportFromFiles) у build/artifacts, збір .cf/.cfe,
-        які operation=make Уніки поклала в артефакти воркспейсів, і вміст теки на екран (спека §5).
+        які unica.run op=make Уніки поклала в артефакти воркспейсів, і вміст теки на екран (спека §5).
     .DESCRIPTION
-        .cf/.cfe kit САМ не збирає — це робить operation=make Уніки; build лише друкує, як саме
+        .cf/.cfe kit САМ не збирає — це робить unica.run op=make Уніки; build лише друкує, як саме
         її покликати (output=build/artifacts/<Ім'я>.cfe — відносний до воркспейсу, бо поза свій
         корінь Unica писати відмовляється), і забирає звідти, куди make могла покласти файл
         замість цього (запасний шлях Q6 — <воркспейс>/build/artifacts/).
@@ -107,7 +107,7 @@ function Invoke-KitBuild {
     $epfSources = @($selected | Where-Object Type -eq 'EXTERNAL_DATA_PROCESSORS')
     # truth: vendor виключено (фікс-раунд рев'ю, C4) — той самий принцип, що canon.psm1 уже
     # застосовує до своїх targets: чужу конфігурацію не збирають у власні артефакти, і радити
-    # для неї operation=make було б порадою зібрати те, що нам не належить.
+    # для неї unica.run op=make було б порадою зібрати те, що нам не належить.
     $extSources = @($selected | Where-Object { $_.Type -eq 'EXTENSION' -and $_.Truth -ne 'vendor' })
 
     Write-Host "Артефакти: $outDir"
@@ -123,7 +123,8 @@ function Invoke-KitBuild {
         # репозиторію, тобто на рівень вище. Абсолютний шлях із кореня заборонений за
         # визначенням, і саме він стояв тут і в шаблоні CLAUDE.md до 1.0.1 (ішуз #5): агент
         # спершу отримував відмову, потім згадував обхід, потім копіював руками — щоразу.
-        Write-Host "  .cfe  $($e.Key).cfe — не kit: operation=make Уніки (cwd $($e.Workspace), source-set $($e.Key), extension $($e.Key)) з output=build/artifacts/$($e.Key).cfe" -ForegroundColor DarkGray
+        $make = Format-KitUnicaRun -Op 'make' -Arguments ([ordered]@{ sourceSet = $e.Key; extension = $e.Key; output = "build/artifacts/$($e.Key).cfe" })
+        Write-Host "  .cfe  $($e.Key).cfe — не kit: $make (воркспейс $($e.Workspace); output відносний до воркспейсу)" -ForegroundColor DarkGray
         Write-Host "        файл ляже у $($e.Workspace)/build/artifacts/ — kit build -Apply забере його в $outDir" -ForegroundColor DarkGray
     }
     if ($plan.Count -eq 0 -and $extSources.Count -eq 0) { Write-Host '  Джерел для збірки в цьому виборі немає.' }
@@ -168,13 +169,13 @@ function Invoke-KitBuild {
     Write-Host ''
     $files = @(Get-ChildItem -LiteralPath $outDir -File)
     if ($files.Count -eq 0) {
-        Write-Host "У $outDir порожньо. .cf/.cfe збирає operation=make Уніки з output=build/artifacts/<Ім'я>.cfe (відносний до воркспейсу); .epf — з source-set EXTERNAL_DATA_PROCESSORS." -ForegroundColor Yellow
+        Write-Host "У $outDir порожньо. .cf/.cfe збирає unica.run op=make з output=build/artifacts/<Ім'я>.cfe (відносний до воркспейсу); .epf — з source-set EXTERNAL_DATA_PROCESSORS." -ForegroundColor Yellow
     } else {
         $files | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Host
     }
 
     # Код виходу 0 означає "kit зробив свою частину", а не "всі артефакти на місці": .cf/.cfe
-    # збирає operation=make Уніки, і в прев'ю це сказано, а у виводі -Apply вже ні. Разом із тим,
+    # збирає unica.run op=make Уніки, і в прев'ю це сказано, а у виводі -Apply вже ні. Разом із тим,
     # що build/artifacts між прогонами не чиститься, це складалось у мовчазний збій: у теці
     # лежав .cfe від попередньої збірки 0.6.0 (два тижні), решти двох не було зовсім, і "kit build
     # -Apply → 0" читалось як повний успіх (живий перехід SMP_BankExchange, 2026-09-10). Єдине,

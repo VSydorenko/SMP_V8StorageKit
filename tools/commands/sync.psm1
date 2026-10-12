@@ -383,8 +383,8 @@ function Invoke-KitSync {
             $ibUser = ''; $ibPassword = ''
             $fallback = $true
             Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
-                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й operation=build ' +
-                'наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
+                'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й push Уніки з "force":true для цього розширення ' +
+                '(його ще немає в пам''яті раннера, звичайний push відповів би no_memory) наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
             $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
                 -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
         }
@@ -579,7 +579,7 @@ function Invoke-KitSync {
 
         # Контракт спеки §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента, і база
         # лишається у стані останньої прочитаної версії. Це не побічний ефект, а оголошена
-        # поведінка — мовчати про неї означало б, що наступний operation=syntax чи test побіжить
+        # поведінка — мовчати про неї означало б, що наступний unica.run з op=syntax чи op=test побіжить
         # не на тому стані, який агент вважає своїм.
         if ($fallback) {
             Write-Host "База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → operation=build Уніки — розширення з'явиться в базі агента." -ForegroundColor Yellow

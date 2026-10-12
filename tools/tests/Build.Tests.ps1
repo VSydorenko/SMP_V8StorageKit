@@ -27,7 +27,7 @@ Describe 'kit build — виявлення й збір артефактів бе
         $r = Invoke-Build -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*Обробка_А.epf*Обробка_Б.epf*'
-        $r.Output | Should -BeLike '*Alpha_SMB*operation=make*'
+        $r.Output | Should -BeLike '*Alpha_SMB*"op":"make"*'
         $r.Output | Should -BeLike '*-Apply*'
         # C3 (фікс-раунд рев'ю): сам фільтр типу — не лише пошук за іменем теки 'epf'. Без
         # 'Where-Object Type -eq EXTERNAL_DATA_PROCESSORS' у $epfSources потрапило б EXTENSION-
@@ -36,14 +36,14 @@ Describe 'kit build — виявлення й збір артефактів бе
         $r.Output | Should -Not -BeLike '*Configuration.epf*'
     }
 
-    It 'truth: vendor у EXTENSION не радить operation=make — чужу конфігурацію build не збирає (C4 фікс-раунду)' {
+    It 'truth: vendor у EXTENSION не радить unica.run op=make — чужу конфігурацію build не збирає (C4 фікс-раунду)' {
         $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:',
             '      Alpha_SMB: { truth: vendor, dump: { from: dev } }') -join "`n"
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vendor-ext') -Workspaces $ws -ManifestText $manifest -WithHooks
         $r = Invoke-Build -Repo $repo
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -Not -BeLike '*operation=make*'
+        $r.Output | Should -Not -BeLike '*"op":"make"*'
         $r.Output | Should -BeLike '*Джерел для збірки в цьому виборі немає*'
     }
 
@@ -64,15 +64,15 @@ Describe 'kit build — виявлення й збір артефактів бе
         # внутрішній роздільник на '\' (перевірено на pwsh 7.5.4, Join-Path 'C:\foo' 'build/artifacts'
         # дає 'C:\foo\build\artifacts', на відміну від [System.IO.Path]::Combine) — літеральний
         # прямий слеш у виводі команди не з'являється.
-        $r.Output | Should -BeLike '*operation=make*build*artifacts*'
+        $r.Output | Should -BeLike '*op=make*build*artifacts*'
     }
 
     It 'підказка про .cfe друкує output, який Unica приймає — відносний до воркспейсу' {
         # Прев'ю (без -Apply) платформи не торкається.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'build-hint') -WithHooks
         $r = Invoke-Build -Repo $repo
-        $r.Output | Should -BeLike '*output=build/artifacts/Alpha_SMB.cfe*'
-        $r.Output | Should -Not -BeLike "*output=$repo*"
+        $r.Output | Should -BeLike '*"output":"build/artifacts/Alpha_SMB.cfe"*'
+        $r.Output | Should -Not -BeLike '*"output":"?:*'
         $r.Output | Should -BeLike '*kit build*забере*'
     }
 
@@ -166,7 +166,7 @@ Describe 'kit build — мок платформного шару: .epf чере�
         Set-Content -LiteralPath (Join-Path $repo 'epf/src/Обробка.xml') -Value '<x/>' -Encoding UTF8
         New-Item -ItemType Directory -Path (Join-Path $repo 'epf/src/Обробка') -Force | Out-Null
 
-        # Стара версія — залишок попереднього build чи чужого operation=make — лежить у
+        # Стара версія — залишок попереднього build чи чужого unica.run op=make — лежить у
         # запасному шляху Q6 воркспейсу під ТИМ САМИМ ім'ям, яке цей прогін от-от збудує свіжим.
         New-Item -ItemType Directory -Path (Join-Path $repo 'epf/build/artifacts') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'epf/build/artifacts/Обробка.epf') -Value 'stale-from-workspace' -Encoding ascii
