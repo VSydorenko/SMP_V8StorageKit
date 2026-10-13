@@ -520,7 +520,11 @@ function Invoke-KitCheck {
                             'memory-both' { "пам'ять раннера воркспейсу '$($ws.Path)' перетинається з пам'яттю раннера воркспейсу '$($c.Other)'" }
                             default { "база агента воркспейсу '$($ws.Path)' лежить у '<workPath>/infobases' воркспейсу '$($c.Other)'" }
                         }
-                        & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — provision -Apply -Force одного з воркспейсів знищив би базу іншого. " +
+                        # Що саме знищив би provision -Apply -Force, залежить від виду збігу: для memory-both це не база,
+                        # а пам'ять раннера (теку infobases/origin прибирають перед створенням), для решти — база агента.
+                        $consequence = if ($c.Kind -eq 'memory-both') { "provision -Apply -Force одного з воркспейсів прибрав би пам'ять раннера іншого" }
+                                       else { 'provision -Apply -Force одного з воркспейсів знищив би базу іншого' }
+                        & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — $consequence. " +
                             'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:provision).')
                     }
                 } catch {

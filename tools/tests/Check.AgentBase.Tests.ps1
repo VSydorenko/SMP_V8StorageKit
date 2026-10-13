@@ -57,7 +57,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         ([regex]::Matches($r.Output, 'перетинається з базою агента воркспейсу')).Count | Should -Be 1
     }
 
-    It 'П26 п. 5: база Beta лежить у workPath/infobases воркспейсу Alpha — error з обох боків (гілки memory-mine і memory-theirs), код 1' {
+    It 'П26 п. 5: база Beta лежить у workPath/infobases воркспейсу Alpha — error з боку Beta (гілка memory-theirs); з боку Alpha збігу немає, код 1' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
@@ -94,6 +94,9 @@ Describe 'kit check — інваріанти репозиторію-спожив
             Set-Content -LiteralPath $betaProj -Encoding UTF8
         $r = Invoke-Check -Repo $repo
         $r.Output | Should -BeLike "*Alpha_SMB/v8project.local.yaml: пам'ять раннера воркспейсу 'Alpha_SMB' перетинається з пам'яттю раннера воркспейсу 'Beta_SMB'*"
+        # Наслідок названо за видом збігу: тут руйнується пам'ять раннера, а не база агента.
+        $r.Output | Should -BeLike "*прибрав би пам'ять раннера іншого*"
+        $r.Output | Should -Not -BeLike '*знищив би базу іншого*'
     }
 
     It 'F1: agentBase.template воркспейсу з пробілу в накладці — error з ключем, без значення' {

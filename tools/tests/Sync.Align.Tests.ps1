@@ -126,6 +126,57 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
         $r.AlignSteps[0].Op | Should -Be 'push'
     }
+    It 'злиття відмовило — код виходу 2, підсумок не каже «Готово»' {
+        $repo = New-AlignRepo -Name 'merge-fail'
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Новая.xml') -Value 'x' -Encoding UTF8
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+        $h.R.ExitCode | Should -Be 2
+        $text | Should -Not -BeLike '*Готово.*'
+        $text | Should -BeLike '*злиття в основну гілку не вдалось*'
+    }
+    It 'ABA: HEAD A->B (дерево B = дзеркало) у порівнянні дерев і назад на A до чистоти — push, і Left є sha' {
+        $repo = New-AlignRepo -Name 'aba'
+        git -C $repo checkout -q -b feature/x
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- робота агента -->'
+        git -C $repo commit -qam 'робота агента'
+        $script:RaceRepo = $repo; $script:SeenLeft = @()
+        # Мок на мить переносить HEAD на вершину дзеркала (її дерево = дзеркало), кличе справжню функцію з тим
+        # -Left, що їй передали, і повертає HEAD. Рух A→B→A не видно перевірці «sha == HEAD» наприкінці:
+        # ловить його лише те, що порівняння йде за sha, а не за іменем HEAD.
+        Mock -ModuleName sync Test-KitSetTreeEqual {
+            $script:SeenLeft += $Left
+            git -C $script:RaceRepo checkout -q --detach storage/Alpha_SMB
+            $real = & (Get-Module UnicaStep) { param($r, $p, $l, $rt) Test-KitSetTreeEqual -RepoRoot $r -RepoPath $p -Left $l -Right $rt } $RepoRoot $RepoPath $Left $Right
+            git -C $script:RaceRepo checkout -q feature/x
+            $real
+        }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $r.AlignSteps[0].Op | Should -Be 'push'
+        $script:SeenLeft | Should -HaveCount 1
+        $script:SeenLeft[0] | Should -Match '^[0-9a-f]{40}$' -Because 'ліва сторона порівняння — sha, не ім''я HEAD'
+    }
+    It 'вершина дзеркала рухається у порівнянні дерев (на мить дорівнює HEAD) і повертається — push, і Right є sha' {
+        $repo = New-AlignRepo -Name 'aba-mirror'
+        git -C $repo checkout -q -b feature/x
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- робота агента -->'
+        git -C $repo commit -qam 'робота агента'
+        $script:RaceRepo = $repo; $script:SeenRight = @()
+        # Дзеркало на мить стає комітом з деревом, що дорівнює HEAD; порівняння за ім'ям гілки побачило б
+        # рівність і дало б pull, порівняння за sha, зафіксованим до цього, — ні.
+        Mock -ModuleName sync Test-KitSetTreeEqual {
+            $script:SeenRight += $Right
+            $tip = (git -C $script:RaceRepo rev-parse refs/heads/storage/Alpha_SMB)
+            git -C $script:RaceRepo update-ref refs/heads/storage/Alpha_SMB (git -C $script:RaceRepo rev-parse feature/x)
+            $real = & (Get-Module UnicaStep) { param($r, $p, $l, $rt) Test-KitSetTreeEqual -RepoRoot $r -RepoPath $p -Left $l -Right $rt } $RepoRoot $RepoPath $Left $Right
+            git -C $script:RaceRepo update-ref refs/heads/storage/Alpha_SMB $tip
+            $real
+        }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $r.AlignSteps[0].Op | Should -Be 'push'
+        $script:SeenRight | Should -HaveCount 1
+        $script:SeenRight[0] | Should -Match '^[0-9a-f]{40}$' -Because 'права сторона порівняння — sha, не ім''я гілки дзеркала'
+    }
     It 'нових версій немає — кроку немає (база не зрушена)' {
         $repo = New-AlignRepo -Name 'none'
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `

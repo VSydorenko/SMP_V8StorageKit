@@ -29,6 +29,8 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*ніколи не зливав*storage/Alpha_SMB*'
+        # Зупинка називає і ім'я -Ref (як його дала людина чи типове), і sha, з яким працювала команда.
+        $r.Output | Should -Match "-Ref 'main' \(коміт [0-9a-f]{40}\)" -Because 'діагностика мусить показати ім''я -Ref, не лише sha'
         Join-Path $repo 'build/verify' | Should -Not -Exist
     }
 

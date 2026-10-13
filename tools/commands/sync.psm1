@@ -622,8 +622,13 @@ function Invoke-KitSync {
                     $headRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', 'HEAD^{commit}')
                     if ($headRes.ExitCode -ne 0) { throw 'HEAD не вказує на коміт — критерій pull не обчислюється.' }
                     $headSha = $headRes.Stdout.Trim()
+                    # Вершина дзеркала — теж у sha один раз, тим самим швом: порівняння з ім'ям гілки читало б її
+                    # двічі (по одному разу на кожен бік) і бачило б те, що встигла змінити інша дія.
+                    $mirrorRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', "$($src.Branch)^{commit}")
+                    if ($mirrorRes.ExitCode -ne 0) { throw "Гілка дзеркала '$($src.Branch)' не вказує на коміт — критерій pull не обчислюється." }
+                    $mirrorSha = $mirrorRes.Stdout.Trim()
                     $criterion = (-not $lastViaAlt) -and
-                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left $headSha -Right $src.Branch) -and
+                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left $headSha -Right $mirrorSha) -and
                                  (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
                                  (Test-KitRefIsHead -RepoRoot $root -Ref $headSha)
                 } catch {
@@ -644,6 +649,10 @@ function Invoke-KitSync {
         $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
         if ($blocked.Count -gt 0) {
             Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
+        } elseif ($mergeFailed) {
+            # Злиття впало (код виходу 2): версії перенесено в дзеркало, але в основну гілку вони не потрапили —
+            # «Готово» було б хибним успіхом.
+            Write-Host 'Дзеркала оновлено, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
         } elseif ($completed) {
             Write-Host 'Готово.' -ForegroundColor Green
         }
