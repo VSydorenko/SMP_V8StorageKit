@@ -177,6 +177,55 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $script:SeenRight | Should -HaveCount 1
         $script:SeenRight[0] | Should -Match '^[0-9a-f]{40}$' -Because 'права сторона порівняння — sha, не ім''я гілки дзеркала'
     }
+    It 'шов злиття: дзеркало піднімається до коміту з деревом = HEAD після реплею — push, не pull (права сторона = коміт реплею)' {
+        $repo = New-AlignRepo -Name 'merge-seam'
+        git -C $repo checkout -q -b feature/x
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- робота агента -->'
+        git -C $repo commit -qam 'робота агента'
+        $script:RaceRepo = $repo
+        # Злиття — єдине місце між реплеєм і критерієм, де дзеркало може зрушити (другий sync того самого джерела).
+        # Мок кладе на гілку дзеркала коміт, дерево якого дорівнює HEAD, і повертає невдачу злиття.
+        Mock -ModuleName sync Invoke-KitMainMerge {
+            $tree = git -C $script:RaceRepo rev-parse 'HEAD^{tree}'
+            $c = git -C $script:RaceRepo commit-tree $tree -p refs/heads/storage/Alpha_SMB -m 'чужий реплей'
+            git -C $script:RaceRepo update-ref refs/heads/storage/Alpha_SMB $c
+            $false
+        }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $r.AlignSteps[0].Op | Should -Be 'push'
+    }
+    It 'успішний sync закінчується «Готово.», без попереджень про збій злиття' {
+        $repo = New-AlignRepo -Name 'done-ok'
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+        $h.R.ExitCode | Should -Be 0
+        $text | Should -BeLike '*Готово.*'
+        $text | Should -Not -BeLike '*не вдалось*'
+    }
+    It 'нових версій немає, злиття впало — підсумок не каже «Дзеркала оновлено», код виходу 2, кроку немає' {
+        $repo = New-AlignRepo -Name 'none-merge-fail'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 7')
+        Mock -ModuleName sync Invoke-KitMainMerge { $false }
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -MergeMain } 6>&1 | Out-String
+        $h.R.ExitCode | Should -Be 2
+        @($h.R.AlignSteps) | Should -HaveCount 0
+        $text | Should -BeLike '*Нових версій не було, але злиття в основну гілку не вдалось*'
+        $text | Should -Not -BeLike '*Дзеркала оновлено*'
+        $text | Should -Not -BeLike '*Готово.*'
+    }
+    It 'blocked і збій злиття разом — підсумок називає обидва' {
+        Mock -ModuleName sync Get-KitAlignStep { [pscustomobject]@{ SourceSet = 'Alpha_SMB'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cfe/src'
+            BaseKind = 'file'; Op = 'blocked'; Supply = 'missing'; MarkerOnly = $false; Steps = @(); Recipe = 'рецепт' } }
+        Mock -ModuleName sync Invoke-KitMainMerge { $false }
+        $repo = New-AlignRepo -Name 'blocked-merge-fail'
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+        $h.R.ExitCode | Should -Be 2
+        $text | Should -BeLike '*вирівнювання не завершено*Злиття в основну гілку теж не вдалось*'
+        $text | Should -Not -BeLike '*Готово.*'
+    }
     It 'нових версій немає — кроку немає (база не зрушена)' {
         $repo = New-AlignRepo -Name 'none'
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `

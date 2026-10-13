@@ -15,6 +15,8 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*storage/Alpha_SMB*sync*'
+        # Зупинка про дзеркало не стосується -Ref — префікса з ім'ям -Ref і sha не має бути.
+        $r.Output | Should -Not -Match "-Ref 'main' \(коміт"
         Join-Path $repo 'build/verify' | Should -Not -Exist
     }
 

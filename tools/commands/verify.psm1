@@ -79,7 +79,12 @@ function Invoke-KitVerify {
         # Усередину йде sha (одна фіксація на весь прогін), тож його тексти називають лише sha; людина дала
         # ім'я -Ref — зупинка називає обидва.
         try { $vv = Get-KitVerifyVersion -RepoRoot $root -Ref $refSha -Branch $src.Branch }
-        catch { throw "-Ref '$ref' (коміт $refSha): $($_.Exception.Message)" }
+        catch {
+            # Бібліотека називає у своїх текстах sha (він і є -Ref усередині): префікс лише до тих, що його містять,
+            # тобто стосуються -Ref («ніколи не зливав», merge-base). Тексти про дзеркало чи збій git лишаються як є.
+            if ($_.Exception.Message.Contains($refSha)) { throw "-Ref '$ref' (коміт $refSha): $($_.Exception.Message)" }
+            throw
+        }
         if (-not (Test-Path -LiteralPath $src.StoragePath)) { throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)." }
         # Дамп — у базі агента воркспейсу, а не в тимчасовій ІБ зі стабом (спека 2026-09-17
         # §2, той самий принцип, що sync.psm1): обидва боки порівняння verify мають бути

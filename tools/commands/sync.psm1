@@ -528,6 +528,7 @@ function Invoke-KitSync {
 
             $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
             $done  = [System.Collections.Generic.List[int]]::new()
+            $replaySha = $null   # коміт останньої версії, записаної в цьому запуску (права сторона критерію pull)
             # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
             # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
             # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
@@ -572,6 +573,7 @@ function Invoke-KitSync {
                         -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
                     if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
                     $done.Add($v.Version)
+                    $replaySha = $commit.Sha
                 }
             } finally {
                 Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
@@ -622,11 +624,12 @@ function Invoke-KitSync {
                     $headRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', 'HEAD^{commit}')
                     if ($headRes.ExitCode -ne 0) { throw 'HEAD не вказує на коміт — критерій pull не обчислюється.' }
                     $headSha = $headRes.Stdout.Trim()
-                    # Вершина дзеркала — теж у sha один раз, тим самим швом: порівняння з ім'ям гілки читало б її
-                    # двічі (по одному разу на кожен бік) і бачило б те, що встигла змінити інша дія.
-                    $mirrorRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', "$($src.Branch)^{commit}")
-                    if ($mirrorRes.ExitCode -ne 0) { throw "Гілка дзеркала '$($src.Branch)' не вказує на коміт — критерій pull не обчислюється." }
-                    $mirrorSha = $mirrorRes.Stdout.Trim()
+                    # Права сторона — коміт, який записав останню версію ЦЬОГО запуску (те, що kit щойно вивантажив з
+                    # бази), а не вершина гілки дзеркала, прочитана після злиття: вона могла зрушити в вікні
+                    # (другий sync того самого джерела) і вказувати на дерево, якого в базі немає. Запасної гілки
+                    # «версій не перенесено» немає: за $done.Count -gt 0 вище такого запуску тут нема.
+                    if (-not $replaySha) { throw "Не відомий коміт реплею цього запуску — критерій pull не обчислюється." }
+                    $mirrorSha = $replaySha
                     $criterion = (-not $lastViaAlt) -and
                                  (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left $headSha -Right $mirrorSha) -and
                                  (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
@@ -647,12 +650,19 @@ function Invoke-KitSync {
         # Рядки ЗУПИНКА — останніми, після підсумку; для набору зі зупинкою підсумок не каже «Готово»,
         # а після винятку (цикл не дійшов до кінця) — не каже його теж.
         $blocked = @($alignSteps | Where-Object Op -eq 'blocked')
+        $transferred = @($results | Where-Object { @($_.Versions).Count -gt 0 }).Count -gt 0
         if ($blocked.Count -gt 0) {
-            Write-Host ("Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')) -ForegroundColor Yellow
+            $line = "Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')
+            if ($mergeFailed) { $line += ' Злиття в основну гілку теж не вдалось (код виходу 2) — див. повідомлення вище.' }
+            Write-Host $line -ForegroundColor Yellow
         } elseif ($mergeFailed) {
-            # Злиття впало (код виходу 2): версії перенесено в дзеркало, але в основну гілку вони не потрапили —
-            # «Готово» було б хибним успіхом.
-            Write-Host 'Дзеркала оновлено, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
+            # Злиття впало (код виходу 2). «Готово» було б хибним успіхом; «Дзеркала оновлено» — лише коли цього
+            # запуску справді було що переносити (на гілці «нових версій немає» дзеркало не змінювалось).
+            if ($transferred) {
+                Write-Host 'Дзеркала оновлено, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
+            } else {
+                Write-Host 'Нових версій не було, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
+            }
         } elseif ($completed) {
             Write-Host 'Готово.' -ForegroundColor Green
         }
