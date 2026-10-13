@@ -192,7 +192,8 @@ origin/<гілка>` для поточної гілки. Інакше — сві
   - `basePath` — всередині елемента `source-set`;
   - `infobase:` — стара форма бази агента (див. нижче);
   - `infobases` у закоміченому `v8project.yaml` (його місце — гітігнорований `v8project.local.yaml`),
-    а в `v8project.local.yaml` — ключ `infobases`, відмінний від `origin`, і `origin` без `connection`;
+    а в `v8project.local.yaml` — `infobases`, що не є мапою; будь-який ключ усередині `infobases`,
+    крім `origin`; і `origin` без `connection`;
   - у закоміченому `v8project.yaml` — відсутні `providers` або `providers.push`/`pull`/`download`,
     відмінні від `designer`: вони обов'язкові;
 - база агента — лише `infobases.origin` у гітігнорованому `v8project.local.yaml` (з `user` і
