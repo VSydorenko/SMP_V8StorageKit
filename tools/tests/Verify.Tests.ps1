@@ -668,6 +668,19 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         # F9: прибрати фейковий Configuration.xml з main — інакше перше злиття дзеркала дасть add/add-конфлікт.
         git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
         git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS; дерево джерела порожнє до першого sync'
+
+        # У житті цю базу створює Уніка (спека §3 рішення 4: vendor-власник — дерево придатне або .dt); у тестах kit Уніки немає, тож передумову готує тест.
+        # До створення: справжній provision на цій фікстурі зупиняється з рецептом «власника немає» й бази не створює.
+        $stop = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'SMP_BankExchange_SMB', '-Apply')
+        $stop.ExitCode | Should -Not -Be 0 -Because $stop.Output
+        $stop.Output | Should -BeLike '*бракує власника*' -Because $stop.Output
+        # Виклик production-хелпера, яким provision створює порожню файлову базу (ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1,
+        # тож guard П25 Assert-SafeWorkPath проходить як у житті), без відтворення його логіки.
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
+        $null = New-V8FileInfobase -Path (Join-Path $agentWork 'ib') -MustBeUnder $agentWork -RepoRoot $script:Repo -OwnedRoot $agentWork
+        Join-Path $agentWork 'ib/1Cv8.1CD' | Should -Exist
         function script:Run { param([string[]]$Arguments) $out = & pwsh -NoProfile -File $script:Kit @Arguments -RepoRoot $script:Repo 2>&1 | Out-String; [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
         function script:Complete-Authors {
             param([string]$Output)
