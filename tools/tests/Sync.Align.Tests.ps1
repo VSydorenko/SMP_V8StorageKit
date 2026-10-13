@@ -86,6 +86,40 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $r.AlignSteps[0].Op | Should -Be 'push'
         $r.AlignSteps[0].Steps[0] | Should -BeLike '*"op":"push"*"force":true*'
     }
+    It 'HEAD рухається між порівнянням дерев і перевіркою чистоти (коміт зі зміною набору) — push, не pull' {
+        $repo = New-AlignRepo -Name 'race-tree'
+        $script:RaceRepo = $repo; $script:RaceDone = $false
+        # Справжню Test-KitSetTreeEqual кличе той самий мок (порівняння рахується насправді), а вже після неї
+        # лягає чужий коміт: HEAD зсунувся, копія стала чистою, дерево виміряно старе.
+        Mock -ModuleName sync Test-KitSetTreeEqual {
+            $real = & (Get-Module UnicaStep) { param($r, $p, $l, $rt) Test-KitSetTreeEqual -RepoRoot $r -RepoPath $p -Left $l -Right $rt } $RepoRoot $RepoPath $Left $Right
+            if (-not $script:RaceDone) {
+                $script:RaceDone = $true
+                Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- чужий коміт -->'
+                git -C $script:RaceRepo commit -qam 'чужий коміт між порівнянням і чистотою'
+            }
+            $real
+        }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $script:RaceDone | Should -BeTrue
+        $r.AlignSteps[0].Op | Should -Be 'push'
+    }
+    It 'HEAD рухається між перевіркою чистоти і перевіркою HEAD — push, не pull' {
+        $repo = New-AlignRepo -Name 'race-clean'
+        $script:RaceRepo = $repo; $script:RaceDone = $false
+        Mock -ModuleName sync Test-KitSetClean {
+            $real = & (Get-Module UnicaStep) { param($r, $p) Test-KitSetClean -RepoRoot $r -RepoPath $p } $RepoRoot $RepoPath
+            if (-not $script:RaceDone) {
+                $script:RaceDone = $true
+                Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- коміт після чистоти -->'
+                git -C $script:RaceRepo commit -qam 'коміт між чистотою і перевіркою HEAD'
+            }
+            $real
+        }
+        $r = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true
+        $script:RaceDone | Should -BeTrue
+        $r.AlignSteps[0].Op | Should -Be 'push'
+    }
     It 'невідстежуваний файл у наборі — злиття відмовляє, крок push (не pull, Review Focus 3)' {
         $repo = New-AlignRepo -Name 'dirty'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Новая.xml') -Value 'x' -Encoding UTF8

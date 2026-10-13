@@ -614,10 +614,18 @@ function Invoke-KitSync {
                 # зламаний індекс, збій git) — fail-closed. Тут це не зупинка (спека 3129c0d, П24): версії
                 # вже перенесено й злито, агентові потрібен крок, а push force нічого в дереві не стирає.
                 # Критерій = $false, далі звичайний Get-KitAlignStep (за поставки missing/stale — blocked).
+                # HEAD читається в sha ОДИН раз (після злиття): дерево порівнюється з цього sha, а збіг sha з
+                # поточним HEAD перевіряється ОСТАННІМ (спека 2026-10-11, «вимір і критерій на одному sha», як у
+                # verify). Інакше коміт іншого агента між вимірами зсунув би HEAD, копія стала б чистою, а pull
+                # повернув би набір до дзеркала поверх щойно закоміченого.
                 try {
+                    $headRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', 'HEAD^{commit}')
+                    if ($headRes.ExitCode -ne 0) { throw 'HEAD не вказує на коміт — критерій pull не обчислюється.' }
+                    $headSha = $headRes.Stdout.Trim()
                     $criterion = (-not $lastViaAlt) -and
-                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left 'HEAD' -Right $src.Branch) -and
-                                 (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath)
+                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left $headSha -Right $src.Branch) -and
+                                 (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
+                                 (Test-KitRefIsHead -RepoRoot $root -Ref $headSha)
                 } catch {
                     $criterion = $false
                     Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
