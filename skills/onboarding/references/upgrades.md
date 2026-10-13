@@ -185,8 +185,16 @@ origin/<гілка>` для поточної гілки. Інакше — сві
 
 **Що змінилось.** Kit говорить лише мовою Уніки 0.13 (v8-runner 0.14) і читає лише її конфіг —
 сумісного режиму з Унікою 0.12 немає:
-- `v8project.yaml` без `builder`, `execution_timeout`, `partialLoadThreshold`, `basePath` і з
-  обов'язковими `providers` (`push`, `pull`, `download` — `designer`);
+- `kit check` відхиляє в `v8project.yaml` і `v8project.local.yaml` воркспейсу рівно такі ключі
+  (вкладений `tests.execution_timeout_seconds` дозволений):
+  - на верхньому рівні — `builder`, `execution_timeout`, `execution_timeout_seconds`, `basePath`;
+  - `partialLoadThreshold` — лише під `push:` і під `build:`;
+  - `basePath` — всередині елемента `source-set`;
+  - `infobase:` — стара форма бази агента (див. нижче);
+  - `infobases` у закоміченому `v8project.yaml` (його місце — гітігнорований `v8project.local.yaml`),
+    а в `v8project.local.yaml` — ключ `infobases`, відмінний від `origin`, і `origin` без `connection`;
+  - у закоміченому `v8project.yaml` — відсутні `providers` або `providers.push`/`pull`/`download`,
+    відмінні від `designer`: вони обов'язкові;
 - база агента — лише `infobases.origin` у гітігнорованому `v8project.local.yaml` (з `user` і
   `password`; для нової серверної — `dbms` і `cluster`). Стара `infobase:` у будь-якому з двох
   файлів — помилка `kit check` і зупинка кожної команди. Це політика kit (одна форма), а не відмова
@@ -221,8 +229,10 @@ origin/<гілка>` для поточної гілки. Інакше — сві
    з версією 0.13.x без зауважень.
 3. `kit check -RepoRoot .` — перелік застарілого: кожна знахідка конфігу називає файл і рецепт.
 4. Для кожного воркспейсу:
-   - у `<ws>/v8project.yaml` видалити рядки `builder`, `execution_timeout` (і `partialLoadThreshold`,
-     `basePath`, якщо є), прибрати блок `infobase:` (запам'ятати його `connection` і `user`) і додати —
+   - у `<ws>/v8project.yaml` видалити ключі з переліку вище, що трапилися (`builder`,
+     `execution_timeout`, `execution_timeout_seconds`, `basePath` на верхньому рівні; `basePath` у
+     наборах `source-set`; `partialLoadThreshold` під `push:`/`build:`), прибрати блок `infobase:`
+     (запам'ятати його `connection` і `user`) і додати `providers` —
      **у кожен воркспейс, зокрема воркспейс зовнішніх обробок**:
      ```yaml
      providers:
@@ -237,9 +247,12 @@ origin/<гілка>` для поточної гілки. Інакше — сві
      infobases:
        origin:
          connection: 'File=build/ib'
+         user: '<користувач з прибраного infobase:>'
      ```
-     для серверної — `connection: 'Srvr=…;Ref=…;'`, `user`, `password`. Старий блок `infobase:` з
-     цього файлу — прибрати.
+     для серверної — `connection: 'Srvr=…;Ref=…;'` і той самий `user`, плюс `password`, якщо база
+     його вимагає. Старий блок `infobase:` з цього файлу — прибрати.
+   - **у воркспейсі зовнішніх обробок** `infobase:` теж прибрати з обох файлів (бази агента там
+     немає, `infobases.origin` не потрібен): інакше `kit check` кроку 6 впаде й на ньому.
 5. `.claude/settings.json` і розділи `CLAUDE.md` про Уніку — з шаблонів плагіна
    (`templates/settings.json`, `templates/CLAUDE.md`): дозволи на інструменти Уніки 0.13.
 6. `kit check -RepoRoot .` — помилок немає.
@@ -249,12 +262,13 @@ origin/<гілка>` для поточної гілки. Інакше — сві
    `unica.run {"op":"push","args":{"sourceSet":"<набір>","force":true},"dryRun":true}`, потім з
    `"dryRun":false`. Пам'ять раннера 0.5.1 не переноситься; перше завантаження й так повне.
    Набір `CONFIGURATION` з поставкою вендора без `.cf` (`kit check` попереджає «поставка вендора
-   відсутня/застаріла») — **не** `push`: спершу рецепт поставки з `v8storagekit:onboarding`
-   (рецепт (ii)), бо повне завантаження без `.cf` впаде.
+   відсутня/застаріла») — **не** `push`: спершу рецепт поставки з `v8storagekit:onboarding` —
+   «відсутня» лікує рецепт (ii), «застаріла» — рецепт (iii), обидва лише на головній гілці, бо
+   повне завантаження без `.cf` впаде.
 8. Записати `kitVersion: 1.5.0` у `v8storagekit.yaml` і закомітити разом із `v8project.yaml`
    воркспейсів, `.claude/settings.json` і `CLAUDE.md` — явним переліком шляхів, з погодження людини.
 
-**Чого очікувати у виводі.** До кроку 4 — помилки `kit check` на ключах `builder`/`infobase:`/
+**Чого очікувати у виводі.** До кроку 4 — помилки `kit check` на ключах з переліку вище, на `infobase:` і на
 відсутніх `providers` і зупинка будь-якої іншої команди kit з тими самими текстами. Після кроку 4 на
 свіжій машині без `v8project.local.yaml` — попередження «База агента … не налаштована»: його знімає
 `v8storagekit:provision`.
