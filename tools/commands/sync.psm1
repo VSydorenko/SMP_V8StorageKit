@@ -557,91 +557,103 @@ function Invoke-KitSync {
 
             $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
             $done  = [System.Collections.Generic.List[int]]::new()
-            # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
-            # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
-            # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
-            # — ВСЕРЕДИНІ try (рев'ю Task 1, Important #1): якщо прив'язка впаде, worktree все одно
-            # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
-            $bound = $false
-            try {
-                $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -V8Path $v8Path -User $ibUser
-                foreach ($v in $pending) {
-                    $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
-                    Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
-
-                    # Зупинка спеки 1.3.1 §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
-                    # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
-                    # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
-                    # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
-                    $msgArgs = @{}
-                    try {
-                        if ($hasFor -and $v.Version -eq $ForVersion) {
-                            # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
-                            $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
-                                -V8Path $v8Path -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
-                            $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
-                            $dumpedVia = $DumpPlatform
-                        } else {
-                            $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -V8Path $v8Path -User $ibUser -Password $ibPassword
-                        }
-                    } catch {
-                        if (Test-KitDumpFailure -ErrorRecord $_) {
-                            $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
-                            $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
-                            throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
-                        }
-                        throw
-                    }
-                    if ($hasSkip -and -not $skipNoted) { $msgArgs.SkippedVersion = @([int]$SkipVersion); $skipNoted = $true }
-
-                    $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
-                    $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
-                        -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
-                    if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
-                    $done.Add($v.Version)
-                }
-            } finally {
-                Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -V8Path $v8Path -User $ibUser
-                Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
-            }
-            Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
-
-            $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
-            if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-                Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
-            }
-
-            # Контракт спеки 2026-09-17 §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента — це
-            # оголошена поведінка. Після неї пам'ять покоління раннера (v8-runner 0.14) розходиться з базою,
-            # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
-            # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
-            if ($fallback) {
-                Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
-                    "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
-            } else {
-                Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
-                    $agent.Workspace, $done[-1]) -ForegroundColor Yellow
-            }
-
-            $merged = $false
-            if ($wt.Created -or $MergeMain) {
-                $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
-                if (-not $merged) { $mergeFailed = $true }
-            }
-
-            # Крок вирівнювання (спека 2026-11-19 §3.1, §4.2 п.7): завжди push force, без критерію рівності дерев і
-            # чистоти — pull з кроку зник. OnMainBranch лише обирає варіант рецепту зупинки поставки: поточна гілка =
-            # головна. Збій git тут не зупинка (версії вже перенесено й злито): невідоме трактується як «не головна»,
-            # тобто консервативний рецепт «спершу поставка на головній гілці».
             $alignStep = $null
-            if (-not $fallback -and $done.Count -gt 0) {
-                try { $onMain = ((Get-KitCurrentBranch -RepoRoot $root) -eq $Context.MainBranch) } catch { $onMain = $false }
-                $alignStep = Get-KitAlignStep -Source $src -OnMainBranch $onMain -MainBranch $Context.MainBranch
-                Write-KitAlignStep -Step $alignStep
-                $alignSteps.Add($alignStep)
+            $shifted = $false
+            try {
+                # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
+                # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
+                # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
+                # — ВСЕРЕДИНІ try (рев'ю Task 1, Important #1): якщо прив'язка впаде, worktree все одно
+                # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
+                $bound = $false
+                try {
+                    $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -V8Path $v8Path -User $ibUser
+                    foreach ($v in $pending) {
+                        $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
+                        Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
+
+                        # Зупинка спеки 1.3.1 §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
+                        # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
+                        # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
+                        # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
+                        $msgArgs = @{}
+                        # Від цього місця база агента може тримати версію сховища (UpdateCfg усередині виклику).
+                        $shifted = $true
+                        try {
+                            if ($hasFor -and $v.Version -eq $ForVersion) {
+                                # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
+                                $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
+                                    -V8Path $v8Path -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
+                                $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
+                                $dumpedVia = $DumpPlatform
+                            } else {
+                                $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
+                                    -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -V8Path $v8Path -User $ibUser -Password $ibPassword
+                            }
+                        } catch {
+                            if (Test-KitDumpFailure -ErrorRecord $_) {
+                                $lastCommitted = if ($done.Count -gt 0) { $done[$done.Count - 1] } else { $last }
+                                $pendingSkip = if ($hasSkip -and -not $skipNoted) { [int]$SkipVersion } else { $null }
+                                throw (New-KitDumpStopMessage -Source $src -ErrorRecord $_ -LastCommitted $lastCommitted -PendingSkip $pendingSkip)
+                            }
+                            throw
+                        }
+                        if ($hasSkip -and -not $skipNoted) { $msgArgs.SkippedVersion = @([int]$SkipVersion); $skipNoted = $true }
+
+                        $message = New-KitStorageCommitMessage -Version $v -SourceKey $src.Key -SourceType $src.Type @msgArgs
+                        $commit = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath $src.RepoPath -Message $message `
+                            -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
+                        if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
+                        $done.Add($v.Version)
+                    }
+                } finally {
+                    Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -V8Path $v8Path -User $ibUser
+                    Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
+                }
+                Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
+
+                $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
+                if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
+                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+                }
+
+                # Контракт спеки 2026-09-17 §4: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента — це
+                # оголошена поведінка. Після неї пам'ять покоління раннера (v8-runner 0.14) розходиться з базою,
+                # і push Уніки відмовить; тому sync закінчується одним точним кроком вирівнювання (спека
+                # 2026-10-11 §4.1). Запасний шлях базу агента не чіпав — вирівнювати нічого.
+                if ($fallback) {
+                    Write-Host ("База агента не змінювалась (запасний шлях). Далі: злиття дзеркала → push Уніки з `"force`":true для цього розширення " +
+                        "(його ще немає в пам'яті раннера; звичайний push відповів би no_memory) — розширення з'явиться в базі агента.") -ForegroundColor Yellow
+                } else {
+                    Write-Host ("База агента воркспейсу '{0}' тепер містить версію {1} зі сховища — це контракт sync, не збій." -f `
+                        $agent.Workspace, $done[-1]) -ForegroundColor Yellow
+                }
+
+                $merged = $false
+                if ($wt.Created -or $MergeMain) {
+                    $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into
+                    if (-not $merged) { $mergeFailed = $true }
+                }
+
+        } finally {
+            # Крок для КОЖНОГО зсунутого набору (спека 2026-11-19 §3.1, «Виміряно А4»): набір зсунутий, щойно почалось
+            # перше оновлення бази агента зі сховища ($shifted), а не за кількістю перенесених версій — UpdateCfg міг
+            # пройти, а дамп після нього впасти. Крок друкується й тоді, коли обробка джерела кинула виняток (запис
+            # версії, зняття прив'язки): без нього база тримала б версію сховища, а git — іншу. Виняток летить далі
+            # незмінним; крок — до фінального finally з рядками ЗУПИНКА. Запасний шлях базу агента не чіпав.
+            # OnMainBranch лише обирає варіант рецепту зупинки поставки.
+            if ($shifted -and -not $fallback) {
+                try {
+                    $onMain = Test-KitOnMainBranch -RepoRoot $root -MainBranch $Context.MainBranch
+                    $alignStep = Get-KitAlignStep -Source $src -OnMainBranch $onMain -MainBranch $Context.MainBranch
+                    Write-KitAlignStep -Step $alignStep
+                    $alignSteps.Add($alignStep)
+                } catch {
+                    Write-Host "  Крок вирівнювання для '$($src.Key)' не обчислено: $($_.Exception.Message) — база агента зрушена; вирівняйте її вручну (push force:true цього набору)." -ForegroundColor Red
+                }
             }
+        }
             $results.Add([pscustomobject]@{ Key = $src.Key; Versions = $done.ToArray(); Branch = $src.Branch; MergedIntoMain = $merged; Fallback = $fallback; DumpedVia = $dumpedVia; Skipped = [int[]]@(if ($hasSkip) { [int]$SkipVersion }); AlignStep = $alignStep })
         }
         $completed = $true

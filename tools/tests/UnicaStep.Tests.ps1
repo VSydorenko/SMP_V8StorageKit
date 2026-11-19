@@ -65,6 +65,19 @@ Describe 'Get-KitCurrentBranch — поточна гілка на справжн
         try { Get-KitCurrentBranch -RepoRoot $script:Repo | Should -BeExactly '' }
         finally { git -C $script:Repo checkout -q main }
     }
+    It 'Test-KitOnMainBranch: регістр має значення (Main ≠ main), гілка задачі, від''єднаний HEAD і не репозиторій — $false' {
+        Test-KitOnMainBranch -RepoRoot $script:Repo -MainBranch 'main' | Should -BeTrue -Because 'контроль: збіг імені дає $true'
+        Test-KitOnMainBranch -RepoRoot $script:Repo -MainBranch 'Main' | Should -BeFalse -Because 'git розрізняє регістр гілок; -eq дав би $true'
+        git -C $script:Repo checkout -q -b feature/y
+        try { Test-KitOnMainBranch -RepoRoot $script:Repo -MainBranch 'main' | Should -BeFalse }
+        finally { git -C $script:Repo checkout -q main }
+        git -C $script:Repo checkout -q --detach
+        try { Test-KitOnMainBranch -RepoRoot $script:Repo -MainBranch 'main' | Should -BeFalse }
+        finally { git -C $script:Repo checkout -q main }
+        $notRepo = Join-Path $TestDrive 'not-a-repo2'
+        New-Item -ItemType Directory -Path $notRepo -Force | Out-Null
+        Test-KitOnMainBranch -RepoRoot $notRepo -MainBranch 'main' | Should -BeFalse
+    }
     It 'не репозиторій — виняток, а не порожній рядок (його б прочитали як «не головна»)' {
         $notRepo = Join-Path $TestDrive 'not-a-repo'
         New-Item -ItemType Directory -Path $notRepo -Force | Out-Null
@@ -103,19 +116,19 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
         @{ Type = 'CONFIGURATION'; Supply = 'stale';   Main = $true;  Op = 'blocked' }
         @{ Type = 'CONFIGURATION'; Supply = 'stale';   Main = $false; Op = 'blocked' }
     ) {
-        $s = Get-KitAlignStep -Source (New-Set -Type $Type -Supply $Supply) -OnMainBranch $Main
+        $s = Get-KitAlignStep -Source (New-Set -Type $Type -Supply $Supply) -OnMainBranch $Main -MainBranch 'main'
         $s.Op | Should -Be $Op
         $s.PSObject.Properties.Name | Should -Not -Contain 'BaseKind'
         $s.PSObject.Properties.Name | Should -Not -Contain 'MarkerOnly'
     }
     It 'push: рівно один крок, force:true, без extension навіть для розширення (Уніка не приймає його в push)' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none' -Key 'Alpha_SMB') -OnMainBranch $true
+        $s = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none' -Key 'Alpha_SMB') -OnMainBranch $true -MainBranch 'main'
         @($s.Steps) | Should -HaveCount 1
         $s.Steps[0] | Should -BeExactly 'unica.run {"op":"push","args":{"sourceSet":"Alpha_SMB","force":true},"dryRun":true}'
         $s.Recipe | Should -BeNullOrEmpty
     }
     It 'blocked, головна гілка: кроків немає, рецепт — повний pull і supply-marker, без push' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'stale') -OnMainBranch $true
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'stale') -OnMainBranch $true -MainBranch 'main'
         @($s.Steps) | Should -HaveCount 0
         $s.Recipe | Should -BeLike '*"op":"pull"*"sourceSet":"base"*"force":true*kit supply-marker -Workspace Ws -Source base -Apply*'
         $s.Recipe | Should -Not -BeLike '*"op":"push"*'
@@ -123,7 +136,7 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
         $s.Recipe | Should -BeLike '*supply-marker*push force не потрібен*' -Because 'після позначки поставки рецепт прямо каже, що push force не потрібен'
     }
     It 'blocked, гілка задачі: «спершу поставка на головній гілці», без pull і supply-marker' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $false
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $false -MainBranch 'main'
         $s.Recipe | Should -BeLike '*спершу поставка на головній гілці*'
         $s.Recipe | Should -Not -BeLike '*"op":"pull"*'
         $s.Recipe | Should -Not -BeLike '*supply-marker*'
@@ -133,7 +146,7 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
         $s.Recipe | Should -BeLike '*на гілці trunk*'
     }
     It 'єдине джерело тексту: Recipe зупинки і знахідка check діляться розрізняльною фразою з Get-KitSupplyRecipe' {
-        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $true
+        $s = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $true -MainBranch 'main'
         $c = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose check -OnMainBranch $true
         $s.Recipe | Should -BeLike '*Відновлення поставки вендора: на гілці main*'
         $c | Should -BeLike '*Відновлення поставки вендора: на гілці main*'
@@ -143,15 +156,15 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
     }
     It 'стан поставки не обчислився — blocked (не push), рядок причини, Supply = unknown' {
         Mock -ModuleName UnicaStep Get-KitSupplyState { throw 'збій читання поставки' }
-        $out = & { $script:S = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'none') -OnMainBranch $true } 6>&1 | Out-String
+        $out = & { $script:S = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'none') -OnMainBranch $true -MainBranch 'main' } 6>&1 | Out-String
         $script:S.Op | Should -Be 'blocked'
         $script:S.Supply | Should -Be 'unknown'
         $out | Should -BeLike '*стан поставки не обчислено: збій читання поставки*'
         $script:S.Recipe | Should -BeLike '*стан поставки вендора не обчислено*supply-marker*'
     }
     It 'Write-KitAlignStep мовчить про blocked; Write-KitAlignStops друкує ЗУПИНКА лише для blocked' {
-        $b = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $true
-        $p = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -OnMainBranch $true
+        $b = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'missing') -OnMainBranch $true -MainBranch 'main'
+        $p = Get-KitAlignStep -Source (New-Set -Type 'EXTENSION' -Supply 'none') -OnMainBranch $true -MainBranch 'main'
         (& { Write-KitAlignStep -Step $b } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
         $out = & { Write-KitAlignStops -Steps @($p, $b) } 6>&1 | Out-String
         @($out -split "`r?`n" | Where-Object { $_ -like '*ЗУПИНКА:*' }) | Should -HaveCount 1
@@ -159,7 +172,7 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
         (& { Write-KitAlignStops -Steps @() } 6>&1 | Out-String).Trim() | Should -BeNullOrEmpty
     }
     It 'Write-KitAlignStep друкує push і застереження: питання Уніки очікуване, лише інтерактивна сесія, cancelled — зупинка' {
-        $p = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'current') -OnMainBranch $true
+        $p = Get-KitAlignStep -Source (New-Set -Type 'CONFIGURATION' -Supply 'current') -OnMainBranch $true -MainBranch 'main'
         $out = & { Write-KitAlignStep -Step $p } 6>&1 | Out-String
         $out | Should -Match ([regex]::Escape('"op":"push"'))
         $out | Should -BeLike '*Уніка спитає людину про перезапис бази origin*'

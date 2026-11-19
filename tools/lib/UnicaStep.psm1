@@ -66,8 +66,8 @@ function Get-KitAlignStep {
     param(
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][bool]$OnMainBranch,
-        # Ім'я головної гілки для тексту рецепту; викликач передає Context.MainBranch (типове — як у Preflight).
-        [string]$MainBranch = 'main'
+        # Ім'я головної гілки для тексту рецепту; викликач передає Context.MainBranch (без мовчазного типового).
+        [Parameter(Mandatory)][string]$MainBranch
     )
 
     $set = $Source.Key

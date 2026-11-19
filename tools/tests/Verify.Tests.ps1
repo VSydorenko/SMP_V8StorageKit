@@ -331,6 +331,17 @@ Describe 'kit verify — мок платформного шару: щаслив�
             # Той самий крок — і в елементі Results (споживачі читають його звідти).
             $script:R.Results[0].AlignStep | Should -Be $script:R.AlignSteps[0]
         }
+        It 'лічильник дерева кидає виняток ПІСЛЯ checkout — крок push усе одно надруковано, виняток летить далі' {
+            $repo = New-AlignVerifyRepo -Name 'al-throw' -Merge
+            Mock -ModuleName verify Get-KitRelativeFiles { @() }
+            $h = @{}
+            $text = & {
+                try { Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' | Out-Null }
+                catch { $h.Err = $_.Exception.Message }
+            } 6>&1 | Out-String
+            $h.Err | Should -BeLike '*втратила шляхи*' -Because 'оригінальний виняток не проковтнуто'
+            @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' }) | Should -HaveCount 1
+        }
         It 'крок не залежить від -Ref і вердикту: -Ref = дзеркало (не HEAD) — теж push force' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'al-ref') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
             $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'

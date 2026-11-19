@@ -95,6 +95,21 @@ function Get-KitCurrentBranch {
     $r.Stdout.Trim()
 }
 
+function Test-KitOnMainBranch {
+    <#
+    .SYNOPSIS
+        Чи поточна гілка — головна: єдина копія умови для sync, verify і check (вибір варіанта рецепту поставки).
+    .DESCRIPTION
+        Порівняння ЧУТЛИВЕ до регістру (-ceq): гілки git розрізняють регістр, і `Main` на гілці задачі не мусить
+        показати рецепт головної (з pull). Від'єднаний HEAD (порожнє ім'я) і збій git дають $false — консервативний
+        варіант «спершу поставка на головній гілці».
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$MainBranch)
+    try { $current = Get-KitCurrentBranch -RepoRoot $RepoRoot } catch { return $false }
+    ($current -ne '') -and ($current -ceq $MainBranch)
+}
+
 function Export-KitTree {
     <#
     .SYNOPSIS
@@ -357,4 +372,4 @@ function Compare-KitTrees {
     }
 }
 
-Export-ModuleMember -Function Invoke-KitGitProcess, Get-KitCurrentBranch, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
+Export-ModuleMember -Function Invoke-KitGitProcess, Get-KitCurrentBranch, Test-KitOnMainBranch, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees

@@ -64,6 +64,20 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         @($h.R.AlignSteps) | Should -HaveCount 2
         $h.R.AlignSteps.Op | Should -Not -Contain 'blocked'
     }
+    It 'виняток після успішного оновлення бази (запис версії впав) — крок push усе одно надруковано, виняток летить далі' {
+        $repo = New-AlignRepo -Name 'throw-after-shift'
+        Mock -ModuleName sync Write-KitStorageVersion { throw 'збій запису версії' }
+        $h = @{}
+        $text = & {
+            try { Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true | Out-Null }
+            catch { $h.Err = $_.Exception.Message }
+        } 6>&1 | Out-String
+        $h.Err | Should -BeLike '*збій запису версії*' -Because 'оригінальний виняток не проковтнуто'
+        $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' })
+        $lines | Should -HaveCount 1
+        $lines[0] | Should -BeLike '*"sourceSet":"Alpha_SMB"*"force":true*'
+        $text | Should -Not -BeLike '*Готово.*'
+    }
     It 'злиття відмовило — код виходу 2, підсумок не каже «Готово»' {
         $repo = New-AlignRepo -Name 'merge-fail'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Новая.xml') -Value 'x' -Encoding UTF8
@@ -154,6 +168,19 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
             $text | Should -Not -BeLike '*unica.run {"op":"push"*'
             @($text -split "`r?`n" | Where-Object { $_.Trim() })[-1] | Should -BeLike 'ЗУПИНКА:*'
             $text | Should -Not -BeLike '*Готово.*'
+        }
+        It 'виняток після успішного оновлення бази + поставка missing — ЗУПИНКА надрукована останньою, виняток летить далі' {
+            $script:MockContent = New-KitFakeConfigurationXml -Name 'base'
+            $repo = New-SupplyMissingRepo -Name 'sup-throw'
+            Mock -ModuleName sync Write-KitStorageVersion { throw 'збій запису версії' }
+            $h = @{}
+            $text = & {
+                try { Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true | Out-Null }
+                catch { $h.Err = $_.Exception.Message }
+            } 6>&1 | Out-String
+            $h.Err | Should -BeLike '*збій запису версії*'
+            $text | Should -Not -BeLike '*unica.run {"op":"push"*'
+            @($text -split "`r?`n" | Where-Object { $_.Trim() })[-1] | Should -BeLike 'ЗУПИНКА:*supply-marker*'
         }
         It 'на гілці задачі: blocked, рецепт «спершу поставка на головній гілці», без pull' {
             $script:MockContent = New-KitFakeConfigurationXml -Name 'base'
