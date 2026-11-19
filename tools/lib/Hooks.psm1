@@ -10,9 +10,8 @@ $script:DefaultTemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScript
 function Get-KitHookNames {
     [CmdletBinding()]
     param()
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap: усі виклики загортають результат у @(...), а @() поверх коми бачить один
+    # елемент — вкладений масив.
     $script:HookNames
 }
 
@@ -50,9 +49,7 @@ function Install-KitGitHooks {
     }
     $out = git -C $RepoRoot config core.hooksPath $script:HooksDirName 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git config core.hooksPath завершився з кодом ${LASTEXITCODE}: $out" }
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap — як у Get-KitHookNames.
     $installed.ToArray()
 }
 
@@ -80,11 +77,7 @@ function Test-KitGitHooks {
     foreach ($name in $script:HookNames) {
         $installedPath = Join-Path $RepoRoot $script:HooksDirName $name
         if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
-            # Правка H1 (фінальне рев'ю, живий онбординг з нуля) — старе повідомлення казало
-            # ЧОГО бракує, і не казало, ДЕ взяти файл: контраст із сусідніми повідомленнями
-            # check (маніфест — templates/v8storagekit.yaml.example, .gitignore —
-            # templates/gitignore) різкий, і саме на це вперся живий прогін. Джерело — і
-            # другий крок (core.hooksPath) — тепер названо явно.
+            # Повідомлення каже не лише ЧОГО бракує, а й ДЕ взяти файл і другий крок (core.hooksPath).
             $findings.Add((New-KitFinding -Level error -Check 'hooks' -Message (
                 "Хука $script:HooksDirName/$name немає — гілки storage/* не захищені від ручного коміту. " +
                 "Скопіюйте його з templates/githooks/ у теці плагіна (знайти теку: claude plugin list, або " +
@@ -107,10 +100,7 @@ function Test-KitGitHooks {
         # коміт у storage/* на такому клоні пройде повз захист. Питаємо саме git, а не
         # файлову систему: на Windows core.filemode = false, і те, що бачить ФС, не має
         # стосунку до режиму, який git запише в дерево майбутнього клону.
-        # -c core.quotepath=false — уніфіковано з усіма git-викликами, що читають чи
-        # друкують шляхи. Цей шлях ASCII за побудовою (.githooks/pre-commit тощо), але
-        # правило — kit форсує конфігурацію git за виклик завжди, щоб ніхто надалі не
-        # мусив розбиратись по кожному виклику окремо, чи шлях бува не non-ASCII.
+        # -c core.quotepath=false — правило kit на кожен git-виклик зі шляхами, навіть ASCII.
         $tracked = git -c core.quotepath=false -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
         $trackedLine = (@($tracked) -join "`n").Trim()
@@ -121,7 +111,7 @@ function Test-KitGitHooks {
                     "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
                     "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
             }
-            # #16: git commit --only <шляхи> НЕ бере індекс — перечитує файл із диска, і на Windows
+            # git commit --only <шляхи> НЕ бере індекс — перечитує файл із диска, і на Windows
             # (core.filemode=false) пише 100644, хоч в індексі лишається 100755. Індекс тоді бреше
             # про те, що отримає клон, — питаємо сам коміт.
             if ($Matches.mode -eq '100755') {
@@ -134,13 +124,9 @@ function Test-KitGitHooks {
                 }
             }
         } else {
-            # S2 (живий прогін задачі 11) — порожній вивід git ls-files -s означає, що файл
-            # не бачить ні ІНДЕКС, ні дерево: хук скопійовано на диск (Install-KitGitHooks
-            # свідомо не чіпає індекс споживача), але ще не застейджено і не закомічено.
-            # Наступний клон його не отримає, і storage/* лишиться без захисту — check про
-            # це мовчав. «Застейджено, але не закомічено» сюди НЕ потрапляє: git ls-files -s
-            # бачить індекс, і застейджений хук уже дає непорожній рядок вище (тест-доказ —
-            # Hooks.Tests.ps1, три стани хука).
+            # Порожній вивід git ls-files -s: хук є на диску, але не застейджений і не закомічений —
+            # наступний клон його не отримає. «Застейджено, але не закомічено» сюди НЕ потрапляє:
+            # ls-files -s бачить індекс (три стани хука тримає Hooks.Tests.ps1).
             $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
                 "Хук $script:HooksDirName/$name лежить на диску, але не закомічений у git — " +
                 'наступний клон його не отримає, і гілки storage/* лишаться без захисту. ' +
@@ -149,9 +135,7 @@ function Test-KitGitHooks {
         }
     }
 
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap — як у Get-KitHookNames.
     $findings.ToArray()
 }
 
@@ -163,7 +147,7 @@ function Install-KitSettings {
     .SYNOPSIS
         Кладе шаблон .claude/settings.json (дозволи), якщо файла ще немає. Наявний не чіпає.
     .DESCRIPTION
-        Хука старту сесії тут немає: з 1.6.0 його поставляє сам плагін (hooks/hooks.json),
+        Хука старту сесії тут немає: його поставляє сам плагін (hooks/hooks.json),
         а споживач не несе ні шима, ні розділу hooks у settings.json.
     #>
     [CmdletBinding()]
@@ -172,7 +156,7 @@ function Install-KitSettings {
     if (Test-Path -LiteralPath $settingsDst -PathType Leaf) { return @() }
     New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
-    # Без коми: викликачі (install-hooks) загортають у @(…) — див. F7.
+    # Без коми: викликачі (install-hooks) загортають у @(…).
     $settingsDst
 }
 
@@ -184,7 +168,7 @@ function Test-KitLegacySessionHook {
         .claude/hooks/session-start.ps1 — знаходить і радить прибрати.
     .DESCRIPTION
         Хук тепер у плагіні (hooks/hooks.json). Старий проєктний хук лишався б другим
-        екземпляром: «Стан сховищ» двічі (ішуя #42). Одна знахідка warn називає все знайдене —
+        екземпляром: «Стан сховищ» двічі. Одна знахідка warn називає все знайдене —
         і settings.json, і файл-шим, — з рецептом прибрати обидва. Нічого не знайдено — тиша.
 
         Битий settings.json — окрема warn: перевірити, чи є в ньому старий хук, неможливо, і
@@ -216,7 +200,7 @@ function Test-KitLegacySessionHook {
             "Прибрати обидва: розділ hooks.SessionStart з командою на session-start.ps1 у $script:SettingsRel і файл $script:SessionHookRel (git rm).")))
     }
 
-    # Без коми: check і тести загортають у @(…) — див. F7.
+    # Без коми: check і тести загортають у @(…).
     $findings.ToArray()
 }
 
