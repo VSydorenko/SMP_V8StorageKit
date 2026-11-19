@@ -1,0 +1,131 @@
+{
+  "ok": true,
+  "command": "platforms",
+  "duration_ms": 37,
+  "data": {
+    "installations": [
+      {
+        "version": "8.3.27.2342",
+        "root": "C:\\Program Files\\1cv8\\8.3.27.2342",
+        "components": {
+          "designer": true,
+          "thin_client": true,
+          "ibcmd": true,
+          "web_extension": true
+        }
+      },
+      {
+        "version": "8.3.27.1644",
+        "root": "C:\\Program Files\\1cv8\\8.3.27.1644",
+        "components": {
+          "designer": true,
+          "thin_client": true,
+          "ibcmd": true,
+          "web_extension": true
+        }
+      },
+      {
+        "version": "8.3.25.1445",
+        "root": "C:\\Program Files\\1cv8\\8.3.25.1445",
+        "components": {
+          "designer": true,
+          "thin_client": true,
+          "ibcmd": true,
+          "web_extension": true
+        }
+      },
+      {
+        "version": "8.3.25.1286",
+        "root": "C:\\Program Files\\1cv8\\8.3.25.1286",
+        "components": {
+          "designer": false,
+          "thin_client": false,
+          "ibcmd": false,
+          "web_extension": false
+        }
+      },
+      {
+        "version": "8.3.24.1342",
+        "root": "C:\\Program Files\\1cv8\\8.3.24.1342",
+        "components": {
+          "designer": false,
+          "thin_client": false,
+          "ibcmd": false,
+          "web_extension": false
+        }
+      },
+      {
+        "version": "8.3.23.1997",
+        "root": "C:\\Program Files\\1cv8\\8.3.23.1997",
+        "components": {
+          "designer": true,
+          "thin_client": true,
+          "ibcmd": true,
+          "web_extension": true
+        }
+      },
+      {
+        "version": "8.3.23.1865",
+        "root": "C:\\Program Files\\1cv8\\8.3.23.1865",
+        "components": {
+          "designer": false,
+          "thin_client": false,
+          "ibcmd": false,
+          "web_extension": false
+        }
+      },
+      {
+        "version": "8.3.20.1613",
+        "root": "C:\\Program Files\\1cv8\\8.3.20.1613",
+        "components": {
+          "designer": false,
+          "thin_client": false,
+          "ibcmd": false,
+          "web_extension": false
+        }
+      },
+      {
+        "version": "8.3.20.1549",
+        "root": "C:\\Program Files (x86)\\1cv8\\8.3.20.1549",
+        "components": {
+          "designer": false,
+          "thin_client": false,
+          "ibcmd": false,
+          "web_extension": false
+        }
+      }
+    ],
+    "requirement": {
+      "version": null,
+      "path": null,
+      "strict": false
+    },
+    "source_format": null,
+    "selected": {
+      "designer": {
+        "path": "C:\\Program Files\\1cv8\\8.3.27.2342\\bin\\1cv8.exe",
+        "version": "8.3.27.2342",
+        "source": "default-root",
+        "installation_root": "C:\\Program Files\\1cv8\\8.3.27.2342",
+        "chosen_by": "newest"
+      },
+      "thin_client": {
+        "path": "C:\\Program Files\\1cv8\\8.3.27.2342\\bin\\1cv8c.exe",
+        "version": "8.3.27.2342",
+        "source": "default-root",
+        "installation_root": "C:\\Program Files\\1cv8\\8.3.27.2342",
+        "chosen_by": "newest"
+      },
+      "ibcmd": {
+        "path": "C:\\Program Files\\1cv8\\8.3.27.2342\\bin\\ibcmd.exe",
+        "version": "8.3.27.2342",
+        "source": "default-root",
+        "installation_root": "C:\\Program Files\\1cv8\\8.3.27.2342",
+        "chosen_by": "newest"
+      }
+    },
+    "duration_ms": 37
+  },
+  "warnings": [],
+  "steps": []
+}

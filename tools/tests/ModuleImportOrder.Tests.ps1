@@ -28,7 +28,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',
             'Format-KitUnicaRun', 'Write-KitNextSteps', 'Test-KitSetTreeEqual', 'Test-KitSetClean', 'Test-KitRefIsHead', 'Get-KitAlignStep', 'Write-KitCriterionNotComputed', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
             'New-KitAgentBaseMissingMessage', 'Get-V8ProjectConfigProblems',
-            'Get-KitProtectedPaths', 'Find-KitProtectedCollisions', 'Find-KitAgentBaseCollisions'
+            'Get-KitProtectedPaths', 'Find-KitProtectedCollisions', 'Find-KitAgentBaseCollisions',
+            'Get-KitRunnerPath', 'Get-KitRunnerVersion', 'Invoke-KitRunner', 'Get-KitAgentPlatform', 'Invoke-KitAgentRelease'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String

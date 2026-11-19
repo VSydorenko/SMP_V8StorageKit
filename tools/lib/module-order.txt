@@ -19,7 +19,9 @@
 # звідти Get-UnicaInstallation і Get-KitUnicaVersionVerdict; UnicaStep — після Supply, TreeCompare і
 # TreeBackup (Get-KitSupplyState, Invoke-KitGitProcess, Get-KitDirtyRecords), імпортує їх вкладено
 # без -Force, як AgentBase — V8; StoragePlatform імпортує UnicaStep вкладено (Format-KitUnicaRun) —
-# для тестів, що вантажать StoragePlatform окремо. Рядки з # ігноруються.
+# для тестів, що вантажать StoragePlatform окремо; Runner — після Environment (бере
+# Get-UnicaInstallation; імпортує його вкладено без -Force, як AgentBase — V8), інших залежностей
+# немає (Unica 0.16 Task 1). Рядки з # ігноруються.
 RepoRoot
 Environment
 PathSafety
@@ -43,3 +45,4 @@ V8
 StorageReport
 StoragePlatform
 EdtPaths
+Runner

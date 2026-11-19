@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "command": "agent release",
+  "duration_ms": 6,
+  "data": {
+    "key": null,
+    "released": false,
+    "holders": [],
+    "disconnected": false,
+    "duration_ms": 6
+  },
+  "warnings": [],
+  "steps": []
+}

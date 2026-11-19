@@ -1,0 +1,15 @@
+{
+  "ok": false,
+  "command": "platforms",
+  "duration_ms": 0,
+  "data": {
+    "message": "config validation failed: no infobase is selected: `origin` is not declared in v8project.local.yaml (declared: none); pass --infobase <name|connection string> or declare infobases.origin.connection there (a new project starts with `init`). Ways out for a working copy without an infobase of its own: its own clean infobase built from the sources — `v8-runner init --infobase <connection string>`, then `v8-runner infobase create`; a copy of an infobase with its data — `v8-runner init --infobase <connection string>`, then `v8-runner infobase create --from <infobase>`; an infobase deployed from a reference image — `v8-runner init --infobase <connection string>`, then `v8-runner infobase restore --input <reference>.dt --create`"
+  },
+  "warnings": [],
+  "steps": [],
+  "error": {
+    "code": "invalid_argument",
+    "kind": "validation",
+    "message": "config validation failed: no infobase is selected: `origin` is not declared in v8project.local.yaml (declared: none); pass --infobase <name|connection string> or declare infobases.origin.connection there (a new project starts with `init`). Ways out for a working copy without an infobase of its own: its own clean infobase built from the sources — `v8-runner init --infobase <connection string>`, then `v8-runner infobase create`; a copy of an infobase with its data — `v8-runner init --infobase <connection string>`, then `v8-runner infobase create --from <infobase>`; an infobase deployed from a reference image — `v8-runner init --infobase <connection string>`, then `v8-runner infobase restore --input <reference>.dt --create`"
+  }
+}
