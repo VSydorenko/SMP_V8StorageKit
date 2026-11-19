@@ -62,6 +62,15 @@ Export-ModuleMember -Function Invoke-KitProbeCli
         $r.Out | Should -Not -Contain 'next: probe-cli need-field'
     }
 
+    It 'справжня команда процесу <Command>: невідомий параметр — код 2 і «<Command>: ERROR» першим рядком stderr' -ForEach @(
+        @{ Command = 'sdd'; Arguments = @('status', '-Nope', 'v') },
+        @{ Command = 'review-pack'; Arguments = @('HEAD', '-Nope', 'v') }
+    ) {
+        $r = Invoke-Process -Via 'bash' -Command $Command -Arguments $Arguments
+        $r.ExitCode | Should -Be 2
+        $r.Err[0] | Should -BeLike "${Command}: ERROR *"
+    }
+
     It 'відсутнє поле профілю — код 3 (не перевірено) з назвою поля, не зелений' {
         $r = Invoke-Process -Via 'bash' -Command 'probe-cli' -Arguments @('need-field')
         $r.ExitCode | Should -Be 3
