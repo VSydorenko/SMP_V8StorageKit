@@ -46,3 +46,4 @@ StorageReport
 StoragePlatform
 EdtPaths
 Runner
+KitWait
