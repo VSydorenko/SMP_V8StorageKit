@@ -46,4 +46,11 @@ StorageReport
 StoragePlatform
 EdtPaths
 Runner
+# == процес ==
+# Розділ команд процесу (sdd, review-pack, doc, pr-gate, …). tools/kit-process.ps1 імпортує ЛИШЕ
+# рядки після цього заголовка: команди процесу не тягнуть модулів сховища і не залежать від них.
+# kit.ps1 імпортує весь файл. KitCli — першим (на ньому стоять решта), KitProfile — після нього.
+# Кожна сесія дописує сюди рядки своїх модулів, у порядку залежностей.
+KitCli
+KitProfile
 KitWait

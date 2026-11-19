@@ -52,8 +52,20 @@ if (-not $Command -or $available -notcontains $Command) {
     exit 1
 }
 
+# Команди процесу (tools/commands/process-commands.txt) — свій контракт (tools/lib/KitCli.psm1:
+# 0/1/2/3, `<команда>: ERROR …`, `next:`), без префлайту сховища й маніфесту (ADR-0003), сирі
+# аргументи. Звичайний вхід для них — обгортки bin/ через tools/kit-process.ps1: тут параметри
+# диспетчера (-RepoRoot, -Workspace, -Source, -Apply) перехоплюють однойменні токени команди.
+if ((Get-KitProcessCommandNames -ToolsDir $PSScriptRoot) -contains $Command) {
+    if ($Workspace -or $Source -or $Apply) {
+        Write-KitError -Command $Command -ExitCode 2 -Message "-Workspace/-Source/-Apply тут бере диспетчер kit.ps1, а не команда процесу; клич обгортку bin/$Command (tools/kit-process.ps1)"
+        exit 2
+    }
+    exit (Invoke-KitProcessEntry -Command $Command -Arguments $CommandArgs -RepoRoot $RepoRoot -ToolsDir $PSScriptRoot)
+}
+
 Import-Module (Join-Path $commandsDir "$Command.psm1") -Force
-$functionName = 'Invoke-Kit' + ((($Command -split '-') | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '')
+$functionName ='Invoke-Kit' + ((($Command -split '-') | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '')
 if (-not (Get-Command -Name $functionName -ErrorAction SilentlyContinue)) {
     # Як і вище: не throw, код 1 — «команда не запустилась узагалі».
     Write-Host "Модуль команди commands/$Command.psm1 не експортує функцію $functionName." -ForegroundColor Red

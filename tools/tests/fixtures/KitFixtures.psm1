@@ -529,6 +529,11 @@ function Copy-KitTools {
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
+    # Вхід команд процесу і їхні обгортки (блок «процес kit», Б0): тести кличуть команди процесу
+    # тим самим шляхом, що й агент, — bin/<команда> → tools/kit-process.ps1.
+    Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit-process.ps1') -Destination (Join-Path $Root 'tools/kit-process.ps1') -Force
+    New-Item -ItemType Directory -Path (Join-Path $Root 'bin') -Force | Out-Null
+    Copy-Item -Path (Join-Path $kitRoot 'bin/*') -Destination (Join-Path $Root 'bin') -Force
     # templates/settings.json — раніше НЕ копіювали (рев'ю B4 Task 4, Minor): тоді
     # Install-KitSettings у тестах завжди викликали напряму з явним -TemplatesDir на
     # справжній $kitRoot, і копія була мертва. B5 Task 1 (kit install-hooks) це зламало:
