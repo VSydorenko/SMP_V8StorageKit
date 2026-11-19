@@ -8,8 +8,7 @@ function Invoke-KitAdopt {
     <#
     .SYNOPSIS
         Гілка задачі приймає версію сховища ЗАМІНОЮ ВМІСТУ піддерева джерела, не content-мерджем
-        (спека 2026-09-17 §5) — але ЗІ ЗЛИТТЯМ ПОРОЖНЬОГО РЕЗУЛЬТАТУ (git merge -s ours) заради
-        ancestry (фінальне рев'ю C2, Critical).
+        (§5) — але ЗІ ЗЛИТТЯМ ПОРОЖНЬОГО РЕЗУЛЬТАТУ (git merge -s ours) заради ancestry.
     .DESCRIPTION
         Сховище — істина в останній інстанції, і працює з ним лише людина: вона бере артефакт
         агента, перевіряє його в Конфігураторі, можливо бере ЧАСТИНУ механізмів і кладе у сховище
@@ -18,9 +17,8 @@ function Invoke-KitAdopt {
         свідомо не взяла, і воно поїхало б у наступний артефакт.
 
         Але ЗАМІНА ЗВИЧАЙНИМ КОМІТОМ (в одного предка) не рухає git merge-base: verify визначає
-        версію сховища саме через ancestry (Get-KitVerifyVersion, StorageBranch.psm1:556), і після
-        такої заміни бачив би СТАРУ версію на новому дереві — «розбіжності», яких нема (дефект,
-        закритий цим фіксом). Тому перед заміною вмісту команда зливає дзеркало стратегією "ours"
+        версію сховища саме через ancestry (Get-KitVerifyVersion), і після такої заміни бачив би
+        СТАРУ версію на новому дереві. Тому перед заміною вмісту команда зливає дзеркало стратегією "ours"
         (--no-commit, тоді дописує другого предка звичайним комітом): ours нічого не бере з дерева
         дзеркала — коміт лишається РІВНО тим замінним вмістом, що й раніше, а другий предок рухає
         ancestry, на якій тримається verify. Зі злиття НЕ протікає жодного вмісту за визначенням.
@@ -78,11 +76,8 @@ function Invoke-KitAdopt {
 
         $incoming = @($diff.Content) + @($diff.OnlyInDump)
         Write-Host "  Побайтово рівних: $($diff.Equal) із $($diff.Total)"
-        # CrOnly — окремим рядком, не всередині «прийде зі сховища»: причина інша, не чиясь
-        # робота, а політика тексту (той самий підпис зламаної CRLF-політики, що verify.psm1
-        # друкує для дампу проти дерева — docs/text-policy.md). Формулювання title навмисно
-        # дослівно збігається з verify.psm1, щоб дві команди одного контуру називали одне й те
-        # саме однаково (рев'ю фікс-раунду 1).
+        # CrOnly — окремим рядком: це не чиясь робота, а зламана політика тексту
+        # (docs/text-policy.md). Заголовок дослівно як у verify.psm1 — одне явище, одна назва.
         Write-KitAdoptList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
         Write-KitAdoptList -Title "прийде зі сховища ($mirror)" -Items $incoming
         Write-KitAdoptList -Title 'ЗНИКНЕ з гілки — робота, яку людина у сховище не взяла' -Items $diff.OnlyInTree -Loud
@@ -94,42 +89,32 @@ function Invoke-KitAdopt {
             continue
         }
 
-        # CrOnly входить у перевірку no-op нарівні з Incoming/OnlyInTree (рев'ю фікс-раунду 1):
-        # різниця лише в CR — не шум, а підпис зламаної політики тексту (docs/text-policy.md),
-        # і -Apply має її виправити так само, як змістовну розбіжність.
+        # CrOnly входить у перевірку no-op нарівні з Incoming/OnlyInTree: різниця лише в CR — підпис
+        # зламаної політики тексту, і -Apply має її виправити, як змістовну розбіжність.
         if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0 -and $diff.CrOnly.Count -eq 0) {
             Write-Host '  Дерево вже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
             continue
         }
 
-        # $ws — до страховки (рев'ю фікс-раунду 1, Minor): Assert-SafeWorkPath нижче тепер теж
-        # бере його межею, тому обчислення не може лишатись усередині `if ($dirty.Count -gt 0)`.
+        # $ws — поза `if ($dirty...)`: Assert-SafeWorkPath нижче бере його межею завжди.
         $ws = @($Context.Workspaces | Where-Object Path -eq $src.Workspace) | Select-Object -First 1
 
-        # Версія трейлера — ДО Remove-Item/Copy-Item/git add -A нижче, не після (фінальне рев'ю,
-        # Critical): дешевий git-виклик, і якщо вершина дзеркала без трейлера Storage-Version
-        # (гілку писав не sync), команда мусить зупинитись, поки дерево джерела ще ЦІЛЕ — не
-        # після того, як воно вже замінене й застейджене, а відкат вимагав би саме тих команд,
-        # які CLAUDE.md забороняє в спільній робочій копії (git checkout --/restore/stash/clean).
-        # Той самий принцип, що verify.psm1:69–71: усі git-перевірки — до першої руйнівної дії.
+        # Інваріант команди: усі git-перевірки — до першої руйнівної дії, поки дерево ЦІЛЕ (відкат
+        # потребував би git checkout --/restore, заборонених у спільній робочій копії). Перша —
+        # трейлер Storage-Version на вершині дзеркала.
         $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
 
-        # -text на шляху джерела — ДО першого руйнівного кроку (спека 2026-10-04 §4.1). Без нього
-        # git застосує core.autocrlf/core.safecrlf машини: за порадою ГітКонвертера (autocrlf=true,
-        # safecrlf=true) add відмовить уже ПІСЛЯ стирання дерева, з safecrlf=warn — мовчки нормалізує
-        # змішані кінці рядків платформи. Досі це ловив лише kit check.
+        # -text на шляху джерела (§4.1). Без нього git застосує core.autocrlf/safecrlf машини: з
+        # safecrlf=true add відмовить уже ПІСЛЯ стирання дерева, з warn — мовчки нормалізує кінці рядків.
         if (-not (Test-GitTextPolicy -RepoRoot $root -Path $src.RepoPath)) {
             throw ("Дерево '$($src.RepoPath)' не виведено з-під конверсії кінців рядків — adopt зупиняється до стирання дерева. " +
                    "Додайте в .gitattributes рядок '$($src.RepoPath)/** -text' окремим комітом (docs/text-policy.md) і повторіть adopt.")
         }
 
-        # Поставка вендора (спека 2026-09-30 §5.2) не має відстежуватись git — ДО будь-якого
-        # руйнівного кроку: відстежуваний .cf `add -A` застейджив би, і коміт індексу забрав би його
-        # в історію. Цей ls-files — ще й перевірка, що git читає індекс, до стирання дерева (той самий
-        # інваріант «усі git-перевірки — до першого руйнівного кроку»). Окремої проби check-ignore тут
-        # немає свідомо: на зламаних ігнор-правилах вона коду >1 не дає (виміряно, git 2.53: тека
-        # .gitignore, нечитабельний .gitignore, core.excludesFile на теку чи неіснуючий файл — 0 або 1),
-        # а після `add -A -f` нижче ігнор-правила на відмову не впливають.
+        # Поставка вендора (§5.2) не має відстежуватись git: `add -A` застейджив би .cf, і коміт
+        # забрав би його в історію. ls-files заодно перевіряє, що git читає індекс. Проби
+        # check-ignore свідомо немає: на зламаних ігнор-правилах вона коду >1 не дає, а після
+        # `add -A -f` нижче ігнор на відмову не впливає.
         $supplyRel = '{0}/{1}' -f (($src.RepoPath -replace '\\', '/').TrimEnd('/')), (Get-KitSupplyRelativePath)
         $tracked = Invoke-KitGitProcess -RepoRoot $root -Arguments @('ls-files', '--', $supplyRel)
         if ($tracked.ExitCode -ne 0) { throw "git ls-files для '$supplyRel' завершився з кодом $($tracked.ExitCode): $($tracked.Stderr)" }
@@ -149,7 +134,7 @@ function Invoke-KitAdopt {
                    "ОКРЕМИМ комітом до adopt (файли на диску лишаться): git rm -r --cached -- '$supplyRel' , потім " +
                    "git commit -m <повідомлення> (без шляхів; якщо в індексі застейджено ще щось — спершу розберіться з цим), і повторіть adopt.")
         }
-        # П24: невидима для git status робота під набором. Копія нижче її не покриває, а Clear-KitTreeExceptSupply
+        # Невидима для git status робота під набором. Копія нижче її не покриває, а Clear-KitTreeExceptSupply
         # стер би її безслідно. Зупинка — ДО першого руйнівного кроку (git reset, потім merge -s ours): після
         # початого злиття зупинка лишила б репозиторій у стані MERGE_HEAD. Збій git — виняток, не «чисто».
         $invisible = @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $src.RepoPath | ForEach-Object {
@@ -159,19 +144,12 @@ function Invoke-KitAdopt {
             throw (Format-KitInvisibleWorkStop -Command 'adopt' -Records $invisible -Backup 'adopt-backup' -Untouched 'Теку набору не чіпано, злиття не почато.')
         }
 
-        # Guard критичного рев'ю C2 (Critical, спека §5 «Чотири умови», п.1) — ДО Remove-Item,
-        # поки дерево ще ЦІЛЕ. Причина: нижче гілка задачі приймає версію сховища ЗЛИТТЯМ
-        # (git merge -s ours), щоб зрушити ancestry, на якій тримається verify
-        # (Get-KitVerifyVersion, StorageBranch.psm1:556). Коміт — в обох гілках (зі злиттям і без)
-        # БЕЗ pathspec і фіксує ВЕСЬ індекс, яким він є: партійний коміт (--only) git під час merge
-        # забороняє ("cannot do a partial commit during a merge"), а без merge він воскрешає
-        # фантом перейменування регістром (спека 2026-10-04 §4.1). Спільна
-        # робоча копія: якщо там паралельно застейджена чи просто незакомічена чужа зміна ПОЗА
-        # шляхом джерела, вона поїде в наш коміт непомітно. Зміни ВСЕРЕДИНІ $src.RepoPath —
-        # нормальні: підуть у резервну копію нижче й однаково будуть замінені дзеркалом.
-        # @() навколо ВСЬОГО конвеєра, не лише навколо Get-KitDirtyRecords: рівно один запис
-        # поза шляхом (типовий випадок у тесті на цей guard) інакше дає скалярний
-        # pscustomobject без .Count, і StrictMode падає на наступному рядку.
+        # Незакомічене ПОЗА шляхом джерела — зупинка (§5 «Чотири умови», п.1). Коміт нижче йде БЕЗ
+        # pathspec і фіксує ВЕСЬ індекс: під час merge партійний коміт git забороняє ("cannot do a
+        # partial commit during a merge"), а без merge `--only` воскрешає фантом перейменування
+        # регістром (§4.1). Чужа зміна поза шляхом поїхала б у наш коміт непомітно. Зміни ВСЕРЕДИНІ
+        # $src.RepoPath нормальні: підуть у резервну копію й однаково замінюються дзеркалом.
+        # @() навколо ВСЬОГО конвеєра: один запис інакше дає скаляр без .Count (StrictMode).
         $srcPrefix = (($src.RepoPath -replace '\\', '/').TrimEnd('/')) + '/'
         $outside = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath '.' | Where-Object {
             (-not $_.Path.StartsWith($srcPrefix, [System.StringComparison]::Ordinal)) -or
@@ -186,8 +164,7 @@ function Invoke-KitAdopt {
                    "CLAUDE.md) і повторіть adopt. Шляхи:`n$paths")
         }
 
-        # Страховка перед знищенням: страховка спеки §5. Копія лягає у
-        # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
+        # Страховка перед знищенням (§5): копія лягає у гітігноровану build/-теку воркспейсу.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
         $backupDir = $null
         if ($dirty.Count -gt 0) {
@@ -197,48 +174,32 @@ function Invoke-KitAdopt {
             Write-Host "  $($dirty.Count) незакомічених змін — копія перед заміною у $backupDir" -ForegroundColor Yellow
         }
 
-        # Гілка задачі ПРИЙМАЄ версію сховища злиттям із ПОРОЖНІМ РЕЗУЛЬТАТОМ (стратегія ours),
-        # ПЕРЕД заміною піддерева (спека 2026-09-17 §5, фінальне рев'ю C2 Critical): це рухає
-        # ancestry (git merge-base), на якій тримається verify — без цього кроку заміна
-        # піддерева лишала merge-base на старій версії, і verify після adopt доповідав би про
-        # версію сховища те, чого нема. Стратегія "ours" НЕ протікає жодного вмісту дзеркала:
-        # вона за визначенням лишає робочу копію такою, якою вона була (перевірено емпірично —
-        # working tree й індекс не зрушуються жодним байтом); дерево заміняємо вручну нижче, як
-        # і раніше, — merge відповідає лише за другого предка коміту.
+        # Злиття з ПОРОЖНІМ РЕЗУЛЬТАТОМ (ours) ПЕРЕД заміною піддерева — лише заради другого предка
+        # (ancestry для verify): ours не зрушує ні робочої копії, ні індексу, вміст дзеркала не протікає.
         #
-        # git reset -- $src.RepoPath ПЕРЕД merge: емпірично `git merge -s ours` відмовляється
-        # (код 2, "Merge with strategy ours failed", перевірено в тимчасовому репозиторії), якщо
-        # в ІНДЕКСІ є БУДЬ-ЯКА застейджена зміна — навіть строго всередині шляху джерела, яку
-        # захід нижче однаково замінить. git reset — не checkout/restore/stash/clean: він
-        # повертає ІНДЕКС до HEAD, БАЙТИ на диску не чіпає, тож нічого не втрачається (усе
-        # застейджене там уже або в резервній копії вище, або однаково піде під заміну нижче).
-        # Guard вище вже гарантував, що застейджене може бути лише ВСЕРЕДИНІ $src.RepoPath —
-        # reset звужений тим самим шляхом, не рештою дерева.
+        # git reset -- $src.RepoPath ПЕРЕД merge: `git merge -s ours` відмовляє ("Merge with strategy
+        # ours failed"), якщо в індексі є будь-яка застейджена зміна. reset повертає лише ІНДЕКС до
+        # HEAD, диск не чіпає; звужений шляхом джерела (поза ним застейдженого вже немає — guard вище).
         $resetSrc = Invoke-KitGitProcess -RepoRoot $root -Arguments @('reset', '-q', '--', $src.RepoPath)
         if ($resetSrc.ExitCode -ne 0) { throw "git reset для '$($src.RepoPath)' завершився з кодом $($resetSrc.ExitCode): $($resetSrc.Stderr)" }
 
         # --no-ff: інакше git спробує fast-forward там, де це можливо, і другого предка не буде.
-        # --allow-unrelated-histories: гілки storage/* — orphan (StorageBranch.psm1:422,
-        # `worktree add --orphan`), спільного предка з гілкою задачі може не бути взагалі; sync
-        # передає той самий прапорець для головної гілки (GitMerge.psm1) — той самий випадок.
+        # --allow-unrelated-histories: гілки storage/* — orphan, спільного предка з гілкою задачі
+        # може не бути взагалі.
         $merge = Invoke-KitGitProcess -RepoRoot $root -Arguments @('merge', '--no-commit', '--no-ff', '-s', 'ours', '--allow-unrelated-histories', $mirror)
         if ($merge.ExitCode -ne 0) {
             throw "git merge -s ours '$mirror' у '$($src.RepoPath)' не вдався (код $($merge.ExitCode)): $($merge.Stdout)$($merge.Stderr)"
         }
 
-        # "Already up to date": якщо дзеркало вже предок HEAD (adopt повторюють без нової версії
-        # сховища, а дерево розбіглося тільки локальними правками), git НЕ створює MERGE_HEAD і
-        # виходить кодом 0 без жодної дії (перевірено емпірично) — ancestry вже правильна, і
-        # йдемо ЗВИЧАЙНИМ шляхом (коміт індексу без злиття), а не через merge-коміт.
+        # "Already up to date" (дзеркало вже предок HEAD): git не створює MERGE_HEAD і виходить
+        # кодом 0 — ancestry вже правильна, йдемо звичайним комітом без злиття.
         $mergeHead = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'MERGE_HEAD')
         $viaMerge = ($mergeHead.ExitCode -eq 0)
 
         try {
-            # -MustBeUnder $ws.FullPath, не $root (рев'ю фікс-раунду 1, Minor): те саме звуження,
-            # що в dump: межа guard'а перед Remove-KitDirectory на дереві людини мусить бути
-            # воркспейсом, а не всім репозиторієм.
+            # Межа перед стиранням дерева людини — воркспейс, не весь репозиторій (як у dump).
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($src.Key)"
-            # Поставка вендора (спека 2026-09-30 §5.2): у дзеркалі .cf немає — повне стирання
+            # Поставка вендора (§5.2): у дзеркалі .cf немає — повне стирання
             # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).
             Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root
             # Пофайлово, не Copy-Item <mirror>\* -Recurse: тека Ext тепер може вже існувати (у ній
@@ -254,21 +215,13 @@ function Invoke-KitAdopt {
                 Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
             }
 
-            # -A обов'язковий і саме на ШЛЯХУ джерела: він фіксує і нові файли, і ВИДАЛЕННЯ тих,
-            # яких у дзеркалі немає. Обмеження pathspec-ом тримає межу «точковий коміт у спільній
-            # робочій копії» — чужі зміни поза цим шляхом не потраплять (а якщо йдемо через
-            # merge — guard на початку кроку вже виключив їх до першого руйнівного кроку).
-            # :(exclude) — поставка не стейджиться НІКОЛИ, навіть у репозиторії, де рядка ігнору ще
-            # немає (до kitVersion 1.3.0): інакше -A забрав би .cf на сотні МБ у коміт.
-            # -f (спека 2026-10-04 §4.1, фінальне рев'ю, H2): піддерево після очищення містить рівно дерево
-            # дзеркала, тож кожен його файл мусить потрапити в індекс незалежно від ігнору машини
-            # (.git/info/exclude, core.excludesFile, .gitignore споживача) — інакше rm --cached нижче мовчки
-            # знімає з відстеження файл, який ігнор ловить. З -f git не відмовляє на виключенні ігнорованої
-            # теки поставки (код 0, виміряно), тож exclude додається ЗАВЖДИ, без проби check-ignore.
-            # Індекс піддерева — наново з дерева дзеркала (спека 2026-10-04 §4.1): без цього `add -A`
-            # при core.ignorecase=true лишає запис старого регістру (git складає лише ASCII, а lstat
-            # старого шляху на NTFS успішний). Поставка в індексі не буває (перевірено вище), тож rm
-            # її не зачіпає.
+            # Індекс піддерева — наново з дерева дзеркала (§4.1): rm --cached, тоді add. Без цього
+            # `add -A` при core.ignorecase=true лишає запис старого регістру (lstat старого шляху на
+            # NTFS успішний).
+            # add -A на ШЛЯХУ джерела фіксує і нові файли, і видалення; pathspec тримає точковість.
+            # -f: кожен файл дзеркала мусить потрапити в індекс незалежно від ігнору машини, інакше
+            # rm --cached мовчки зняв би його з відстеження. :(exclude) поставки — ЗАВЖДИ: .cf не
+            # стейджиться ніколи (з -f git на виключенні ігнорованої теки не відмовляє).
             $rm = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', $src.RepoPath)
             if ($rm.ExitCode -ne 0) { throw "git rm --cached для '$($src.RepoPath)' завершився з кодом $($rm.ExitCode): $($rm.Stderr)" }
             $addArgs = @('-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', 'add', '-A', '-f', '--', $src.RepoPath, ":(exclude)$supplyRel")
@@ -276,26 +229,23 @@ function Invoke-KitAdopt {
             if ($add.ExitCode -ne 0) { throw "git add для '$($src.RepoPath)' завершився з кодом $($add.ExitCode): $($add.Stderr)" }
             # Властивість не залежить від форми .gitignore (негація !*.cf може обійти і пробу, і
             # exclude): після add поставки в індексі бути не може. НЕ throw: виняток веде в catch із
-            # git merge --abort, а той СТИРАЄ застейджений .cf з диска (доведено тестом раунду 1).
-            # Тому поставку знімаємо з індексу (диск не чіпається) і йдемо далі.
+            # git merge --abort, а той СТИРАЄ застейджений .cf з диска. Тому поставку знімаємо з
+            # індексу (диск не чіпається) і йдемо далі.
             Remove-KitSupplyFromIndex -RepoRoot $root -SupplyPath $supplyRel
             Assert-KitIndexMatchesDisk -RepoRoot $root -RepoPath $src.RepoPath
 
             $message = "adopt: $($src.Key) ← $mirror (версія $version)"
             # Обидві гілки комітять індекс як є. Під час злиття партійний коміт (--only) git забороняє
             # взагалі; а без злиття `commit --only -- <шлях>` накладає записи HEAD під pathspec і
-            # перечитує їх із диска: старий регістр на NTFS «існує», тож фантом воскресає (спека
-            # 2026-10-04 §4.1). Межу «точковий коміт» тримає guard «немає незакомічених змін поза
-            # шляхом джерела» вище: індекс поза $src.RepoPath порожній.
+            # перечитує їх із диска: старий регістр на NTFS «існує», тож фантом воскресає (§4.1).
+            # Межу «точковий коміт» тримає guard «немає незакомічених змін поза шляхом джерела» вище.
             $commit = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '-m', $message)
             if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }
         } catch {
             if (-not $viaMerge) { throw }
-            # Зрив ПІСЛЯ успішного `git merge --no-commit` (фінальне рев'ю C2, Critical): не
-            # прибрати MERGE_HEAD — лишити репозиторій у незавершеному стані злиття, де хук
-            # pre-commit і будь-яка наступна команда бачитимуть напівзамінене дерево. Код виходу
-            # abort перевіряємо (той самий принцип, що GitMerge.psm1) — інакше повідомлення
-            # стверджувало б відкіт, якого могло й не відбутись.
+            # Зрив ПІСЛЯ `git merge --no-commit`: MERGE_HEAD треба прибрати, інакше репозиторій
+            # лишається в незавершеному злитті. Код виходу abort перевіряється — інакше текст
+            # стверджував би відкіт, якого могло не бути.
             $abort = Invoke-KitGitProcess -RepoRoot $root -Arguments @('merge', '--abort')
             $original = $_.Exception.Message
             if ($abort.ExitCode -ne 0) {
@@ -303,12 +253,9 @@ function Invoke-KitAdopt {
                        "(git merge --abort) ТЕЖ не вдався (код $($abort.ExitCode): $($abort.Stderr)) — репозиторій " +
                        "лишається в незавершеному стані злиття, розберіться вручну: git status. Початкова помилка: $original")
             }
-            # git merge --abort повертає ІНДЕКС і HEAD до стану перед merge, але НЕ відновлює
-            # файли, видалені напряму через Remove-Item (перевірено емпірично — це філософія
-            # "ours" і самого --abort: скасовується ЗЛИТТЯ, не файлові операції поза git), тож
-            # дерево джерела могло лишитись частково стертим. Не пробуємо відновити його самі
-            # (git checkout --/restore тут теж під забороною CLAUDE.md) — називаємо людині обидва
-            # шляхи, звідки відновити вручну: резервну копію незакомiченого й цілий mirrorDir.
+            # merge --abort повертає індекс і HEAD, але НЕ файли, стерті напряму, — дерево могло
+            # лишитись частково стертим. Самі не відновлюємо (checkout --/restore заборонені в
+            # спільній копії) — називаємо резервну копію й цілий mirrorDir.
             throw ("Заміна дерева '$($src.RepoPath)' впала ПІСЛЯ успішного git merge -s ours — злиття відкочено " +
                    "(git merge --abort), АЛЕ саме дерево джерела могло лишитись частково стертим: git merge --abort " +
                    "не відновлює файли, видалені напряму. Резервна копія незакомiченого: " +
