@@ -2,43 +2,27 @@
 # track (перенесено з agent-kit 0.9.1): один запобіжник, чия поломка мовчки дає хибний результат —
 # усі рядки таблиці блоків перевіряються ДО першого запису в GitHub. Хибна віха в другому рядку не
 # має лишити в GitHub ні мітки, ні issue першого. Справжня команда `track` — підпроцесом, проти
-# фальшивого `gh.exe` на початку PATH (Invoke-KitGh шукає gh через Get-Command, тож підхоплює саме
-# його). Контроль, що вміє впасти: валідна таблиця дає в журналі `issue create` — отже фальшивий gh
-# справді викликається й пишучі виклики журнал бачить.
+# фальшивого `gh.exe` на початку PATH (спільна фікстура fixtures/FakeGh.psm1; Invoke-KitGh шукає gh
+# через Get-Command, тож підхоплює саме його). Контроль, що вміє впасти: валідна таблиця дає в
+# журналі `issue create` — отже фальшивий gh справді викликається й пишучі виклики журнал бачить.
 Describe 'track — перевірка таблиці блоків до першого запису' {
     BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/FakeGh.psm1").Path -Force
         $script:KitRoot = (Resolve-Path "$PSScriptRoot/../..").Path
-        $script:Bin = Join-Path $TestDrive 'fakebin'
-        New-Item -ItemType Directory -Path $script:Bin | Out-Null
+        $script:Bin = New-KitFakeGh -Dir (Join-Path $TestDrive 'fakebin')
         $script:Journal = Join-Path $TestDrive 'gh-calls.log'
-        # gh.exe, а не gh.cmd: cmd.exe читає `&` у `?state=all&per_page=100` як роздільник команд і
-        # ріже аргумент до того, як його побачить фальшивка. Тож фальшивка — крихітний exe, зібраний
-        # csc.exe з .NET Framework (є на кожній Windows). Без стану: порожні списки міток і issue,
-        # одна відкрита віха M1; кожен виклик — рядок у журналі $env:FAKE_GH_LOG.
-        $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-        if (-not (Test-Path -LiteralPath $csc)) { throw "немає ${csc}: фальшивий gh не зібрати" }
-        Set-Content -LiteralPath (Join-Path $script:Bin 'fake-gh.cs') -Encoding UTF8 -Value @'
-using System; using System.IO; using System.Linq; using System.Text;
-class FakeGh {
-    static int Main(string[] a) {
-        var log = Environment.GetEnvironmentVariable("FAKE_GH_LOG");
-        var n = File.Exists(log) ? File.ReadAllLines(log, Encoding.UTF8).Count(l => l.StartsWith("issue create")) : 0;
-        File.AppendAllText(log, string.Join(" ", a) + "\n", new UTF8Encoding(false));
-        var o = Console.OpenStandardOutput();
-        Action<string> say = s => { var b = new UTF8Encoding(false).GetBytes(s); o.Write(b, 0, b.Length); };
-        var path = a.FirstOrDefault(x => x.StartsWith("repos/")) ?? "";
-        if (a.Length > 1 && a[0] == "label" && a[1] == "list") say("[]");
-        else if (a.Length > 1 && a[0] == "issue" && a[1] == "list") say("[]");
-        else if (a.Length > 1 && a[0] == "issue" && a[1] == "create") { Console.In.ReadToEnd(); say("https://github.com/acme/app/issues/" + (10 + n)); }
-        else if (a.Length > 0 && a[0] == "api" && path.Contains("/milestones")) say("[{\"number\":1,\"title\":\"M1\",\"state\":\"open\",\"due_on\":null,\"description\":\"\"}]");
-        else if (a.Length > 0 && a[0] == "api" && path.Contains("/sub_issues")) { if (!a.Contains("POST")) say("[]"); }
-        else if (a.Length > 0 && a[0] == "api" && path.Contains("/issues/")) say("{\"id\":" + (1000 + int.Parse(path.Substring(path.LastIndexOf('/') + 1))) + "}");
-        return 0;
-    }
-}
-'@
-        & $csc /nologo "/out:$(Join-Path $script:Bin 'gh.exe')" (Join-Path $script:Bin 'fake-gh.cs') | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'не зібрано фальшивий gh.exe' }
+        # Без стану між командами, окрім лічильника issue: порожні списки міток і issue, одна відкрита
+        # віха M1; кожен виклик — рядок у журналі. Невідомий виклик — код 0 і порожньо, як у gh,
+        # якому нема що сказати (track пише label/issue edit, не читаючи відповіді).
+        $script:Scenario = Write-KitFakeGhScenario -Path (Join-Path $TestDrive 'scenario.json') -Default @{ exit = 0 } -Rules @(
+            @{ prefix = @('label', 'list'); stdout = '[]' }
+            @{ prefix = @('issue', 'list'); stdout = '[]' }
+            @{ prefix = @('issue', 'create'); stdout = 'https://github.com/acme/app/issues/{count+10}' }
+            @{ prefix = @('api'); hasPart = @('/milestones'); stdout = '[{"number":1,"title":"M1","state":"open","due_on":null,"description":""}]' }
+            @{ prefix = @('api'); hasPart = @('/sub_issues'); not = @('POST'); stdout = '[]' }
+            @{ prefix = @('api'); hasPart = @('/sub_issues') }
+            @{ prefix = @('api'); hasPart = @('/issues/'); stdout = '{"id":{pathnum+1000}}' }
+        )
 
         $script:Repo = Join-Path $TestDrive 'repo'
         New-Item -ItemType Directory -Path (Join-Path $script:Repo '.agents') -Force | Out-Null
@@ -52,11 +36,11 @@ class FakeGh {
         }
         function script:Invoke-Track {
             param([string[]]$Arguments)
-            Remove-Item -LiteralPath $script:Journal -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $script:Journal, "$script:Scenario.state" -ErrorAction SilentlyContinue
             $err = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
             $savedPath = $env:PATH
             $env:PATH = "$script:Bin$([System.IO.Path]::PathSeparator)$savedPath"
-            $env:FAKE_GH_LOG = $script:Journal
+            $env:FAKE_GH_LOG = $script:Journal; $env:FAKE_GH_SCENARIO = $script:Scenario
             Push-Location $script:Repo
             try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit-process.ps1') track @Arguments 2>$err }
             finally { Pop-Location; $env:PATH = $savedPath }
