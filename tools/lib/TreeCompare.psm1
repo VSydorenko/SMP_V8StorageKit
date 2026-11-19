@@ -35,10 +35,10 @@ function Invoke-KitGitProcess {
         git як .NET Process: NUL-роздільники на вході (для -z --stdin), UTF-8 без перекодування PowerShell на
         виході, stderr окремо, код виходу — у результаті. Для потокових байтів (cat-file --batch) є Export-KitTree.
     .DESCRIPTION
-        ОБИДВА вихідні потоки читаються асинхронно ДО запису stdin — це не стиль, а причина (проба рев'ю B3):
-        наївна форма «записати весь stdin, потім ReadToEnd()» на 800 шляхах зависає назавжди — буфер stdout
-        заповнюється, git блокується на записі й перестає читати stdin, а наш Write блокується назустріч.
-        На двох шляхах у юніт-тесті цього не видно; вилазить на живому verify. Не «спрощувати» назад.
+        ОБИДВА вихідні потоки читаються асинхронно ДО запису stdin: форма «записати весь stdin, потім
+        ReadToEnd()» на сотнях шляхів зависає назавжди — буфер stdout заповнюється, git блокується на
+        записі й перестає читати stdin, а наш Write блокується назустріч. Юніт-тест на двох шляхах
+        цього не бачить. Не «спрощувати» назад.
     #>
     [CmdletBinding()]
     param(
@@ -64,12 +64,9 @@ function Invoke-KitGitProcess {
         $proc.WaitForExit()
         [pscustomobject]@{ ExitCode = $proc.ExitCode; Stdout = $stdout; Stderr = $errTask.Result }
     } finally {
-        # Process.Dispose() НЕ закриває стандартні потоки, на які тримає посилання викликач
-        # (рев'ю B3, Important 4): якщо запис у stdin перервано (Ctrl+C посеред ~10 тис. шляхів)
-        # чи інакше не дійшов до Close() вище, git лишається заблокованим на читанні недописаного
-        # stdin НАЗАВЖДИ — осиротілий процес на кожне переривання. Close() тут ідемпотентний (на
-        # щасливому шляху stdin уже закрито рядком вище), таймаут і Kill($true) — про всяк випадок,
-        # якщо процес однаково завис.
+        # Process.Dispose() НЕ закриває стандартні потоки: якщо запис у stdin перервано (Ctrl+C),
+        # git лишається заблокованим на читанні НАЗАВЖДИ. Close() ідемпотентний; таймаут і
+        # Kill($true) — якщо процес однаково завис.
         try { $proc.StandardInput.Close() } catch {}
         if (-not $proc.WaitForExit(5000)) {
             try { $proc.Kill($true) } catch {}
@@ -121,7 +118,7 @@ function Export-KitTree {
         як байти через .NET Process — PowerShell-конвейєр перекодовував би вміст.
         Дедлоку, який ловить Invoke-KitGitProcess, тут НЕМАЄ і переробляти на асинхронне читання не
         треба: запис і читання чергуються по одному блобу — git не приймає наступного запиту, доки
-        попередню відповідь не вичитано (проба рев'ю B3). stderr — асинхронно, бо його обсяг невідомий.
+        попередню відповідь не вичитано. stderr — асинхронно, бо його обсяг невідомий.
     #>
     [CmdletBinding()]
     param(
@@ -136,14 +133,9 @@ function Export-KitTree {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
-    # ls-tree йде через Invoke-KitGitProcess, а не голим нативним викликом (рев'ю B3, Important 3):
-    # голий `git ... | ...` PowerShell декодує за АМБІЄНТНИМ [Console]::OutputEncoding процесу —
-    # на cp866 кириличний шлях перетворюється на сміття (перевірено: "Forms/Форма/Ext/Form.xml" на
-    # виході стає непізнаваним, Test-Path очікуваного шляху -> False), і Compare-KitTrees зарахував
-    # би такий шлях і в OnlyInDump, і в OnlyInTree. Invoke-KitGitProcess читає stdout з явним UTF-8
-    # незалежно від консолі (той самий запобіжник, що вже рятує Get-KitBinaryPaths) і віддає Stderr
-    # окремо замість `2>$null`, який ковтав діагностику git. -z: шляхи сирі, NUL-роздільник —
-    # незалежно від core.quotepath машини (без -z кирилиця прийшла б екранованою в лапках).
+    # ls-tree — через Invoke-KitGitProcess, не голим `git ... | ...`: той декодує за кодуванням консолі,
+    # і на cp866 кириличний шлях став би сміттям (і в OnlyInDump, і в OnlyInTree). -z: шляхи сирі,
+    # незалежно від core.quotepath машини.
     $ls = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'ls-tree', '-r', '-z', $Ref, '--', $prefix)
     if ($ls.ExitCode -ne 0) { throw "git ls-tree $Ref -- $prefix завершився з кодом $($ls.ExitCode): $($ls.Stderr)" }
     $entries = @($ls.Stdout -split "`0" | Where-Object { $_ })
@@ -188,21 +180,16 @@ function Export-KitTree {
         }
     } finally {
         $stdin.Close()
-        # Виняток усередині циклу (диск під build/ заповнився, антивірус тримає щойно створений
-        # файл, мережевий диск моргнув) лишає git cat-file --batch посеред запису вмісту блоба в
-        # stdout, який більше ніхто не читає — WaitForExit() без таймауту не повернеться НІКОЛИ
-        # (рев'ю B3, Important 1: виміряно на блобі 1 МБ, виняток одразу після заголовка ->
-        # WaitForExit(15000) дав False через 15352 мс; буфер каналу — 16 КБ, тобто зависає
-        # практично кожен реальний Form.xml). Тому — таймаут і примусове завершення.
+        # Виняток усередині циклу лишає git cat-file --batch посеред запису блоба в stdout, який
+        # ніхто не читає (буфер каналу малий — зависає практично кожен реальний Form.xml):
+        # WaitForExit() без таймауту не повернеться НІКОЛИ. Тому — таймаут і примусове завершення.
         if (-not $proc.WaitForExit(30000)) {
             try { $proc.Kill($true) } catch {}
             $proc.WaitForExit()
         }
         $exit = $proc.ExitCode
-        # $errTask.Result кидає AggregateException, якщо саме асинхронне читання stderr впало
-        # (рев'ю B3, Important 5) — це замінило б справжню причину збою (той виняток, що й привів
-        # нас у цей finally) чужою. Той самий клас дефекту, що вже правили в коміті c6743a8
-        # («finally без throw»). Тому читаємо безпечно, не даючи finally кинути власний виняток.
+        # $errTask.Result кидає AggregateException, якщо читання stderr впало, — це замінило б
+        # справжню причину збою. finally не кидає власних винятків.
         try { $stderr = $errTask.Result } catch { $stderr = '' }
         $proc.Dispose()
     }
@@ -217,7 +204,7 @@ function Test-KitComparableRelativePath {
         Чи бере відносний шлях участь у звірці дерев: не службовий файл платформи й не поставка вендора.
     .DESCRIPTION
         Одне джерело фільтра для Get-KitRelativeFiles (диск) і CaseGuard (індекс, перелік git) —
-        два фільтри з різною логікою розходилися б тихо (kit-dev, «пишу перевірку»).
+        два фільтри з різною логікою розходилися б тихо.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RelativePath)
@@ -229,10 +216,10 @@ function Get-KitRelativeFiles {
     <# Відносні шляхи файлів під Root з '/', без службових файлів платформи. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
-    # Без коми: усі викликачі загортають результат у @(…) — див. F7.
+    # Без коми: усі викликачі загортають результат у @(…).
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
-    # Поставка вендора — стан машини, не зміст дерева (спека 2026-09-30 §6.3.3); .bin порівнюється,
+    # Поставка вендора — стан машини, не зміст дерева (§6.3.3); .bin порівнюється,
     # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object;
     # фільтр — Test-KitComparableRelativePath.
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
@@ -253,14 +240,14 @@ function Get-KitBinaryPaths {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$RelativePaths
     )
-    # HashSet — IEnumerable, pipeline розгорнув би його в рядки; кома тримає об'єкт цілим (F7).
+    # HashSet — IEnumerable, pipeline розгорнув би його в рядки; кома тримає об'єкт цілим.
     # Викликачі беруть результат присвоєнням: $binary = Get-KitBinaryPaths …
     $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    if ($RelativePaths.Count -eq 0) { return , $set }   # кома навмисно (HashSet, F7)
+    if ($RelativePaths.Count -eq 0) { return , $set }   # кома навмисно (HashSet)
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
     $records = @($RelativePaths | ForEach-Object { "$prefix/$_" })
     # -z перемикає і ВХІД на NUL-роздільник: подані через конвеєр рядки з \n git читає як ОДИН шлях, і набір
-    # завжди порожній (рев'ю B3, доведено пробою). Тому stdin — через Process із NUL між записами; -z лишається,
+    # завжди порожній. Тому stdin — через Process із NUL між записами; -z лишається,
     # бо без нього відповідь була б екранована за core.quotepath.
     $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('-c', 'core.quotepath=false', 'check-attr', '-z', 'binary', '--stdin') -StdinRecords $records
     if ($r.ExitCode -ne 0) { throw "git check-attr завершився з кодом $($r.ExitCode): $($r.Stderr)" }
@@ -269,7 +256,7 @@ function Get-KitBinaryPaths {
     for ($i = 0; $i + 2 -lt $fields.Count; $i += 3) {
         if ($fields[$i + 2] -eq 'set') { $set.Add($fields[$i].Substring($prefix.Length).TrimStart('/')) | Out-Null }
     }
-    , $set   # кома навмисно: HashSet не має розгортатись pipeline; викликач бере присвоєнням (F7)
+    , $set   # кома навмисно: HashSet не має розгортатись pipeline; викликач бере присвоєнням
 }
 
 function Compare-KitTrees {
@@ -282,29 +269,22 @@ function Compare-KitTrees {
     param(
         [Parameter(Mandatory)][string]$DumpDir,
         [Parameter(Mandatory)][string]$TreeDir,
-        # AllowEmptyCollection обов'язковий (рев'ю B3 раунд 2, Critical 1): Mandatory на
-        # колекційному типі неявно вимагає НЕПОРОЖНЬОЇ колекції, а Get-KitBinaryPaths штатно
-        # повертає порожній HashSet, коли жоден файл дерева не позначений binary — саме так
-        # виглядає найтиповіше дерево 1С (лише XML/BSL, жодного .png/.bin/.zip з
-        # templates/gitattributes). Без цього атрибута verify падав на прив'язці параметра
-        # ПІСЛЯ підняття тимчасової ІБ, дампу й експорту дерева — після всієї дорогої роботи.
+        # AllowEmptyCollection обов'язковий: Mandatory на колекції вимагає НЕПОРОЖНЬОЇ, а порожній
+        # HashSet — типовий випадок (дерево лише з XML/BSL). Без атрибута verify падав би на прив'язці
+        # параметра вже після дампу — після всієї дорогої роботи.
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$BinaryPaths,
         # Групи шляхів, що різняться лише регістром (Get-KitCaseCollisions, CaseGuard.psm1), — відносні
         # до TreeDir. На NTFS члени групи вже злились в один файл при експорті, тож порівнювати їх як
-        # звичайні шляхи безглуздо: вони звітуються окремим класом (спека 2026-10-04 §4.3).
+        # звичайні шляхи безглуздо: вони звітуються окремим класом (§4.3).
         [AllowEmptyCollection()][object[]]$CaseCollisions = @(),
         # Клас «лише регістр шляху» — лише на явний запит verify. adopt кличе без нього: пара мусить
         # лишатись в OnlyInDump/OnlyInTree, інакше прев'ю adopt сказало б «вже збігається».
         [switch]$ClassifyCase
     )
 
-    # Ordinal, не IgnoreCase: git регістрочутливий, і Ordinal — саме та семантика порівняння шляхів,
-    # яку він використовує. УВАГА (рев'ю B3, пом'якшено): це НЕ універсальна гарантія проти колізії
-    # двох шляхів, що різняться лише регістром, — якщо Export-KitTree писав дерево на файлову
-    # систему, нечутливу до регістру (NTFS), такі два шляхи зіллються в один файл раніше, ще на
-    # етапі експорту, і жодне порівняння тут цього вже не побачить. Ordinal лишається правильним
-    # вибором незалежно: детермінований, не залежить від локалі машини (Sort-Object дав би
-    # 'content' < 'Ext' і кирилицю першою).
+    # Ordinal, не IgnoreCase: git регістрочутливий. Це НЕ гарантія проти колізії регістру — на NTFS
+    # такі шляхи злились ще при експорті (для того є -CaseCollisions). Ordinal ще й детермінований,
+    # не залежить від локалі машини.
     $dump = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $DumpDir), [System.StringComparer]::Ordinal)
     $tree = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-KitRelativeFiles -Root $TreeDir), [System.StringComparer]::Ordinal)
     $all = [System.Collections.Generic.HashSet[string]]::new($dump, [System.StringComparer]::Ordinal)
