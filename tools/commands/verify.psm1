@@ -42,9 +42,9 @@ function Invoke-KitVerify {
 
     $root = $Context.RepoRoot
     $ref  = if ($Ref) { $Ref } else { $Context.MainBranch }
-    # Ім'я -Ref читається один раз у sha: порівняння дерев (Export-KitTree, Get-KitTreePaths) і критерій pull
-    # (Test-KitRefIsHead) мають дивитись на ТОЙ САМИЙ коміт. Інакше коміт у main між порівнянням і критерієм
-    # зсунув би гілку й HEAD разом, і equal на старому дереві дав би хибний pull. Людині показується ім'я.
+    # Ім'я -Ref читається один раз у sha: усі читання дерева (Export-KitTree, Get-KitTreePaths) і версія
+    # (Get-KitVerifyVersion) мають дивитись на ТОЙ САМИЙ коміт. Інакше коміт у main між читаннями зсунув би
+    # гілку, і вердикт склався б з різних дерев. Людині показується ім'я.
     $refRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', "$ref^{commit}")
     if ($refRes.ExitCode -ne 0) { throw "-Ref '$ref' не вказує на коміт цього репозиторію." }
     $refSha = $refRes.Stdout.Trim()
@@ -235,23 +235,11 @@ function Invoke-KitVerify {
                 'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
             }
 
-            # Спека 2026-10-11 §4.1, §10 П4: verify зрушив базу агента (UpdateCfg до версії merge-base).
-            # pull — лише коли kit довів рівність: вердикт equal, звіряли саме HEAD, дерево набору чисте.
-            # Порядок суттєвий: «sha == HEAD» — ОСТАННІМ, після чистоти. Коміт у HEAD між двома перевірками інакше
-            # лишив би вікно: HEAD зрушив, копія чиста, а pull повернув би старе дерево.
-            # -Ref передається як є (sha, тег, ім'я гілки): Test-KitRefIsHead порівнює коміти через ^{commit}.
-            # Функції критерію кидають виняток (RepoRoot ≠ корінь репозиторію, порожній шлях набору, збій git) —
-            # fail-closed. Тут це не зупинка (спека 3129c0d, П24): базу вже зрушено, агентові потрібен крок, а
-            # push force нічого в дереві не стирає. Критерій = $false, далі звичайний Get-KitAlignStep
-            # (за поставки missing/stale — blocked).
-            try {
-                $criterion = ($verdict -eq 'equal') -and (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
-                             (Test-KitRefIsHead -RepoRoot $root -Ref $refSha)
-            } catch {
-                $criterion = $false
-                Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
-            }
-            $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
+            # Спека 2026-11-19 §3.1, §4.2 п.7: verify зрушив базу агента (UpdateCfg до версії merge-base), тож
+            # крок завжди push force — без критерію рівності й чистоти. OnMainBranch — за ПОТОЧНОЮ гілкою, не за
+            # -Ref: рецепт зупинки поставки каже, де її відновлювати. Збій git не зупинка: невідоме = «не головна».
+            try { $onMain = ((Get-KitCurrentBranch -RepoRoot $root) -eq $Context.MainBranch) } catch { $onMain = $false }
+            $alignStep = Get-KitAlignStep -Source $src -OnMainBranch $onMain -MainBranch $Context.MainBranch
             Write-KitAlignStep -Step $alignStep
             $alignSteps.Add($alignStep)
 

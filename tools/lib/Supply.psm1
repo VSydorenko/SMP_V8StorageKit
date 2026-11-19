@@ -113,17 +113,49 @@ function Clear-KitTreeExceptSupply {
 }
 
 function Get-KitSupplyRecipe {
+    <#
+    .SYNOPSIS
+        Єдине джерело тексту відновлення поставки вендора: його беруть і check (знахідка supply,
+        -Purpose check), і Get-KitAlignStep (Recipe зупинки blocked, -Purpose stop).
+    .DESCRIPTION
+        Два виміри різняться. Purpose: check лише попереджає й веде до kit verify, а зупинка після
+        sync/verify вже має базу агента зі версією сховища, тож веде одразу до повного pull Уніки і
+        позначки kit supply-marker (спека 2026-11-19 §4.2 п.9, п.18). OnMainBranch: поставку
+        відновлюють лише на головній гілці; на гілці задачі (і на від'єднаному HEAD) рецепт каже
+        «спершу поставка на головній гілці» й не несе кроку pull. Після повного pull база, дерево й
+        пам'ять Уніки узгоджені, тож push force після позначки не потрібен.
+        Крок pull форматується так само, як Format-KitUnicaRun (UnicaStep), але тут окремо: UnicaStep
+        імпортує Supply, зворотний імпорт дав би цикл; збіг форми тримає тест.
+    #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$SourceKey, [Parameter(Mandatory)][string]$MainBranch, [Parameter(Mandatory)][string]$State)
-    $what = if ($State -eq 'stale') {
-        'поставка вендора застаріла: позначка .kit-bin-sha1 не збігається з поточним Ext/ParentConfigurations.bin (оновився реліз вендора або об''єкти переведено в редаговані — друге дає зайве, але безпечне відновлення)'
-    } else {
-        'поставка вендора відсутня: Ext/ParentConfigurations.bin описує поставку, а .cf чи позначки .kit-bin-sha1 на цій машині немає — повне завантаження в базу впаде'
+    param(
+        [Parameter(Mandatory)][string]$SourceKey,
+        [Parameter(Mandatory)][string]$Workspace,
+        [Parameter(Mandatory)][string]$MainBranch,
+        [Parameter(Mandatory)][ValidateSet('stale', 'missing', 'unknown')][string]$State,
+        [Parameter(Mandatory)][ValidateSet('check', 'stop')][string]$Purpose,
+        [Parameter(Mandatory)][bool]$OnMainBranch
+    )
+    $what = switch ($State) {
+        'stale'   { 'поставка вендора застаріла: позначка .kit-bin-sha1 не збігається з поточним Ext/ParentConfigurations.bin (оновився реліз вендора або об''єкти переведено в редаговані — друге дає зайве, але безпечне відновлення)' }
+        'unknown' { 'стан поставки вендора не обчислено: помилка читання Ext/ParentConfigurations — невідоме трактується як відсутнє' }
+        default   { 'поставка вендора відсутня: Ext/ParentConfigurations.bin описує поставку, а .cf чи позначки .kit-bin-sha1 на цій машині немає — повне завантаження в базу впаде' }
     }
-    "$what. Відновлення — лише на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте), не на гілці задачі: база агента є " +
-    "(інакше v8storagekit:provision) → kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією зі сховища — " +
-    "merge-base — і надрукує крок: на файловій базі pull Уніки та kit canon -Source $SourceKey -MarkerOnly -Apply, на серверній — kit canon і push) " +
-    "→ виконати надруковане. У рецепті (i) (новий репозиторій, онбординг на гілці через sync -MergeInto) той самий крок друкує kit sync -Source $SourceKey."
+    $head = "$what. Відновлення поставки вендора: "
+    $onboarding = " У рецепті (i) (новий репозиторій, онбординг на гілці через sync -MergeInto) той самий крок друкує kit sync -Source $SourceKey."
+    if (-not $OnMainBranch) {
+        return $head + "спершу поставка на головній гілці ${MainBranch}, а не на гілці задачі (HEAD = ${MainBranch}, дерево чисте): " +
+            "перейдіть на ${MainBranch} і виконайте там kit verify -Source $SourceKey, далі — надруковане ним; потім поверніться на гілку задачі." + $onboarding
+    }
+    if ($Purpose -eq 'check') {
+        return $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте), база агента є (інакше v8storagekit:provision): " +
+            "kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією зі сховища — merge-base) → виконати його зупинку поставки." + $onboarding
+    }
+    $pull = 'unica.run ' + ([ordered]@{ op = 'pull'; args = [ordered]@{ sourceSet = $SourceKey; force = $true }; dryRun = $true } | ConvertTo-Json -Compress -Depth 5)
+    $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте) одразу повний pull цього набору: $pull (спершу так, потім той самий виклик з `"dryRun`":false; " +
+        "Уніка спитає людину про перезапис бази origin — це очікувано) → kit supply-marker -Workspace $Workspace -Source $SourceKey -Apply. " +
+        "Після повного pull база, дерево й пам'ять Уніки узгоджені — push force не потрібен. Після pull git status --porcelain -- <шлях набору $SourceKey> мусить бути порожнім; " +
+        'непорожній — зупинка й доповідь людині. Без обходу.'
 }
 
 Export-ModuleMember -Function Get-KitSupplyRelativePath, Test-KitSupplyRelativePath, Test-KitSupplyDescribed, Get-KitSupplyState, Write-KitSupplyMarker, Remove-KitSupplyDir, Clear-KitTreeExceptSupply, Get-KitSupplyRecipe

@@ -557,7 +557,6 @@ function Invoke-KitSync {
 
             $wt    = New-KitStorageWorktree -RepoRoot $root -Branch $src.Branch -Path (Join-Path $workDir 'wt')
             $done  = [System.Collections.Generic.List[int]]::new()
-            $replaySha = $null   # коміт останньої версії, записаної в цьому запуску (права сторона критерію pull)
             # $bound = $false ПЕРЕД try обов'язковий: під Set-StrictMode -Version Latest звернення
             # до неприсвоєної змінної у finally само кине й витіснить первинний виняток (Step 4а
             # цього ж Task'у закривав рівно цю ваду для Remove-KitStorageWorktree). Enter-KitStorageBind
@@ -602,7 +601,6 @@ function Invoke-KitSync {
                         -AuthorName $author.Name -AuthorEmail $author.Email -Timestamp $v.Timestamp -RepoRoot $root
                     if ($commit.Empty) { Write-Host '  (без змін у джерелах — коміт лише фіксує запис версії сховища)' -ForegroundColor DarkGray }
                     $done.Add($v.Version)
-                    $replaySha = $commit.Sha
                 }
             } finally {
                 Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -V8Path $v8Path -User $ibUser
@@ -633,41 +631,14 @@ function Invoke-KitSync {
                 if (-not $merged) { $mergeFailed = $true }
             }
 
-            # Критерій pull (§10 П3) — дерево, а не факт злиття: kit довів, що дерево набору в робочій
-            # копії дорівнює тому, що він щойно вивантажив (вершина дзеркала), і що воно чисте. Злиття, що
-            # впало, лишає дерево брудним чи іншим — і дає push force без окремої гілки коду.
+            # Крок вирівнювання (спека 2026-11-19 §3.1, §4.2 п.7): завжди push force, без критерію рівності дерев і
+            # чистоти — pull з кроку зник. OnMainBranch лише обирає варіант рецепту зупинки поставки: поточна гілка =
+            # головна. Збій git тут не зупинка (версії вже перенесено й злито): невідоме трактується як «не головна»,
+            # тобто консервативний рецепт «спершу поставка на головній гілці».
             $alignStep = $null
             if (-not $fallback -and $done.Count -gt 0) {
-                # Остання версія з -DumpPlatform — дерево дзеркала дала інша платформа, рівність із тим,
-                # що віддасть база основною платформою, не доведено.
-                $lastViaAlt = $hasFor -and ($done[-1] -eq [int]$ForVersion)
-                # Функції критерію кидають виняток (порожній шлях набору, RepoRoot ≠ корінь репозиторію,
-                # зламаний індекс, збій git) — fail-closed. Тут це не зупинка (спека 3129c0d, П24): версії
-                # вже перенесено й злито, агентові потрібен крок, а push force нічого в дереві не стирає.
-                # Критерій = $false, далі звичайний Get-KitAlignStep (за поставки missing/stale — blocked).
-                # HEAD читається в sha ОДИН раз (після злиття): дерево порівнюється з цього sha, а збіг sha з
-                # поточним HEAD перевіряється ОСТАННІМ (спека 2026-10-11, «вимір і критерій на одному sha», як у
-                # verify). Інакше коміт іншого агента між вимірами зсунув би HEAD, копія стала б чистою, а pull
-                # повернув би набір до дзеркала поверх щойно закоміченого.
-                try {
-                    $headRes = Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '--verify', '--quiet', 'HEAD^{commit}')
-                    if ($headRes.ExitCode -ne 0) { throw 'HEAD не вказує на коміт — критерій pull не обчислюється.' }
-                    $headSha = $headRes.Stdout.Trim()
-                    # Права сторона — коміт, який записав останню версію ЦЬОГО запуску (те, що kit щойно вивантажив з
-                    # бази), а не вершина гілки дзеркала, прочитана після злиття: вона могла зрушити в вікні
-                    # (другий sync того самого джерела) і вказувати на дерево, якого в базі немає. Запасної гілки
-                    # «версій не перенесено» немає: за $done.Count -gt 0 вище такого запуску тут нема.
-                    if (-not $replaySha) { throw "Не відомий коміт реплею цього запуску — критерій pull не обчислюється." }
-                    $mirrorSha = $replaySha
-                    $criterion = (-not $lastViaAlt) -and
-                                 (Test-KitSetTreeEqual -RepoRoot $root -RepoPath $src.RepoPath -Left $headSha -Right $mirrorSha) -and
-                                 (Test-KitSetClean -RepoRoot $root -RepoPath $src.RepoPath) -and
-                                 (Test-KitRefIsHead -RepoRoot $root -Ref $headSha)
-                } catch {
-                    $criterion = $false
-                    Write-KitCriterionNotComputed -SourceSet $src.Key -Reason $_.Exception.Message
-                }
-                $alignStep = Get-KitAlignStep -Source $src -Criterion $criterion -BaseKind $agent.Kind
+                try { $onMain = ((Get-KitCurrentBranch -RepoRoot $root) -eq $Context.MainBranch) } catch { $onMain = $false }
+                $alignStep = Get-KitAlignStep -Source $src -OnMainBranch $onMain -MainBranch $Context.MainBranch
                 Write-KitAlignStep -Step $alignStep
                 $alignSteps.Add($alignStep)
             }

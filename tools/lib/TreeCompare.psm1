@@ -79,6 +79,22 @@ function Invoke-KitGitProcess {
     }
 }
 
+function Get-KitCurrentBranch {
+    <#
+    .SYNOPSIS
+        Ім'я поточної гілки (git branch --show-current) — одна копія на kit. На від'єднаному HEAD
+        git дає порожній рядок, і викликачі трактують його як «не головна гілка».
+    .DESCRIPTION
+        Через Invoke-KitGitProcess: stderr окремо, тож попередження git (safe.directory тощо) на
+        stderr при коді виходу 0 не потрапляють в ім'я гілки.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('branch', '--show-current')
+    if ($r.ExitCode -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом $($r.ExitCode)." }
+    $r.Stdout.Trim()
+}
+
 function Export-KitTree {
     <#
     .SYNOPSIS
@@ -341,4 +357,4 @@ function Compare-KitTrees {
     }
 }
 
-Export-ModuleMember -Function Invoke-KitGitProcess, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees
+Export-ModuleMember -Function Invoke-KitGitProcess, Get-KitCurrentBranch, Export-KitTree, Test-KitComparableRelativePath, Get-KitRelativeFiles, Get-KitBinaryPaths, Compare-KitTrees

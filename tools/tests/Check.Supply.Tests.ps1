@@ -65,7 +65,9 @@ Describe 'kit check — поставка вендора основної кон�
         $r.ExitCode | Should -Be 0 -Because $r.Output
         # [!] — рівень warn у виводі check (Invoke-KitCheck: error → [-], warn → [!]).
         $r.Output | Should -Match '\[!\][^\r\n]*поставка вендора відсутня'
-        $r.Output | Should -BeLike '*поставка вендора відсутня*kit verify -Source base*-MarkerOnly*'
+        # Та сама розрізняльна фраза, що в Recipe зупинки blocked (UnicaStep.Tests.ps1): єдине джерело — Get-KitSupplyRecipe.
+        $r.Output | Should -BeLike '*поставка вендора відсутня*Відновлення поставки вендора: на гілці main*kit verify -Source base*зупинку поставки*'
+        $r.Output | Should -Not -BeLike '*-MarkerOnly*'
     }
 
     It 'підмінений .bin (новий реліз) — warn «застаріла»' {

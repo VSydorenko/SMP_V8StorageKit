@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/StorageBranch.psm1"
-# Потрібен Invoke-KitGitProcess. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
+# Потрібні Invoke-KitGitProcess і Get-KitCurrentBranch. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
 Import-Module "$PSScriptRoot/TreeCompare.psm1"
 # Get-KitTreePaths, Get-KitCaseCollisions — перевірка груп регістру в дереві злиття (як у StorageBranch, вкладено).
 Import-Module "$PSScriptRoot/CaseGuard.psm1"
@@ -66,9 +66,7 @@ function Merge-KitBranchInto {
         git -C $RepoRoot worktree prune 2>$null | Out-Null
     }
 
-    # 2>$null, не 2>&1: $current читається як ім'я гілки (той самий принцип, що StorageBranch.psm1).
-    $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}." }
+    $current = Get-KitCurrentBranch -RepoRoot $RepoRoot
     $here = ($current -eq $Into)
     if ($here) {
         # -c core.quotepath=false і 2>$null — див. історію в коментарях попередньої редакції (B2):

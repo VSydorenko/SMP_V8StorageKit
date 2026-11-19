@@ -143,17 +143,36 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 
-    It 'рецепт (ii)/(iii) називає головну гілку, verify, pull Уніки і canon -MarkerOnly' {
-        $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'stale'
-        $r | Should -BeLike '*main*'
-        $r | Should -BeLike '*kit verify -Source base*pull*kit canon -Source base -MarkerOnly -Apply*'
-        # Канону-дампу для поставки більше немає: .cf кладе pull Уніки.
-        $r | Should -Not -BeLike '*(вивантажує .cf і пише позначку)*'
-        $r | Should -Not -BeLike '*operation=build*'
+    It 'check на головній гілці: verify наповнить базу, далі його зупинка поставки; без pull і supply-marker у самому check' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose check -OnMainBranch $true
+        $r | Should -BeLike '*Відновлення поставки вендора: на гілці main*kit verify -Source base*зупинку поставки*'
+        $r | Should -Not -BeLike '*"op":"pull"*'
+        $r | Should -Not -BeLike '*supply-marker*'
+        $r | Should -Not -BeLike '*-MarkerOnly*' -Because 'режим -MarkerOnly canon замінює kit supply-marker (спека 2026-11-19 §4.2 п.22)'
     }
-
+    It 'stop на головній гілці: повний pull цього набору й supply-marker, без push force' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose stop -OnMainBranch $true
+        $r | Should -BeLike '*Відновлення поставки вендора: на гілці main*"op":"pull"*kit supply-marker -Workspace Ws -Source base -Apply*'
+        $r | Should -Not -BeLike '*"op":"push"*'
+        $r | Should -Not -BeLike '*kit canon*'
+        $r | Should -BeLike '*git status --porcelain --*порожнім*'
+    }
+    It '<Purpose> не на головній гілці: «спершу поставка на головній гілці», без pull і supply-marker' -ForEach @(
+        @{ Purpose = 'check' }
+        @{ Purpose = 'stop' }
+    ) {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose $Purpose -OnMainBranch $false
+        $r | Should -BeLike '*Відновлення поставки вендора: спершу поставка на головній гілці main*'
+        $r | Should -Not -BeLike '*"op":"pull"*'
+        $r | Should -Not -BeLike '*supply-marker*'
+    }
+    It 'стан unknown (лише stop): причина названа, трактується як відсутнє' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'unknown' -Purpose stop -OnMainBranch $true
+        $r | Should -BeLike '*стан поставки вендора не обчислено*'
+        $r | Should -BeLike '*supply-marker*'
+    }
     It 'рецепт (i): той самий крок друкує kit sync' {
-        $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'missing'
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose check -OnMainBranch $true
         $r | Should -BeLike '*У рецепті (i)*kit sync -Source base*'
     }
 }

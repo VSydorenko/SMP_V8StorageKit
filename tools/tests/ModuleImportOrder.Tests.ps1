@@ -15,7 +15,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Resolve-Author', 'Get-UnknownAuthors', 'Get-KitUnattributedVersions', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
             'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions', 'Test-KitExtensionNotFound',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
-            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
+            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths', 'Get-KitCurrentBranch',
             'Get-KitTreePaths', 'Get-KitCaseCollisions', 'Assert-KitIndexMatchesDisk', 'Test-KitComparableRelativePath',
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
             'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
@@ -26,7 +26,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
             'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',
-            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Test-KitSetTreeEqual', 'Test-KitSetClean', 'Test-KitRefIsHead', 'Get-KitAlignStep', 'Write-KitCriterionNotComputed', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
+            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Get-KitAlignStep', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
             'New-KitAgentBaseMissingMessage', 'Get-V8ProjectConfigProblems',
             'Get-KitProtectedPaths', 'Find-KitProtectedCollisions', 'Find-KitAgentBaseCollisions',
             'Get-KitRunnerPath', 'Get-KitRunnerVersion', 'Invoke-KitRunner', 'Get-KitAgentPlatform', 'Invoke-KitAgentRelease'

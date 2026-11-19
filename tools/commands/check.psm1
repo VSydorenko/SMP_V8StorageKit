@@ -301,7 +301,10 @@ function Invoke-KitCheck {
                 if ($src.Truth -eq 'storage') {
                     $state = Get-KitSupplyState -TreeRoot $src.FullPath
                     if ($state -in 'missing', 'stale') {
-                        & $add warn supply ("$tag`: " + (Get-KitSupplyRecipe -SourceKey $src.Key -MainBranch $Context.MainBranch -State $state))
+                        # Варіант рецепту — за поточною гілкою; збій git = «не головна» (консервативний варіант).
+                        try { $onMain = ((Get-KitCurrentBranch -RepoRoot $root) -eq $Context.MainBranch) } catch { $onMain = $false }
+                        & $add warn supply ("$tag`: " + (Get-KitSupplyRecipe -SourceKey $src.Key -Workspace $src.Workspace -MainBranch $Context.MainBranch `
+                            -State $state -Purpose check -OnMainBranch $onMain))
                     }
                 }
             }

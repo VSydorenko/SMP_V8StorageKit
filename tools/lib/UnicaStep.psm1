@@ -2,10 +2,8 @@
 Set-StrictMode -Version Latest
 
 # Без -Force — та сама конвенція, що в AgentBase.psm1 (не перезавантажувати глобальні модулі):
-# Supply дає Get-KitSupplyState, TreeCompare — Invoke-KitGitProcess, TreeBackup — Get-KitDirtyRecords (критерій вирівнювання нижче).
+# Supply дає Get-KitSupplyState і Get-KitSupplyRecipe.
 Import-Module "$PSScriptRoot/Supply.psm1"
-Import-Module "$PSScriptRoot/TreeCompare.psm1"
-Import-Module "$PSScriptRoot/TreeBackup.psm1"
 
 function Format-KitUnicaRun {
     <#
@@ -49,188 +47,55 @@ function Write-KitNextSteps {
     }
 }
 
-function Assert-KitCriterionInput {
-    <#
-    .SYNOPSIS
-        Fail-closed запобіжник критерію вирівнювання: порожній шлях набору й RepoRoot, що не є коренем
-        репозиторію, — виняток, а не мовчазне «чисто/рівно».
-    .DESCRIPTION
-        Порожній нормалізований шлях (/, \, '') зробив би Test-KitSetTreeEqual порівнянням кореневих
-        дерев, а Test-KitSetClean — перевіркою всього репо. RepoRoot-підтека дає git status тільки
-        для підтеки, тож брудна робоча копія виглядала б чистою. Критерій — властивість безпеки:
-        хибне «чисто» призвело б до pull force, що стер би незакомічену роботу.
-    #>
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][AllowEmptyString()][string]$RepoPath)
-    $p = ($RepoPath -replace '\\', '/').Trim('/')
-    if ($p -eq '') { throw "Шлях набору порожній після нормалізації ('$RepoPath') — критерій вирівнювання не обчислюється для всього репозиторію." }
-    $top = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--show-toplevel')
-    if ($top.ExitCode -ne 0) { throw "git rev-parse --show-toplevel для '$RepoRoot' завершився з кодом $($top.ExitCode): $($top.Stderr)" }
-    $norm = { param($x) ([System.IO.Path]::GetFullPath($x.Trim()) -replace '\\', '/').TrimEnd('/') }
-    if (-not (& $norm $top.Stdout).Equals((& $norm $RepoRoot), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "RepoRoot '$RepoRoot' не є коренем репозиторію (корінь: '$($top.Stdout.Trim())') — критерій вирівнювання не обчислюється."
-    }
-}
-
-function Test-KitSetTreeEqual {
-    <#
-    .SYNOPSIS
-        Чи однакове git-дерево набору у двох ревізіях — ідентифікатор дерева, не вміст файлів (§4.1).
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$RepoPath,
-        [Parameter(Mandatory)][string]$Left,
-        [Parameter(Mandatory)][string]$Right
-    )
-    Assert-KitCriterionInput -RepoRoot $RepoRoot -RepoPath $RepoPath
-    $p = ($RepoPath -replace '\\', '/').Trim('/')
-    $l =Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "${Left}:$p")
-    $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "${Right}:$p")
-    if ($l.ExitCode -ne 0 -or $r.ExitCode -ne 0) { return $false }
-    $l.Stdout.Trim() -eq $r.Stdout.Trim()
-}
-
-function Test-KitSetClean {
-    <#
-    .SYNOPSIS
-        Чи чисте робоче дерево набору (§4.1) — та сама семантика, що в страховці canon (Get-KitDirtyRecords).
-    .DESCRIPTION
-        Невідстежувані файли рахуються: pull force переписує дерево з бази, і невідстежувана нова
-        форма агента зникла б безслідно (Review Focus 3) — тому не git diff. Невидиме для status
-        (Get-KitInvisibleWork: ігноровані файли, крім похідних, прапорці assume-unchanged/skip-worktree,
-        підмодулі) теж робить дерево «не чистим»; похідне (поставка вендора, ConfigDumpInfo.xml,
-        DumpFilesIndex.txt) не рахується. Одна функція «брудне дерево» на kit (kit-dev: друга
-        перевірка з іншою логікою гірша за жодну).
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$RepoPath)
-    Assert-KitCriterionInput -RepoRoot $RepoRoot -RepoPath $RepoPath
-    # Дві частини однієї відповіді: видима (status) і невидима для status (ігноровані, прапорці, підмодулі;
-    # §10.2 П24) — pull --force знищує обидві. Невидима робота є → «не чисто» → push force.
-    (@(Get-KitDirtyRecords -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0) -and
-        (@(Get-KitInvisibleWork -RepoRoot $RepoRoot -RepoPath $RepoPath).Count -eq 0)
-}
-
-function Test-KitRefIsHead {
-    <#
-    .SYNOPSIS
-        Чи вказує -Ref на той самий коміт, що й HEAD (§10 П4) — через ^{commit}, тож працює для
-        імені гілки, тегу, sha і від'єднаного HEAD.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Ref)
-    $h = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', 'HEAD^{commit}')
-    $x = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('rev-parse', '--verify', '--quiet', "$Ref^{commit}")
-    if ($h.ExitCode -ne 0 -or $x.ExitCode -ne 0) { return $false }
-    $h.Stdout.Trim() -eq $x.Stdout.Trim()
-}
-
 function Get-KitAlignStep {
     <#
     .SYNOPSIS
-        Один точний крок вирівнювання пам'яті раннера для набору, базу якого зрушив kit (§4.1, §10 П3–П5).
+        Один точний крок вирівнювання пам'яті раннера для набору, базу якого зрушив kit (спека 2026-11-19 §3.1, §4.2 п.7, п.9).
     .DESCRIPTION
-        Критерій (обчислює викликач) — kit довів, що дерево набору в робочій копії дорівнює тому, що
-        він щойно вивантажив з бази, і дерево чисте. Тоді pull force: одне вивантаження, файли не
-        змінюються, пам'ять раннера стає правильною. Інакше push force — повне завантаження з git,
-        для бази агента безпечне за побудовою (рішення 1 спеки).
+        Критерію немає: після sync/verify крок завжди push force:true — повне завантаження набору з git.
+        Для бази агента воно безпечне за побудовою, а без нього база тримала б версію сховища, а git —
+        іншу (тиха суміш, §3.1 «Виміряно А4»). push не несе extension: Уніка приймає в ньому лише
+        sourceSet, full, force, noApply (extension — лише в pull).
 
-        Поставка вендора (CONFIGURATION, стан ≠ none), файлова база: pull --force стирає каталог
-        набору разом з ігнорованими, але повне вивантаження платформи кладе .cf поставки заново (на
-        цьому стоїть canon 1.4.0); знищується лише позначка .kit-bin-sha1, і її пише власник —
-        canon у режимі -MarkerOnly, без вивантаження (§10 П5 на 8d94204).
-        Серверна база — pull немає ніколи (§4.1: з providers: designer у кластері покоління не
-        звіряється, #184); поставку без .cf там дає повний canon (дерево не змінюється — воно
-        дорівнює базі), а тоді push force.
-        Без критерію push force можливий лише з .cf на місці (current); missing/stale дають
-        'blocked' з рецептом — push без .cf упав би на повному завантаженні. Це й є запасна гілка
-        спеки §6: пілот вирішує, чи вона колись спрацює, але не прибирає її.
+        Виняток — CONFIGURATION із поставкою вендора missing/stale/unknown: push force без .cf упав би на
+        повному завантаженні, тож це зупинка 'blocked' з Recipe від Get-KitSupplyRecipe (-Purpose stop).
+        Стан поставки, що не обчислився, трактується як 'unknown' → blocked, а не push.
+        OnMainBranch обчислює викликач (поточна гілка = головна); він лише обирає варіант рецепту.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Source,
-        [Parameter(Mandatory)][bool]$Criterion,
-        [Parameter(Mandatory)][ValidateSet('file', 'server')][string]$BaseKind
+        [Parameter(Mandatory)][bool]$OnMainBranch,
+        # Ім'я головної гілки для тексту рецепту; викликач передає Context.MainBranch (типове — як у Preflight).
+        [string]$MainBranch = 'main'
     )
 
     $set = $Source.Key
     $ws = $Source.Workspace
     # Виняток стану поставки (спека 0174871) — не зупинка команди: база вже зрушена, агентові потрібен
-    # крок. Невідомий стан = 'unknown' → blocked (не push: повне завантаження без .cf падає, П5, тож
-    # невідоме трактується як відсутнє). Рядок друкує спільна Write-KitSupplyStateNotComputed.
-    $supplyUnknown = $false
+    # крок. Рядок друкує спільна Write-KitSupplyStateNotComputed.
     $supply = 'none'
     if ($Source.Type -eq 'CONFIGURATION') {
         try { $supply = Get-KitSupplyState -TreeRoot $Source.FullPath }
-        catch { $supply = 'unknown'; $supplyUnknown = $true; Write-KitSupplyStateNotComputed -SourceSet $set -Reason $_.Exception.Message }
+        catch { $supply = 'unknown'; Write-KitSupplyStateNotComputed -SourceSet $set -Reason $_.Exception.Message }
     }
-    $step = [pscustomobject]@{ SourceSet = $set; Workspace = $ws; RepoPath = $Source.RepoPath; BaseKind = $BaseKind
-        Op = $null; Supply = $supply; MarkerOnly = $false; Steps = @(); Recipe = $null }
-    $pushForce = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true })
-    if ($supplyUnknown) {
-        $step.Op = 'blocked'
-        $step.Recipe = ("Вирівняти пам'ять раннера для '$set' (воркспейс $ws) зараз неможливо: стан поставки вендора не обчислено, а push force без .cf упав би на повному завантаженні. " +
-            "Рецепт — на головній гілці (HEAD = головна, дерево чисте): kit verify -Workspace $ws -Source $set → крок, який він надрукує. Зупинка й доповідь людині, без обходу.")
-        return $step
-    }
-
-    if ($Criterion -and $BaseKind -eq 'file') {
-        $step.Op = 'pull'
-        $pullArgs = [ordered]@{ sourceSet = $set }
-        # Схема pull Уніки 0.13: extension «required for an extension source set and must match it»;
-        # ім'я набору = ім'я розширення (обхід B5-B6).
-        if ($Source.Type -eq 'EXTENSION') { $pullArgs['extension'] = $set }
-        $pullArgs['force'] = $true
-        $steps = @(Format-KitUnicaRun -Op 'pull' -Arguments $pullArgs)
-        if ($supply -ne 'none') {
-            $step.MarkerOnly = $true
-            $steps += "kit canon -Workspace $ws -Source $set -MarkerOnly -Apply"
-        }
-        $step.Steps = $steps
-        return $step
-    }
-    if ($Criterion -and $BaseKind -eq 'server') {
-        $step.Op = 'push'
-        # @(…) довкола if: вираз-if розгортає масив з одного елемента в рядок, і Steps[0] стало б першим символом.
-        $step.Steps = @(if ($supply -in 'missing', 'stale') { "kit canon -Workspace $ws -Source $set -Apply"; $pushForce } else { $pushForce })
-        return $step
-    }
+    $step = [pscustomobject]@{ SourceSet = $set; Workspace = $ws; RepoPath = $Source.RepoPath
+        Op = $null; Supply = $supply; Steps = @(); Recipe = $null }
     if ($supply -in 'none', 'current') {
         $step.Op = 'push'
-        $step.Steps = @($pushForce)
+        $step.Steps = @(Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true }))
         return $step
     }
     $step.Op = 'blocked'
-    $step.Recipe = ("Вирівняти пам'ять раннера для '$set' (воркспейс $ws) зараз неможливо: дерево набору не збігається з тим, що kit вивантажив, " +
-        "а поставка вендора $supply — push force без .cf упав би на повному завантаженні. Рецепт — на головній гілці (HEAD = головна, " +
-        "дерево чисте): kit verify -Workspace $ws -Source $set → крок, який він надрукує (файлова: pull Уніки й kit canon -Workspace $ws -Source $set -MarkerOnly -Apply; " +
-        'серверна: kit canon і push force). Зупинка й доповідь людині, без обходу.')
+    $step.Recipe = ("Вирівняти пам'ять раннера для '$set' (воркспейс $ws) зараз неможливо: push force без .cf упав би на повному завантаженні. " +
+        (Get-KitSupplyRecipe -SourceKey $set -Workspace $ws -MainBranch $MainBranch -State $supply -Purpose stop -OnMainBranch $OnMainBranch))
     $step
-}
-
-function Write-KitCriterionNotComputed {
-    <#
-    .SYNOPSIS
-        Єдиний рядок «критерій не обчислено: <причина>» — друкує викликач (sync, verify), коли функція
-        критерію кинула виняток (спека 3129c0d, П24).
-    .DESCRIPTION
-        Це запасний крок, а не зупинка: версії вже перенесено, злиття зроблено, агентові потрібен крок, а
-        push force нічого в дереві не стирає (хибне «брудне» коштує лише повного завантаження). Викликач
-        ставить Criterion=$false і далі йде звичайним Get-KitAlignStep. Причина — текст винятку функцій
-        критерію (Assert-KitCriterionInput, збій git): значень конфігу в ньому немає (П23). Одна фраза
-        на kit — друга копія розійшлась би з першою (kit-dev, case 5).
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$SourceSet, [Parameter(Mandatory)][AllowEmptyString()][string]$Reason)
-    $one = ($Reason -replace '\s+', ' ').Trim()
-    Write-Host "  критерій не обчислено: $one (набір '$SourceSet')" -ForegroundColor Yellow
 }
 
 function Write-KitSupplyStateNotComputed {
     <#
     .SYNOPSIS
-        Єдиний рядок «стан поставки не обчислено: <причина>» — сестра Write-KitCriterionNotComputed.
+        Єдиний рядок «стан поставки не обчислено: <причина>».
         Друкує Get-KitAlignStep, коли Get-KitSupplyState кинула виняток; крок стає 'blocked'.
     #>
     [CmdletBinding()]
@@ -242,17 +107,18 @@ function Write-KitSupplyStateNotComputed {
 function Write-KitAlignStep {
     <#
     .SYNOPSIS
-        Друк кроку pull/push одразу після набору. Для 'blocked' — нічого: зупинки друкує
+        Друк кроку push одразу після набору. Для 'blocked' — нічого: зупинки друкує
         Write-KitAlignStops ОСТАННІМИ, після підсумку команди (умова архітектора до Op 'blocked').
+    .DESCRIPTION
+        Тон за спекою 2026-11-19 §3.1 (наслідки 2, 5, 6): Уніка спитає людину про перезапис бази origin —
+        це очікувано, не обходити й не повторювати без відповіді; крок виконується лише в інтерактивній
+        сесії (основній чи в субагенті), не в claude -p; cancelled — зупинка з доповіддю, без повтору.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Step)
     if ($Step.Op -eq 'blocked') { return }
-    $why = if ($Step.Op -eq 'pull') { 'дерево набору дорівнює вивантаженому kit' } else { 'повне завантаження набору з git' }
-    Write-KitNextSteps -Title "Далі — вирівняти пам'ять раннера для '$($Step.SourceSet)' (воркспейс $($Step.Workspace); $($Step.Op): $why), без питання людині:" -Steps $Step.Steps
-    if ($Step.Op -eq 'pull') {
-        Write-Host "    Після pull: git status --porcelain -- $($Step.RepoPath) мусить бути порожнім. Непорожній — вивантаження раннера дало інші байти, ніж kit: зупинка й доповідь людині, не робота для агента." -ForegroundColor Cyan
-    }
+    Write-KitNextSteps -Title "Далі — вирівняти пам'ять раннера для '$($Step.SourceSet)' (воркспейс $($Step.Workspace); $($Step.Op): повне завантаження набору з git):" -Steps $Step.Steps
+    Write-Host "    Уніка спитає людину про перезапис бази origin — це очікувано: не обходити й не повторювати без відповіді. Крок — лише в інтерактивній сесії (основній чи в субагенті), не в claude -p. Відповідь cancelled — зупинка й доповідь «база агента не вирівняна; наступний push відмовить», без повтору." -ForegroundColor Cyan
 }
 
 function Write-KitAlignStops {
@@ -267,4 +133,4 @@ function Write-KitAlignStops {
     }
 }
 
-Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Test-KitSetTreeEqual, Test-KitSetClean, Test-KitRefIsHead, Get-KitAlignStep, Write-KitCriterionNotComputed, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops
+Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Get-KitAlignStep, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops
