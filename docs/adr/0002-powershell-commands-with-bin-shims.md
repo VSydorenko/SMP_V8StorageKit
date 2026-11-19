@@ -18,8 +18,16 @@ Source: agent-kit 0.9.1 (оригінал, `.agents/private/agent-kit` у вор
 
 Логіку пишемо командами kit на PowerShell (`tools/commands/<команда>.psm1`, модулі
 `tools/lib/`). Для кожної команди процесу плагін постачає дві обгортки в `bin/`: `<команда>`
-(bash, `exec pwsh -NoProfile -File …/tools/kit.ps1 <команда> "$@"`) і `<команда>.ps1`. Агент
-кличе `sdd dispatch 3 -Model sonnet` з будь-якого інструмента.
+(bash, з бітом виконання) і `<команда>.ps1`; обидві кличуть `pwsh -NoProfile -File
+tools/kit-process.ps1 <команда> <аргументи>`. Агент кличе `sdd dispatch 3 -Model sonnet` з
+будь-якого інструмента.
+
+Вхід команд процесу — окремий `tools/kit-process.ps1` **без param-блоку**, а не `tools/kit.ps1`:
+параметри `kit.ps1` (`-RepoRoot`, `-Source`, …) і загальні параметри PowerShell перехоплюють
+токени команд процесу ще на прив'язці (`sdd fix 3 -Source controller`; `review-pack -Out` —
+неоднозначний префікс `-OutVariable`/`-OutBuffer`), а `--` у `pwsh -File` для скрипта з
+`[CmdletBinding()]` дає помилку прив'язки (вимір 2026-11-19, сесія Б0). Корінь репозиторію —
+поточна тека.
 
 ## Why
 
