@@ -251,6 +251,18 @@ Describe 'kit dump -Apply — зупинка на невидимій і неза
         Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
         Join-Path $repo 'Alpha_SMB/cfe/src/Нова.xml' | Should -Exist
     }
+    It 'три незакомічені файли в новій теці — стоп-перелік містить рівно три записи (лічильник Get-KitDirtyRecords, не один згорнутий)' {
+        # Get-KitDirtyRecords ділить вивід git status -z по NUL і кличе -uall: без цього нова тека давала б
+        # ОДИН запис «?? Тека/», а вивід нативної команди без розбиття по NUL — один рядок на все.
+        $repo = New-DumpInvRepo 'dinv-dirty-three'
+        $dir = Join-Path $repo 'Alpha_SMB/cfe/src/НоваТека'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        1..3 | ForEach-Object { Set-Content -LiteralPath (Join-Path $dir "Ф$_.xml") -Value "файл $_" -Encoding UTF8 }
+        $msg = try { Invoke-KitDump -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true; '' } catch { $_.Exception.Message }
+        $msg | Should -BeLike '*dump -Apply зупинено*'
+        ([regex]::Matches($msg, '\(набір Alpha_SMB\)')).Count | Should -Be 3
+        Should -Invoke -ModuleName dump Invoke-V8Designer -Times 0
+    }
     It 'звичайна незакомічена зміна (змінений відстежуваний файл) — зупинка, правка на місці' {
         $repo = New-DumpInvRepo 'dinv-dirty-tracked'
         $f = Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml'
