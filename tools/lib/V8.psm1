@@ -409,12 +409,12 @@ function New-ExtensionInfobase {
         [Parameter(Mandatory)][string]$ExtensionName,
         [Parameter(Mandatory)][string]$StubPath,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [string]$V8Path,
+        # Обов'язковий: платформу для бази агента визначає раннер (Get-KitAgentPlatform), мовчазного
+        # запасного Get-V8Path тут немає — тимчасова ІБ розширення мусить іти на тій самій платформі.
+        [Parameter(Mandatory)][string]$V8Path,
         [Parameter(Mandatory)][string]$RepoRoot,
         [string]$OwnedRoot
     )
-
-    if (-not $V8Path) { $V8Path = Get-V8Path }
 
     New-V8FileInfobase -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -V8Path $V8Path | Out-Null
     $ibSwitch = '/F "{0}"' -f $Path

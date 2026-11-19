@@ -11,6 +11,11 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+        # Раннер Уніки — не справжній: платформу воркспейсу і agent release командою sync/verify беруть із цих моків
+        # (Get-KitRunnerPath шукав би Уніку на машині, Get-KitAgentPlatform/Invoke-KitAgentRelease запускали б справжній v8-runner).
+        Mock -ModuleName sync Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName sync Get-KitAgentPlatform { 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
+        Mock -ModuleName sync Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
         function script:New-KitFakeStorageVersion { param([int]$Version)
             [pscustomobject]@{ Version = $Version; User = 'gitbot'; Date = '01.01.2026'; Time = '09:00:00'
                 ConfigVersion = ''; Comment = 'версія'; Added = @(); Modified = @(); Deleted = @(); Timestamp = [datetime]'2026-01-01T09:00:00' } }

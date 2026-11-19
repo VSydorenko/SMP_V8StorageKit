@@ -12,6 +12,11 @@ Describe 'kit sync — запасний шлях для розширення б�
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+        # Раннер Уніки — не справжній: платформу воркспейсу і agent release командою sync/verify беруть із цих моків
+        # (Get-KitRunnerPath шукав би Уніку на машині, Get-KitAgentPlatform/Invoke-KitAgentRelease запускали б справжній v8-runner).
+        Mock -ModuleName sync Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName sync Get-KitAgentPlatform { 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
+        Mock -ModuleName sync Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
 
         function script:New-KitTestContext {
             param([Parameter(Mandatory)][string]$Repo)
@@ -76,6 +81,8 @@ Describe 'kit sync — запасний шлях для розширення б�
         # Користувач тимчасової ІБ — порожній (у ній користувачів немає), не користувач бази агента.
         @($script:ReportUsers | Where-Object { $_ }).Count | Should -Be 0
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It
+        # Тимчасова ІБ розширення теж іде на платформі раннера (спека 2026-11-19 §4.2 п.14), а не на Get-V8Path.
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It -ParameterFilter { $V8Path -eq 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
     }
 
     It 'Fallback — поле запису джерела: одне розширення запасним шляхом, інше штатно в тому самому прогоні' {

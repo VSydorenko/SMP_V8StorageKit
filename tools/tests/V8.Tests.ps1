@@ -198,7 +198,7 @@ Describe 'New-ExtensionInfobase' -Tag 'Integration' {
         $ib = Join-Path $TestDrive 'ext-ib'
         $stub = Join-Path $PSScriptRoot '../assets/empty-extension'
 
-        $ibSwitch = New-ExtensionInfobase -Path $ib -ExtensionName 'PROBE_EXT' -StubPath $stub -MustBeUnder $TestDrive -RepoRoot $TestDrive
+        $ibSwitch = New-ExtensionInfobase -Path $ib -ExtensionName 'PROBE_EXT' -StubPath $stub -MustBeUnder $TestDrive -RepoRoot $TestDrive -V8Path (Get-V8Path)
         $ibSwitch | Should -Be ('/F "{0}"' -f $ib)
 
         $dump = Join-Path $TestDrive 'ext-dump'

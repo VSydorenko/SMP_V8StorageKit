@@ -189,7 +189,10 @@ function Invoke-KitSync {
         [string]$MergeInto,
         [string]$DumpPlatform,
         [Nullable[int]]$ForVersion = $null,
-        [Nullable[int]]$SkipVersion = $null
+        [Nullable[int]]$SkipVersion = $null,
+        # Шлях до раннера Уніки; порожній — із реєстру плагінів (Get-KitRunnerPath). Явний параметр, не
+        # змінна оточення: так тести-підпроцеси підміняють раннер, а production нічого не читає заради тестів.
+        [string]$RunnerPath
     )
 
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи (навіть до
@@ -223,19 +226,7 @@ function Invoke-KitSync {
     if (($hasDump -or $hasSkip) -and -not $Source) {
         throw 'Параметри -DumpPlatform/-ForVersion і -SkipVersion діють на одне джерело — вкажіть -Source <ключ>.'
     }
-    $mainPlatformVersion = $null
-    if ($hasDump) {
-        $installed = @(Get-KitInstalledPlatforms)
-        $mainPath = Get-V8Path
-        if (@($installed | Where-Object { $_.Version -eq $DumpPlatform }).Count -eq 0) {
-            throw ("Платформи $DumpPlatform в оточенні немає.`nВстановлені платформи:`n" +
-                (@(Format-KitPlatformList -Platforms $installed -MainPath $mainPath) -join "`n"))
-        }
-        $mainPlatformVersion = Get-KitPlatformVersionFromPath -Path $mainPath
-        if ($DumpPlatform -eq $mainPlatformVersion) {
-            throw "-DumpPlatform $DumpPlatform — це і є основна платформа: вона цю версію й не вивантажила. Оберіть іншу встановлену платформу."
-        }
-    }
+
 
     $into    = if ($MergeInto) { $MergeInto } else { $Context.MainBranch }
     $root    = $Context.RepoRoot
@@ -252,6 +243,32 @@ function Invoke-KitSync {
         }
         if ($hasDump -and $src.Type -ne 'CONFIGURATION') {
             throw "-DumpPlatform для розширення '$($src.Key)' не підтримується в 1.3.1: вивантаження іншою платформою — лише для основної конфігурації."
+        }
+    }
+
+    # Раннер і платформа (спека 2026-11-19 §3.6 п.4, §4.2 п.14, п.20): платформу для пакетних операцій
+    # у базі агента обирає раннер, не Get-V8Path. Раннера немає — зупинка тут, до fetch і до будь-якого
+    # звернення до платформи. Платформу визначаємо один раз на воркспейс (кеш), до першого звернення до неї
+    # для джерел цього воркспейсу, і далі передаємо явним -V8Path.
+    $runner = if ($RunnerPath) { $RunnerPath } else { Get-KitRunnerPath }
+    $platformByWs = @{}
+    $mainPlatformVersion = $null
+    if ($hasDump) {
+        # «Основна платформа», з якою порівнюється -DumpPlatform, — платформа раннера воркспейсу єдиного
+        # джерела (-Source обов'язковий для -DumpPlatform). Порівняння після Select-KitSources: платформа
+        # раннера визначається для воркспейсу, а воркспейс відомий лише тепер. Шлях ІНШОЇ платформи й далі
+        # береться з Get-KitInstalledPlatforms.
+        $installed = @(Get-KitInstalledPlatforms)
+        $dumpWs = @($Context.Workspaces | Where-Object Path -eq $sources[0].Workspace)[0]
+        $mainPath = Get-KitAgentPlatform -Project $dumpWs.Project -RunnerPath $runner
+        $platformByWs[$dumpWs.Path] = $mainPath
+        if (@($installed | Where-Object { $_.Version -eq $DumpPlatform }).Count -eq 0) {
+            throw ("Платформи $DumpPlatform в оточенні немає.`nВстановлені платформи:`n" +
+                (@(Format-KitPlatformList -Platforms $installed -MainPath $mainPath) -join "`n"))
+        }
+        $mainPlatformVersion = Get-KitPlatformVersionFromPath -Path $mainPath
+        if ($DumpPlatform -eq $mainPlatformVersion) {
+            throw "-DumpPlatform $DumpPlatform — це і є основна платформа: вона цю версію й не вивантажила. Оберіть іншу встановлену платформу."
         }
     }
 
@@ -373,12 +390,20 @@ function Invoke-KitSync {
 
             $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $ibPassword = $agent.Password; $fallback = $false
             Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
+            if (-not $platformByWs.ContainsKey($agent.Workspace)) {
+                $platformByWs[$agent.Workspace] = Get-KitAgentPlatform -Project $agent.Project -RunnerPath $runner
+            }
+            $v8Path = $platformByWs[$agent.Workspace]
+            Write-Host "Платформа:  $(Get-KitPlatformVersionFromPath -Path $v8Path) (обрав раннер)"
+            # agent release — перед кожною пакетною операцією в базі агента (спека §3.6 п.1): раннер тримає
+            # зв'язок із базою, і платформа в неї не ввійде. released:false — норма, без друку.
+            $null = Invoke-KitAgentRelease -Project $agent.Project -RunnerPath $runner
             Write-Host 'Читаю історію сховища...'
 
             try {
                 $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath `
                     -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
-                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
+                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -V8Path $v8Path -User $ibUser -Password $ibPassword
             } catch {
                 # Спека 2026-09-30 §6.9: розширення, якого ще немає в базі агента (нове джерело без
                 # дерева), — не зупинка, а весь прогін джерела (звіт і кожна версія) в тимчасовій
@@ -386,14 +411,14 @@ function Invoke-KitSync {
                 # означає інше, і база агента для неї — єдиний законний контекст. Будь-яка інша
                 # помилка звіту (автентифікація, зайнята база) — як раніше, зупинка.
                 if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
-                $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir -RepoRoot $root
+                $ibSwitch = New-KitStorageInfobase -Source $src -WorkDir $workDir -RepoRoot $root -V8Path $v8Path
                 $ibUser = ''; $ibPassword = ''
                 $fallback = $true
                 Write-Host (("  УВАГА: розширення '{0}' ще немає в базі агента — прогін у тимчасовій ІБ із заглушкою, без власника. " +
                     'Формат історичних комітів може відрізнятися (GUID замість імен у посиланнях); після злиття й push Уніки з "force":true для цього розширення ' +
                     '(його ще немає в пам''яті раннера, звичайний push відповів би no_memory) наступні версії підуть у базі агента. База агента в цьому прогоні не змінюється.') -f $src.Key) -ForegroundColor Yellow
                 $all = Get-StorageVersions -IbSwitch $ibSwitch -StoragePath $src.StoragePath -ExtensionName $src.Key `
-                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -User $ibUser -Password $ibPassword
+                    -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -V8Path $v8Path -User $ibUser -Password $ibPassword
             }
             $maxVersion = if ($all.Count -gt 0) { ($all | Measure-Object -Property Version -Maximum).Maximum } else { 'немає' }
             Write-Host "У сховищі версій: $($all.Count), максимальна: $maxVersion"
@@ -536,7 +561,7 @@ function Invoke-KitSync {
             # прибереться у finally, а не лишиться сиротою на диску й у git worktree list.
             $bound = $false
             try {
-                $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -User $ibUser
+                $bound = Enter-KitStorageBind -IbSwitch $ibSwitch -Source $src -V8Path $v8Path -User $ibUser
                 foreach ($v in $pending) {
                     $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                     Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
@@ -551,12 +576,12 @@ function Invoke-KitSync {
                             # WorkDir — build/sync/<ключ> (робоча тека джерела, межа тримається тут).
                             $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch $ibSwitch -Source $src -Version $v.Version `
                                 -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -WorkDir $workDir -RepoRoot $root `
-                                -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
+                                -V8Path $v8Path -AltV8Path $altV8Path -User $ibUser -Password $ibPassword
                             $msgArgs = @{ DumpPlatform = $DumpPlatform; MainPlatform = $mainPlatformVersion }
                             $dumpedVia = $DumpPlatform
                         } else {
                             $null = Invoke-KitStorageCheckout -IbSwitch $ibSwitch -Source $src -Version $v.Version `
-                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -User $ibUser -Password $ibPassword
+                                -Target (Join-Path $wt.Path $src.RepoPath) -MustBeUnder $wt.Path -RepoRoot $root -V8Path $v8Path -User $ibUser -Password $ibPassword
                         }
                     } catch {
                         if (Test-KitDumpFailure -ErrorRecord $_) {
@@ -576,7 +601,7 @@ function Invoke-KitSync {
                     $replaySha = $commit.Sha
                 }
             } finally {
-                Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -User $ibUser
+                Exit-KitStorageBind -IbSwitch $ibSwitch -Source $src -Bound $bound -V8Path $v8Path -User $ibUser
                 Remove-KitStorageWorktree -RepoRoot $root -Path $wt.Path
             }
             Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green

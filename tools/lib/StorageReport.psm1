@@ -251,7 +251,7 @@ function Get-StorageReportArguments {
     # МенеджерХранилищаКонфигурации.os:596) — той самий інструмент, який відтворив повний
     # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
     # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
-    # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
+    # тут це не потрібно — kit працює лише з платформою гілки 8.3.27.x.
     $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
     if ($ExtensionName) { $report += " -Extension $ExtensionName" }
     # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
@@ -272,6 +272,8 @@ function Get-StorageVersions {
         [Parameter(Mandatory)][string]$StorageUser,
         [string]$StoragePassword = '',
         [Parameter(Mandatory)][string]$WorkDir,
+        # Платформа, яку визначив раннер для воркспейсу (Get-KitAgentPlatform); запасного Get-V8Path немає.
+        [Parameter(Mandatory)][string]$V8Path,
         [string]$User = '',
         [string]$Password = ''
     )
@@ -282,7 +284,7 @@ function Get-StorageVersions {
 
     # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
     # яка його й формує.
-    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments (Get-StorageReportArguments `
+    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments (Get-StorageReportArguments `
         -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser `
         -StoragePassword $StoragePassword -ExtensionName $ExtensionName)
 

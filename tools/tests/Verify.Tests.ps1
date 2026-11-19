@@ -102,6 +102,11 @@ Describe 'kit verify — мок платформного шару: щаслив�
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/verify.psm1").Path -Force
+        # Раннер Уніки — не справжній: платформу воркспейсу і agent release командою sync/verify беруть із цих моків
+        # (Get-KitRunnerPath шукав би Уніку на машині, Get-KitAgentPlatform/Invoke-KitAgentRelease запускали б справжній v8-runner).
+        Mock -ModuleName verify Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName verify Get-KitAgentPlatform { 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
+        Mock -ModuleName verify Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
     }
 
     It 'жоден файл не позначений binary — verify не падає на прив''язці параметра, доходить до вердикту equal' {
@@ -679,7 +684,7 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
         $null = New-ExtensionInfobase -Path (Join-Path $agentWork 'ib') -ExtensionName 'SMP_BankExchange_SMB' `
-            -StubPath (Resolve-Path "$PSScriptRoot/../assets/empty-extension").Path -MustBeUnder $agentWork -RepoRoot $script:Repo -OwnedRoot $agentWork
+            -StubPath (Resolve-Path "$PSScriptRoot/../assets/empty-extension").Path -MustBeUnder $agentWork -RepoRoot $script:Repo -OwnedRoot $agentWork -V8Path (Get-V8Path)
         Join-Path $agentWork 'ib/1Cv8.1CD' | Should -Exist
         function script:Run { param([string[]]$Arguments) $out = & pwsh -NoProfile -File $script:Kit @Arguments -RepoRoot $script:Repo 2>&1 | Out-String; [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
         function script:Complete-Authors {

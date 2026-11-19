@@ -34,7 +34,10 @@ function Invoke-KitVerify {
         # ширший сценарій закрито ЦЕНТРАЛЬНО в диспетчері (tools/kit.ps1, Step 5а): $true
         # підставляється прапорцю лише тоді, коли параметр команди — справжній [switch]; для
         # будь-якого іншого типу (як тут) диспетчер вимагає значення ще до виклику Invoke-KitVerify.
-        [ValidateRange(1, [int]::MaxValue)][Nullable[int]]$Version
+        [ValidateRange(1, [int]::MaxValue)][Nullable[int]]$Version,
+        # Шлях до раннера Уніки; порожній — із реєстру плагінів (Get-KitRunnerPath). Явний параметр, не
+        # змінна оточення (спека 2026-11-19 §4.2 п.20).
+        [string]$RunnerPath
     )
 
     $root = $Context.RepoRoot
@@ -99,6 +102,12 @@ function Invoke-KitVerify {
         [pscustomobject]@{ Source = $src; Info = $vv; Agent = $agent; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 
+    # Раннер і платформа (спека 2026-11-19 §3.6 п.4, §4.2 п.14, п.20): усі перевірки git вище вже пройдено,
+    # тож відсутній раннер зупиняє тут — до першого звернення до платформи. Платформу визначаємо один
+    # раз на воркспейс і передаємо явним -V8Path.
+    $runner = if ($RunnerPath) { $RunnerPath } else { Get-KitRunnerPath }
+    $platformByWs = @{}
+
     # Кроки вирівнювання пам'яті раннера (спека 2026-10-11 §4.1): по одному на набір, базу якого зрушив verify.
     $alignSteps = [System.Collections.Generic.List[object]]::new()
     try {
@@ -116,6 +125,13 @@ function Invoke-KitVerify {
             New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
             $ib = $agent.IbSwitch
+            if (-not $platformByWs.ContainsKey($agent.Workspace)) {
+                $platformByWs[$agent.Workspace] = Get-KitAgentPlatform -Project $agent.Project -RunnerPath $runner
+            }
+            $v8Path = $platformByWs[$agent.Workspace]
+            Write-Host "  Платформа:  $(Get-KitPlatformVersionFromPath -Path $v8Path) (обрав раннер)"
+            # agent release — перед кожною пакетною операцією в базі агента (спека §3.6 п.1); released:false — норма.
+            $null = Invoke-KitAgentRelease -Project $agent.Project -RunnerPath $runner
             Write-Host "  База агента ($ib), версія зі сховища, дамп..."
             # $bound = $false ПЕРЕД try обов'язковий (рев'ю B3 раунд 2, Important 4 — та сама
             # асиметрія, що вже виправлена в sync.psm1:150-155): під Set-StrictMode -Version Latest
@@ -126,8 +142,8 @@ function Invoke-KitVerify {
             # конфігурації, і межа «сховище лише читання» тримається саме на симетрії цієї пари.
             $bound = $false
             try {
-                $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -User $agent.User
-                $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -User $agent.User -Password $agent.Password
+                $bound = Enter-KitStorageBind -IbSwitch $ib -Source $src -V8Path $v8Path -User $agent.User
+                $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -V8Path $v8Path -User $agent.User -Password $agent.Password
             } catch {
                 # Спека 1.3.1 §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
                 # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,
@@ -141,7 +157,7 @@ function Invoke-KitVerify {
                 }
                 throw
             } finally {
-                Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -User $agent.User
+                Exit-KitStorageBind -IbSwitch $ib -Source $src -Bound $bound -V8Path $v8Path -User $agent.User
             }
             $treeDir = Join-Path $workDir 'tree'
             $treeCount = Export-KitTree -RepoRoot $root -Ref $refSha -RepoPath $src.RepoPath -Destination $treeDir

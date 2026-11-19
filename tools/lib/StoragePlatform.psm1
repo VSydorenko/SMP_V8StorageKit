@@ -65,12 +65,14 @@ function New-KitStorageInfobase {
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][string]$WorkDir,
         [string]$StubPath = $script:DefaultStubPath,
-        [Parameter(Mandatory)][string]$RepoRoot
+        [Parameter(Mandatory)][string]$RepoRoot,
+        # Платформа, яку визначив раннер (Get-KitAgentPlatform); запасного Get-V8Path у цій функції немає.
+        [Parameter(Mandatory)][string]$V8Path
     )
     $ibPath = Join-Path $WorkDir 'ib'
     switch ($Source.Type) {
-        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' })) }
-        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }))) }
+        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $V8Path) }
+        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $V8Path)) }
         default         { throw "Джерело '$($Source.Key)' має тип $($Source.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION." }
     }
 }
@@ -114,14 +116,14 @@ function Get-KitSourceInfobase {
                'вивантажується в контексті базової конфігурації. Спершу v8storagekit:provision (kit provision -Workspace ' +
                "$($ws.Path) -Apply і надрукований ним крок), тоді повторіть команду.")
     }
-    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path }
+    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path; Project = $ws.Project }
 }
 
 function Enter-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [string]$User = '')
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][string]$V8Path, [string]$User = '')
     if ($Source.Type -ne 'CONFIGURATION' -or -not $script:ConfigurationStorageNeedsBind) { return $false }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @('/ConfigurationRepositoryBindCfg -forceBindAlreadyBindedUser -forceReplaceCfg'))
     if ($r.ExitCode -ne 0) { throw "Прив'язка тимчасової ІБ до сховища конфігурації не вдалася: $($r.Output)" }
     $true
@@ -129,9 +131,9 @@ function Enter-KitStorageBind {
 
 function Exit-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound, [string]$User = '')
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound, [Parameter(Mandatory)][string]$V8Path, [string]$User = '')
     if (-not $Bound) { return }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
     if ($r.ExitCode -ne 0) { Write-Host "УВАГА: не вдалося зняти прив'язку тимчасової ІБ до сховища ($($Source.StoragePath)): $($r.Output)" -ForegroundColor Red }
 }
 
@@ -147,11 +149,12 @@ function Invoke-KitStorageUpdate {
         [Parameter(Mandatory)][string]$IbSwitch,
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][int]$Version,
+        [Parameter(Mandatory)][string]$V8Path,
         [string]$User = '',
         [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
     if ($upd.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
@@ -199,18 +202,19 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$V8Path,
         [string]$User = '',
         [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User -Password $Password
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -V8Path $V8Path -User $User -Password $Password
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
     Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
-    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
+    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
         # Спека 1.3.1 §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний
@@ -219,7 +223,7 @@ function Invoke-KitStorageCheckout {
         $ex = [System.InvalidOperationException]::new("Вивантаження версії $Version не вдалося: $($dump.Output)")
         $ex.Data['KitDumpFailure'] = $true
         $ex.Data['Version'] = $Version
-        $ex.Data['PlatformPath'] = (Get-V8Path)
+        $ex.Data['PlatformPath'] = $V8Path
         $ex.Data['Output'] = $dump.Output
         throw $ex
     }
@@ -262,6 +266,8 @@ function Invoke-KitStorageCheckoutViaPlatform {
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$WorkDir,
+        # Основна платформа (визначена раннером): UpdateCfg і /DumpCfg у базі агента.
+        [Parameter(Mandatory)][string]$V8Path,
         [Parameter(Mandatory)][string]$AltV8Path,
         [Parameter(Mandatory)][string]$RepoRoot,
         [string]$User = '',
@@ -272,15 +278,15 @@ function Invoke-KitStorageCheckoutViaPlatform {
     }
 
     # Крок 1: основна платформа, той самий UpdateCfg.
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User -Password $Password
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -V8Path $V8Path -User $User -Password $Password
 
     # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
     $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
     Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "файл .cf версії $Version"
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
     if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
-    $mainPath = Get-V8Path
-    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -Arguments @(('/DumpCfg "{0}"' -f $cf))
+    $mainPath = $V8Path
+    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpCfg "{0}"' -f $cf))
     if ($dumpCf.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dumpCf.Output -Infobase 'агента'
         throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не вдався: $($dumpCf.Output)"
