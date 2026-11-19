@@ -19,7 +19,7 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         # New-KitFakeUnicaRegistry (друга форма не вигадується), плюс запис v8storagekit.
         $script:FakeHome = Join-Path $TestDrive 'fake-home'
         New-Item -ItemType Directory -Path (Join-Path $script:FakeHome '.claude/plugins') -Force | Out-Null
-        $homeRegistry = Get-Content -LiteralPath (New-KitFakeUnicaRegistry -Version '0.13.0') -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+        $homeRegistry = Get-Content -LiteralPath (New-KitFakeUnicaRegistry) -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
         $homeRegistry.plugins['v8storagekit@smp-v8storagekit'] = @(@{ version = 'test'; installPath = $script:KitRoot })
         $homeRegistry | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $script:FakeHome '.claude/plugins/installed_plugins.json') -Encoding UTF8
 
@@ -46,7 +46,9 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $json = $r.Output | ConvertFrom-Json
         $json.hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*using-v8storagekit*'
-        $json.hookSpecificOutput.additionalContext | Should -BeLike '*session-check*- Alpha_SMB:*'
+        # Шим -RunnerPath не передає (за дизайном), а фальшивий дім не несе справжнього v8-runner.exe (його не підробити
+        # .cmd: шлях жорстко закінчується на .exe) — тож session-check чесно доповідає «раннер недоступний», а не перелік джерел.
+        $json.hookSpecificOutput.additionalContext | Should -BeLike '*session-check*Раннер Уніки недоступний*'
         $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*<корінь плагіна>*'
         $json.hookSpecificOutput.additionalContext | Should -BeLike "*$script:KitRoot*"   # без -replace: у -BeLike екран — бектик, не бекслеш (P8)
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty

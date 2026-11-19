@@ -405,6 +405,13 @@ function Invoke-KitCommand {
     if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-InstalledPluginsPath')) {
         $cmdArgs.Add('-InstalledPluginsPath'); $cmdArgs.Add((New-KitFakeUnicaRegistry))
     }
+    # Те саме для раннера (спека 2026-11-19 §4.2 п.20): фальшивий реєстр раннера не несе, тож без явного
+    # -RunnerPath кожен підпроцесний check дав би error runner-version — і саме тому kit не мусить мовчки йти
+    # до справжньої Уніки машини. Підставляється фальшивий tools/tests/fixtures/runner/v8-runner.cmd; тест, що
+    # перевіряє відсутність чи іншу версію раннера, передає -RunnerPath сам.
+    if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-RunnerPath')) {
+        $cmdArgs.Add('-RunnerPath'); $cmdArgs.Add((Join-Path $PSScriptRoot 'runner/v8-runner.cmd'))
+    }
     $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
 }
@@ -416,7 +423,7 @@ function New-KitFakeUnicaRegistry {
         і session-check (спека §10.1 П21). Тести не залежать від того, яка Уніка стоїть на машині.
     #>
     [CmdletBinding()]
-    param([string]$Version = '0.13.0')
+    param([string]$Version = '0.16.0')
     $dir = Join-Path $TestDrive "fake-unica-$Version-$([guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $path = Join-Path $dir 'installed_plugins.json'

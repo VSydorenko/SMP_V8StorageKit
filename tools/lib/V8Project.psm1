@@ -139,12 +139,17 @@ function Resolve-V8AgentInfobase {
 function Get-V8ProjectConfigProblems {
     <#
     .SYNOPSIS
-        Знахідки конфігу воркспейсу, з яким Уніка 0.13 чи kit 1.5.0 не працюють, — кожна з рецептом.
+        Знахідки конфігу воркспейсу, з яким kit не працює (чи працює не тим виконавцем), — кожна з рецептом.
     .DESCRIPTION
-        Одне місце правил (спека 2026-10-11 §4.3 п. 3, 5; §10 П9, П10): префлайт перетворює кожен
-        рядок на fail 'workspace', тож на застарілому конфігу зупиняється БУДЬ-ЯКА команда kit, а
-        kit check показує всі рядки разом. Сумісних читань немає (рішення 9): стара форма — це
-        знахідка, не другий шлях.
+        Одне місце правил (спека 2026-11-19 §3.8): префлайт перетворює кожен рядок на fail 'workspace', тож
+        на такому конфігу зупиняється БУДЬ-ЯКА команда kit, а kit check показує всі рядки разом. Сумісних
+        читань немає: стара форма — це знахідка, не другий шлях.
+
+        Лише те, що є політикою kit: форма бази агента (infobases.origin, стара infobase:) і providers =
+        designer. Ключі, які відхиляє сам раннер (builder, execution_timeout, basePath,
+        push.partialLoadThreshold…), kit НЕ дублює: раннер скаже про них точніше й сам, а перелік у kit
+        застарівав би з кожною його версією. Ключ tools.platform.version Уніка дописує в
+        v8project.local.yaml сама — це не знахідка (спека §7.1).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Directory)
@@ -161,29 +166,12 @@ function Get-V8ProjectConfigProblems {
         if ($null -eq $data) { continue }
         $p = $file.Path
 
-        # Лише верхній рівень: вкладений tests.execution_timeout_seconds Уніка 0.13 приймає
-        # (runner_014.rs, validate_layer); builder відхиляє сам раннер 0.14.
-        foreach ($key in 'builder', 'execution_timeout', 'execution_timeout_seconds', 'basePath') {
-            if ($data.Contains($key)) { $problems.Add("${p}: ключ '$key' Уніка 0.13 / v8-runner 0.14 не приймають — з ним вони відмовляються працювати. Видаліть рядок.") }
-        }
-        foreach ($section in 'push', 'build') {
-            if ($data.Contains($section) -and $data[$section] -is [System.Collections.IDictionary] -and $data[$section].Contains('partialLoadThreshold')) {
-                $problems.Add("${p}: ключ '$section.partialLoadThreshold' Уніка 0.13 не приймає. Видаліть рядок.")
-            }
-        }
-        if ($data.Contains('source-set') -and $data['source-set'] -is [System.Collections.IList]) {
-            foreach ($set in $data['source-set']) {
-                if ($set -is [System.Collections.IDictionary] -and $set.Contains('basePath')) {
-                    $problems.Add("${p}: ключ 'basePath' у source-set '$($set['name'])' Уніка 0.13 не приймає. Видаліть рядок.")
-                }
-            }
-        }
         if ($data.Contains('infobase')) {
-            # Політика kit (рішення 9 спеки), не відмова Уніки: Уніка 0.13 стару форму ще приймає
-            # проєкцією — тому в тексті не писати, що її «відхиляє Уніка».
-            $problems.Add("${p}: стара форма 'infobase:' — kit 1.5.0 читає базу агента лише з infobases.origin " +
+            # Політика kit (одна форма на kit і Уніку), не відмова Уніки: чи приймає Уніка стару форму проєкцією,
+            # kit не виміряв — тому в тексті не писати, що її «відхиляє Уніка».
+            $problems.Add("${p}: стара форма 'infobase:' — kit читає базу агента лише з infobases.origin " +
                 "у $localPath (одна форма на kit і Уніку, без сумісного читання). Перенесіть: infobases: { origin: { connection: …, user: …, password: … } } у $localPath і " +
-                'приберіть infobase: (перехід — skills/onboarding/references/upgrades.md, «1.4.0 → 1.5.0»).')
+                'приберіть infobase: (перехід — skills/onboarding/references/upgrades.md, «1.4.0 → 1.6.0»).')
         }
         if ($data.Contains('infobases')) {
             if ($file.Committed) {

@@ -32,6 +32,9 @@ function Invoke-KitCheck {
         # Реєстр плагінів машини, де шукається Уніка (спека §10.1 П21: тестовий шов — параметр, не змінна
         # оточення). Умовчання — реєстр поточного користувача.
         [string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json'),
+        # Шлях до раннера Уніки; порожній — із ТОГО Ж реєстру (-InstalledPluginsPath), що й Уніка (спека §4.2 п.20):
+        # тест-підпроцес без -RunnerPath має почервоніти на фальшивому реєстрі без раннера, а не піти до справжньої Уніки.
+        [string]$RunnerPath,
         # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
         # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
         # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
@@ -43,17 +46,31 @@ function Invoke-KitCheck {
     $add = { param([string]$Level, [string]$Check, [string]$Message) $findings.Add((New-KitFinding -Level $Level -Check $Check -Message $Message)) }
     $root = $Context.RepoRoot
 
-    # Спека 2026-10-11 §4.4 п. 4: версія Уніки — вимога. Реєстр машинний (Уніка — плагін рівня
-    # користувача); параметр -InstalledPluginsPath — той самий інтерфейс, що в check-environment.ps1
+    # Спека 2026-11-19 §4.2 п.4, п.19: версія Уніки й раннера — вимоги. Реєстр машинний (Уніка — плагін
+    # рівня користувача); параметр -InstalledPluginsPath — той самий інтерфейс, що в check-environment.ps1
     # (§10.1 П21: жодної змінної оточення заради тестів). Поза if ($Context.Manifest): стан машини.
-    $unicaVerdict = Get-KitUnicaVersionVerdict -Installation (Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath)
-    if ($unicaVerdict.Level -ne 'ok') { & $add $unicaVerdict.Level 'unica-version' $unicaVerdict.Message }
+    #
+    # Відсутня Уніка — error через runner-version (п.19), а не окремий рядок unica-version: раннера без
+    # неї не знайти, і текст runner-version уже називає причину. Два error про одне й те саме — шум.
+    $unicaInstall = Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath
+    if ($unicaInstall.Installed -and $unicaInstall.PathExists) {
+        $unicaVerdict = Get-KitUnicaVersionVerdict -Installation $unicaInstall
+        if ($unicaVerdict.Level -ne 'ok') { & $add $unicaVerdict.Level 'unica-version' $unicaVerdict.Message }
+    }
+    $runnerVerdict = Get-KitRunnerVerdict -RunnerPath $RunnerPath -InstalledPluginsPath $InstalledPluginsPath
+    if ($runnerVerdict.Level -ne 'ok') { & $add $runnerVerdict.Level 'runner-version' $runnerVerdict.Message }
 
     if ($Context.Manifest) {
         $all = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
-        $byTruth = (@($all | Group-Object Truth | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
+        # Підсумок рахує за МАНІФЕСТОМ, а не за розв'язаним контекстом: воркспейс із помилкою конфігу (стара
+        # форма v8project.yaml, немає папки) до $Context.Workspaces не потрапляє, і підсумок «воркспейсів 0,
+        # джерел 0» (дефект пілоту, спека §5 п.2) читався б як «маніфест порожній», хоч порожній лише розв'язаний бік.
+        $declared = @($Context.Manifest.Workspaces | Where-Object { -not $Workspace -or $_.Path -eq $Workspace })
+        $declaredSources = @($declared | ForEach-Object { $_.Sources } | Where-Object { -not $Source -or $_.Key -eq $Source })
+        $byTruth = (@($declaredSources | Group-Object Truth | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
+        $unresolved = if ($declared.Count -gt @($Context.Workspaces).Count) { " (розв'язано $(@($Context.Workspaces).Count) — решту див. у помилках конфігу нижче)" } else { '' }
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
-            "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
+            "воркспейсів $($declared.Count), джерел у перевірці $($declaredSources.Count) ($byTruth)$unresolved.")
 
         # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
         # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
@@ -519,9 +536,9 @@ function Invoke-KitCheck {
                         if ($c.Kind -eq 'base' -and [string]::CompareOrdinal($ws.Path, $c.Other) -gt 0) { continue }
                         $detail = switch ($c.Kind) {
                             'base' { if ($c.Server) { "база агента воркспейсу '$($ws.Path)' і база агента воркспейсу '$($c.Other)' — та сама серверна база (збігаються сервер і Ref)" } else { "база агента воркспейсу '$($ws.Path)' перетинається з базою агента воркспейсу '$($c.Other)'" } }
-                            'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у пам'яті раннера '<workPath>/infobases/origin' воркспейсу '$($ws.Path)'" }
+                            'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у пам'яті раннера '.local/infobases/origin' воркспейсу '$($ws.Path)'" }
                             'memory-both' { "пам'ять раннера воркспейсу '$($ws.Path)' перетинається з пам'яттю раннера воркспейсу '$($c.Other)'" }
-                            default { "база агента воркспейсу '$($ws.Path)' лежить у '<workPath>/infobases' воркспейсу '$($c.Other)'" }
+                            default { "база агента воркспейсу '$($ws.Path)' лежить у '.local/infobases' воркспейсу '$($c.Other)'" }
                         }
                         # Що саме знищив би provision -Apply -Force, залежить від виду збігу: для memory-both це не база,
                         # а пам'ять раннера (теку infobases/origin прибирають перед створенням), для решти — база агента.

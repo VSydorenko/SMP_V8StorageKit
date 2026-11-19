@@ -146,16 +146,27 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         $d = New-Ws -Name 'clean' -Project ($script:Clean + @('tests:', '  execution_timeout_seconds: 600')) -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'")
         @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
     }
-    It 'усі застарілі ключі — усі знахідки разом, кожна з рецептом' {
-        $proj = @('builder: DESIGNER', 'execution_timeout: 600000', 'basePath: x', 'push:', '  partialLoadThreshold: 10',
-                  'infobase:', "  connection: 'File=build/ib'") + $script:Clean
+    It 'стара форма infobase: у обох файлах — дві знахідки, кожна з рецептом і посиланням на розділ «1.4.0 → 1.6.0»' {
+        $proj = @('infobase:', "  connection: 'File=build/ib'") + $script:Clean
         $d = New-Ws -Name 'old' -Project $proj -Local @('infobase:', "  connection: 'File=build/ib'")
         $p = @(Get-V8ProjectConfigProblems -Directory $d)
-        ($p -join "`n") | Should -BeLike "*'builder'*Видаліть рядок*"
-        ($p -join "`n") | Should -BeLike "*'execution_timeout'*"
-        ($p -join "`n") | Should -BeLike "*'basePath'*"
-        ($p -join "`n") | Should -BeLike "*'push.partialLoadThreshold'*"
-        @($p | Where-Object { $_ -like "*стара форма 'infobase:'*infobases.origin*" }).Count | Should -Be 2
+        @($p | Where-Object { $_ -like "*стара форма 'infobase:'*infobases.origin*«1.4.0 → 1.6.0»*" }).Count | Should -Be 2
+        $p.Count | Should -Be 2
+    }
+    # Ключі, які відхиляє сам раннер, kit не дублює (спека 2026-11-19 §3.8 п.3): його відмова точніша, а перелік у kit
+    # застарівав би з кожною версією раннера. Тест закріплює відсутність перевірки: повернуте правило його почервонить.
+    It 'builder, execution_timeout(_seconds), basePath (верхній рівень і в source-set), push/build.partialLoadThreshold — не знахідки kit' {
+        $proj = @('builder: DESIGNER', 'execution_timeout: 600000', 'execution_timeout_seconds: 600', 'basePath: x',
+                  'push:', '  partialLoadThreshold: 10', 'build:', '  partialLoadThreshold: 10') + $script:Clean + @("    basePath: y")
+        $d = New-Ws -Name 'runner-keys' -Project $proj -Local @('builder: DESIGNER', 'basePath: x', 'infobases:', '  origin:', "    connection: 'File=build/ib'")
+        @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
+    }
+    # Закріплення контракту з Унікою (спека §8, §7.1 «Побічне»), не червоний-спершу тест: перевірки ключа tools тут
+    # ніколи не було. Уніка дописує tools.platform.version у v8project.local.yaml сама.
+    It 'контракт: tools.platform.version у v8project.local.yaml поруч з infobases.origin — не знахідка, база читається' {
+        $d = New-Ws -Name 'tools-platform' -Project $script:Clean -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'", 'tools:', '  platform:', "    version: '8.3.27.1644'")
+        @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
+        (Read-V8ProjectLocalInfobase -Path (Join-Path $d 'v8project.local.yaml')).Connection | Should -Be 'File=build/ib'
     }
     It 'infobases у закоміченому v8project.yaml — знахідка з переносом у local' {
         $d = New-Ws -Name 'committed' -Project ($script:Clean + @('infobases:', '  origin:', "    connection: 'File=build/ib'"))

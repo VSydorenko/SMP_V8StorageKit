@@ -120,7 +120,7 @@ function Test-KitPathsOverlap {
         Чи перетинаються два шляхи: рівні, один під іншим чи над ним (П26) — після канонізації.
     .DESCRIPTION
         Єдиний предикат перетину на kit: аудит бази людини (Test-KitInfobasesOverlap) і межа
-        <workPath>/infobases у provision кличуть саме його, а не власні копії. Порівняння — з
+        межа пам'яті раннера (.local/infobases) у provision кличуть саме його, а не власні копії. Порівняння — з
         роздільником (build\ib2 не лежить під build\ib), без урахування регістру.
     #>
     [CmdletBinding()]
@@ -164,7 +164,8 @@ function Get-KitProtectedPaths {
         вхідного шляху додається СЮДИ, а не отримує власну перевірку. Елементи:
         - devbase — дев-бази накладки (Kit ніколи не пише в базу людини);
         - otherbase — бази агента ІНШИХ воркспейсів маніфесту;
-        - othermemory — <workPath>/infobases інших воркспейсів (пам'ять раннера, мітка власника, замок);
+        - othermemory — <тека v8project.yaml>/.local/infobases інших воркспейсів (пам'ять раннера 0.18; шлях дає
+          Get-KitRunnerMemoryPath, спека 2026-11-19 §4.2 п.15);
         - template — файли .dt: -Template прогону й agentBase.template накладки КОЖНОГО воркспейсу
           (файл людини; шаблон іншого воркспейсу захищений так само).
 
@@ -223,8 +224,10 @@ function Get-KitProtectedPaths {
                 else { & $add 'otherbase' $other.Path $label $null $ib.Connection }
             }
             if ('othermemory' -in $Kinds) {
-                $mem = Join-Path (Join-Path $other.FullPath $other.Project.WorkPath) 'infobases'
-                & $add 'othermemory' $other.Path "пам'ять раннера воркспейсу '$($other.Path)' (<workPath>/infobases)" $mem $null
+                # Уся тека .local/infobases (батьківська для бази origin), як раніше була вся <workPath>/infobases: чужа база
+                # під будь-якою пам'яттю раннера чужого воркспейсу — перетин. Шлях бази — лише з Get-KitRunnerMemoryPath.
+                $mem = Split-Path -Parent (Get-KitRunnerMemoryPath -Project $other.Project)
+                & $add 'othermemory' $other.Path "пам'ять раннера воркспейсу '$($other.Path)' (.local/infobases)" $mem $null
             }
         }
     }
@@ -260,8 +263,8 @@ function Find-KitProtectedCollisions {
         Текстовий перетин (з канонізацією) елементів переліку захищених шляхів з текою, яку прибере provision (П26 п. 1, 7).
     .DESCRIPTION
         Перший рівень — дешевий, без побічних ефектів, діє в префлайті й аудиті. Для кожного елемента
-        Get-KitProtectedPaths перевіряється проти КОЖНОЇ цілі з -Targets (base | memory — те, що видаляється: тека бази
-        і <workPath>/infobases/origin; об'єкти {Path; Connection}) — подвійний цикл «перелік × цілі», без вибору пар. Файли — Test-KitPathsOverlap (канонізація, перетин);
+        Get-KitProtectedPaths перевіряється проти КОЖНОЇ цілі з -Targets (base | memory — те, що охороняється: тека бази
+        і .local/infobases/origin пам'яті раннера; об'єкти {Path; Connection}) — подвійний цикл «перелік × цілі», без вибору пар. Файли — Test-KitPathsOverlap (канонізація, перетин);
         серверні — Test-KitInfobasesOverlap (сервер і Ref). Нерозбірне — виняток без значень шляху
         (fail-closed). Повертає {Element; Target}. Другий рівень (псевдоніми) — маркер-фаза provision.
     #>
@@ -298,8 +301,8 @@ function Find-KitAgentBaseCollisions {
         в теку B. Не має власної логіки перетину: бере чужі елементи з Get-KitProtectedPaths і порівнює їх
         через Find-KitProtectedCollisions — тією самою процедурою, що й перший прохід provision. Повертає
         {Other; Kind; Server}: Kind = base (база проти бази) | memory-mine (чужа база в пам'яті раннера
-        <workPath>/infobases/origin цього) | memory-theirs (ця база в <workPath>/infobases чужого) |
-        memory-both (пам'ять раннера проти пам'яті раннера: <workPath>/infobases чужого перетинається з
+        .local/infobases/origin цього) | memory-theirs (ця база в .local/infobases чужого) |
+        memory-both (пам'ять раннера проти пам'яті раннера: .local/infobases чужого перетинається з
         origin цього); Server — збіг серверних баз за
         сервером і Ref (не «тека»). Без значень конфігу, тексти будують викликачі.
     #>
@@ -311,7 +314,7 @@ function Find-KitAgentBaseCollisions {
     $myResolved = Resolve-KitAgentInfobasePath -Project $Workspace.Project -Connection $mine.Connection
     $targets = @{
         base      = [pscustomobject]@{ Path = $(if ($myResolved.Kind -eq 'file') { $myResolved.Path } else { $null }); Connection = $(if ($myResolved.Kind -eq 'file') { $null } else { $mine.Connection }) }
-        memory    = [pscustomobject]@{ Path = (Join-Path (Join-Path $Workspace.FullPath $Workspace.Project.WorkPath) 'infobases/origin'); Connection = $null }
+        memory    = [pscustomobject]@{ Path = (Get-KitRunnerMemoryPath -Project $Workspace.Project); Connection = $null }
     }
     $protected = @(Get-KitProtectedPaths -Context $Context -Workspace $Workspace -Kinds 'otherbase', 'othermemory')
     $found = foreach ($h in @(Find-KitProtectedCollisions -Protected $protected -Targets $targets)) {

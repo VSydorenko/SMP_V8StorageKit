@@ -199,4 +199,44 @@ function Invoke-KitAgentRelease {
     }
 }
 
-Export-ModuleMember -Function Get-KitRunnerPath, Get-KitRunnerVersion, Invoke-KitRunner, Get-KitAgentPlatform, Invoke-KitAgentRelease
+# Перевірена мінорна версія раннера (спека 2026-11-19 §4.2 п.4): Уніка 0.16 несе v8-runner 0.18.x.
+$script:RunnerTestedMinor = [version]'0.18'
+
+function Get-KitRunnerVerdict {
+    <#
+    .SYNOPSIS
+        Висновок про раннер: ok | warn (мінор не 0.18 чи версію не розібрано) | error (раннера немає чи він не відповідає).
+    .DESCRIPTION
+        Шлях — явний -RunnerPath або, коли він порожній, Get-KitRunnerPath з того самого реєстру плагінів
+        (-InstalledPluginsPath), що й пошук Уніки: тест, який забув -RunnerPath, не знайде раннера у
+        фальшивому реєстрі й почервоніє (спека §4.2 п.20), а не піде до справжньої Уніки машини.
+        Збірку форку від upstream не розрізняє: значущі лише мажор і мінор.
+        Повертає {Level; Message; Version}; Version порожня, коли раннер не відповів.
+    #>
+    [CmdletBinding()]
+    param([string]$RunnerPath, [string]$InstalledPluginsPath)
+
+    $notice = 'sync, verify і provision без раннера не працюють (kit dump працює й без нього — він бере платформу напряму).'
+    $runner = $RunnerPath
+    try {
+        if (-not $runner) {
+            $lookup = @{}
+            if ($InstalledPluginsPath) { $lookup.InstalledPluginsPath = $InstalledPluginsPath }
+            $runner = Get-KitRunnerPath @lookup
+        }
+        $version = Get-KitRunnerVersion -RunnerPath $runner
+    } catch {
+        return [pscustomobject]@{ Level = 'error'; Version = ''; Message = "Раннер Уніки недоступний: $($_.Exception.Message) $notice" }
+    }
+    if ($version -notmatch '^(?<maj>\d+)\.(?<min>\d+)') {
+        return [pscustomobject]@{ Level = 'warn'; Version = $version; Message = "Версію раннера '$version' не розібрано — kit перевірено на v8-runner 0.18.x." }
+    }
+    $minor = [version]('{0}.{1}' -f $Matches['maj'], $Matches['min'])
+    if ($minor -ne $script:RunnerTestedMinor) {
+        return [pscustomobject]@{ Level = 'warn'; Version = $version; Message = ("Раннер v8-runner $version — kit перевірено на 0.18.x: перед роботою звірте контракт " +
+            'за процедурою docs/unica-contract.md (у репозиторії плагіна v8storagekit).') }
+    }
+    [pscustomobject]@{ Level = 'ok'; Version = $version; Message = "Раннер v8-runner $version." }
+}
+
+Export-ModuleMember -Function Get-KitRunnerPath, Get-KitRunnerVersion, Get-KitRunnerVerdict, Invoke-KitRunner, Get-KitAgentPlatform, Invoke-KitAgentRelease

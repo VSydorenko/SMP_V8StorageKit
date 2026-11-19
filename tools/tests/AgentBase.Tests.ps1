@@ -230,4 +230,32 @@ Describe 'AgentBase.psm1 — аудит бази людини: ПЕРЕТИН, �
         Test-KitPathsOverlap -Left 'D:\w\build\ib' -Right 'D:\w\build\ib\x' | Should -BeTrue
         Test-KitPathsOverlap -Left 'D:\w\build\ib' -Right 'D:\w' | Should -BeTrue
     }
+
+    # memory-both недосяжний через маніфест (воркспейси — теки в корені репозиторію, їхні .local не вкладаються),
+    # тож гілку перевіряємо на розв'язаному контексті, де Beta штучно вкладено в пам'ять раннера Alpha.
+    It 'П26 п. 7: Find-KitAgentBaseCollisions — пам''ять раннера Beta (.local/infobases) усередині origin Alpha дає memory-both; шлях 1.5.0 (workPath/infobases) — ні' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'memory-both') -Workspaces $ws
+        $ctx = Invoke-KitPreflight -RepoRoot $repo
+        $alpha = $ctx.Workspaces | Where-Object Path -eq 'Alpha_SMB'
+        $beta  = $ctx.Workspaces | Where-Object Path -eq 'Beta_SMB'
+        @(Find-KitAgentBaseCollisions -Context $ctx -Workspace $alpha).Count | Should -Be 0
+
+        $nested = Join-Path $repo 'Alpha_SMB/.local/infobases/origin/Beta'
+        New-Item -ItemType Directory -Path $nested -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repo 'Beta_SMB/v8project.local.yaml') -Destination $nested
+        $beta.Project.Directory = $nested
+        $hits = @(Find-KitAgentBaseCollisions -Context $ctx -Workspace $alpha)
+        @($hits | Where-Object { $_.Kind -eq 'memory-both' -and $_.Other -eq 'Beta_SMB' }).Count | Should -Be 1
+
+        # Шлях 1.5.0: Beta в <workPath>/infobases Alpha — раннер 0.18 пам'ять там не веде, збігу немає.
+        $old = Join-Path $repo 'Alpha_SMB/build/infobases/origin/Beta'
+        New-Item -ItemType Directory -Path $old -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repo 'Beta_SMB/v8project.local.yaml') -Destination $old
+        $beta.Project.Directory = $old
+        @(Find-KitAgentBaseCollisions -Context $ctx -Workspace $alpha).Count | Should -Be 0
+    }
 }

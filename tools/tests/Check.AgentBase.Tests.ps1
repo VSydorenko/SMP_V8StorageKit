@@ -57,48 +57,43 @@ Describe 'kit check — інваріанти репозиторію-спожив
         ([regex]::Matches($r.Output, 'перетинається з базою агента воркспейсу')).Count | Should -Be 1
     }
 
-    It 'П26 п. 5: база Beta лежить у workPath/infobases воркспейсу Alpha — error з боку Beta (гілка memory-theirs); з боку Alpha збігу немає, код 1' {
+    It 'П26 п. 5: база Beta лежить у .local/infobases воркспейсу Alpha — error з боку Beta (гілка memory-theirs); з боку Alpha збігу немає, код 1' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
         }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-memory') -Workspaces $ws -WithHooks -WithGitignore
-        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/build/infobases/x'))
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/.local/infobases/x'))
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
-        # memory-theirs: з боку Beta його база лежить в infobases Alpha. З боку Alpha збігу немає: Alpha видаляє лише свою базу й infobases/origin.
-        $r.Output | Should -BeLike "*Beta_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у '<workPath>/infobases' воркспейсу 'Alpha_SMB'*"
+        # memory-theirs: з боку Beta його база лежить в .local/infobases Alpha. З боку Alpha збігу немає: захищена лише її origin.
+        $r.Output | Should -BeLike "*Beta_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у '.local/infobases' воркспейсу 'Alpha_SMB'*"
         $r.Output | Should -Not -BeLike "*Alpha_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить*"
     }
 
-    It 'П26 п. 7: база Beta лежить у пам''яті раннера Alpha (infobases/origin) — memory-mine: текст називає пам''ять раннера, а не infobases' {
+    It 'П26 п. 7: база Beta лежить у пам''яті раннера Alpha (.local/infobases/origin) — memory-mine: текст називає пам''ять раннера, а не infobases' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
         }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-memory-origin') -Workspaces $ws -WithHooks -WithGitignore
-        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/build/infobases/origin/x'))
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/.local/infobases/origin/x'))
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike "*Alpha_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у пам'яті раннера '<workPath>/infobases/origin' воркспейсу 'Alpha_SMB'*"
+        $r.Output | Should -BeLike "*Alpha_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у пам'яті раннера '.local/infobases/origin' воркспейсу 'Alpha_SMB'*"
     }
 
-    It 'П26 п. 7: workPath Beta усередині origin Alpha — memory-both: пам''ять раннера проти пам''яті раннера, не «база лежить в infobases»' {
+    It 'П26 п. 5: база Beta в workPath/infobases Alpha (шлях 1.5.0) — вже не збіг: раннер 0.18 веде пам''ять не там' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
         }
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-memory-both') -Workspaces $ws -WithHooks -WithGitignore
-        $betaProj = Join-Path $repo 'Beta_SMB/v8project.yaml'
-        (Get-Content -LiteralPath $betaProj -Raw) -replace "workPath: 'build'", "workPath: '../Alpha_SMB/build/infobases/origin/w'" |
-            Set-Content -LiteralPath $betaProj -Encoding UTF8
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-memory-old-path') -Workspaces $ws -WithHooks -WithGitignore -WithGitattributes
+        Set-KitFakeAgentBase -Repo $repo -Workspace 'Beta_SMB' -Connection ('File=' + (Join-Path $repo 'Alpha_SMB/build/infobases/origin/x'))
         $r = Invoke-Check -Repo $repo
-        $r.Output | Should -BeLike "*Alpha_SMB/v8project.local.yaml: пам'ять раннера воркспейсу 'Alpha_SMB' перетинається з пам'яттю раннера воркспейсу 'Beta_SMB'*"
-        # Наслідок названо за видом збігу: тут руйнується пам'ять раннера, а не база агента.
-        $r.Output | Should -BeLike "*прибрав би пам'ять раннера іншого*"
-        $r.Output | Should -Not -BeLike '*знищив би базу іншого*'
+        $r.Output | Should -Not -BeLike "*пам'яті раннера*"
+        $r.Output | Should -Not -BeLike '*лежить у*infobases*'
     }
-
     It 'F1: agentBase.template воркспейсу з пробілу в накладці — error з ключем, без значення' {
         $repo = New-GoodRepo -Name 'f1-blank-template'
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value "workspaces:`n  Alpha_SMB:`n    agentBase:`n      template: ' '"
