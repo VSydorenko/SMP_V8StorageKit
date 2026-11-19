@@ -116,7 +116,9 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot 
 непридатного дерева. Для серверної бази згода людини на `-Apply` покриває й надруковані кроки
 (`push` усіх наборів з `"force":true`); для файлової — спершу `"dryRun":true`, потім `"dryRun":false`,
 як друкує kit. Після `infobase.create` `push` — звичайний, без `force` (раннер запам'ятав набір
-`CONFIGURATION`, з яким створено базу); після `infobase.restore` — з `"force":true`. `push` без
+`CONFIGURATION`, з яким створено базу); після `infobase.restore` — з `"force":true`. Будь-який `push` з
+`"force":true` Уніка однаково питає в людини — це очікувано; виконується лише в інтерактивній сесії, а
+`cancelled` — зупинка з доповіддю, без повтору (`v8storagekit:using-v8storagekit`). `push` без
 `sourceSet` вантажить усі оголошені набори воркспейсу — для правок розширення потрібен `sourceSet`
 цього розширення.
 

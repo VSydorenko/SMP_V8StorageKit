@@ -366,14 +366,22 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'using-v8storagekit: маршрутизація 0.13, крок з виводу, сітка infobase_state_unverified, виняток force (П17), ЗУПИНКА, #13' {
+    It 'using-v8storagekit: маршрутизація 0.16, push force питає людину, cancelled — зупинка, сітка, воркспейс з виводу, -text' {
+        # Спека 2026-11-19 §3.1 (наслідки 2, 3, 5, 6), §3.3 п.3, §3.9 п.3, §5 п.1: агент споживача виконує
+        # ці тексти дослівно, тож кожен наслідок — окремий підрядок, а не загальне «є розділ».
         $t = Skill 'using-v8storagekit'
         foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow',
                        '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
-                       'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків') {
+                       'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків',
+                       'Перезаписать базу', 'claude -p', 'cancelled', 'база агента не вирівняна',
+                       'воркспейсі, названому', 'git\.text_resource_marked_binary') {
             $t | Should -Match $m
         }
-        $t | Should -Not -Match 'одинадцять'   # кількість — не в постійному тексті
+        # П17 спеки 1.5.0 («force без питання людині») скасовано правилом Уніки; workspace і тайм-аут хоста —
+        # знання Уніки, не kit (§3.3 п.2, §5 п.1).
+        foreach ($m in 'без питання', '(?<![\w-])workspace(?![\w-])', 'MCP_TOOL_TIMEOUT', 'одинадцять') {
+            $t | Should -Not -Match $m
+        }
     }
     It 'sync, verify, reconcile наказують перевірити ЗУПИНКА й не йти далі' {
         foreach ($s in @('sync', 'verify', 'reconcile')) {
