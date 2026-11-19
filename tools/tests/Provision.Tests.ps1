@@ -110,7 +110,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
     # Review Focus 3 (спека Unica 0.16 §3.4 п.3, §4.2 п.16): kit базу агента не видаляє ніколи. Тека за шляхом
     # бази — зупинка, що називає ОБИДВІ теки для людини (база й пам'ять раннера); маркери в обох лишаються.
     foreach ($case in @(
-        @{ Name = 'без 1Cv8.1CD'; WithCd = $false }
+        @{ Name = 'порожня'; WithCd = $false }
         @{ Name = 'з 1Cv8.1CD';   WithCd = $true }
     )) {
         It "Review Focus 3: тека бази $($case.Name) — зупинка з двома теками, код 1, обидва маркери на місці" -TestCases @($case) {
@@ -120,7 +120,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $base = Join-Path $repo 'Alpha_SMB/build/ib'
             $memory = Join-Path $repo 'Alpha_SMB/.local/infobases/origin'
             New-Item -ItemType Directory -Path $base, $memory -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $base 'marker-base.txt') -Value 'x'
+            if ($WithCd) { Set-Content -LiteralPath (Join-Path $base 'marker-base.txt') -Value 'x' }
             Set-Content -LiteralPath (Join-Path $memory 'marker-memory.txt') -Value 'x'
             if ($WithCd) { Set-Content -LiteralPath (Join-Path $base '1Cv8.1CD') -Value 'x' }
             foreach ($more in @(@('-Apply'), @())) {
@@ -130,7 +130,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
                 $r.Output.Contains([System.IO.Path]::GetFullPath($base)) | Should -BeTrue -Because 'називає теку бази'
                 $r.Output | Should -BeLike '*.local*infobases*origin*' -Because 'називає теку пам''яті раннера'
                 $r.Output | Should -BeLike '*"op":"infobase.create"*' -Because 'і крок створення'
-                Join-Path $base 'marker-base.txt' | Should -Exist
+                if ($WithCd) { Join-Path $base 'marker-base.txt' | Should -Exist } else { $base | Should -Exist }
                 Join-Path $memory 'marker-memory.txt' | Should -Exist
             }
             if ($WithCd) { Join-Path $base '1Cv8.1CD' | Should -Exist }
@@ -596,30 +596,32 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r = Invoke-Provision -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
     }
-    foreach ($case in @(
-        @{ Name = 'build/artifacts'; Rel = 'build/artifacts'; Phrase = '*переконайтесь, що це справді база агента*' }
-        @{ Name = 'build/adopt'; Rel = 'build/adopt'; Phrase = '*переконайтесь, що це справді база агента*' }
-        @{ Name = 'build/infobases'; Rel = 'build/infobases'; Phrase = '*перетинається з*infobases*' }
-    )) {
-        It "П26 п. 2: connection = File=$($case.Name) — зупинка, вміст і owner.mark/lock цілi" -TestCases @($case) {
-            param($Name, $Rel, $Phrase)
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('notbase-' + [guid]::NewGuid().ToString('N').Substring(0, 8))) -WithHooks
-            Add-Owner -Repo $repo
-            Set-KitFakeAgentBase -Repo $repo -Connection "File=$Rel"
-            $dir = Join-Path $repo "Alpha_SMB/$Rel"
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $dir 'precious.txt') -Value 'x'
-            $infobases = Join-Path $repo 'Alpha_SMB/build/infobases'
-            New-Item -ItemType Directory -Path $infobases -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $infobases 'owner.mark') -Value 'x'
-            Set-Content -LiteralPath (Join-Path $infobases 'lock') -Value 'x'
-            $r = Invoke-Provision -Repo $repo -More @('-Apply')
-            $r.ExitCode | Should -Be 1
-            $r.Output | Should -BeLike $Phrase
-            Test-Path -LiteralPath (Join-Path $dir 'precious.txt') | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $infobases 'owner.mark') | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $infobases 'lock') | Should -BeTrue
+    It 'П26 п. 2а: connection = File=build/artifacts, у теці файл — інша зупинка без поради видаляти; тека й вміст цілі, код 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'notbase-artifacts') -WithHooks
+        Add-Owner -Repo $repo
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/artifacts'
+        $dir = Join-Path $repo 'Alpha_SMB/build/artifacts'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'precious.txt') -Value 'x'
+        foreach ($more in @(@('-Apply'), @())) {
+            $r = Invoke-Provision -Repo $repo -More $more
+            $r.ExitCode | Should -Be 1 -Because $r.Output
+            $r.Output | Should -BeLike '*лежить не база агента*перевірте infobases.origin.connection*'
+            $r.Output | Should -Not -BeLike '*видаліть*'
+            Join-Path $dir 'precious.txt' | Should -Exist
         }
+    }
+    It 'база не може лежати в .local воркспейсу (пам''ять раннера): workPath .local/infobases + File=.local/infobases/origin — відмова до створення' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'base-in-local') -WithHooks
+        Add-Owner -Repo $repo
+        $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
+        ((Get-Content -LiteralPath $vp -Raw) -replace "workPath: 'build'", "workPath: '.local/infobases'") |
+            Set-Content -LiteralPath $vp -Encoding UTF8 -NoNewline
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=.local/infobases/origin'
+        $r = Invoke-Provision -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike "*збігається з '.local' воркспейсу*"
+        Join-Path $repo 'Alpha_SMB/.local/infobases/origin' | Should -Not -Exist
     }
     It 'порожня наявна тека на місці бази — теж зупинка: kit не видаляє навіть порожню, тека лишається' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty-dir') -WithHooks
@@ -706,6 +708,19 @@ Describe 'kit provision — CreatedBy у результаті (хто створ
         Should -Invoke -ModuleName provision New-V8FileInfobase -Times 1
         $text | Should -BeLike '*рецепт (ii)*'
         $text | Should -Not -BeLike '*infobase.create*'
+    }
+    It 'бази немає, пам''ять раннера є — зупинка до створення: kit не створив бази й не торкнувся пам''яті' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-stale-mem') -Workspaces $script:StorageWs2 -NoSourceTrees -WithHooks
+        $mem = Join-Path $repo 'Alpha_SMB/.local/infobases/origin'
+        New-Item -ItemType Directory -Path $mem -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $mem 'generation.json') -Value '{}'
+        Mock -ModuleName provision New-V8FileInfobase { }
+        Mock -ModuleName provision Get-KitAgentPlatform { 'C:\fake\1cv8.exe' }
+        { Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -RunnerPath 'fake-runner.exe' 6>&1 } |
+            Should -Throw '*видаліть теку пам''яті раннера*'
+        Should -Invoke -ModuleName provision New-V8FileInfobase -Times 0
+        Join-Path $mem 'generation.json' | Should -Exist
+        Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
     }
     It 'придатне дерево, файлова порожня: CreatedBy = unica, kit платформу не кличе й раннера не питає' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-unica') -WithHooks

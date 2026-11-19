@@ -14,7 +14,7 @@
 | Маніфест kit: воркспейси, джерела, `truth`, сховища | `v8storagekit.yaml` (корінь) |
 | Локальне цієї машини: дев-бази, шляхи сховищ, шаблон `.dt` бази агента | `v8storagekit.local.yaml` (гітігнорований) |
 | Воркспейс Уніки: source-set-и, `providers` (`designer` — інваріант контуру) | `<Воркспейс>/v8project.yaml` |
-| База агента — `infobases.origin` (`connection`, `user`, `password`; для серверної нової — `dbms`); пише скіл `v8storagekit:provision` | `<Воркспейс>/v8project.local.yaml` (гітігнорований, файл Уніки) |
+| База агента — `infobases.origin` (`connection`, `user`, `password`); пише скіл `v8storagekit:provision` | `<Воркспейс>/v8project.local.yaml` (гітігнорований, файл Уніки) |
 | Вихідники платформи | `<Воркспейс>/<тип>/src` — шляхи з `v8project.yaml`; `truth: vendor` у git не потрапляє |
 | Дзеркала сховищ | гілки `storage/<джерело>` — пише лише `kit sync` |
 | Артефакти для людини | `build/artifacts/` (гітігноровано) |

@@ -210,8 +210,8 @@ function New-KitExistingBaseMessage {
         Kit базу агента не видаляє ніколи (спека 2026-11-19 §3.4 п.3). Тека бази й тека пам'яті раннера
         (<воркспейс>/.local/infobases/origin) видаляються разом: без другої нова база лишилась би зі
         старою пам'яттю наборів, і push міг би пропустити набори як незмінені (§4.2 п.16). Тека без
-        1Cv8.1CD — не обов'язково зламана база, тож текст просить переконатись, що це справді вона:
-        kit цього не перевіряє й сам нічого не прибирає.
+        1Cv8.1CD — зовсім інша зупинка (New-KitNotBaseMessage), без поради видаляти; сюди потрапляє лише
+        порожня тека чи тека з 1Cv8.1CD. Kit сам нічого не прибирає.
     #>
     [CmdletBinding()]
     param(
@@ -222,7 +222,7 @@ function New-KitExistingBaseMessage {
         [Parameter(Mandatory)][bool]$KitCreates,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Steps
     )
-    $what = if ($HasBaseFile) { 'містить 1Cv8.1CD' } else { 'не містить 1Cv8.1CD' }
+    $what = if ($HasBaseFile) { 'містить 1Cv8.1CD' } else { 'порожня' }
     $after = if ($KitCreates) {
         "повторіть kit provision -Workspace $WorkspacePath -Apply (kit створить порожню базу), далі: " + ($Steps -join ' → ')
     } else {
@@ -230,8 +230,42 @@ function New-KitExistingBaseMessage {
     }
     ("Тека за шляхом бази агента воркспейсу '$WorkspacePath' уже є ($what): $BasePath. Kit базу агента не видаляє й не перезаписує ніколи — " +
      "ні цю теку, ні пам'ять раннера. Видаліть самі дві теки: '$BasePath' (база) і '$MemoryPath' (пам'ять раннера бази origin; без її видалення " +
-     "нова база успадкує стару пам'ять наборів, і push міг би пропустити набори як незмінені) — і $after. " +
-     'Перед видаленням переконайтесь, що це справді база агента, а не тека з чужими даними: kit цього не перевіряє.')
+     "нова база успадкує стару пам'ять наборів, і push міг би пропустити набори як незмінені) — і $after.")
+}
+
+function New-KitNotBaseMessage {
+    <#
+    .SYNOPSIS
+        Зупинка «непорожня тека без 1Cv8.1CD за шляхом бази»: це не база агента, жодної поради видаляти (спека §4.2 п.16, уточнення).
+    .DESCRIPTION
+        Описка в infobases.origin.connection (File=build/artifacts усередині workPath) інакше привела б до поради
+        стерти артефакти чи іншу чужу теку. Про пам'ять раннера тут не йдеться.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorkspacePath, [Parameter(Mandatory)][string]$BasePath)
+    "За шляхом бази агента воркспейсу '$WorkspacePath' лежить не база агента (тека $BasePath непорожня й не містить 1Cv8.1CD); " +
+        'перевірте infobases.origin.connection у v8project.local.yaml. Kit нічого не створює й не прибирає.'
+}
+
+function New-KitStaleMemoryMessage {
+    <#
+    .SYNOPSIS
+        Зупинка «бази немає, а пам'ять раннера лишилась» (спека §4.2 п.16, друге уточнення): нова база стартує лише з чистою пам'яттю.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkspacePath,
+        [Parameter(Mandatory)][string]$MemoryPath,
+        [Parameter(Mandatory)][bool]$KitCreates,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Steps
+    )
+    $after = if ($KitCreates) {
+        "повторіть kit provision -Workspace $WorkspacePath -Apply (kit створить порожню базу), далі: " + ($Steps -join ' → ')
+    } else {
+        'виконайте крок: ' + ($Steps -join ' → ')
+    }
+    ("Бази агента воркспейсу '$WorkspacePath' ще немає, а пам'ять раннера від попередньої бази лишилась: видаліть теку пам'яті раннера '$MemoryPath' і $after. " +
+     "Нова база з чужою пам'яттю наборів могла б пропустити набори як незмінені. Kit нічого не створює й не прибирає.")
 }
 
 function Get-KitProvisionPlan {
@@ -327,10 +361,13 @@ function Get-KitProvisionPlan {
     if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
 
     Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
-    # Шлях бази не перетинається з <workPath>/infobases — службовою текою раннера (мітка власника, замок):
-    # описка в connection (File=build/infobases) не має класти базу туди, де раннер тримає свої файли.
-    if (Test-KitPathsOverlap -Left $ab.Path -Right (Join-Path $agentWork 'infobases')) {
-        throw ("Шлях бази агента воркспейсу '$($ws.Path)' перетинається з '$($ws.Project.WorkPath)/infobases' (службова тека раннера) — " +
+    # Шлях бази не перетинається з <тека v8project.yaml>/.local: там раннер 0.18 веде пам'ять баз (hashes/,
+    # dump-info/, generation.json) і свій .gitignore. <workPath>/infobases, яку охороняла попередня версія,
+    # раннеру 0.18 нічого не тримає (у workPath лише журнали), тож стара межа нічого реального не охороняла.
+    # Збіг, вкладення чи охоплення — відмова до будь-якого створення; предикат перетину той самий, що в аудиті.
+    $runnerLocal = Join-Path $ws.Project.Directory '.local'
+    if ((Test-KitPathsOverlap -Left $ab.Path -Right $runnerLocal) -or (Test-KitPathsOverlap -Left $ab.Path -Right (Get-KitRunnerMemoryPath -Project $ws.Project))) {
+        throw ("Шлях бази агента воркспейсу '$($ws.Path)' збігається з '.local' воркспейсу (тека пам'яті раннера), лежить у ній чи над нею — " +
                'kit базу туди не кладе. Рішення за людиною: infobases.origin.connection у v8project.local.yaml — окрема тека бази (типово build/ib).')
     }
     if ($Apply -and $wsTemplate -and -not (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { throw "Шаблон бази (.dt) не знайдено: $wsTemplate" }
@@ -344,8 +381,20 @@ function Get-KitProvisionPlan {
     # Будь-яка наявна тека (чи файл) за шляхом бази — зупинка, незалежно від -Apply: kit нічого не стирає
     # й не перезаписує. Людина видаляє дві теки сама (спека §3.4 п.3, п.4; §4.2 п.16).
     if (Test-Path -LiteralPath $ab.Path) {
+        # Непорожня тека без 1Cv8.1CD (чи файл) — не база агента: окрема зупинка без поради видаляти.
+        if (-not $ab.Exists -and ((Test-Path -LiteralPath $ab.Path -PathType Leaf) -or @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction SilentlyContinue).Count -gt 0)) {
+            throw (New-KitNotBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path)
+        }
         throw (New-KitExistingBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path -MemoryPath (Get-KitRunnerMemoryPath -Project $ws.Project) `
             -HasBaseFile $ab.Exists -KitCreates $plan.KitCreates -Steps $plan.Steps)
+    }
+    # Бази немає, а пам'ять раннера лишилась: база створюється заново (infobase.create чи порожня база kit) лише з
+    # чистою пам'яттю. Після infobase.restore крок — push force:true, пам'ять він перезаписує: зупинки немає.
+    if ($plan.Kind -eq 'file-empty') {
+        $mem = Get-KitRunnerMemoryPath -Project $ws.Project
+        if (Test-Path -LiteralPath $mem) {
+            throw (New-KitStaleMemoryMessage -WorkspacePath $ws.Path -MemoryPath $mem -KitCreates $plan.KitCreates -Steps $plan.Steps)
+        }
     }
     $plan
 }

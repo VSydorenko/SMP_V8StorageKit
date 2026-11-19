@@ -213,6 +213,23 @@ Describe 'New-V8FileInfobase -NoReplace: kit не стирає наявне (с�
         Should -Invoke -ModuleName V8 Start-Process -Times 0
         Should -Invoke -ModuleName V8 Get-V8Path -Times 0
     }
+    It 'вікно між перевіркою й створенням: Test-Path каже «немає», а тека вже є — New-Item відхиляє, платформа не запускалась, маркер цілий' {
+        $boundary = Join-Path $TestDrive 'noreplace-race'
+        $dir = Join-Path $boundary 'ib'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'marker.txt') -Value 'x'
+        Mock -ModuleName V8 Test-Path { $false }
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'платформа не мала запускатись' }
+        $msg = $null
+        try { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' -NoReplace }
+        catch { $msg = $_.Exception.Message }
+        $msg | Should -Not -BeNullOrEmpty
+        $msg | Should -Not -BeLike '*платформа не мала запускатись*' -Because 'відмова мусить прийти від New-Item, а не від запуску платформи'
+        Should -Invoke -ModuleName V8 Start-Process -Times 0
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 0
+        Join-Path $dir 'marker.txt' | Should -Exist
+    }
     It 'контроль: без -NoReplace той самий шлях стирається (Remove-KitDirectory викликано) — тест вище здатен упасти' {
         $boundary = Join-Path $TestDrive 'noreplace-control'
         $dir = Join-Path $boundary 'ib'
