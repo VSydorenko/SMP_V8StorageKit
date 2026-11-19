@@ -219,18 +219,21 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'provision' {
-        It 'три типи бази, -ServerBase New|Existing, CrSQLDB, infobases.origin, -Remember, крок з виводу' {
+        It 'три типи бази, лише -ServerBase Existing, infobases.origin, -Remember, крок з виводу; без -Force, -ServerBase New, CrSQLDB' {
             $t = Skill 'provision'
             $t | Should -Match '\*\*порожня\*\*'
             $t | Should -Match '\*\*з `?\.dt`?\*\*|\*\*з \.dt\*\*'
             $t | Should -Match '\*\*серверна\*\*'
-            $t | Should -Match '-ServerBase New'
             $t | Should -Match '-ServerBase Existing'
-            $t | Should -Match 'CrSQLDB'
             $t | Should -Match 'infobases\.origin'
             $t | Should -Match '-Remember'
             $t | Should -Match 'надрукован'
             $t | Should -Match 'v8project\.local\.yaml'
+            # Прибране з kit 1.6.0: kit не видаляє базу й не створює серверних баз.
+            $t | Should -Not -Match '-Force'
+            $t | Should -Not -Match '-ServerBase New'
+            $t | Should -Not -Match 'CrSQLDB'
+            $t | Should -Match '\.local/infobases/origin' -Because 'зупинка на наявній базі називає обидві теки'
         }
     }
     Context 'provision — цитати зупинок' {

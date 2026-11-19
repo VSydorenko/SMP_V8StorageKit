@@ -156,3 +156,8 @@ try {
 if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
     exit $result.ExitCode
 }
+# Успіх — явний код 0 (спека Unica 0.16 §5 п.3). Без `exit` скрипт завершується, не встановивши
+# $LASTEXITCODE: у `pwsh -Command "& kit.ps1 …"` змінна лишається порожньою (виміряно — вона
+# виставляється лише `exit N` скрипта чи нативною програмою), і виклик не відрізнить успіх
+# від «не виставлено». Тож 0 і 1 повертає сам диспетчер, за контрактом кодів вище.
+exit 0

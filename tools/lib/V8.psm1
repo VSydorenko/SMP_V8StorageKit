@@ -352,6 +352,17 @@ function Invoke-V8Designer {
 }
 
 function New-V8FileInfobase {
+    <#
+    .SYNOPSIS
+        Створює файлову інформаційну базу за шляхом; за умовчанням спершу стирає наявну теку.
+    .DESCRIPTION
+        -NoReplace — для бази агента (provision, спека 2026-11-19 §3.4 п.3, §4.2 п.21): kit не видаляє
+        базу агента ніколи, тож будь-який наявний шлях — теж порожня тека — це виняток, а
+        Remove-KitDirectory не викликається. Перевірка стоїть ДО пошуку платформи, а сама тека
+        створюється без -Force: тека, що з'явилась між перевіркою й створенням, дає відмову
+        New-Item, а не стирання. Без перемикача поведінка стара: тимчасові ІБ kit у власній
+        робочій теці build/sync/<джерело> (New-ExtensionInfobase, -DumpPlatform) перестворюються.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -359,7 +370,8 @@ function New-V8FileInfobase {
         [string]$TemplatePath,
         [string]$V8Path,
         [Parameter(Mandatory)][string]$RepoRoot,
-        [string]$OwnedRoot
+        [string]$OwnedRoot,
+        [switch]$NoReplace
     )
 
     # $Path стирається без перевірки, що там взагалі інфобаза, а не щось важливе —
@@ -377,10 +389,19 @@ function New-V8FileInfobase {
         $template = ' /UseTemplate "{0}"' -f (Resolve-Path -LiteralPath $TemplatePath).Path
     }
 
+    if ($NoReplace -and (Test-Path -LiteralPath $Path)) {
+        throw "Шлях бази '$Path' уже існує — із -NoReplace kit його не стирає й нічого не створює. Прибирає наявне людина."
+    }
+
     if (-not $V8Path) { $V8Path = Get-V8Path }
 
-    Remove-KitDirectory -Path $Path
-    New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    if ($NoReplace) {
+        # Без -Force: наявну теку (що з'явилась після перевірки вище) New-Item відхиляє, не стирає.
+        New-Item -ItemType Directory -Path $Path -ErrorAction Stop | Out-Null
+    } else {
+        Remove-KitDirectory -Path $Path
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
 
     $log = Join-Path $Path 'create.log'
     $argLine = 'CREATEINFOBASE File="{0}";{1} /DisableStartupDialogs /Out "{2}"' -f $Path, $template, $log

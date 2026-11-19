@@ -26,7 +26,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 | «вивантаж конфігурацію з бази» | `v8storagekit:dump` | `kit.ps1 dump [-Apply]` |
 | «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `push force` → `pull force` → `adopt storage/*` у гілку задачі (заміна, з прев'ю всіх списків) |
 | «закриваємо задачу», «готуй PR» | `v8storagekit:finish` | `sync` → `push force` → `pull force` → `adopt storage/*` → `verify` → артефакти → PR |
-| «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply] [-Force]` |
+| «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply]` |
 | «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
 | «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit.ps1 check`, `kit.ps1 install-hooks [-Apply]` |
 
@@ -89,7 +89,7 @@ a non_fast_forward or no_memory refusal … belongs to the user»). Правил
 названого набору — повне завантаження з git, безпечне для бази агента за побудовою.
 
 `push` без `sourceSet` вантажить **усі оголошені набори** воркспейсу: на серверній базі агента —
-лише з явного підтвердження людини (кроки, які надрукував `provision -ServerBase …`, підтверджено
+лише з явного підтвердження людини (кроки, які надрукував `provision -ServerBase Existing`, підтверджено
 тим `-Apply`, на яке людина погодилась); для правок розширення — `sourceSet` цього розширення.
 `.cf` основної конфігурації людина в сховищі «порівнює й об'єднує з конфігурацією з файлу», а не
 завантажує цілком. Застосовні операції Уніки поза кроками kit (`unica.apply` з `executionToken`,

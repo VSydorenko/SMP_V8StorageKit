@@ -252,4 +252,19 @@ function Resolve-KitAgentInfobasePath {
     [pscustomobject]@{ Kind = 'file'; Path = $path; IbSwitch = ('/F "{0}"' -f $path) }
 }
 
-Export-ModuleMember -Function Read-V8Project, Read-V8ProjectLocalInfobase, Resolve-V8AgentInfobase, Resolve-KitAgentInfobasePath, Get-V8ProjectConfigProblems
+function Get-KitRunnerMemoryPath {
+    <#
+    .SYNOPSIS
+        Тека пам'яті раннера для бази воркспейсу: <тека v8project.yaml>/.local/infobases/<база>.
+    .DESCRIPTION
+        Єдине місце, де kit знає, де раннер (0.18) веде пам'ять бази — hashes/, dump-info/,
+        generation.json (спека 2026-11-19 §4.2 п.15). Не <workPath>/infobases/<база>, як було в 1.5.0:
+        у workPath раннер лишає лише журнали. Kit цю теку НЕ створює й НЕ видаляє — шлях потрібен
+        для тексту зупинки provision й аудиту AgentBase.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Project, [string]$Infobase = 'origin')
+    Join-Path (Join-Path (Join-Path $Project.Directory '.local') 'infobases') $Infobase
+}
+
+Export-ModuleMember -Function Read-V8Project, Read-V8ProjectLocalInfobase, Resolve-V8AgentInfobase, Resolve-KitAgentInfobasePath, Get-V8ProjectConfigProblems, Get-KitRunnerMemoryPath

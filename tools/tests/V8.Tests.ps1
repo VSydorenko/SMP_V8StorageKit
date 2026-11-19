@@ -193,6 +193,36 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
     }
 }
 
+Describe 'New-V8FileInfobase -NoReplace: kit не стирає наявне (спека Unica 0.16 §4.2 п.21)' {
+    It 'наявна тека (з файлом-маркером і порожня) — виняток; маркер цілий; Remove-KitDirectory не викликано; платформа не запускалась' {
+        $boundary = Join-Path $TestDrive 'noreplace-work'
+        $withMarker = Join-Path $boundary 'ib-marker'
+        $empty = Join-Path $boundary 'ib-empty'
+        New-Item -ItemType Directory -Path $withMarker, $empty -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $withMarker 'marker.txt') -Value 'x'
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'платформа не мала запускатись' }
+        Mock -ModuleName V8 Get-V8Path { throw 'платформу не мали шукати' }
+        foreach ($dir in $withMarker, $empty) {
+            { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' -NoReplace } |
+                Should -Throw '*уже існує*'
+        }
+        Join-Path $withMarker 'marker.txt' | Should -Exist
+        $empty | Should -Exist
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 0
+        Should -Invoke -ModuleName V8 Start-Process -Times 0
+        Should -Invoke -ModuleName V8 Get-V8Path -Times 0
+    }
+    It 'контроль: без -NoReplace той самий шлях стирається (Remove-KitDirectory викликано) — тест вище здатен упасти' {
+        $boundary = Join-Path $TestDrive 'noreplace-control'
+        $dir = Join-Path $boundary 'ib'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'стоп після стирання' }
+        { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' } | Should -Throw '*стоп після стирання*'
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 1
+    }
+}
 Describe 'New-ExtensionInfobase' -Tag 'Integration' {
     It 'створює базу з розширенням, адресованим під заданим іменем' {
         $ib = Join-Path $TestDrive 'ext-ib'
