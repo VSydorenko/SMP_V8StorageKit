@@ -54,3 +54,5 @@ Runner
 KitCli
 KitProfile
 KitWait
+KitGit
+KitReviewPack
