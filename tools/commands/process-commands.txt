@@ -6,3 +6,4 @@
 session-cost
 session-board
 kit-setup
+kit-scan
