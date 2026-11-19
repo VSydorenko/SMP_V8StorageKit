@@ -1,7 +1,7 @@
 ---
 name: code-review-verifier
 description: Скептик для однієї знахідки рев'ю коду: намагається спростувати її на справжньому коді й повертає CONFIRMED / REFUTED / PARTIAL із впевненістю та доказом. Кличе скіл landed-review по одному разу на знахідку, двічі на blocker.
-model: opus
+model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 ---
 

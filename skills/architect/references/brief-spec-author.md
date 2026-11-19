@@ -21,7 +21,7 @@ Architect: сесія `<ім'я>`. Series rules: <шлях>-common.md.
 - Аудит: три лінзи `spec-auditor`, доки 0 блокерів і 0 security major.
 
 ## Subagent models
-spec-auditor: opus (зафіксовано в агенті); розвідка: sonnet. Явний `model` у кожному виклику Agent.
+spec-auditor: sonnet для integrity і truth, opus для security — причина в скілі `v8storagekit:spec`, крок 4; розвідка: sonnet. Явний `model` у кожному виклику Agent.
 
 ## Git
 Гілка `<гілка>`; коміт на крок, виправлення аудиту окремим комітом; жодних комітів коду.

@@ -1,7 +1,7 @@
 ---
 name: spec-auditor
 description: Змагальний аудитор лише для читання: спека крізь одну лінзу з брифу — цілісність, правдивість щодо коду й бібліотек або безпека. Кличе скіл spec, троє паралельно; у раунді 2+ аудитує лише diff виправлень.
-model: opus
+model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 omitClaudeMd: true
 ---
