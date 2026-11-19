@@ -36,6 +36,18 @@ Describe 'Запобіжник словника: поверхня Уніки 0.1
             # unica_task_x, unica.task.x. Окремою гілкою, бо в 0.13 ці імена були новою поверхнею.
             '(?<![\w.:$-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner|unica[._]task[._]'
         }
+        # Прибрані команди kit 1.6.0 у формі виклику (спека 2026-11-19 §3.2, §3.5, §8): kit.ps1" canon,
+        # kit.ps1" build, kit canon, kit build, -MarkerOnly. Форма виклику, а не голе слово: «канонізація»,
+        # «build/artifacts», «make» лишаються законними.
+        # МЕЖА: ця заборона НЕ діє на upgrades.md. Розділ переходу «1.4.0 → 1.6.0» законно пише, що
+        # `kit canon`/`kit build` більше немає і чим їх замінено, — без цього процедура переходу не
+        # відповіла б людині, куди поділась команда. Заборона старої поверхні Уніки ($script:Pattern,
+        # зокрема unica_task_) на upgrades.md діє, як і на решту: переходу їх називати не потрібно.
+        $script:RemovedKitPattern = '\bkit(?:\.ps1"?)?\s+(?:canon|build)(?![\w-])|-MarkerOnly\b'
+        function script:Test-VocabularyHit { param($Line)
+            ($Line.Text -match $script:Pattern) -or
+                ((Split-Path -Leaf $Line.File) -ne 'upgrades.md' -and $Line.Text -match $script:RemovedKitPattern)
+        }
         # Заголовок, з якого скануються переходи в upgrades.md. Розділи до нього — історія словником своєї
         # епохи (примітка на початку файлу); розділ «1.4.0 → 1.6.0» і все після нього — мова Уніки 0.16.
         $script:UpgradesHeader = '^##\s+1\.4\.0\s+→\s+1\.6\.0'
@@ -73,7 +85,7 @@ Describe 'Запобіжник словника: поверхня Уніки 0.1
     }
 
     It 'на дереві kit — нуль збігів у skills/, templates/ і некоментованому коді tools/' {
-        $hits = @(Get-ScannedLines -Root $script:KitRoot | Where-Object { $_.Text -match $script:Pattern } |
+        $hits = @(Get-ScannedLines -Root $script:KitRoot | Where-Object { Test-VocabularyHit $_ } |
             ForEach-Object { "$([IO.Path]::GetRelativePath($script:KitRoot, $_.File)):$($_.Line): $($_.Text.Trim())" })
         $hits | Should -BeNullOrEmpty -Because 'kit 1.6.0 говорить лише мовою Уніки 0.16 (спека 2026-11-19 §4.1, рішення 9 спеки 1.5.0)'
     }
@@ -113,6 +125,35 @@ Describe 'Запобіжник словника: поверхня Уніки 0.1
         @{ Probe = '$template.Add(1); $meta.Add(2)' }
     ) {
         $Probe | Should -Not -Match $script:Pattern
+    }
+
+    It 'прибрані команди kit у формі виклику ловляться: <Probe>' -ForEach @(
+        @{ Probe = 'pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" canon -RepoRoot .' }
+        @{ Probe = 'pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" build -RepoRoot .' }
+        @{ Probe = 'далі `kit canon -Source X`' }
+        @{ Probe = 'зібрати: kit build' }
+        @{ Probe = 'canon -MarkerOnly -Apply' }
+    ) {
+        $Probe | Should -Match $script:RemovedKitPattern
+    }
+
+    It 'прибрані команди kit — не голі слова: <Probe>' -ForEach @(
+        @{ Probe = 'канонізація дерева — pull force' }
+        @{ Probe = 'файли лягають у build/artifacts/' }
+        @{ Probe = 'unica.run {"op":"make"}' }
+        @{ Probe = 'kit supply-marker -Source X -Apply' }
+        @{ Probe = 'kit builder' }
+    ) {
+        $Probe | Should -Not -Match $script:RemovedKitPattern
+    }
+
+    It 'межа: прибрані команди kit дозволені лише в upgrades.md, стара поверхня Уніки — ніде' {
+        $skill = [pscustomobject]@{ File = 'R:\x\skills\sync\SKILL.md'; Line = 1; Text = 'далі kit canon' }
+        $up = [pscustomobject]@{ File = 'R:\x\skills\onboarding\references\upgrades.md'; Line = 1; Text = '`kit canon` і `kit build` прибрано' }
+        $upTask = [pscustomobject]@{ File = 'R:\x\skills\onboarding\references\upgrades.md'; Line = 2; Text = 'прибрати unica_task_get' }
+        Test-VocabularyHit $skill | Should -BeTrue
+        Test-VocabularyHit $up | Should -BeFalse
+        Test-VocabularyHit $upTask | Should -BeTrue
     }
 
     It 'шаблон ловить повне MCP-ім''я: <Probe>' -ForEach @(
