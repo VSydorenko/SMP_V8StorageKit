@@ -116,7 +116,7 @@ function Find-PathRef {
             $out.Add([pscustomobject]@{
                     Ref    = $m.Value
                     File   = $file
-                    Line   = if ($m.Groups[2].Success) { [long]$m.Groups[2].Value } else { $null }
+                    Line   = if ($m.Groups[2].Success) { $n = 0L; if ([long]::TryParse($m.Groups[2].Value, [ref]$n)) { $n } else { [long]::MaxValue } } else { $null }
                     Create = $script:RxCreate.IsMatch($line)
                     LineNo = $i + 1
                 })

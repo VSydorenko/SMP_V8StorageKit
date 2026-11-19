@@ -137,12 +137,6 @@ function Get-DocHelp {
     return $null
 }
 
-function Get-DocHelpTopics {
-    [CmdletBinding()]
-    param()
-    return , @($script:HelpTopics.Keys)
-}
-
 # --- спільні дрібниці -------------------------------------------------------------------------
 
 function New-DocException {
@@ -250,6 +244,9 @@ function Format-DocQuote {
     # Аргумент для shell: одинарні лапки, якщо є щось крім безпечних символів.
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
     if ($script:RxSafeArg.IsMatch($Text)) { return $Text }
+    # Апостроф усередині: одинарні лапки з `'\''` розбирає лише bash, тож за відсутності `"`, `$` і
+    # зворотної лапки беремо подвійні — вони однаково діють у bash і PowerShell.
+    if ($Text.Contains("'") -and $Text -notmatch '["$`]') { return '"' + $Text + '"' }
     "'" + $Text.Replace("'", "'\''") + "'"
 }
 
@@ -1141,7 +1138,11 @@ function Get-DocRefs {
     $total = 0
     foreach ($t in $norm) {
         $hits = [System.Collections.Generic.List[string]]::new()
+        # Дешеве відсіювання файла до рядкового циклу: ціль, `](` або довге голе ім'я мусять бути в тексті.
+        $tName = Get-DocFileNameOf -Path $t.Rel.TrimEnd('/')
+        $nameCheck = (-not $t.IsDir) -and $tName.Length -ge 12 -and $tName.Contains('.')
         foreach ($f in $files) {
+            if (-not ($f.Text.Contains($t.Rel) -or $f.Text.Contains('](') -or ($nameCheck -and $f.Text.Contains($tName)))) { continue }
             # Посилання всередині видалюваного зникнуть разом із ним.
             $inside = $false
             foreach ($x in $norm) {
@@ -1183,7 +1184,7 @@ function Get-DocDeadRefs {
     }
     if ($roots.Count -eq 0) { $null = Get-DocField -Ctx $Ctx -Key 'Docs' -Required }
     $alt = ($roots | ForEach-Object { [regex]::Escape($_) }) -join '|'
-    $re = [regex]::new('(?<![\w./-])((?:' + $alt + ')/[\w.@/-]*[\w-]\.[a-z]{1,5})(?![\w/])', $script:Ci)
+    $re = [regex]::new('(?<![\w./-])((?:' + $alt + ')/[\w.@/-]*[\w-]\.[a-z0-9]{1,5})(?![\w/])', $script:Ci)
     $hits = [System.Collections.Generic.List[string]]::new()
     foreach ($f in $Files) {
         $lines = $f.Text.Split([char]10)
@@ -1208,11 +1209,11 @@ function Get-DocDeadRefs {
 }
 
 # Межа слова для кирилиці: `\b` у JS бачить межу лише між ASCII-символами, а `\b` .NET бачить
-# її між будь-якими буквами, тож однаково: ліва межа — lookbehind, права — lookahead. Оригінал
-# міняв УСІ `\b` на lookbehind, і права межа ("...(is|now)\b") не збігалась ніколи — гілки
-# `was -> is`, `used to`, `reversed by` були мертві. Тут права межа — справжній lookahead.
+# її між будь-якими буквами, тож ліва межа — lookbehind. Оригінал міняв `\b` на lookbehind і
+# праворуч, тому гілки з правою межею там не спрацьовували ніколи; в оригіналі ці гілки мертві
+# через межу слова, а оживлені дають хибні мітки на звичайній англійській прозі (рев'ю T1, I1),
+# тож їх тут немає.
 $script:NbL = '(?<![\p{L}\p{N}_])'
-$script:NbR = '(?![\p{L}\p{N}_])'
 
 $script:CodeLabels = @(
     , @('§', [regex]::new('§\s?[0-9]', $script:Ci))
@@ -1226,8 +1227,8 @@ $script:DocNarration = @(
     , @('phase', [regex]::new($script:NbL + '(у|в|на|після|до|з) (фаз|етап|блок|блоц|хвил)\p{L}* [\p{Lu}0-9]', $script:Ic))
     , @('phase', [regex]::new('\b(in|after|before|during) (phase|stage|block|wave) [A-Z0-9]', $script:Ic))
     , @('PR', [regex]::new('\bPR #[0-9]|\(#[0-9]+\)', $script:Ci))
-    , @('was→is', [regex]::new($script:NbL + '(раніше|колись) (було|був|була|були)' + $script:NbR + '|' + $script:NbL + 'було\s*→\s*стало|' + $script:NbL + 'was\s*→\s*(is|now)' + $script:NbR + '|' + $script:NbL + 'used to' + $script:NbR, $script:Ic))
-    , @('reversal', [regex]::new($script:NbL + '(скасован|відмінен|розвернут)\p{L}*|' + $script:NbL + '(reversed|cancelled|superseded) (on|by|in)' + $script:NbR, $script:Ic))
+    , @('was→is', [regex]::new($script:NbL + 'було\s*→\s*стало', $script:Ic))
+    , @('reversal', [regex]::new($script:NbL + '(скасован|відмінен|розвернут)\p{L}*', $script:Ic))
     , @('removed-in', [regex]::new($script:NbL + '(removed|deleted|видален)\p{L}* (in|у|в) v?[0-9]', $script:Ic))
     , @('header', [regex]::new('^(\*\*)?(Версія|Version|Дата|Date|Оновлено|Updated)(\*\*)?\s*:', $script:Ci))
     , @('as-of', [regex]::new($script:NbL + 'станом на [0-9]|' + $script:NbL + 'as of [0-9]{4}', $script:Ic))
@@ -1687,6 +1688,6 @@ function Invoke-DocCommand {
     }
 }
 
-Export-ModuleMember -Function Invoke-DocCommand, Get-DocUsage, Get-DocHelp, Get-DocHelpTopics, `
+Export-ModuleMember -Function Invoke-DocCommand, Get-DocUsage, Get-DocHelp, `
     Get-DocToc, Get-DocSection, Find-DocText, Test-DocAnchors, Get-DocRefs, Get-DocDebt, Get-DocHistory, Test-DocLint, `
     New-DocContext, Format-DocError, New-DocResult
