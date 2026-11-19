@@ -75,12 +75,19 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # A: раніше звірялось лише зі статичним переліком — тека могла бути ще не створена (так
         # було з skills/sync), а тест мовчав. Тепер — диск. Агент — теж законна ціль: скіли
         # кличуть агентів плагіна як subagent_type v8storagekit:<ім'я>.
-        foreach ($s in $script:Skills) {
-            foreach ($m in [regex]::Matches($s.Text, 'v8storagekit:([a-z8-]+)')) {
+        # Джерела — усі .md тек скілів (references/ читається тим самим Read, що й SKILL.md) і всі
+        # agents/*.md: посилання з довідки чи агента, що веде в нікуди, ламає ту саму дію.
+        $sources = @($script:SkillDocs | ForEach-Object { [pscustomobject]@{ Rel = "skills/$($_.Rel)"; Text = $_.Text } })
+        if (Test-Path -LiteralPath $script:AgentsDir) {
+            $sources += @(Get-ChildItem -LiteralPath $script:AgentsDir -Filter '*.md' -File | ForEach-Object {
+                    [pscustomobject]@{ Rel = "agents/$($_.Name)"; Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8) } })
+        }
+        foreach ($s in $sources) {
+            foreach ($m in [regex]::Matches($s.Text, 'v8storagekit:([a-z0-9-]+)')) {
                 $refName = $m.Groups[1].Value
                 $isSkill = Test-Path -LiteralPath (Join-Path $script:SkillsDir "$refName/SKILL.md")
                 $isAgent = Test-Path -LiteralPath (Join-Path $script:AgentsDir "$refName.md")
-                ($isSkill -or $isAgent) | Should -BeTrue -Because "у $($s.Name) посилання на v8storagekit:$refName, а ні skills/$refName/SKILL.md, ні agents/$refName.md немає"
+                ($isSkill -or $isAgent) | Should -BeTrue -Because "у $($s.Rel) посилання на v8storagekit:$refName, а ні skills/$refName/SKILL.md, ні agents/$refName.md немає"
             }
         }
     }
