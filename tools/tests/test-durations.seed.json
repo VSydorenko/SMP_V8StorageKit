@@ -3,7 +3,7 @@
   "AgentBase.Tests.ps1": 3.99,
   "Authors.Tests.ps1": 0.27,
   "Build.Tests.ps1": 19.3,
-  "Canon.Tests.ps1": 17.99,
+  "SupplyMarker.Tests.ps1": 5,
   "Check.AgentBase.Tests.ps1": 23.94,
   "Check.GitPolicy.Tests.ps1": 39.18,
   "Check.Manifest.Tests.ps1": 20.7,

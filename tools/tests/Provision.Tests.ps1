@@ -554,8 +554,8 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.Output | Should -Not -BeLike '*"op":"push"*'
         $r.Output | Should -Not -BeLike '*"op":"infobase.create"*'
     }
-    It 'крок наступного kit називає крок вирівнювання за видом бази: серверна — push force, без pull; файлова — pull' {
-        # Get-KitProvisionNextKitStep не експортується — кличемо в області модуля. Обидва рецепти, обидва види бази.
+    It 'крок наступного kit називає крок вирівнювання після sync/verify: push force:true для набору, без pull і canon' {
+        # Get-KitProvisionNextKitStep не експортується — кличемо в області модуля. Обидва рецепти.
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
@@ -564,13 +564,12 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $m = Import-Module (Resolve-Path "$PSScriptRoot/../commands/provision.psm1").Path -Force -PassThru
         foreach ($recipe in 'i', 'ii') {
             $fit = [pscustomobject]@{ Fit = $false; Source = [pscustomobject]@{ Key = 'base' }; Recipe = $recipe; Supply = $null }
-            $srv = & $m { param($f) Get-KitProvisionNextKitStep -Fitness $f -MainBranch main -BaseKind server } $fit
-            $fil = & $m { param($f) Get-KitProvisionNextKitStep -Fitness $f -MainBranch main -BaseKind file } $fit
-            $srv | Should -Not -BeLike '*pull*' -Because "серверна база, рецепт ($recipe): pull для неї не друкується"
-            $srv | Should -BeLike '*push Уніки з "force":true*'
-            $srv | Should -BeLike '*kit canon -Source base -Apply*'
-            $fil | Should -BeLike '*pull Уніки*'
-            $fil | Should -BeLike '*-MarkerOnly*'
+            $step = & $m { param($f) Get-KitProvisionNextKitStep -Fitness $f -MainBranch main } $fit
+            $step | Should -BeLike '*push Уніки з "force":true для набору base*' -Because "рецепт ($recipe): крок після sync/verify — завжди push force"
+            $step | Should -BeLike '*kit supply-marker*'
+            $step | Should -Not -BeLike '*canon*'
+            $step | Should -Not -BeLike '*-MarkerOnly*'
+            $step | Should -Not -BeLike '*pull Уніки*'
         }
     }
     It 'файлова з .dt, дерево непридатне: restore і крок kit, без push; базу створює Уніка, не kit' {

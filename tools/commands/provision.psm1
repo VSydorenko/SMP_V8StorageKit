@@ -148,22 +148,18 @@ function Get-KitProvisionNextKitStep {
     .SYNOPSIS
         Крок kit, яким першим наповнюється база за непридатного дерева: рецепт (i) — sync, (ii) — verify.
     .DESCRIPTION
-        Текст називає крок вирівнювання за видом бази, бо його друкує UnicaStep (Get-KitAlignStep): на файловій
-        базі — pull Уніки (і позначка поставки через kit canon -MarkerOnly), на серверній — pull не друкується
-        ніколи: push з "force":true, а за поставки відсутньої чи застарілої — перед ним kit canon -Apply.
+        Текст називає крок вирівнювання, який друкує UnicaStep (Get-KitAlignStep): після sync/verify він завжди
+        push Уніки з "force":true для набору, незалежно від виду бази. За поставки вендора відсутньої чи
+        застарілої push замість нього зупиняється рецептом із Get-KitSupplyRecipe (повний pull набору і
+        kit supply-marker) — той рецепт kit друкує сам, тож тут він не переказується.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Fitness,
-        [Parameter(Mandatory)][string]$MainBranch,
-        [Parameter(Mandatory)][ValidateSet('file', 'server')][string]$BaseKind
+        [Parameter(Mandatory)][string]$MainBranch
     )
     $k = $Fitness.Source.Key
-    $alignText = if ($BaseKind -eq 'server') {
-        ('push Уніки з "force":true (а за поставки відсутньої чи застарілої — перед ним kit canon -Source ' + $k + ' -Apply)')
-    } else {
-        "pull Уніки (і, якщо є поставка вендора, kit canon -Source $k -MarkerOnly -Apply)"
-    }
+    $alignText = "push Уніки з `"force`":true для набору $k (а за поставки відсутньої чи застарілої kit замість нього друкує рецепт зупинки: повний pull і kit supply-marker)"
     if ($Fitness.Recipe -eq 'i') {
         return ("kit sync -Source $k -FromLatest -Apply (або -FromVersion N) — на головній гілці чи гілці онбордингу; sync наповнить " +
                 "базу й надрукує крок вирівнювання: $alignText")
@@ -184,20 +180,19 @@ function Get-KitProvisionSteps {
         [Parameter(Mandatory)][string]$MainBranch
     )
     $steps = [System.Collections.Generic.List[string]]::new()
-    $baseKind = if ($Kind -like 'server-*') { 'server' } else { 'file' }
     if ($Kind -eq 'file-empty') {
         if ($Fitness.Fit) {
             $steps.Add((Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{})))
             $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{})))
         } else {
-            $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch -BaseKind $baseKind))
+            $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch))
         }
         return , $steps.ToArray()
     }
     if ($Kind -eq 'file-dt')    { $steps.Add((Format-KitUnicaRun -Op 'infobase.restore' -Arguments ([ordered]@{ input = $TemplatePath; mode = 'create' }))) }
     if ($Kind -eq 'server-new') { $steps.Add((Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{}))) }
     if ($Fitness.Fit) { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ force = $true }))) }
-    else              { $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch -BaseKind $baseKind)) }
+    else              { $steps.Add((Get-KitProvisionNextKitStep -Fitness $Fitness -MainBranch $MainBranch)) }
     , $steps.ToArray()
 }
 

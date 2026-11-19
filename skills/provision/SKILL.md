@@ -55,8 +55,8 @@ git grep -c "ObjectBelonging>Adopted"
 `kit sync -Source <ключ> -FromLatest -Apply` (або `-FromVersion N`) для (i), `kit verify -Source <ключ>`
 на головній гілці для (ii) — це рецепти з `v8storagekit:onboarding`, розділ «Клієнтська основна
 конфігурація». Базу наповнює kit, а пам'ять раннера вирівнює крок, який надрукує `sync`/`verify`
-(на файловій базі — `pull` і `kit canon … -MarkerOnly -Apply`; на серверній — `kit canon … -Apply`
-і `push` з `"force":true`). Це попередження про поставку, не зупинка: `provision` розгортає базу в
+(`push` з `"force":true` для набору; за поставки вендора відсутньої чи застарілої — зупинка з рецептом:
+повний `pull` з `"force":true` і `kit supply-marker … -Apply`). Це попередження про поставку, не зупинка: `provision` розгортає базу в
 будь-якому разі.
 
 ## 2. Який тип бази — питати, якщо не визначено

@@ -186,7 +186,7 @@ function Invoke-KitAdopt {
                    "CLAUDE.md) і повторіть adopt. Шляхи:`n$paths")
         }
 
-        # Страховка перед знищенням: те саме, що робить canon (спека §5). Копія лягає у
+        # Страховка перед знищенням: страховка спеки §5. Копія лягає у
         # гітігноровану build/-теку воркспейсу, тож робочої копії не забруднює.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
         $backupDir = $null
@@ -235,8 +235,8 @@ function Invoke-KitAdopt {
 
         try {
             # -MustBeUnder $ws.FullPath, не $root (рев'ю фікс-раунду 1, Minor): те саме звуження,
-            # що canon.psm1:83 — коментар вище каже «те саме, що робить canon», і межа guard'а
-            # перед Remove-KitDirectory на дереві людини мусить це підтверджувати буквально.
+            # що в dump: межа guard'а перед Remove-KitDirectory на дереві людини мусить бути
+            # воркспейсом, а не всім репозиторієм.
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($src.Key)"
             # Поставка вендора (спека 2026-09-30 §5.2): у дзеркалі .cf немає — повне стирання
             # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).

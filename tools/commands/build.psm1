@@ -105,8 +105,8 @@ function Invoke-KitBuild {
     $outDir = Join-Path $root 'build/artifacts'
     $selected = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
     $epfSources = @($selected | Where-Object Type -eq 'EXTERNAL_DATA_PROCESSORS')
-    # truth: vendor виключено (фікс-раунд рев'ю, C4) — той самий принцип, що canon.psm1 уже
-    # застосовує до своїх targets: чужу конфігурацію не збирають у власні артефакти, і радити
+    # truth: vendor виключено (фікс-раунд рев'ю, C4) — той самий принцип, що dump і sync
+    # застосовують до своїх цілей: чужу конфігурацію не збирають у власні артефакти, і радити
     # для неї unica.run op=make було б порадою зібрати те, що нам не належить.
     $extSources = @($selected | Where-Object { $_.Type -eq 'EXTENSION' -and $_.Truth -ne 'vendor' })
 

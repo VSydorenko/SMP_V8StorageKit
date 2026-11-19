@@ -224,7 +224,7 @@ function Invoke-KitCheck {
                 }
 
                 # Групи регістру в HEAD під шляхом джерела (спека 2026-10-04 §4.4): фантом приходить і
-                # ручним `git add -A` після dump/canon, не лише з дзеркала.
+                # ручним `git add -A` після dump чи pull Уніки, не лише з дзеркала.
                 try {
                     if ((Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'HEAD')).ExitCode -eq 0) {
                         $groups = @(Get-KitCaseCollisions -Paths @(Get-KitTreePaths -RepoRoot $root -Ref 'HEAD' -Path $src.RepoPath))
@@ -241,7 +241,7 @@ function Invoke-KitCheck {
 
                 # Дзеркальна перевірка до gitignore для vendor: дерево, яке МАЄ бути в git,
                 # не повинно ловитись правилом .gitignore. Помилково широке правило викидає
-                # вихідники з git мовчки — ні sync, ні canon цього не бачать.
+                # вихідники з git мовчки — ні sync, ні verify цього не бачать.
                 #
                 # --no-index обов'язковий: без нього check-ignore звіряється з індексом і
                 # НІКОЛИ не покаже вже трекований файл ігнорованим, хай яке правило
@@ -572,7 +572,7 @@ function Invoke-KitCheck {
                 # репозиторіях перевірка §2.5 не спрацює ніколи. Форма дефекту та сама, яку
                 # блок закривав уже двічі: «нічого не сказано» читається як «все гаразд»,
                 # тільки ціна тут не миттєва — дев-база не зникає, вона стає невидимою.
-                # warn, не error: репозиторій робочий, sync і canon працюють — не працює лише
+                # warn, не error: репозиторій робочий, sync і verify працюють — не працює лише
                 # dump (немає звідки взяти базу) і аудит бази людини.
                 $localRaw = ''
                 try { $localRaw = Get-Content -LiteralPath $localPath -Raw -Encoding UTF8 }

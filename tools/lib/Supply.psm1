@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 
 # Поставка вендора основної конфігурації на підтримці (спека 2026-09-30 §5.2, §6.3.1). ЄДИНЕ
-# оголошення шляху: sync, verify, adopt, canon, check і provision беруть його звідси. Шлях —
+# оголошення шляху: sync, verify, adopt, supply-marker, check і provision беруть його звідси. Шлях —
 # відносно кореня дерева CONFIGURATION. У теці лежить <Ім'я>.cf поставки (0,5–1,1 ГБ — за межею
 # 100 МБ на файл GitHub, тому поза git) і позначка .kit-bin-sha1 (стан машини, §5.1).
 # Ext/ParentConfigurations.bin — ознаки підтримки (замки об'єктів) — ЛИШАЄТЬСЯ в git.

@@ -28,7 +28,7 @@ if command -v perl >/dev/null 2>&1; then
     echo "v8storagekit: в індексі є шляхи, що різняться лише регістром (на Windows це один файл):" >&2
     printf '%s\n' "$dups" | head -n 5 >&2
     echo "  Коміт відхилено (pre-commit). Зніміть фантом з індексу: git rm --cached -- <шлях>;" >&2
-    echo "  дерево після dump/canon комітьте без --only (docs kit: storage-and-git.md, «Перейменування регістром»)." >&2
+    echo "  дерево після dump чи pull Уніки комітьте без --only (docs kit: storage-and-git.md, «Перейменування регістром»)." >&2
     exit 1
   fi
 else

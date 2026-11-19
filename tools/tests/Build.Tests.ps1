@@ -105,7 +105,7 @@ Describe 'kit build — виявлення й збір артефактів бе
 
 Describe 'kit build — мок платформного шару: .epf через платформу (C1/C2 фікс-раунду)' {
     # build лишалась єдиною платформною командою блоку без Describe "мок платформного шару" —
-    # Dump.Tests.ps1 і Canon.Tests.ps1 уже мають такий для dump/canon (рев'ю фікс-раунду, C2).
+    # Dump.Tests.ps1 уже має такий для dump (рев'ю фікс-раунду, C2).
     # Той самий прийом: lib-модулі в порядку module-order.txt, потім САМЕ commands/build.psm1 у
     # ЦЬОМУ процесі (не підпроцесом kit.ps1) — лише так Mock -ModuleName бачить приватний стіл
     # команд саме build (межа модуля з module-order.txt: Mock -ModuleName діє лише в межах

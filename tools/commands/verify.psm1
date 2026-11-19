@@ -221,7 +221,7 @@ function Invoke-KitVerify {
                 })
                 if ($diff.CaseCollisions.Count -gt 0) {
                     Write-Host ("  Увага: регістр-дублікати — дефект дерева git, а не робота для сховища. Злиття такого дерева на Windows " +
-                                "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 або ручний git add -A після dump/canon " +
+                                "впаде з «would be overwritten». Джерело — запис дзеркала kit ≤ 1.3.1 або ручний git add -A після dump чи pull Уніки " +
                                 "(docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
                 }
                 if ($diff.CaseOnly.Count -gt 0) {

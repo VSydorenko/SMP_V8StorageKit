@@ -262,13 +262,24 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'reconcile' {
-        It 'sync → крок, надрукований sync (push force) → canon → adopt; #25' {
+        It 'sync → крок, надрукований sync (push force) → pull force → adopt; #25' {
             $t = Skill 'reconcile'
             $t | Should -Match 'kit\.ps1" sync'
             $t | Should -Match 'надрукован'
             $t | Should -Match '"force":true'
             $t | Should -Match 'infobase_state_unverified'
-            $t | Should -Match 'kit\.ps1" canon'
+            # Запобіжник порядку: push force стоїть РАНІШЕ за pull force, а pull — раніше за adopt. pull на базі, не вирівняній push force,
+            # вивантажив би версію сховища замість гілки задачі й замінив би закомічену роботу.
+            $posPush = $t.IndexOf('"op":"push"')
+            $posPull = $t.IndexOf('"op":"pull"')
+            $posAdopt = $t.IndexOf('kit.ps1" adopt')
+            $posPush | Should -BeGreaterThan -1
+            $posPull | Should -BeGreaterThan $posPush -Because 'pull force — після push force'
+            $posAdopt | Should -BeGreaterThan $posPull -Because 'adopt — після pull force'
+            $t | Should -Match '"force":true'
+            $t | Should -Match 'cancelled'
+            $t | Should -Match '"extension":'
+            $t | Should -Not -Match 'kit\.ps1" canon'
             $t | Should -Match 'kit\.ps1" adopt'
             $t | Should -Match 'зникне з гілки'
             # Позитивно, а не Should -Not -Match 'rebase': сам скіл ЗАБОРОНЯЄ rebase словами
@@ -281,10 +292,11 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'finish' {
-        It 'sync → canon → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
+        It 'sync → push force → pull force → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build',
+            foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build',
                            'unica\.check', '"op":"make"', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            $t | Should -Not -Match 'kit\.ps1" canon'
             $t | Should -Not -Match 'testRunner'
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
             # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
@@ -293,6 +305,27 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match '--name-only'      # перетин файлів F і нових версій — критерій (а)
             $t | Should -Not -Match 'ORIG_HEAD'   # ORIG_HEAD був від git merge; adopt його не лишає
         }
+    }
+    It 'finish: push force стоїть раніше за pull force, а той — раніше за adopt (порядок обох кроків канонізації)' {
+        $t = Skill 'finish'
+        $posPush = $t.IndexOf('"op":"push"')
+        $posPull = $t.IndexOf('"op":"pull"')
+        $posAdopt = $t.IndexOf('kit.ps1" adopt')
+        $posPush | Should -BeGreaterThan -1
+        $posPull | Should -BeGreaterThan $posPush
+        $posAdopt | Should -BeGreaterThan $posPull
+    }
+    It 'команди kit canon більше немає: жодного скіла (крім довідки upgrades.md про минулі версії) і шаблону, що її кличе чи згадує' {
+        # Команду замінили pull force Уніки й kit supply-marker (спека 2026-11-19 §3.2). Скіл, що кличе
+        # неіснуючу команду, — дефект, який користувач побачить лише на «Unknown command» у живій сесії.
+        $templatesDir = (Resolve-Path "$PSScriptRoot/../../templates").Path
+        $files = @($script:SkillDocs | Where-Object { $_.Rel -notlike '*upgrades.md' } |
+            ForEach-Object { [pscustomobject]@{ Rel = "skills/$($_.Rel)"; Text = $_.Text } }) +
+            @(Get-ChildItem -LiteralPath $templatesDir -Recurse -File | ForEach-Object {
+                [pscustomobject]@{ Rel = "templates/" + [IO.Path]::GetRelativePath($templatesDir, $_.FullName); Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8) } })
+        $files.Count | Should -BeGreaterThan 8 -Because 'перелік файлів не порожній (контроль, що перевірка дивиться)'
+        $hits = @($files | Where-Object { $_.Text -match '(?i)\bcanon\b' } | ForEach-Object Rel)
+        $hits | Should -BeNullOrEmpty -Because ("згадка canon у: " + ($hits -join ', '))
     }
     It 'reconcile і finish приймають версію сховища через adopt, а не git merge' {
         foreach ($s in @('reconcile', 'finish')) {
@@ -321,7 +354,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
             # Два твердження, не одне (історія C1, лишається): перше тримає, що скіл відсилає до кроку,
             # який надрукувала команда (раніше це був голий operation=build, і для reconcile підрядок
-            # був і до C1 — з іншої причини, страховки canon, тож його одного відкіт не ловив).
+            # був і до C1 — з іншої причини, колишньої страховки canon, тож його одного відкіт не ловив).
             # Друге тримає саме те, що додав C1: стан бази після sync/verify названо ОГОЛОШЕНИМ
             # КОНТРАКТОМ, а не збоєм; без нього агент читав би зрушену базу як поломку.
             $text | Should -BeLike '*надрукован*'

@@ -164,7 +164,7 @@ function New-KitFakeRepo {
             Set-Content -LiteralPath (Join-Path $wsDir 'v8project.local.yaml') -Encoding UTF8 -Value (
                 @('infobases:', '  origin:', "    connection: '$($ws['Infobase'])'") -join "`n")
             if ($WithAgentBase) {
-                # Той самий ідіом, що Canon.Tests.ps1/Provision.Tests.ps1 (1Cv8.1CD — ознака
+                # Той самий ідіом, що Provision.Tests.ps1 (1Cv8.1CD — ознака
                 # наявної файлової бази для Resolve-KitAgentBase.Exists): sync (Task 3) тепер
                 # резолвить базу агента з диска ще до звернення до платформи, і без цього файлу
                 # тести, що кличуть Invoke-KitSync у процесі, отримають зупинку з рецептом

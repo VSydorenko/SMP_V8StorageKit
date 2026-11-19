@@ -32,5 +32,5 @@ DumpFilesIndex.txt
 # файл GitHub) і позначка актуальності .kit-bin-sha1 — стан машини, не репозиторію. Ознаки
 # підтримки Ext/ParentConfigurations.bin ЛИШАЮТЬСЯ в git: без них губляться замки об'єктів.
 # Для розширень і конфігурацій без підтримки теки немає — рядок ні на що не діє.
-# Відновлення .cf на новій машині — крок, який надрукує kit verify (pull Уніки або kit canon) — skills/onboarding, рецепт (ii).
+# Відновлення .cf на новій машині — крок, який надрукує kit verify (повний pull Уніки з force:true і kit supply-marker) — skills/onboarding, рецепт (ii).
 **/Ext/ParentConfigurations/

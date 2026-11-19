@@ -218,7 +218,7 @@ function Invoke-KitRenameEdt {
     $targetFullRoot = Join-Path $root ($TargetRoot -replace '/', [System.IO.Path]::DirectorySeparatorChar)
     # Знахідка 3 (рев'ю раунду 3): PathSafety.psm1 — «спільний запобіжник перед КОЖНИМ
     # рекурсивним видаленням у tools/», і його кличуть усі інші такі місця (GitMerge,
-    # StorageBranch, StorageImprint, StoragePlatform, TreeCompare, V8, canon, dump, provision,
+    # StorageBranch, StorageImprint, StoragePlatform, TreeCompare, V8, dump, provision,
     # sync, verify). Remove-KitEmptyDirectory нижче теж рекурсивно видаляє в ЧУЖОМУ репозиторії —
     # без цієї перевірки -SourceRelPath виду '.' чи '../..' вивів би обхід за межі репозиторію.
     # Перевіряється ОБОХ коренів одразу, ще до першого git-виклику.
