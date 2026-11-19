@@ -56,3 +56,4 @@ KitProfile
 KitWait
 KitGit
 KitReviewPack
+KitSdd
