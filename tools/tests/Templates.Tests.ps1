@@ -215,11 +215,16 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
         $script:TemplateClaudeMd | Should -Not -Match 'output=<корінь'
     }
 
-    It 'templates/CLAUDE.md говорить мовою Уніки 0.13' {
+    It 'templates/CLAUDE.md говорить мовою Уніки 0.16: сесія в корені, -text лишається, push force питає людину' {
+        # Спека 2026-11-19 §3.3 п.4 (сесія в корені), §3.9 п.3 (попередження про -text), §3.1 (П17 скасовано).
         $c = $script:TemplateClaudeMd
         $c | Should -Not -Match 'operation='
         $c | Should -Match 'infobases\.origin'
         $c | Should -Match '"op":"make"'
         $c | Should -Match 'unica\.check'
+        $c | Should -Match 'відкривати в корені цього репозиторію'
+        $c | Should -Match 'git\.text_resource_marked_binary'
+        $c | Should -Match 'cancelled'
+        $c | Should -Not -Match 'виняток\s+лише для бази агента'
     }
 }

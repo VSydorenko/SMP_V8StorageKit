@@ -7,7 +7,7 @@
 |---|---|
 | `gitattributes` | `.gitattributes` (onboarding дописує `<ws>/<path>/** -text` під фактичні шляхи) |
 | `gitignore` | `.gitignore` (без загального `**/cf/**`; onboarding дописує `<ws>/<path>/**` для кожного `truth: vendor`) + `**/Ext/ParentConfigurations/` (поставка вендора поза git) |
-| `settings.json` | `.claude/settings.json` — дозволи (читальні інструменти Уніки; `unica_run`/`unica_apply` — з запитом); хука `SessionStart` тут немає — його поставляє сам плагін (`hooks/hooks.json`) |
+| `settings.json` | `.claude/settings.json` — дозволи (читальні інструменти Уніки й `unica_run` — без запиту; `unica_apply` — з запитом); хука `SessionStart` тут немає — його поставляє сам плагін (`hooks/hooks.json`) |
 | `githooks/pre-commit`, `githooks/pre-merge-commit` | `.githooks/…` + `git config core.hooksPath .githooks` |
 | `CLAUDE.md` | `CLAUDE.md` |
 | `v8storagekit.yaml.example` | `v8storagekit.yaml` (корінь; заповнює onboarding за відповідями людини) |
