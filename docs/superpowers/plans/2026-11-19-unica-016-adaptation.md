@@ -119,7 +119,7 @@
 
 **Files:**
 - Modify: `tools/commands/sync.psm1`, `tools/commands/verify.psm1`, `tools/lib/StoragePlatform.psm1`, `tools/lib/StorageReport.psm1`, `tools/lib/V8.psm1`
-- Test: `tools/tests/Sync.Platform.Tests.ps1` (новий); правки моків у наявних `Sync.*`/`Verify.Tests.ps1`
+- Test: `tools/tests/Sync.Platform.Tests.ps1` (новий); правки моків у наявних `Sync.*`/`Verify.Tests.ps1`; прямі виклики змінених функцій без `-V8Path` у `StoragePlatform.Tests.ps1` і `StorageReport.Tests.ps1` (передати фальшивий `-V8Path` і перевірити в моку `Invoke-V8Designer`, що дійшов саме він); `ModuleImportOrder.Tests.ps1`. Повний перелік прямих викликів дає `grep -rn "Get-StorageVersions\|Invoke-KitStorageCheckout\|Invoke-KitStorageUpdate\|New-KitStorageInfobase\|Get-KitSourceInfobase" tools/tests` без `head`.
 
 **Interfaces:**
 - Consumes: `Get-KitAgentPlatform`, `Invoke-KitAgentRelease` (Task 1).
@@ -150,13 +150,13 @@
 Ризик: **властивість безпеки** (крок захищає від суміші версії сховища з git, §3.1 «Виміряно А4»). Потрібні два рев'ю.
 
 **Files:**
-- Modify: `tools/lib/UnicaStep.psm1` (і вкладені `Import-Module` у його шапці: `TreeBackup`/`TreeCompare` після зняття критерію можуть стати зайвими), `tools/lib/Supply.psm1` (`Get-KitSupplyRecipe`), `tools/lib/GitOutput.psm1` (хелпер гілки), `tools/lib/module-order.txt` (рядок причини порядку `UnicaStep`), `tools/commands/sync.psm1`, `tools/commands/verify.psm1`
-- Test: `tools/tests/UnicaStep.Tests.ps1` (переписати), `tools/tests/Sync.Align.Tests.ps1` (переписати або видалити критерійні випадки), `tools/tests/Verify.Tests.ps1` (асерції на `BaseKind`/`MarkerOnly`), `tools/tests/ModuleImportOrder.Tests.ps1` (`RequiredCommands` перелічує функції критерію), `tools/tests/Supply.Tests.ps1` і `tools/tests/Check.Supply.Tests.ps1` (текст рецепту поставки)
+- Modify: `tools/lib/UnicaStep.psm1` (і вкладені `Import-Module` у його шапці: `TreeBackup`/`TreeCompare` після зняття критерію можуть стати зайвими), `tools/lib/Supply.psm1` (`Get-KitSupplyRecipe`), `tools/lib/TreeCompare.psm1` (хелпер гілки поруч з `Invoke-KitGitProcess`), `tools/lib/GitMerge.psm1` і `tools/lib/StorageBranch.psm1` (їхні вбудовані `git branch --show-current` → хелпер), `tools/lib/module-order.txt` (рядок причини порядку `UnicaStep`), `tools/commands/check.psm1` (виклик `Get-KitSupplyRecipe` з новими параметрами), `tools/commands/sync.psm1`, `tools/commands/verify.psm1`
+- Test: `tools/tests/UnicaStep.Tests.ps1` (переписати), `tools/tests/Sync.Align.Tests.ps1` (переписати або видалити критерійні випадки), `tools/tests/Verify.Tests.ps1` (асерції на `BaseKind`/`MarkerOnly`), `tools/tests/ModuleImportOrder.Tests.ps1` (`RequiredCommands` перелічує функції критерію), `tools/tests/Supply.Tests.ps1` і `tools/tests/Check.Supply.Tests.ps1` (текст рецепту поставки), тести `GitMerge`/`StorageBranch`, якщо вони мокають `git branch`
 
 **Interfaces:**
 - Produces: `Get-KitAlignStep -Source <джерело> -OnMainBranch <bool> → pscustomobject { SourceSet; Workspace; RepoPath; Op ('push'|'blocked'); Supply; Steps; Recipe }`. Параметри `-Criterion` і `-BaseKind` зникають, поля `BaseKind` і `MarkerOnly` — теж. `Write-KitAlignStep` і `Write-KitAlignStops` зберігають сигнатури.
-- Produces: `Get-KitCurrentBranch -RepoRoot <string> → string` (`GitOutput.psm1`) — `git branch --show-current`. На від'єднаному HEAD — порожній рядок, і це трактується як «не головна гілка». Наявні вбудовані виклики `git branch --show-current` у `GitMerge.psm1` і `StorageBranch.psm1` переводяться на хелпер, щоб копія була одна (kit-dev case 5).
-- Changes: `Get-KitSupplyRecipe -SourceKey -MainBranch -State` (`Supply.psm1`) стає **єдиним джерелом** тексту відновлення поставки: його бере і `check` (знахідка `supply`), і `Get-KitAlignStep` (`Recipe` для `blocked`). Зараз він каже «`kit verify` → на файловій `pull` Уніки та `kit canon -MarkerOnly`, на серверній `kit canon` і `push`», і це третя копія рецепту. Новий текст за §4.2 п.9 і п.18:
+- Produces: `Get-KitCurrentBranch -RepoRoot <string> → string` (`TreeCompare.psm1`) — `git branch --show-current` через `Invoke-KitGitProcess`. На від'єднаному HEAD — порожній рядок, і це трактується як «не головна гілка». `TreeCompare` імпортує лише `PathSafety` і `Supply`, тож циклу немає. `GitMerge` імпортує `TreeCompare` вкладено, `StorageBranch` бачить його через `CaseGuard`. Вбудовані виклики `git branch --show-current` у `GitMerge.psm1` і `StorageBranch.psm1` переводяться на хелпер, щоб копія була одна (kit-dev case 5).
+- Changes: `Get-KitSupplyRecipe -SourceKey <string> -Workspace <string> -MainBranch <string> -State <string> -Purpose ('check'|'stop') -OnMainBranch <bool> → string` (`Supply.psm1`). Наявна сигнатура (`SourceKey`/`MainBranch`/`State`) не несе ні воркспейсу для `kit supply-marker -Workspace`, ні різниці між споживачами. Функція стає **єдиним джерелом** тексту відновлення поставки: її бере і `check` (знахідка `supply`, `-Purpose check`), і `Get-KitAlignStep` (`Recipe` для `blocked`, `-Purpose stop`). Зараз вона каже «`kit verify` → на файловій `pull` Уніки та `kit canon -MarkerOnly`, на серверній `kit canon` і `push`», і це третя копія рецепту. Новий текст за §4.2 п.9 і п.18:
   - на головній гілці: для `check` — `kit verify -Source <ключ>` (наповнить базу версією зі сховища) → його зупинка поставки; для зупинки `sync`/`verify` — одразу `pull force:true` → `kit supply-marker … -Apply`;
   - на гілці задачі — «спершу поставка на головній гілці».
   - Рецепт (i) онбордингу (`sync -MergeInto`) у тексті лишається.
@@ -164,6 +164,7 @@
 
 **Значення зі спеки.**
 - Поставка `none`/`current` → `Op = 'push'`, один крок `push` з `sourceSet` і `force:true` (§3.1 наслідок 1, §4.2 п.7).
+- **`push` не несе `extension`** навіть для розширення. На збірці Уніки `local/work-build` `push` приймає лише `sourceSet`, `full`, `force`, `noApply`, а на будь-який інший ключ відповідає «push does not accept `<ключ>`» [код `v13_source_import.rs`, перевірено автором плану]. Слова §4.2 п.7 «і `extension` для розширення» стосуються `pull`, як і схема в §3.2. Додати `extension` у `push` — помилка, що зламає крок.
 - Поставка `missing`/`stale`/`unknown` (лише `CONFIGURATION`) → `Op = 'blocked'` (§4.2 п.9). Текст `Recipe`:
   - на головній гілці: `pull force:true` Уніки цього набору → `kit supply-marker -Workspace <ws> -Source <набір> -Apply` — і все. Після повного `pull` база, дерево й пам'ять Уніки узгоджені, тож `push force` не потрібен (§4.2 п.18). Після `pull` `git status --porcelain -- <шлях набору>` мусить бути порожнім; непорожній — зупинка й доповідь людині. Цей запобіжник уже живе в `Invoke-KitCanonMarkerOnly` і переходить у Task 4;
   - на гілці задачі: зупинка «спершу поставка на головній гілці», без рядка `"op":"pull"`.
@@ -176,7 +177,7 @@
 **Антипатерни.** Не лишати «на всяк випадок» обчислення дерев чи чистоти. Не вводити позначку «база вирівняна» (§4.2 п.1: окремого гарда стану бази немає).
 
 - [ ] **Step 1: Тести** (рівно ці):
-  - §8: після `sync -Apply` з двома зрушеними наборами (CONFIGURATION без поставки + EXTENSION) у виводі рівно два рядки `unica.run {"op":"push"`, по одному на набір. Кожен рядок містить `"sourceSet":"<ключ>"` і `"force":true`. Рядка `"op":"pull"` немає. Вивід — справжній `kit.ps1` підпроцесом або мок платформи за зразком `Sync.Align.Tests.ps1`.
+  - §8: після `sync -Apply` з двома зрушеними наборами (CONFIGURATION без поставки + EXTENSION) у виводі рівно два рядки `unica.run {"op":"push"`, по одному на набір. Кожен рядок містить `"sourceSet":"<ключ>"` і `"force":true`, і жоден не містить `"extension"`. Рядка `"op":"pull"` немає. Вивід — справжній `kit.ps1` підпроцесом або мок платформи за зразком `Sync.Align.Tests.ps1`.
   - Те саме для `verify` з одним набором.
   - Review Focus 2: `Get-KitAlignStep` для `CONFIGURATION` з поставкою `stale` дає `Op = 'blocked'`. З `-OnMainBranch $true` `Recipe` містить `"op":"pull"` і `supply-marker` і не містить `"op":"push"`. З `$false` — не містить `"op":"pull"`.
   - Контроль: вирізати гілку `blocked` у копії дерева — тест на `stale` мусить почервоніти.
@@ -195,6 +196,7 @@
 - Delete: `tools/commands/canon.psm1`, `tools/tests/Canon.Tests.ps1` (тести режиму `-MarkerOnly` переносяться)
 - Create: `tools/commands/supply-marker.psm1`, `tools/tests/SupplyMarker.Tests.ps1`
 - Modify: `skills/reconcile/SKILL.md`, `skills/finish/SKILL.md` (кроки з `kit.ps1" canon`), `tools/tests/Skills.Tests.ps1` (тести послідовностей `reconcile`/`finish`, що вимагають `kit.ps1" canon`). Ці тексти правляться тут, а не в Task 10: після видалення команди скіл, що її кличе, — дефект, і набір мусить це ловити одразу.
+- Modify: **кожне виконуване посилання на `canon` у будь-якому скілі й шаблоні**, а не лише в `reconcile`/`finish`. На старті плану це `using-v8storagekit` (принцип «байти в git», рядки таблиці намірів для `reconcile`/`finish`, перелік команд, рецепт поставки з `kit canon … -MarkerOnly`) і `onboarding` (таблиця рецептів (i)/(ii) і абзаци про `canon` на порожній базі). Перелік дає `grep -rn "canon" skills templates` без `head`. Кожен збіг переписується на нову форму: `pull force` Уніки, `kit supply-marker` або рецепт `Get-KitSupplyRecipe`. Описові згадки «колишній `canon`» допустимі лише в `upgrades.md`.
 
 **Тексти `reconcile`/`finish` (§4.2 п.1, п.2, п.11):**
 - крок «база агента — з дерева `F`» і канонізація стають одним списком «`push force:true` → `pull force:true`» з явним `sourceSet` і `extension` для розширення;
@@ -221,7 +223,7 @@
 
 **Files:**
 - Delete: `tools/commands/build.psm1`, `tools/tests/Build.Tests.ps1`
-- Modify: тексти, що називають `kit build` як роботу kit: `check.psm1` (коментар і текст аудиту `build-artifacts` «куди пише kit build»), `verify.psm1` (вердикт `ref-ahead`: «зберіть артефакт: kit build і unica.run op=make»), `skills/finish/SKILL.md` (крок «артефакти» — `make` Уніки, без копіювання kit, §3.5 п.4; `unica.check` лишається), `tools/tests/Skills.Tests.ps1` (послідовність `finish` з `kit.ps1" build`)
+- Modify: тексти, що називають `kit build` як роботу kit: `check.psm1` (коментар і текст аудиту `build-artifacts` «куди пише kit build»), `verify.psm1` (вердикт `ref-ahead`: «зберіть артефакт: kit build і unica.run op=make»), `skills/finish/SKILL.md` (крок «артефакти» — `make` Уніки, без копіювання kit, §3.5 п.4; `unica.check` лишається), `skills/verify/SKILL.md` (таблиця вердиктів: `ref-ahead` → «`kit build`»), `skills/using-v8storagekit/SKILL.md` (перелік команд, якщо там є `build`), `templates/CLAUDE.md` (абзац «`kit build -Apply` забирає … у кореневий `build/artifacts/`»), коментар у `Check.GitPolicy.Tests.ps1` («куди пише kit build»), `tools/tests/Skills.Tests.ps1` (послідовність `finish` з `kit.ps1" build`)
 
 **Рішення (§3.5).** Збірку будь-яких артефактів робить `make` Уніки. Kit не копіює `.cf`/`.cfe` у кореневу `build/artifacts/`. Тестова ІБ для `.epf` і її платформа йдуть разом з командою. `New-V8FileInfobase` лишається, бо його бере `provision` (Task 6) і `-DumpPlatform`.
 
@@ -236,7 +238,7 @@
 Ризик: **властивість безпеки** (kit більше нічого не видаляє, §3.4 п.3). Потрібні два рев'ю.
 
 **Files:**
-- Modify: `tools/commands/provision.psm1`, `tools/lib/V8Project.psm1` (нова функція шляху пам'яті), `skills/provision/SKILL.md` (весь скіл: без `-Force` і `-ServerBase New`; зламана база → людина видаляє дві теки, далі крок; серверну створює людина в кластері)
+- Modify: `tools/commands/provision.psm1`, `tools/lib/V8Project.psm1` (нова функція шляху пам'яті), `tools/lib/V8.psm1` (`New-V8FileInfobase`, див. нижче), `tools/tests/V8.Tests.ps1`, `skills/using-v8storagekit/SKILL.md` (рядок таблиці намірів `kit.ps1 provision [-Apply] [-Force]` і всі інші виконувані згадки `-Force`/`-ServerBase New`, `grep -rn "provision.*-Force\|ServerBase New" skills templates`), `skills/provision/SKILL.md` (весь скіл: без `-Force` і `-ServerBase New`; зламана база → людина видаляє дві теки, далі крок; серверну створює людина в кластері)
 - Test: `tools/tests/Provision.Tests.ps1` (видалити випадки `-Force`, П26, маркер-фази, `-ServerBase New`, `CrSQLDB`; перевести згадки старого шляху пам'яті), `tools/tests/Skills.Tests.ps1`. Там тест «три типи бази, `-ServerBase New|Existing`, `CrSQLDB`…» переписати на новий склад. Тест «кожна фраза зупинки, процитована в розділі «Штатні зупинки», існує дослівно в `tools/commands`/`tools/lib`» лишається як є: він і тримає скіл синхронним з кодом цієї задачі.
 
 **Interfaces:**
@@ -253,6 +255,8 @@
 - Прибираються `Invoke-KitProtectedPathsMarkerPhase` і два проходи. Перевірки «база агента ≠ база людини» (`Resolve-KitAgentBase`), межі `workPath` і перетину з деревами джерел лишаються, бо `New-V8FileInfobase` пише в теку бази (§3.4 п.5).
 - Дефект пілоту §5 п.3: код виходу. З'ясувати, чому `$LASTEXITCODE` порожній після `pwsh -Command`, і виправити так, щоб `provision` повертав 0/1 за контрактом `kit.ps1`.
 
+- **`New-V8FileInfobase` сам видаляє цільову теку** (`Remove-KitDirectory -Path $Path` перед `CREATEINFOBASE`, `V8.psm1`). Перевірка «теки немає» в плані `provision` і виклик створення розділені в часі. Тека, що з'явилась між ними (паралельна сесія, людина), була б стерта, і правило «kit не видаляє» порушилось би в самій функції створення. Тому `New-V8FileInfobase` отримує перемикач `-NoReplace`: наявний шлях — будь-який, зокрема порожня тека, — дає виняток, `Remove-KitDirectory` не викликається. `provision` кличе створення лише з `-NoReplace`. Інші споживачі (`New-ExtensionInfobase`, тимчасова ІБ `-DumpPlatform`) працюють у власній робочій теці kit `build/sync/<джерело>/` і лишають поточну поведінку.
+
 **Антипатерни.** Не лишати «м'якого» видалення порожньої теки бази: правило «kit не видаляє» без винятків.
 
 - [ ] **Step 1: Тести** (рівно ці):
@@ -261,6 +265,7 @@
   - Придатне дерево без `.dt`: після `infobase.create` надруковано `"op":"push"` без `"force":true`. З `.dt`: після `infobase.restore` — `push` з `"force":true`.
   - Рецепт (ii): дерево є, поставка `stale`, бази немає → `-Apply` створює базу (мок `New-V8FileInfobase` викликано) і не друкує `infobase.create`.
   - Код виходу підпроцесу `kit.ps1 provision` на зупинці — 1, на успіху — 0 (§5 п.3).
+  - `New-V8FileInfobase -NoReplace` на шляху, де вже є тека з файлом-маркером: виняток, маркер на місці, `Remove-KitDirectory` не викликано (мок з `Should -Invoke -Times 0`), платформа не запускалась. Цим тестом закривається вікно між перевіркою й створенням. Контроль: прибрати перевірку `-NoReplace` у копії дерева — тест червоніє.
 - [ ] **Step 2: Прогін — червоні.**
 - [ ] **Step 3: Реалізація, видалення машинерії П26.**
 - [ ] **Step 4: Повний прогін — зелений.**
@@ -283,12 +288,13 @@
 - Дефект пілоту §5 п.2: коли є помилки конфігу, підсумок має рахувати воркспейси й джерела маніфесту, а не 0.
 - Аудит бази агента (`Get-KitProtectedPaths` вид `othermemory`, `Find-KitAgentBaseCollisions` ціль `memory` в `AgentBase.psm1`) рахує пам'ять раннера як `<workPath>/infobases` — шлях 1.5.0. Для раннера 0.18 це `<тека v8project.yaml>/.local/infobases` (§4.2 п.15). Перевести обидва місця на `Get-KitRunnerMemoryPath` (Task 6) — без власних копій шляху (kit-dev case 5). Тест — наявний тест аудиту перетину з пам'яттю чужого воркспейсу, переведений на новий шлях: база агента, покладена в `.local/infobases` іншого воркспейсу, дає знахідку.
 - `-InstalledPluginsPath` лишається (П21) і доходить до пошуку раннера. Без раннера кожен підпроцесний `check` у тестах дав би `error`, тож `Invoke-KitCommand` для `check`/`session-check` виставляє `V8KIT_RUNNER` на фальшивий раннер (шов Task 1). Тест, що навмисно перевіряє відсутність раннера, знімає змінну сам — за тим самим зразком, що й наявна підстановка `-InstalledPluginsPath`. `New-KitFakeUnicaRegistry` отримує типову версію `0.16.0`.
-- `tools.platform.version` перевірки не потребує: у `V8Project.psm1`/`check.psm1` немає жодної перевірки ключа `tools`, тож тест на його терпимість не міг би почервоніти (вакуум). Вимога лишається для тих, хто додаватиме перевірки ключів `v8project.local.yaml`.
+- `tools.platform.version`: у `V8Project.psm1`/`check.psm1` зараз немає жодної перевірки ключа `tools`, тож тест на терпимість сьогодні не може бути червоним. Спека §8 його вимагає як закріплення контракту з Унікою: вона дописує цей ключ сама. Тест є, але це не TDD-цикл, а запобіжник від майбутньої суворої перевірки невідомих ключів. Так і позначити в його назві чи коментарі.
 
 - [ ] **Step 1: Тести** (рівно ці, §8):
   - Уніка `0.15.2` → `error`, `0.17.0` → `warn`. Раннера немає (`V8KIT_RUNNER` знято, у фальшивому реєстрі раннера немає) → `error` `runner-version`. Фальшивий раннер з версією `0.19.0` → `warn`.
   - Підсумок за помилки конфігу називає ненульову кількість воркспейсів маніфесту.
   - Аудит пам'яті раннера на новому шляху (див. вище).
+  - Закріплення контракту §8: `check` підпроцесом на воркспейсі, де `v8project.local.yaml` має `tools.platform.version` поруч з `infobases.origin`, не дає жодної знахідки з підрядком `tools.platform`, а база агента читається (знахідки `agent-base-required` немає). Червоним до зміни цей тест не буде — див. вище.
   - Наявний тест `providers.pull: agent` → `error` лишається; він уже зелений, і нового червоного тут не треба.
 - [ ] **Step 2: Прогін — нові тести червоні.**
 - [ ] **Step 3: Реалізація.**
@@ -385,7 +391,7 @@
 
 Ризик: **спільний код**.
 
-**Files:** `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/gitsync-migration.md` (якщо він називає шаблон `v8project.yaml`), `skills/unica-folders/SKILL.md` (новий), `tools/tests/Skills.Tests.ps1` (тест «шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout…» переписати: шаблону більше немає, лишається вимога, що скіл називає `unica.view {}` і `providers: designer`). Рядки про хук в `onboarding` уже прибрав Task 8.
+**Files:** `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/gitsync-migration.md` (якщо він називає шаблон `v8project.yaml`), `skills/unica-folders/SKILL.md` (новий), `tools/tests/Skills.Tests.ps1` (тест «шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout…» переписати: шаблону більше немає, лишається вимога, що скіл називає `unica.view {}` і `providers: designer`), `tools/tests/Templates.Tests.ps1` (блок «onboarding — шаблон v8project.yaml»: асерції на `format: DESIGNER`, `providers`, конкретне `name` у шаблоні скіла переписати на ту саму нову вимогу). Рядки про хук в `onboarding` уже прибрав Task 8, а згадки `canon` — Task 4.
 
 **Що має бути.**
 - `onboarding` (§3.8 п.1, §3.3 п.4, §3.12 9а):
