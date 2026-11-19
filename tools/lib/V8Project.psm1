@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 # не перезавантажувати вже наявний глобальний Yaml.
 Import-Module "$PSScriptRoot/Yaml.psm1"
 # Так само без -Force, і з тієї ж причини (коментар у StorageReport.psm1): ConvertFrom-V8Connection
-# потрібен Resolve-KitAgentInfobasePath (B4, issue #9) для розбору рядка підключення бази агента.
+# потрібен Resolve-KitAgentInfobasePath для розбору рядка підключення бази агента.
 Import-Module "$PSScriptRoot/V8.psm1"
 
 # Типи source-set, які kit уміє співставити з маніфестом. Інші (якби Unica їх додала)
@@ -208,8 +208,7 @@ function Get-V8ProjectConfigProblems {
         }
     }
     # БЕЗ коми-обгортки: викликачі загортають у @(...), і `, $arr` дав би масив з ОДНОГО
-    # елемента навіть без знахідок (аудит плану: @(f).Count = 1) — префлайт тоді пропускав би
-    # кожен воркспейс. Той самий урок, що в Select-KitSources.
+    # елемента навіть без знахідок — префлайт тоді пропускав би кожен воркспейс.
     $problems.ToArray()
 }
 

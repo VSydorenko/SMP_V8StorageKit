@@ -69,8 +69,7 @@ function Merge-KitBranchInto {
     $current = Get-KitCurrentBranch -RepoRoot $RepoRoot
     $here = ($current -eq $Into)
     if ($here) {
-        # -c core.quotepath=false і 2>$null — див. історію в коментарях попередньої редакції (B2):
-        # перелік має бути шляхами, не попередженнями git.
+        # -c core.quotepath=false і 2>$null: перелік має бути шляхами, не попередженнями git.
         $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>$null
         if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}." }
         if ($dirty) {
@@ -118,7 +117,7 @@ function Merge-KitBranchInto {
     }
     $tree = $fields[0].Trim()
 
-    # Групи регістру в дереві злиття (спека 2026-10-04 §4.2, крок 3, фінальне рев'ю H1): merge-tree віддає код 0 і
+    # Групи регістру в дереві злиття (§4.2, крок 3): merge-tree віддає код 0 і
     # дерево з ОБОМА шляхами, коли перше злиття (--allow-unrelated-histories) приносить об'єкт з іншим регістром,
     # ніж у <Into>; після read-tree --reset -u копія була б брудною. Блокують лише групи, яких не було в <Into>
     # (порівняння за НАБОРОМ шляхів): стара зіпсована гілка не мусить блокувати злиття назавжди — її ловить check.
@@ -161,7 +160,7 @@ function Merge-KitBranchInto {
         if ($da.ExitCode -ne 0) { throw "git diff-tree завершився з кодом $($da.ExitCode): $($da.Stderr)" }
         $added = @($da.Stdout -split "`0" | Where-Object { $_ })
         if ($added.Count -gt 0) {
-            # Перетин — OrdinalIgnoreCase (спека 2026-10-04 §4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
+            # Перетин — OrdinalIgnoreCase (§4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
             # x.bin — один файл, і read-tree перезапише його. Хибної зупинки на кириличному перейменуванні
             # регістром це не дає: старий файл відстежуваний, у переліку ігнорованих його немає.
             # Верхні теки для pathspec — фактичні імена в корені, зіставлені OrdinalIgnoreCase: магія icase у
