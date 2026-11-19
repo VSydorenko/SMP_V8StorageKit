@@ -61,6 +61,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $ctx | Should -BeLike '*session-check*- Alpha_SMB:*'
         $ctx | Should -BeLike '*Раннер Уніки недоступний*'
         $ctx | Should -Not -BeLike '*Сигнали не обчислювались*'
+        $ctx | Should -Not -BeLike '*НЕВІДОМИЙ*' -Because 'знахідка про стан машини не змінює код session-check: код 1 хук читає як «стан невідомий»'
         $ctx | Should -Not -BeLike '*<корінь плагіна>*'
         $ctx | Should -BeLike "*$script:KitRoot*"   # без -replace: у -BeLike екран — бектик, не бекслеш (P8)
         $ctx | Should -Not -BeLike "*$script:AncestorWarning*"

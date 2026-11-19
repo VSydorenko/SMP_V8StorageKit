@@ -91,7 +91,7 @@ function Read-V8ProjectLocalInfobase {
         infobases.origin з v8project.local.yaml → {Connection; User; Password; Dbms} або $null.
     .DESCRIPTION
         Єдина форма бази агента в kit 1.5.0 (спека 2026-10-11 §4.3 п. 2–3, рішення 9): та сама, з
-        якої базу бере Уніка 0.13. Старої infobase: kit не читає зовсім — вона знахідка
+        якої базу бере Уніка. Старої infobase: kit не читає зовсім — вона знахідка
         Get-V8ProjectConfigProblems, а не запасне читання. $null — бази не налаштовано на цій
         машині (свіжий клон): що це означає, вирішує викликач за типами наборів воркспейсу
         (Test-KitWorkspaceNeedsAgentBase, AgentBase.psm1). Пароль іде лише в Invoke-V8Designer
@@ -120,7 +120,7 @@ function Read-V8ProjectLocalInfobase {
 function Resolve-V8AgentInfobase {
     <#
     .SYNOPSIS
-        База агента так, як її бачить Unica 0.13: infobases.origin у v8project.local.yaml, і лише там.
+        База агента так, як її бачить Unica: infobases.origin у v8project.local.yaml, і лише там.
     .DESCRIPTION
         Повертає сирий рядок підключення, файл-джерело (Origin), user, password і dbms. Відносний
         File= (наприклад 'File=build/ib') тут НЕ розв'язується — це робить викликач від

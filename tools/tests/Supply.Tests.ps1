@@ -157,6 +157,13 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         $r | Should -Not -BeLike '*kit canon*'
         $r | Should -BeLike '*git status --porcelain --*порожнім*'
     }
+    It 'stop, stale: рецепт починається з видалення теки Ext/ParentConfigurations/ і не згадує .bin у цьому кроці' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose stop -OnMainBranch $true
+        $m = [regex]::Match($r, 'дерево чисте\) спершу видаліть теку <шлях набору base>/Ext/ParentConfigurations/ цілою(?<step>[^.]*?), далі повний pull')
+        $m.Success | Should -BeTrue -Because $r
+        $m.Groups['step'].Value | Should -Not -BeLike '*.bin*'
+        $r.IndexOf('видаліть теку') | Should -BeLessThan $r.IndexOf('"op":"pull"')
+    }
     It '<Purpose> не на головній гілці: «спершу поставка на головній гілці», без pull і supply-marker' -ForEach @(
         @{ Purpose = 'check' }
         @{ Purpose = 'stop' }

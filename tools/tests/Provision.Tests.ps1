@@ -611,6 +611,34 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
             Join-Path $dir 'precious.txt' | Should -Exist
         }
     }
+    It 'за шляхом бази ФАЙЛ — «не база агента» з точним формулюванням, без поради видаляти, файл цілий' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'file-at-base') -WithHooks
+        Add-Owner -Repo $repo
+        $ib = Join-Path $repo 'Alpha_SMB/build/ib'
+        New-Item -ItemType Directory -Path (Split-Path $ib) -Force | Out-Null
+        Set-Content -LiteralPath $ib -Value 'x'
+        $r = Invoke-Provision -Repo $repo
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*лежить не база агента*файл, а не тека бази*'
+        $r.Output | Should -Not -BeLike '*видаліть*'
+        $r.Output | Should -Not -BeLike '*непорожня*'
+        $ib | Should -Exist
+    }
+    It 'M2: база воркспейсу Beta через junction збігається з базою Alpha — відмова з назвою Alpha, без поради видаляти дві теки' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }) }
+            'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'm2-junction') -Workspaces $ws -WithHooks
+        Add-KitOwnerTree -Repo $repo -Workspaces $ws
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $repo 'Beta_SMB/build') -Target (Join-Path $repo 'Alpha_SMB/build') | Out-Null
+        $r = Invoke-Provision -Repo $repo -More @('-Workspace', 'Beta_SMB')
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike "*перетинається з базою агента чи пам'яттю раннера воркспейсу 'Alpha_SMB'*"
+        $r.Output | Should -Not -BeLike '*Видаліть самі*'
+        Join-Path $repo 'Alpha_SMB/build/ib' | Should -Exist
+    }
     It 'база не може лежати в .local воркспейсу (пам''ять раннера): workPath .local/infobases + File=.local/infobases/origin — відмова до створення' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'base-in-local') -WithHooks
         Add-Owner -Repo $repo
@@ -721,6 +749,18 @@ Describe 'kit provision — CreatedBy у результаті (хто створ
         Should -Invoke -ModuleName provision New-V8FileInfobase -Times 0
         Join-Path $mem 'generation.json' | Should -Exist
         Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
+    }
+    It 'тека за шляхом бази, вміст не прочитано (Get-ChildItem кидає) — «не база агента», без поради видаляти' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-unreadable') -WithHooks
+        Add-Owner2 -Repo $repo
+        New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/build/ib') -Force | Out-Null
+        Mock -ModuleName provision Get-ChildItem { Microsoft.PowerShell.Management\Get-ChildItem @PesterBoundParameters }
+        Mock -ModuleName provision Get-ChildItem { throw 'доступ заборонено' } -ParameterFilter { $LiteralPath -like '*build*ib' }
+        $err = $null
+        try { Invoke-KitProvision -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true 6>&1 | Out-Null } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*лежить не база агента*не зміг прочитати*'
+        $err | Should -Not -BeLike '*Видаліть самі*'
+        Should -Invoke -ModuleName provision Get-ChildItem -ParameterFilter { $LiteralPath -like '*build*ib' } -Times 1 -Exactly
     }
     It 'придатне дерево, файлова порожня: CreatedBy = unica, kit платформу не кличе й раннера не питає' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'cb-unica') -WithHooks

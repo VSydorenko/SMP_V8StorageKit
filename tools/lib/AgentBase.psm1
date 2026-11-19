@@ -160,7 +160,7 @@ function Get-KitProtectedPaths {
         ЄДИНИЙ перелік шляхів, яких provision не має права зачепити (П26 п. 7).
     .DESCRIPTION
         Перелік будує лише ця функція; з неї беруть і текстовий перетин першого проходу
-        (Find-KitProtectedCollisions), і маркер-фазу між проходами (Invoke-KitProvision). Новий вид
+        (Find-KitProtectedCollisions) і аудит check. Новий вид
         вхідного шляху додається СЮДИ, а не отримує власну перевірку. Елементи:
         - devbase — дев-бази накладки (Kit ніколи не пише в базу людини);
         - otherbase — бази агента ІНШИХ воркспейсів маніфесту;
@@ -173,12 +173,11 @@ function Get-KitProtectedPaths {
         без значень конфігу (П23). Path — абсолютний шлях файлової бази чи файла (null для серверної);
         Connection — підключення серверної бази (для порівняння сервера й Ref). Candidates — Path і всі
         його предки у ВЛАСНОМУ написанні (так псевдонім шляху видно файловій системі, але не канонізації
-        тексту): за ними маркер-фаза шукає маркер. Для файла (шаблону) маркер у самому файлі не з'явиться,
-        тож фактично його шукають за наявними предками. Кожен елемент перевіряється проти КОЖНОЇ
+        тексту). Кожен елемент перевіряється проти КОЖНОЇ
         цілі (див. Find-KitProtectedCollisions): вибіркових пар немає.
 
         Дев-база з відносним File= у перелік не потрапляє: Resolve-KitAgentBase ще до плану зупиняє її
-        fail-closed. Серверні бази не мають шляху, тож маркер-фаза їх пропускає.
+        fail-closed. Серверні бази шляху не мають: їх порівнюють за сервером і Ref.
     .PARAMETER Kinds
         Звузити перелік (check кличе лише з чужими воркспейсами; логіка побудови та сама).
     #>
@@ -260,13 +259,13 @@ function Get-KitProtectedPaths {
 function Find-KitProtectedCollisions {
     <#
     .SYNOPSIS
-        Текстовий перетин (з канонізацією) елементів переліку захищених шляхів з текою, яку прибере provision (П26 п. 1, 7).
+        Текстовий перетин (з канонізацією) елементів переліку захищених шляхів з текою бази агента й пам'яттю раннера (П26 п. 1, 7).
     .DESCRIPTION
         Перший рівень — дешевий, без побічних ефектів, діє в префлайті й аудиті. Для кожного елемента
         Get-KitProtectedPaths перевіряється проти КОЖНОЇ цілі з -Targets (base | memory — те, що охороняється: тека бази
         і .local/infobases/origin пам'яті раннера; об'єкти {Path; Connection}) — подвійний цикл «перелік × цілі», без вибору пар. Файли — Test-KitPathsOverlap (канонізація, перетин);
         серверні — Test-KitInfobasesOverlap (сервер і Ref). Нерозбірне — виняток без значень шляху
-        (fail-closed). Повертає {Element; Target}. Другий рівень (псевдоніми) — маркер-фаза provision.
+        (fail-closed). Повертає {Element; Target}.
     #>
     [CmdletBinding()]
     param(
@@ -281,7 +280,7 @@ function Find-KitProtectedCollisions {
             if ($el.Path) {
                 if ($t.Path) {
                     try { $overlap = Test-KitPathsOverlap -Left $el.Path -Right $t.Path }
-                    catch { throw "Kit не може звірити захищений шлях ($($el.Label)) з текою, яку прибирає provision: $($_.Exception.Message)" }
+                    catch { throw "Kit не може звірити захищений шлях ($($el.Label)) з текою бази агента чи пам'яті раннера: $($_.Exception.Message)" }
                 }
             } elseif ($t.Connection) {
                 $overlap = Test-KitInfobasesOverlap -Left $el.Connection -Right $t.Connection -LeftOrigin $el.Label -RightOrigin 'база агента цього воркспейсу (infobases.origin)'
