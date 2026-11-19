@@ -89,6 +89,42 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext | Should -BeLike '*НЕВІДОМИЙ*workspaces*'
     }
 
+    Context 'блок правил спілкування' {
+        BeforeAll {
+            function script:New-ProfileProject {
+                param([string]$Name, [string]$ProfileText)
+                $dir = Join-Path $TestDrive $Name
+                New-Item -ItemType Directory -Path (Join-Path $dir '.git') -Force | Out-Null
+                New-Item -ItemType Directory -Path (Join-Path $dir '.agents') -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $dir '.agents/kit.profile.json') -Value $ProfileText -Encoding UTF8
+                $dir
+            }
+        }
+
+        It 'лише профіль процесу: у контексті правила, «Стану сховищ» немає' {
+            $dir = New-ProfileProject -Name 'profile-only' -ProfileText '{ "kit": { "version": "0.1.0" } }'
+            $r = Invoke-Hook -ProjectDir $dir
+            $r.ExitCode | Should -Be 0
+            $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+            $ctx | Should -BeLike '*ASD-STE100*'
+            $ctx | Should -BeLike '*unica.search*'
+            $ctx | Should -Not -BeLike '*Стан сховищ*'
+        }
+
+        It 'лише профіль, але зламаний JSON — тиша й код 0' {
+            $dir = New-ProfileProject -Name 'profile-broken' -ProfileText '{ broken'
+            $r = Invoke-Hook -ProjectDir $dir
+            $r.ExitCode | Should -Be 0
+            $r.Output.Trim() | Should -BeNullOrEmpty
+        }
+
+        It 'межа розміру: правила без коментаря-шапки — не довші за 780 символів' {
+            $raw = Get-Content -LiteralPath (Join-Path $script:KitRoot 'hooks/communication-rules.md') -Raw -Encoding UTF8
+            $body = [regex]::Replace($raw, '\A\s*<!--.*?-->', '', 'Singleline').Trim()
+            $body.Length | Should -BeLessOrEqual 780
+        }
+    }
+
     Context 'стеля часу' {
         BeforeAll {
             # Окремий фейковий плагін: kit.ps1 підміняється в кожному It, скіл потрібен хуку для вступу.
