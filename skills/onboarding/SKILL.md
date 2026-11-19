@@ -205,7 +205,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" install-hooks -RepoR
 pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" check -RepoRoot .
 ```
 
-`install-hooks` кладе `.githooks/` + `core.hooksPath`, шим `hooks/session-start.ps1` → `.claude/hooks/session-start.ps1` і `.claude/settings.json` (якщо ще немає), і **стейджить хуки з режимом 100755** — інакше клон на
+`install-hooks` кладе `.githooks/` + `core.hooksPath`, `.claude/settings.json` (якщо ще немає; хука старту сесії в ньому немає — його поставляє сам плагін) і **стейджить хуки з режимом 100755** — інакше клон на
 Linux/macOS дістав би їх без біта виконання, і git мовчки їх ігнорував би. `check` має завершитись
 без `[-]`; `[!]` про недоступне сховище чи відсутню накладку — прийнятно, але назвати людині.
 Приймальна перевірка стейджу: `git ls-files -s .githooks/` → `100755` для обох файлів. Це лише індекс
@@ -226,7 +226,7 @@ Linux/macOS дістав би їх без біта виконання, і git м
 головну, і не переходити самому — робоча копія може бути не порожня.
 
 ```bash
-git add v8storagekit.yaml <ws>/v8project.yaml .gitattributes .gitignore .claude/settings.json .claude/hooks/session-start.ps1 AUTHORS CLAUDE.md
+git add v8storagekit.yaml <ws>/v8project.yaml .gitattributes .gitignore .claude/settings.json AUTHORS CLAUDE.md
 # <ws>/cf/README.md — ОКРЕМОЮ командою і лише якщо крок 3.4 його створив (у воркспейсі є
 # джерело truth: vendor). Одним списком його додавати не можна: git add з неіснуючим шляхом
 # падає атомарно — не стейджить НІЧОГО, включно з файлами, які існують. У воркспейсі

@@ -84,7 +84,6 @@ function New-KitFakeRepo {
         [switch]$WithGitattributes,
         [switch]$WithGitignore,
         [switch]$WithHooks,
-        [switch]$WithSessionHook,
         [switch]$NoSourceTrees,
         [switch]$NoCommit,
         [switch]$WithAgentBase,
@@ -264,10 +263,6 @@ function New-KitFakeRepo {
     if ($WithHooks) {
         Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
         Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null
-    }
-    if ($WithSessionHook) {
-        Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
-        Install-KitSessionHook -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates') | Out-Null
     }
 
     if (-not $NoCommit) {
@@ -525,20 +520,19 @@ function Copy-KitTools {
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
-    # templates/hooks, templates/settings.json, skills/using-v8storagekit: хук старту сесії
-    # (B4 Task 4) — Test-KitSessionHook у скопійованому Hooks.psm1 звіряє встановлений шим саме
-    # з templates/hooks/session-start.ps1 ЦІЄЇ копії (TemplatesDir типово відносний від
-    # $PSScriptRoot), а сам шим шукає skills/using-v8storagekit/SKILL.md у корені плагіна.
-    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'templates/hooks', 'skills/using-v8storagekit') {
+    # hooks, skills/using-v8storagekit: хук старту сесії живе в самому плагіні (1.6.0,
+    # hooks/session-start.ps1), бере корінь плагіна зі свого $PSScriptRoot і шукає
+    # skills/using-v8storagekit/SKILL.md у ньому — тож копія плагіна несе обидва.
+    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'hooks', 'skills/using-v8storagekit') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
     # templates/settings.json — раніше НЕ копіювали (рев'ю B4 Task 4, Minor): тоді
-    # Install-KitSessionHook у тестах завжди викликали напряму з явним -TemplatesDir на
+    # Install-KitSettings у тестах завжди викликали напряму з явним -TemplatesDir на
     # справжній $kitRoot, і копія була мертва. B5 Task 1 (kit install-hooks) це зламало:
-    # команда викликає Install-KitSessionHook БЕЗ -TemplatesDir (типове значення відносне
+    # команда викликає Install-KitSettings БЕЗ -TemplatesDir (типове значення відносне
     # від $PSScriptRoot Hooks.psm1), а InstallHooks.Tests.ps1 запускає install-hooks
     # ПІДПРОЦЕСОМ проти саме цієї копії kit.ps1 — типове значення тоді резолвиться в
     # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі

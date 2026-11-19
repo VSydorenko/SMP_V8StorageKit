@@ -612,19 +612,14 @@ function Invoke-KitCheck {
             & $add error hooks "Аудит хуків впав: $($_.Exception.Message)"
         }
 
-        # §7 — хук старту сесії (Claude Code), відповідальність окрема від git-хуків вище:
-        # .claude/settings.json + .claude/hooks/session-start.ps1 у самому репозиторії-споживачі,
-        # не в плагіні (hooks/hooks.json плагін навмисно не оголошує). Той самий захист, що вище
-        # для Test-KitGitHooks (рев'ю B4 Task 4, Important I3): попереднє обґрунтування «не
-        # викликає зовнішніх команд» було хибним — Get-Content усередині Test-KitSessionHook
-        # кидає на будь-якій IO-помилці (заблокований файл, гонка з claude plugin update, що
-        # перезаписує кеш плагіна під час прогону), а не лише на збої зовнішньої команди;
-        # перевірено відтворенням (заблокований шим). Без try/catch тут виняток зносив би усі
-        # findings, зібрані до цього рядка.
+        # 1.6.0 (§3.12 9а) — хук старту сесії тепер у плагіні; тут шукаємо СТАРИЙ проєктний хук
+        # (розділ hooks.SessionStart у .claude/settings.json і/або .claude/hooks/session-start.ps1),
+        # що дав би «Стан сховищ» двічі. Той самий захист, що вище для Test-KitGitHooks: Get-Content
+        # усередині кидає на будь-якій IO-помилці, і без try/catch виняток зносив би findings, зібрані до цього рядка.
         try {
-            foreach ($f in @(Test-KitSessionHook -RepoRoot $root)) { $findings.Add($f) }
+            foreach ($f in @(Test-KitLegacySessionHook -RepoRoot $root)) { $findings.Add($f) }
         } catch {
-            & $add error hook-shim "Аудит хука старту сесії впав: $($_.Exception.Message)"
+            & $add error hook-shim "Аудит старого проєктного хука старту сесії впав: $($_.Exception.Message)"
         }
     }
 

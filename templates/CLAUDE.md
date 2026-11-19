@@ -81,5 +81,5 @@
 
 `.claude/settings.json` дозволяє без запиту лише читання git і читальні інструменти Unica (перелік —
 `permissions.allow` у `.claude/settings.json`); `unica_run` і `unica_apply` — з запитом
-(`permissions.ask`). Хук `SessionStart` запускає `.claude/hooks/session-start.ps1`. Команди kit — з підтвердженням
+(`permissions.ask`). Хук `SessionStart` поставляє сам плагін. Команди kit — з підтвердженням
 (правила дозволів працюють за префіксом, і дозвіл на прев'ю дозволив би `-Apply`).

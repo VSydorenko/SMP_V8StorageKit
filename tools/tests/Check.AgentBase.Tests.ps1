@@ -162,9 +162,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # асерції тут ловлять характерну фразу з кожної гілки, а не тег: 'v8storagekit:onboarding'
     # (з префіксом плагіна) зустрічається лише в гілці «структура відстає», 'claude plugin
     # update' — лише в гілці «плагін старіший». Голе слово 'onboarding' без префікса тут НЕ
-    # годиться — воно вже є в іншій, незалежній знахідці кожного New-GoodRepo (info hook-shim,
-    # Hooks.psm1: «…onboarding кладе його з templates/hooks/…») і зробило б асерцію хибно
-    # позитивною (спіймано живим прогоном фікс-раунду 1).
+    # годиться — воно вже є в інших, незалежних знахідках New-GoodRepo (перевірити: kit check на ньому)
+    # і зробило б асерцію хибно позитивною (спіймано живим прогоном фікс-раунду 1).
     It 'структура відстає від плагіна — warn kit-version із порадою onboarding' {
         $repo = New-GoodRepo -Name 'kv-behind'
         (Get-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Raw) `

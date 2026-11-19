@@ -158,93 +158,66 @@ function Test-KitGitHooks {
 $script:SessionHookRel = '.claude/hooks/session-start.ps1'
 $script:SettingsRel    = '.claude/settings.json'
 
-function Install-KitSessionHook {
+function Install-KitSettings {
     <#
     .SYNOPSIS
-        Кладе шим і, якщо settings.json немає, — шаблон settings.json (з хуком). Наявний settings.json не чіпає.
+        Кладе шаблон .claude/settings.json (дозволи), якщо файла ще немає. Наявний не чіпає.
     .DESCRIPTION
-        На відміну від Install-KitGitHooks (git-хуки, core.hooksPath), це хук Claude Code
-        (спека §7): живе в .claude/settings.json репозиторію-споживача, а не в плагіні —
-        hooks/hooks.json плагін навмисно не оголошує (інакше шим спрацьовував би в кожній
-        сесії, де встановлено плагін, — і в не-1С проєктах теж).
+        Хука старту сесії тут немає: з 1.6.0 його поставляє сам плагін (hooks/hooks.json),
+        а споживач не несе ні шима, ні розділу hooks у settings.json.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
-    $shimDst = Join-Path $RepoRoot $script:SessionHookRel
-    New-Item -ItemType Directory -Path (Split-Path -Parent $shimDst) -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'hooks/session-start.ps1') -Destination $shimDst -Force
-    $installed = @($shimDst)
     $settingsDst = Join-Path $RepoRoot $script:SettingsRel
-    if (-not (Test-Path -LiteralPath $settingsDst -PathType Leaf)) {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
-        $installed += $settingsDst
-    }
+    if (Test-Path -LiteralPath $settingsDst -PathType Leaf) { return @() }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
     # Без коми: викликачі (install-hooks) загортають у @(…) — див. F7.
-    $installed
+    $settingsDst
 }
 
-function Test-KitSessionHook {
+function Test-KitLegacySessionHook {
     <#
     .SYNOPSIS
-        Аудит для check (спека §7): шим на місці й = шаблон плагіна; settings.json оголошує hooks.SessionStart.
+        Аудит для check: старий проєктний хук старту сесії (до 1.6.0) — розділ hooks.SessionStart
+        з командою на session-start.ps1 у .claude/settings.json і/або файл-шим
+        .claude/hooks/session-start.ps1 — знаходить і радить прибрати.
     .DESCRIPTION
-        Порядок навмисний (рев'ю B4 Task 4, Critical C2): спершу читаємо settings.json і
-        обчислюємо $hasHook, ПОТІМ перевіряємо сам шим — відсутність шима коштує по-різному
-        залежно від того, чи хук уже оголошено. Якщо оголошено (hooks.SessionStart кличе
-        .claude/hooks/session-start.ps1), а файла немає — це не «онбординг ще не дійшов сюди»
-        (info), а зламаний репозиторій: pwsh -NoProfile -File на неіснуючий шлях завершується
-        кодом 64 з банером usage на КОЖНОМУ старті сесії (перевірено запуском) — error. Якщо
-        хук не оголошений — шима теж немає сенсу мати, і відсутність лишається info, як і було.
+        Хук тепер у плагіні (hooks/hooks.json). Старий проєктний хук лишався б другим
+        екземпляром: «Стан сховищ» двічі (ішуя #42). Одна знахідка warn називає все знайдене —
+        і settings.json, і файл-шим, — з рецептом прибрати обидва. Нічого не знайдено — тиша.
 
-        Битий settings.json (I4) — warn, не error: це помилка конфігурації Claude Code, а не
-        суперечність репозиторію в сенсі §5, і error тут зупиняв би session-check ПО СХОВИЩАХ
-        (код 1, «Сигнали не обчислювались») через випадкову зайву кому в чужому файлі. Друга
-        знахідка «немає hooks.SessionStart» на той самий факт (парсинг не вдався) навмисно не
-        додається — інакше один битий файл давав би дві знахідки про одну причину.
+        Битий settings.json — окрема warn: перевірити, чи є в ньому старий хук, неможливо, і
+        мовчання читалося б як «старого хука немає». error тут зупиняв би session-check по
+        сховищах через випадкову кому в чужому файлі, тому рівень warn.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
+    param([Parameter(Mandatory)][string]$RepoRoot)
     $findings = [System.Collections.Generic.List[object]]::new()
 
+    $found = [System.Collections.Generic.List[string]]::new()
     $settings = Join-Path $RepoRoot $script:SettingsRel
-    $hasHook = $false
     if (Test-Path -LiteralPath $settings -PathType Leaf) {
-        $parseFailed = $false
         try {
             $json = Get-Content -LiteralPath $settings -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($json.PSObject.Properties.Name -contains 'hooks' -and $json.hooks.PSObject.Properties.Name -contains 'SessionStart') {
-                $hasHook = [bool](@($json.hooks.SessionStart | ForEach-Object { $_.hooks } | Where-Object { $_.command -like '*session-start.ps1*' }).Count)
+                $legacy = @($json.hooks.SessionStart | ForEach-Object { $_.hooks } | Where-Object { $_.command -like '*session-start.ps1*' })
+                if ($legacy.Count) { $found.Add("$script:SettingsRel (hooks.SessionStart з командою на session-start.ps1)") }
             }
         } catch {
-            $parseFailed = $true
-            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message) — виправте файл, щоб дозволи й хук старту сесії знову діяли."))
-        }
-        if (-not $hasHook -and -not $parseFailed) {
-            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "У $script:SettingsRel немає hooks.SessionStart з командою .claude/hooks/session-start.ps1 — шим не запускатиметься (зразок: templates/settings.json)."))
+            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message) — виправте файл; доки він битий, kit не може перевірити, чи немає в ньому старого хука старту сесії."))
         }
     }
+    if (Test-Path -LiteralPath (Join-Path $RepoRoot $script:SessionHookRel) -PathType Leaf) { $found.Add($script:SessionHookRel) }
 
-    $shim = Join-Path $RepoRoot $script:SessionHookRel
-    $template = Join-Path $TemplatesDir 'hooks/session-start.ps1'
-    if (-not (Test-Path -LiteralPath $shim -PathType Leaf)) {
-        if ($hasHook) {
-            $findings.Add((New-KitFinding -Level error -Check 'hook-shim' -Message (
-                "$script:SettingsRel оголошує hooks.SessionStart на $script:SessionHookRel, а файла немає — " +
-                'кожен старт сесії в цьому репозиторії падає на pwsh -File неіснуючого шляху (код 64). ' +
-                "Покладіть шим із templates/hooks/session-start.ps1 плагіна в $script:SessionHookRel. " +
-                'Або одним кроком: kit install-hooks -RepoRoot . -Apply.')))
-        } else {
-            $findings.Add((New-KitFinding -Level info -Check 'hook-shim' -Message ("Хук старту сесії не встановлено ($script:SessionHookRel) — сесія не отримає стан сховищ; onboarding кладе його з templates/hooks/, або одним кроком: kit install-hooks -RepoRoot . -Apply.")))
-        }
-    } elseif (Test-Path -LiteralPath $template -PathType Leaf) {
-        $a = (Get-Content -LiteralPath $shim -Raw) -replace "`r`n", "`n"
-        $b = (Get-Content -LiteralPath $template -Raw) -replace "`r`n", "`n"
-        if ($a -ne $b) { $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "Шим $script:SessionHookRel відрізняється від шаблону плагіна (templates/hooks/session-start.ps1) — оновіть копію.")) }
+    if ($found.Count) {
+        $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message (
+            "Старий проєктний хук старту сесії: $($found -join '; '). Тепер цей хук поставляє сам плагін — «Стан сховищ» з'явиться двічі. " +
+            "Прибрати обидва: розділ hooks.SessionStart з командою на session-start.ps1 у $script:SettingsRel і файл $script:SessionHookRel (git rm).")))
     }
 
     # Без коми: check і тести загортають у @(…) — див. F7.
     $findings.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSessionHook, Test-KitSessionHook
+Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSettings, Test-KitLegacySessionHook

@@ -85,41 +85,25 @@ Describe 'onboarding — шаблон v8project.yaml (Task 6: колишній p
         $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<ІмʼяРозширення>\s*$"
         $script:Skill | Should -Match 'name:.*мусить дорівнювати імені розширення'
     }
-
-    It 'C2 (рев''ю B4 Task 4): каркас несе хук старту сесії — таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
-        # До фіксу settings.json оголошував hooks.SessionStart, а сам файл шима цей скіл не
-        # клав — щойно підключений репозиторій падав на pwsh -File неіснуючого шляху (код 64)
-        # на КОЖНОМУ старті сесії.
-        $script:Skill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
-        $script:Skill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
-    }
 }
 
-Describe 'onboarding — каркас несе хук старту сесії (C2, рев''ю B4 Task 4; Task 6: колишній repo-migration)' {
-    # Task 6 (B5): repo-migration вилучено, знання перенесено в docs/migration/legacy-gitsync-repo.md,
-    # а цей Describe перенацілено на onboarding — це той самий каркас (§2 «Новий репозиторій», §3.5),
-    # тож регресійний захист знахідки C2 (рев'ю B4 Task 4) лишається чинним, а не втрачається разом
-    # із перейменуванням скіла.
+Describe 'onboarding — каркас не кладе хука старту сесії у споживача (1.6.0: хук у плагіні)' {
     BeforeAll {
         $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
             Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
-    It 'таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
-        $script:MigrationSkill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
-        $script:MigrationSkill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
+    It 'жоден git add і жоден рядок каркаса не згадує .claude/hooks/session-start.ps1, settings.json лишається' {
+        $script:MigrationSkill | Should -Not -Match 'hooks/session-start\.ps1'
+        $script:MigrationSkill | Should -Match 'git add .*\.claude/settings\.json'
     }
 }
-
-Describe 'templates/settings.json і using-v8storagekit — хук прив''язаний до репозиторію, не до плагіна (§7)' {
+Describe 'templates/settings.json, хук плагіна і using-v8storagekit' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
-    It 'settings.json споживача має hooks.SessionStart на .claude/hooks/session-start.ps1 з matcher startup|clear|compact' {
+    It 'settings.json споживача не має розділу hooks: хук старту сесії поставляє плагін' {
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
-        $hook = $s.hooks.SessionStart[0]
-        $hook.matcher | Should -Be 'startup|clear|compact'
-        $hook.hooks[0].command | Should -BeLike '*pwsh -NoProfile -File .claude/hooks/session-start.ps1*'
-        $hook.hooks[0].async | Should -BeFalse
+        $s.PSObject.Properties.Name | Should -Not -Contain 'hooks'
     }
     It 'дозволи Уніки 0.13: рівно читальні інструменти в allow; run/apply/task_cancel — явно в ask (спека §4.4 п. 3)' {
         # task_get/task_result/task_cancel існують лише в профілі Compatibility (клієнт без нативних
@@ -148,14 +132,13 @@ Describe 'templates/settings.json і using-v8storagekit — хук прив''я�
             @($s.permissions.ask) -ccontains $full | Should -BeTrue -Because 'відсутність в allow не гарантує запиту в режимах auto/acceptEdits/bypass'
         }
     }
-    It 'плагін не оголошує власних хуків' {
-        Join-Path $script:Root 'hooks/hooks.json' | Should -Not -Exist
-    }
-    It 'шим не містить CLAUDE_PLUGIN_ROOT і не імпортує модулів kit' {
-        $shim = Get-Content -LiteralPath (Join-Path $script:Root 'templates/hooks/session-start.ps1') -Raw
-        $shim | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
-        $shim | Should -Not -Match 'Import-Module'
-        $shim | Should -Match 'installed_plugins\.json'
+    It 'хук плагіна не читає реєстру плагінів і не імпортує модулів kit' {
+        # Корінь плагіна хук бере зі свого $PSScriptRoot; реєстр (installed_plugins.json) читав лише шим 1.5.0.
+        $hook = Get-Content -LiteralPath (Join-Path $script:Root 'hooks/session-start.ps1') -Raw
+        $hook | Should -Not -Match 'Import-Module'
+        $hook | Should -Not -Match 'installed_plugins\.json'
+        $hook | Should -Match 'PSScriptRoot'
+        Join-Path $script:Root 'templates/hooks/session-start.ps1' | Should -Not -Exist
     }
     It 'using-v8storagekit без токена CLAUDE_PLUGIN_ROOT, з префіксованими іменами скілів' {
         $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/using-v8storagekit/SKILL.md') -Raw
