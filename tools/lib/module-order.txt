@@ -58,3 +58,4 @@ Markdown
 PathRefs
 KitDoc
 GhRun
+KitTrack
