@@ -54,3 +54,6 @@ Runner
 KitCli
 KitProfile
 KitWait
+Markdown
+PathRefs
+KitDoc
