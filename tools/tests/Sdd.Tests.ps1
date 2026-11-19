@@ -92,7 +92,13 @@ Second.
         # Кирилиця в старому звіті: зсув у символах був би меншим за зсув у байтах і пустив би хвіст старого рядка.
         New-Item -ItemType Directory -Path $repo.Ws -Force | Out-Null
         Add-Report $repo '1' "# Звіт задачі`nStatus: СТАРИЙ`n"
+        $reportPath = Join-Path $repo.Ws 'task-1-report.md'
+        $bytes = [System.IO.File]::ReadAllBytes($reportPath).Length
+        $chars = [System.IO.File]::ReadAllText($reportPath).Length
+        $bytes | Should -BeGreaterThan $chars -Because 'без кирилиці байти й символи не розрізнити'
         Invoke-Sdd $repo.Dir @('dispatch', '1') | Out-Null
+        # Довжина звіту на відкритті вікна — у БАЙТАХ: це зсув, від якого watch шукає свіжий Status.
+        (Read-Ledger $repo) | Should -Match "(?m)^Window \(task 1\): open [0-9a-f]{40} at \S+; report $bytes — dispatch$"
         $stale = Invoke-Sdd $repo.Dir @('watch', '1', '-Timeout', '0.5', '-Interval', '0.1')
         $stale.ExitCode | Should -Be 3
         $stale.Err[0] | Should -BeLike 'sdd: ERROR watch:*'
@@ -104,13 +110,16 @@ Second.
         $ok.Out[0] | Should -BeLike 'Status: СВІЖИЙ  (*'
     }
 
-    It 'коміт іншої задачі між вікнами не входить у пакет review і в діапазон done' {
+    It 'коміт іншої задачі між вікнами не входить у пакет review і в діапазон done; коміт контролера після watch — входить' {
         $repo = New-SddRepo 'repo-windows'
         Invoke-Sdd $repo.Dir @('init', 'docs/plans/sub.md') | Out-Null
         Invoke-Sdd $repo.Dir @('dispatch', '1') | Out-Null
         $a = Add-Commit $repo.Dir 'a.txt'
         Add-Report $repo '1' "Status: DONE`n"
         (Invoke-Sdd $repo.Dir @('watch', '1', '-Timeout', '5', '-Interval', '0.1')).ExitCode | Should -Be 0
+        (Read-Ledger $repo) | Should -Not -Match 'Window \(task 1\): close' -Because 'watch вікна не закриває'
+        # Контролер комітить задачу між watch і review: цей коміт належить вікну задачі.
+        $k = Add-Commit $repo.Dir 'k.txt'
         # Задача 1c між вікнами задачі 1, потім коміт контролера.
         Invoke-Sdd $repo.Dir @('dispatch', '1c') | Out-Null
         $b = Add-Commit $repo.Dir 'b.txt'
@@ -119,15 +128,16 @@ Second.
 
         $review = Invoke-Sdd $repo.Dir @('review', '1')
         $review.ExitCode | Should -Be 0
-        (Read-Ledger $repo) | Should -Match "(?m)^Task 1: review \(commits $($repo.Head)\.\.$a\)$"
+        (Read-Ledger $repo) | Should -Match "(?m)^Task 1: review \(commits $($repo.Head)\.\.$k\)$"
         $pack = [System.IO.File]::ReadAllText((Join-Path $repo.Ws 'task-1-review.md'))
         $pack | Should -Match 'a\.txt'
+        $pack | Should -Match 'k\.txt'
         $pack | Should -Not -Match 'b\.txt|c\.txt'
 
         (Invoke-Sdd $repo.Dir @('done', '1')).ExitCode | Should -Be 0
         $ledger = Read-Ledger $repo
-        $ledger | Should -Match "(?m)^Task 1: complete \(commits $($repo.Head)\.\.$a; review clean\)$"
-        $ledger | Should -Match "(?m)^Task 1c: complete \(commits $a\.\.$b; review controller\)$"
+        $ledger | Should -Match "(?m)^Task 1: complete \(commits $($repo.Head)\.\.$k; review clean\)$"
+        $ledger | Should -Match "(?m)^Task 1c: complete \(commits $k\.\.$b; review controller\)$"
     }
 
     It 'журнал іншого плану в робочій теці — відмова, файл не перезаписано (init, status, dispatch)' {

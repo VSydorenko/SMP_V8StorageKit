@@ -8,7 +8,9 @@
 
     Усі регулярні вирази тут ЧУТЛИВІ до регістру (`review` ≠ `Review`, `BASE` ≠ `base`): це
     .NET-регекси без IgnoreCase, а не `-match`, який у PowerShell нечутливий. Класи `\d`/`\w`
-    замінено на ASCII-діапазони, бо в .NET вони захоплюють юнікод, а граматика журналу ASCII.
+    замінено на ASCII-діапазони, а межі слова `\b` — на ASCII-lookaround (`(?<![A-Za-z0-9_])`,
+    `(?![A-Za-z0-9_])`): у .NET `\w` і `\b` юнікодні, у JS ASCII, тож без цього «### Задача 2а» (кирилична
+    літера після номера) в оригіналі дає задачу 2, а в переносі задача зникла б.
 #>
 Set-StrictMode -Version Latest
 
@@ -19,7 +21,9 @@ $script:BindFile = 'checkout'
 $script:TaskIdPattern = '[0-9]+(?:\.[0-9]+)*[a-z]?'
 $script:IdExact = [regex]::new('^' + $script:TaskIdPattern + '\z')
 # «## Задача 3», «### Task 1c: …», «### Tasks 7–13: …» (діапазон — одна секція на кілька задач).
-$script:DefaultTaskHeading = '^(#{2,4})\s+(?:Задачі|Задача|Tasks|Task)\s+(' + $script:TaskIdPattern + ')(?:\s*[–—-]\s*([0-9]+))?\b'
+# \b у .NET юнікодний, у JS — ASCII: «Задача 2а» мусить давати задачу 2, тож межа слова — явна ASCII-версія.
+$script:WordBoundary = '(?:(?<=[A-Za-z0-9_])(?![A-Za-z0-9_])|(?<![A-Za-z0-9_])(?=[A-Za-z0-9_]))'
+$script:DefaultTaskHeading = '^(#{2,4})\s+(?:Задачі|Задача|Tasks|Task)\s+(' + $script:TaskIdPattern + ')(?:\s*[–—-]\s*([0-9]+))?' + $script:WordBoundary
 $script:DefaultBriefSections = @('Global Constraints', 'Глобальні обмеження', 'Рішення', 'Decisions', 'Інтерфейси', 'Interfaces')
 $script:States = @('dispatched', 'code', 'review', 'fix', 'complete', 'parked', 'blocked', 'needs-context', 'fork', 'skipped')
 $script:Terminal = @('complete', 'skipped')
@@ -28,13 +32,13 @@ $script:OpenStates = @('blocked', 'needs-context', 'fork', 'parked')
 $script:InWork = @('dispatched', 'review', 'fix')
 
 $script:Sha = '[0-9a-f]{7,40}'
-$script:CommitsRe = [regex]::new('\bcommits (' + $script:Sha + '\.\.' + $script:Sha + '(?:,' + $script:Sha + '\.\.' + $script:Sha + ')*)')
-$script:CodeRe = [regex]::new('\b(' + $script:Sha + '\.\.' + $script:Sha + ')')
+$script:CommitsRe = [regex]::new('(?<![A-Za-z0-9_])commits (' + $script:Sha + '\.\.' + $script:Sha + '(?:,' + $script:Sha + '\.\.' + $script:Sha + ')*)')
+$script:CodeRe = [regex]::new('(?<![A-Za-z0-9_])(' + $script:Sha + '\.\.' + $script:Sha + ')')
 $script:WindowRow = [regex]::new('^Window \(task (' + $script:TaskIdPattern + ')\): (open|close) (' + $script:Sha + ') at (\S+?)(?:; report ([0-9]+))?(?: — .*)?$')
 $script:RulingRow = [regex]::new('^Ruling \(task (' + $script:TaskIdPattern + ')\): (.*)$')
-$script:SplitRow = [regex]::new('(?=\bTask ' + $script:TaskIdPattern + ': )')
-$script:StateRow = [regex]::new('^Task (' + $script:TaskIdPattern + '): ([a-z][a-z-]*)(?: (?:round )?([0-9]+)(?:\/[0-9]+)?)?\b(.*)$')
-$script:BaseRe = [regex]::new('(?<![A-Za-z0-9_])(?:base|BASE) (' + $script:Sha + ')\b')
+$script:SplitRow = [regex]::new('(?=(?<![A-Za-z0-9_])Task ' + $script:TaskIdPattern + ': )')
+$script:StateRow = [regex]::new('^Task (' + $script:TaskIdPattern + '): ([a-z][a-z-]*)(?: (?:round )?([0-9]+)(?:\/[0-9]+)?)?' + $script:WordBoundary + '(.*)$')
+$script:BaseRe = [regex]::new('(?<![A-Za-z0-9_])(?:base|BASE) (' + $script:Sha + ')(?![A-Za-z0-9_])')
 
 # ---------- константи для команди ----------
 
@@ -352,7 +356,8 @@ function Format-KitSddWindow {
         Рядок вікна виконання: `Window (task N): open <sha> at <iso>; report <n> — <by>`.
     .DESCRIPTION
         Вікно — проміжок, коли над задачею працює implementer: від dispatch/fix/resume до
-        watch/done. Коміти задачі — об'єднання її вікон; мердж бази контролером чи інша задача між
+        review/done (watch вікна не закриває: між watch і review контролер комітить задачу, і цей
+        коміт належить вікну). Коміти задачі — об'єднання її вікон; мердж бази контролером чи інша задача між
         вікнами їй не належать. Окремий рядок, як Ruling: стан задачі не змінює, старі розбори
         його пропускають. `report` — довжина звіту в БАЙТАХ на відкритті: watch шукає Status лише
         після неї.
@@ -446,7 +451,7 @@ function ConvertFrom-KitSddLedger {
             $state = $m.Groups[2].Value
             $rest = $m.Groups[4].Value
             if ($state -ceq 'fix' -and $m.Groups[3].Success) { $r.Rounds = [Math]::Max($r.Rounds, [int]$m.Groups[3].Value) }
-            $roundM = [regex]::Match($rest, '\bround ([0-9]+)')
+            $roundM = [regex]::Match($rest, '(?<![A-Za-z0-9_])round ([0-9]+)')
             if ($roundM.Success) { $r.Rounds = [Math]::Max($r.Rounds, [int]$roundM.Groups[1].Value) }
             $c = $script:CommitsRe.Match($rest)
             if ($c.Success) { $r.Commits = $c.Groups[1].Value }
@@ -465,19 +470,19 @@ function ConvertFrom-KitSddLedger {
             # Модель, рецензію й вагу беремо лише з метаданих до « — »: у нотатках
             # «model test epochs…» чи «review major» — це текст, а не поле.
             $meta = ($rest -split ' — ', 2)[0]
-            $mo = [regex]::Match($meta, '\bmodel ([A-Za-z0-9_.-]+)|\((sonnet|opus|haiku|fable)\)')
+            $mo = [regex]::Match($meta, '(?<![A-Za-z0-9_])model ([A-Za-z0-9_.-]+)|\((sonnet|opus|haiku|fable)\)')
             if ($mo.Success) { $r.Model = if ($mo.Groups[1].Success) { $mo.Groups[1].Value } else { $mo.Groups[2].Value } }
             # «review clean», а в SDD ще «review by controller clean».
-            $rv = [regex]::Match($meta, '\breview (?:by )?([A-Za-z0-9_-]+)')
+            $rv = [regex]::Match($meta, '(?<![A-Za-z0-9_])review (?:by )?([A-Za-z0-9_-]+)')
             if ($rv.Success) { $r.Review = $rv.Groups[1].Value }
-            $w = [regex]::Match($meta, '\bweight (trivial|standard|risky)')
+            $w = [regex]::Match($meta, '(?<![A-Za-z0-9_])weight (trivial|standard|risky)')
             if ($w.Success) { $r.Weight = $w.Groups[1].Value }
             $r.State = $state
             $note = [regex]::Match($rest, ' — (.*)$')
             if ($state -ceq 'fix') {
-                $ty = [regex]::Match($meta, '\btype (patch|redesign)\b')
-                $so = [regex]::Match($meta, '\bsource ([A-Za-z0-9_]+)')
-                $ap = [regex]::Match($meta, '\bapproved ([^;)]+)')
+                $ty = [regex]::Match($meta, '(?<![A-Za-z0-9_])type (patch|redesign)(?![A-Za-z0-9_])')
+                $so = [regex]::Match($meta, '(?<![A-Za-z0-9_])source ([A-Za-z0-9_]+)')
+                $ap = [regex]::Match($meta, '(?<![A-Za-z0-9_])approved ([^;)]+)')
                 $r.Fixes.Add([pscustomobject]@{
                         Round = $r.Rounds; Type = $(if ($ty.Success) { $ty.Groups[1].Value } else { 'patch' })
                         Source = $(if ($so.Success) { $so.Groups[1].Value } else { 'review' })
@@ -487,7 +492,7 @@ function ConvertFrom-KitSddLedger {
             }
             if ($note.Success) {
                 $r.Notes.Add($note.Groups[1].Value)
-                $legacy = [regex]::Match($note.Groups[1].Value, '\bRuling: (.*)$')
+                $legacy = [regex]::Match($note.Groups[1].Value, '(?<![A-Za-z0-9_])Ruling: (.*)$')
                 if ($legacy.Success) { $rulings.Add([pscustomobject]@{ N = $n; Text = $legacy.Groups[1].Value.Trim() }) }
             }
             $rows[$n] = $r

@@ -23,10 +23,11 @@ sdd <підкоманда> [<plan.md>] <задача> …
                      відкриває вікно
   sdd watch <N> [-Round k] [-Timeout с=7200] [-Interval с=5]
                      чекає "Status: …" ("Status round k: …"), дописаний у звіт задачі ПІСЛЯ
-                     відкриття поточного вікна; OK → закриває вікно, друкує статус і git log
-                     вікна; TIMEOUT → стан гілки й звіту
+                     відкриття поточного вікна; OK → друкує статус і git log вікна (вікно НЕ
+                     закриває: контролер комітить задачу між watch і review); TIMEOUT → стан
+                     гілки й звіту
   sdd review <N>     пакет рецензії за вікнами задачі (раунд виправлень — вікна після останньої
-                     рецензії) → шлях пакета; рядок "review"
+                     рецензії) → шлях пакета; рядок "review"; перед цим закриває вікно (HEAD)
   sdd fix <N> [-Note "…"] [-Type patch|redesign] [-ApprovedBy <хто>]
              [-Source controller -Note "<знахідка>"]
                      наступний раунд виправлень, відкриває вікно; ліміт 2, ще один раунд —
@@ -35,11 +36,12 @@ sdd <підкоманда> [<plan.md>] <задача> …
   sdd done <N> [-Review clean|controller] [-Note "…"]
                      закриває вікно; рядок "complete" з комітами задачі
 
-  sdd ruling <N> "<що — чому — ціна помилки — вплив на спеку>"
+  sdd ruling <N> "<що> — <чому> — <ціна помилки> — вплив на спеку: <немає|…>"
                      рішення класу A; sdd close їх перелічує
 
 Вікна виконання: dispatch, fix і resume записують HEAD, час і довжину звіту в байтах
-("Window (task N): open …"); watch і done записують HEAD ("… close …"). Коміти задачі —
+("Window (task N): open …"); review і done записують HEAD ("… close …"; якщо після вікна вже відкрито
+інше вікно будь-якої задачі, воно закінчується там і явно не закривається). Коміти задачі —
 об'єднання її вікон; коміти між ними (мердж бази, інша задача) задачі не належать. Журнали без
 вікон рахують BASE..HEAD, як раніше.
 
@@ -82,7 +84,11 @@ $script:WatchSeen = $null
 # самий журнал, а Rulings — друкуватись знову.
 $script:AfterClose = @('close', 'ruling', 'status')
 # Скільки позиційних аргументів після (необов'язкового) плану.
-$script:Arity = @{ brief = 1; log = 2; status = 0; handoff = 0; close = 0; dispatch = 1; resume = 1; watch = 1; review = 1; fix = 1; done = 1; ruling = 2 }
+$script:Arity = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+# Ordinal: назва підкоманди чутлива до регістру (`sdd Status` — невідома команда), як в оригіналі.
+foreach ($pair in @(@('brief', 1), @('log', 2), @('status', 0), @('handoff', 0), @('close', 0), @('dispatch', 1), @('resume', 1), @('watch', 1), @('review', 1), @('fix', 1), @('done', 1), @('ruling', 2))) {
+    $script:Arity[$pair[0]] = $pair[1]
+}
 
 # ---------- дрібне ----------
 
@@ -123,7 +129,7 @@ function Write-SddLegacyNote {
 function Read-SddSeconds {
     param([string]$Value, [string]$Name)
     $s = 0.0
-    if (-not [double]::TryParse($Value, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$s) -or $s -lt 0) {
+    if (-not [double]::TryParse($Value, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$s) -or -not [double]::IsFinite($s) -or $s -lt 0) {
         throw (New-KitUsageError "-${Name}: кількість секунд")
     }
     $s
@@ -391,12 +397,18 @@ function Open-SddWindow {
 }
 
 function Close-SddWindow {
-    <# Закриває останнє вікно задачі, якщо воно відкрите; повертає HEAD. #>
+    <#
+        Закриває останнє вікно задачі, якщо воно відкрите; повертає HEAD. Вікно, після якого вже
+        відкрито вікно будь-якої задачі, явно не закриваємо: воно й так закінчується там, а закриття
+        на нинішньому HEAD захопило б чужі коміти.
+    #>
     param($C, $L, [string]$N, [string]$By, [switch]$Quiet)
     $head = Get-SddHead $C.Checkout
-    $r = (Read-SddLedgerFile $L).Rows[$N]
+    $p = Read-SddLedgerFile $L
+    $r = $p.Rows[$N]
     $w = if ($r -and @($r.Windows).Count) { @($r.Windows)[-1] } else { $null }
-    if ($w -and -not $w.Close) {
+    $later = if ($w) { @($p.Windows | Where-Object { $_.Line -gt $w.Line }).Count } else { 0 }
+    if ($w -and -not $w.Close -and -not $later) {
         Add-SddRow $L (Format-KitSddWindow -N $N -Kind close -Sha $head -At (Get-KitSddNow) -By $By) -Quiet:$Quiet
     }
     $head
@@ -533,7 +545,6 @@ function Invoke-SddWatch {
         "git log --oneline $(Get-SddShort $from)..HEAD:`n$(if ($commits) { $commits } else { '(немає комітів)' })"
     } else { 'у журналі немає BASE: коміти не перелічено' }
     if ($res.Code -eq 0) {
-        $null = Close-SddWindow $C $l $N 'watch' -Quiet
         Out-Sdd "$found  ($($res.Line -creplace '^OK ', ''))"
         Out-Sdd $log
         Out-Sdd 'якщо implementer ще не відповів, продовжуй так, ніби відповів; ніколи не диспетчеризуй задачу повторно'
@@ -582,7 +593,10 @@ function Invoke-SddReview {
     if (-not $r) { throw (New-KitRefusal "у задачі $N немає рядка в журналі: спершу $(Get-SddCmd $C "dispatch $N")") }
     if (Test-KitSddDone $r) { throw (New-KitRefusal "задача $N вже $($r.State)") }
     if (-not $r.Base -and -not @($r.Windows).Count) { throw (New-KitRefusal "у задачі $N немає BASE у журналі (почато до sdd dispatch): виконай review-pack <BASE> вручну") }
-    $head = Get-SddHead $C.Checkout
+    # Вікно закриває review (watch цього не робить): контролер комітить задачу між watch і review.
+    $head = Close-SddWindow $C $l $N 'review'
+    $p = Read-SddLedgerFile $l
+    $r = $p.Rows[$N]
     if (@($r.Windows).Count) {
         # Раунд виправлень рецензується лише своїм диффом — вікнами після попередньої рецензії.
         if ($r.Rounds -gt 0 -and $null -eq $r.ReviewLine) { Out-Sdd "warn: для задачі $N не записано рецензії; пакет охоплює всі її вікна" }
@@ -692,7 +706,7 @@ function Invoke-SddRuling {
     $row = $st.P.Rows[$N]
     # Рішення приймання після close позначене: видно, що його ухвалено вже після звіту.
     Add-SddRow $st.L (Format-KitSddRuling -N $N -Text "$(if ($st.P.Closed) { 'after close: ' })$($Text.Trim())")
-    if (-not [regex]::IsMatch($Text, 'spec impact', 'IgnoreCase')) { Out-Sdd 'warn: у рішенні немає "spec impact"; рішення класу A закінчується "spec impact: none"' }
+    if (-not [regex]::IsMatch($Text, 'spec impact|вплив на спеку', 'IgnoreCase')) { Out-Sdd 'warn: у рішенні немає "вплив на спеку"; рішення класу A закінчується "вплив на спеку: немає"' }
     Write-KitNext $(if ($row -and -not (Test-KitSddDone $row)) { Get-SddNextFor $C $row } else { Get-SddNextCommand $C $st.P.Rows })
 }
 
@@ -835,7 +849,7 @@ function Invoke-SddClose {
         }
     } else { Out-Sdd 'None.' }
     Out-Sdd ''
-    $forks = @($p.Rows.Values | Where-Object { $_.State -ceq 'fork' -or @($_.Notes | Where-Object { [regex]::IsMatch($_, '\bfork\b', 'IgnoreCase') }).Count }).Count
+    $forks = @($p.Rows.Values | Where-Object { $_.State -ceq 'fork' -or @($_.Notes | Where-Object { [regex]::IsMatch($_, '(?<![A-Za-z0-9_])fork(?![A-Za-z0-9_])', 'IgnoreCase') }).Count }).Count
     $headNow = Invoke-SddTryGit $C.Checkout @('rev-parse', 'HEAD')
     Out-Sdd "report: готово: <PR>, HEAD $(Get-SddShort $headNow), gates <ok|red: list>, $($p.Rulings.Count + $forks) розвилок, <M> відхилень"
     Out-Sdd "  ($($p.Rulings.Count) рішень + $forks задач із розвилкою; заповни <PR>, gates і <M> відхилень)"
@@ -863,7 +877,7 @@ function Invoke-SddCommand {
     if ($Args2.Count -gt $script:Arity[$Cmd]) { throw (New-KitUsageError "${Cmd}: зайвий аргумент `"$($Args2[$script:Arity[$Cmd]])`"") }
     $n = if ($script:Arity[$Cmd]) { Get-SddTaskId $(if ($Args2.Count) { $Args2[0] } else { $null }) $Cmd } else { '' }
     $c = New-SddContext -PlanArg $planArg -Command $Cmd -RepoRoot $RepoRoot
-    switch ($Cmd) {
+    switch -CaseSensitive ($Cmd) {
         'brief' { Invoke-SddBrief $c $n }
         'log' { Invoke-SddLog $c $n $(if ($Args2.Count -gt 1) { $Args2[1] } else { '' }) $Opts }
         'status' { Invoke-SddStatus $c }
