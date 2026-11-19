@@ -176,17 +176,13 @@ function Backup-KitDirtyFiles {
             Where-Object { $_.StartsWith("$prefix/", [System.StringComparison]::Ordinal) }
     )
     if ($indexPaths.Count -gt 0) {
-        # checkout-index --prefix дописує ПОВНИЙ шлях від кореня репозиторію (тут —
-        # "Alpha_SMB/cfe/src/Configuration.xml", а не "Configuration.xml") — він не
-        # обрізає його до RepoPath, як робить цикл диска вище (перевірено живим git:
-        # без проміжної теки нижче копія лягла б у "index/Alpha_SMB/cfe/src/..." замість
-        # "index/..." — інша структура, ніж у копії з диска поруч, усупереч задуму).
-        # Тому checkout — у проміжну (тимчасову) теку з повним шляхом, а тоді кожен файл
-        # переноситься у $indexRoot тим самим відносним шляхом $rel, що й копія з диска.
+        # checkout-index --prefix дописує ПОВНИЙ шлях від кореня репозиторію, не обрізаючи до
+        # RepoPath. Тому checkout — у проміжну теку, а тоді кожен файл переноситься в $indexRoot
+        # тим самим відносним шляхом $rel, що й копія з диска.
         $indexRoot = Join-Path $BackupRoot 'index'
         $rawRoot = Join-Path $BackupRoot '.index-raw'
         # Коса риска в кінці --prefix обов'язкова, інакше git трактує останній сегмент
-        # шляху як частину імені файла, а не теки (перевірено живим git).
+        # шляху як частину імені файла, а не теки.
         $prefixArg = ($rawRoot -replace '\\', '/').TrimEnd('/') + '/'
         $co = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments (@('checkout-index', "--prefix=$prefixArg", '--') + $indexPaths)
         if ($co.ExitCode -ne 0) {
@@ -258,7 +254,7 @@ function Get-KitInvisibleWork {
     }
     $records = [System.Collections.Generic.List[object]]::new()
 
-    # П25: компоненти шляху від кореня репозиторію (не включно) до кореня набору (включно), що є посиланням.
+    # Посилання: компоненти шляху від кореня репозиторію (не включно) до кореня набору (включно), що є посиланням.
     # Видалення теки набору пішло б крізь них (у ціль, можливо поза репозиторієм), а pull --force раннера теж.
     # Корінь репозиторію і все вище — поза правилом. Знайшли — повертаємо саме це й далі не йдемо: ні git-викликів
     # крізь посилання, ні входу всередину.
@@ -305,7 +301,7 @@ function Get-KitInvisibleWork {
             foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
                 if ($item.Name -ceq '.git') { $hasGit = $true; continue }
                 if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
-                    # link: junction/symlink (тека чи файл) під набором не підтримуються (П24, п'ятий вид). Усередину не
+                    # link: junction/symlink (тека чи файл) під набором не підтримуються. Усередину не
                     # заходимо і ціль не міряємо: стирання теки набору могло б зачепити ціль посилання, і межу тримає зупинка.
                     $linkRel = ($item.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
                     $records.Add([pscustomobject]@{ Path = $linkRel; Kind = 'link' })

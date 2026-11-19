@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 
-# Поставка вендора основної конфігурації на підтримці (спека 2026-09-30 §5.2, §6.3.1). ЄДИНЕ
+# Поставка вендора основної конфігурації на підтримці (§5.2, §6.3.1). ЄДИНЕ
 # оголошення шляху: sync, verify, adopt, supply-marker, check і provision беруть його звідси. Шлях —
 # відносно кореня дерева CONFIGURATION. У теці лежить <Ім'я>.cf поставки (0,5–1,1 ГБ — за межею
 # 100 МБ на файл GitHub, тому поза git) і позначка .kit-bin-sha1 (стан машини, §5.1).
@@ -11,9 +11,8 @@ Import-Module "$PSScriptRoot/PathSafety.psm1"
 $script:SupplyRelativePath = 'Ext/ParentConfigurations'
 $script:SupplyBinRelativePath = 'Ext/ParentConfigurations.bin'
 $script:SupplyMarkerName = '.kit-bin-sha1'
-# «.bin описує поставку» = файл більший за 16 байт (спека §6.3.2). Умова виміру: у знятих з
-# підтримки конфігураціях (SMP_SMB_ukr_DEV, SMP_SMB_rus_DEV, 2026-09-30) файл рівно 16 байт —
-# {6,0,0,0,1,0} з BOM. Ім'я .cf усередині .bin не розбираємо: формат не наш.
+# «.bin описує поставку» = файл більший за 16 байт (§6.3.2): у знятих з підтримки конфігураціях
+# файл рівно 16 байт — {6,0,0,0,1,0} з BOM. Ім'я .cf усередині .bin не розбираємо: формат не наш.
 $script:SupplyEmptyBinBytes = 16
 
 function Get-KitSupplyRelativePath { $script:SupplyRelativePath }
@@ -97,7 +96,7 @@ function Clear-KitTreeExceptSupply {
     $parts = $script:SupplyRelativePath -split '/'   # 'Ext', 'ParentConfigurations'
     foreach ($item in @(Get-ChildItem -LiteralPath $TreeRoot -Force)) {
         if ($item.PSIsContainer -and $item.Name -ieq $parts[0]) {
-            # Останній рубіж П25: у теку Ext функція ЗАХОДИТЬ (її не видаляють цілою), тож посилання на ній
+            # Останній рубіж «нічого крізь посилання»: у теку Ext функція ЗАХОДИТЬ (її не видаляють цілою), тож посилання на ній
             # повело б видалення дітей у ціль. Guard вище бачить лише TreeRoot.
             if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
                 throw "дерево джерела: компонент шляху '$($item.Name)' є посиланням (junction чи symlink) — kit нічого не видаляє крізь посилання; приберіть посилання з шляху."

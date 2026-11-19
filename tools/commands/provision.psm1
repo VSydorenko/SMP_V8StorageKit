@@ -2,19 +2,17 @@
 Set-StrictMode -Version Latest
 
 # Командний модуль нічого не імпортує сам: lib-модулі вже завантажив kit.ps1 у порядку
-# module-order.txt, і вкладений Import-Module тут лише ризикував би перезавантаженням
-# (docs/follow-ups.md §5, коментар у StorageReport.psm1).
+# module-order.txt, і вкладений Import-Module ризикував би перезавантаженням (docs/follow-ups.md §5).
 
 function Test-KitConfigurationOwnerPresent {
     <#
     .SYNOPSIS
         Чи є на диску непорожнє дерево власника (CONFIGURATION source-set) воркспейсу.
     .DESCRIPTION
-        Вісь задачі (рішення користувача 2026-09-10, спека §4, d3e539c): «порожня» база
-        агента означає «порожня ІБ, наповнена push Уніки з джерел», а push вантажить
-        власника з CONFIGURATION source-set (типово cf/src) і лише потім розширення. За
-        truth: vendor це дерево гітігнороване (templates/gitignore) і на щойно клонованій
-        машині порожнє — «порожня» тоді веде build у мовчазний глухий кут.
+        «Порожня» база агента означає «порожня ІБ, наповнена push Уніки з джерел» (§4), а push
+        вантажить власника з CONFIGURATION source-set (типово cf/src) і лише потім розширення. За
+        truth: vendor це дерево гітігнороване й на щойно клонованій машині порожнє — без цієї
+        перевірки мовчазний глухий кут.
 
         Перевірка безумовна: НЕ залежить від того, чи розширення позичає об'єкти
         (ObjectBelonging>Adopted, Get-KitAdoptedObjectCount нижче) — збірка .cfe й
@@ -26,11 +24,8 @@ function Test-KitConfigurationOwnerPresent {
         $true і тоді, коли у воркспейсі взагалі немає CONFIGURATION source-set (зовнішні
         обробки й подібне): вісь власника до такого воркспейсу не застосовна.
 
-        Немає окремого Test-Path на існування теки: Get-ChildItem -ErrorAction
-        SilentlyContinue на неіснуючому шляху так само тихо повертає порожню колекцію
-        (перевірено), тож "теки немає" і "тека є, але порожня" ловить один і той самий
-        рядок нижче — окрема перевірка існування була б мертвим кодом, який ніколи не
-        виконує саме ту роль, для якої писався (рев'ю B8 Task 12, Minor 2).
+        Окремого Test-Path немає: Get-ChildItem -ErrorAction SilentlyContinue на неіснуючому
+        шляху тихо повертає порожню колекцію, тож «теки немає» і «тека порожня» ловить той самий рядок.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Workspace)
@@ -45,7 +40,7 @@ function Get-KitMissingOwnerSources {
     .DESCRIPTION
         Єдине місце логіки «порожнє»: Test-KitConfigurationOwnerPresent — це «таких немає», а
         Invoke-KitProvision дивиться на самі джерела, щоб відрізнити законний старт рецепта (i)
-        (усі порожні під truth: storage, спека 2026-09-30 §5.3) від зупинки.
+        (усі порожні під truth: storage, §5.3) від зупинки.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Workspace)
@@ -60,10 +55,8 @@ function Get-KitAdoptedObjectCount {
     .SYNOPSIS
         Скільки об'єктів у EXTENSION source-set(ах) воркспейсу мають ObjectBelonging>Adopted.
     .DESCRIPTION
-        Лише пояснює людині, чому відсутність власника — не питання смаку (вимір задачі:
-        45 із 53 об'єктів розширення в SMP_BankExchange — Adopted; текст-джерело виміру —
-        skills/provision/SKILL.md). Ні на що не впливає в
-        Test-KitConfigurationOwnerPresent — та перевірка безумовна і без цього числа.
+        Лише пояснює людині, чому відсутність власника — не питання смаку. Ні на що не впливає
+        в Test-KitConfigurationOwnerPresent — та перевірка безумовна і без цього числа.
 
         Рахує пошуком по файлах дерева на диску, а не `git grep`: дерево, яке бачить
         provision, може мати ще не закомічені зміни (наприклад, щойно позичений об'єкт).
@@ -87,7 +80,7 @@ function New-KitOwnerMissingMessage {
         Текст зупинки Test-KitConfigurationOwnerPresent — куди звідки взяти власника, з ціною.
     .DESCRIPTION
         Приватний хелпер, винесений з Invoke-KitProvision лише заради читабельності виклику.
-        Називає всі варіанти й ціну кожного (Крок 1 брифа задачі): дамп (20–40 хв, 1–2 ГБ),
+        Називає всі варіанти й ціну кожного: дамп (20–40 хв, 1–2 ГБ),
         .dt, серверна база від людини. Зупинка кидається лише для порожньої CONFIGURATION не під
         truth: storage (під storage порожня база законна — рецепт (i)), тож sync тут не пропонується.
     #>
@@ -98,8 +91,7 @@ function New-KitOwnerMissingMessage {
     $configLabel = if ($configSet) { "дерево CONFIGURATION source-set '$($configSet.RepoPath)'" } else { 'дерево CONFIGURATION source-set' }
     $adopted     = Get-KitAdoptedObjectCount -Workspace $Workspace
     # Українська однина/двоїна/множина (n%10=1 і n%100≠11 → однина; n%10∈2..4 і n%100∉12..14 →
-    # «об'єкти»; інакше — «об'єктів»). Без цього "1 об'єктів" звучить як помилка граматики
-    # (рев'ю B8 Task 12, Minor 3), а $adopted тут завжди реальне число, не заглушка.
+    # «об'єкти»; інакше — «об'єктів»).
     $objectWord = if ($adopted % 10 -eq 1 -and $adopted % 100 -ne 11) { "об'єкт" }
                   elseif ($adopted % 10 -in 2..4 -and $adopted % 100 -notin 12..14) { "об'єкти" }
                   else { "об'єктів" }
@@ -172,7 +164,7 @@ function Get-KitProvisionNextKitStep {
 function Get-KitProvisionSteps {
     <#
     .SYNOPSIS
-        Кроки після рішення provision — спека 2026-11-19 §4.2 п.17, замість розгалужень по тексту.
+        Кроки після рішення provision (§4.2 п.17).
     .DESCRIPTION
         Придатне дерево: файлова без .dt — infobase.create і ЗВИЧАЙНИЙ push (база створюється з набором
         CONFIGURATION, раннер його пам'ятає); з .dt — infobase.restore і push force:true (restore пам'яті
@@ -207,7 +199,7 @@ function New-KitExistingBaseMessage {
     .SYNOPSIS
         Текст зупинки «тека за шляхом бази вже є»: називає ДВІ теки, які видаляє людина, і крок після цього.
     .DESCRIPTION
-        Kit базу агента не видаляє ніколи (спека 2026-11-19 §3.4 п.3). Тека бази й тека пам'яті раннера
+        Kit базу агента не видаляє ніколи (§3.4 п.3). Тека бази й тека пам'яті раннера
         (<воркспейс>/.local/infobases/origin) видаляються разом: без другої нова база лишилась би зі
         старою пам'яттю наборів, і push міг би пропустити набори як незмінені (§4.2 п.16). Тека без
         1Cv8.1CD — зовсім інша зупинка (New-KitNotBaseMessage), без поради видаляти; сюди потрапляє лише
@@ -236,7 +228,7 @@ function New-KitExistingBaseMessage {
 function New-KitNotBaseMessage {
     <#
     .SYNOPSIS
-        Зупинка «непорожня тека без 1Cv8.1CD за шляхом бази»: це не база агента, жодної поради видаляти (спека §4.2 п.16, уточнення).
+        Зупинка «непорожня тека без 1Cv8.1CD за шляхом бази»: це не база агента, жодної поради видаляти (§4.2 п.16).
     .DESCRIPTION
         Описка в infobases.origin.connection (File=build/artifacts усередині workPath) інакше привела б до поради
         стерти артефакти чи іншу чужу теку. Про пам'ять раннера тут не йдеться.
@@ -250,7 +242,7 @@ function New-KitNotBaseMessage {
 function New-KitStaleMemoryMessage {
     <#
     .SYNOPSIS
-        Зупинка «бази немає, а пам'ять раннера лишилась» (спека §4.2 п.16, друге уточнення): нова база стартує лише з чистою пам'яттю.
+        Зупинка «бази немає, а пам'ять раннера лишилась» (§4.2 п.16): нова база стартує лише з чистою пам'яттю.
     #>
     [CmdletBinding()]
     param(
@@ -286,7 +278,7 @@ function Get-KitProvisionPlan {
         [bool]$Apply
     )
     $ws = $Workspace
-    # Потребу в базі визначають ТИПИ наборів, не наявність infobases.origin (П16): на свіжому клоні
+    # Потребу в базі визначають ТИПИ наборів, не наявність infobases.origin: на свіжому клоні
     # файлу Уніки ще немає, і воркспейс з розширенням не можна приймати за воркспейс обробок.
     if (-not (Test-KitWorkspaceNeedsAgentBase -Workspace $ws)) { return [pscustomobject]@{ Ws = $ws; Skip = $true } }
     $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
@@ -299,7 +291,7 @@ function Get-KitProvisionPlan {
     if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
         $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
     }
-    # Вісь власника — до вибору типу бази (рішення користувача 2026-09-10): порожнє дерево
+    # Вісь власника — до вибору типу бази: порожнє дерево
     # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
     if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
         $missing = @(Get-KitMissingOwnerSources -Workspace $ws)
@@ -327,7 +319,7 @@ function Get-KitProvisionPlan {
     # ловить базу людини під чужим ім'ям, ця межа — БУДЬ-ЯКУ теку поза робочою (описка
     # infobase.connection: 'File=cfe/src'). $ws.Project.WorkPath, не літерал 'build': workPath конфігурований.
     $agentWork = Join-Path $ws.FullPath $ws.Project.WorkPath
-    # П25 «Корені власності»: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
+    # Корені власності: workPath стає коренем власності (може бути посиланням), а тека набору — ніколи.
     # Тож workPath, що дорівнює кореню набору, лежить у ньому чи містить його, відхиляється ДО будь-якої дії.
     # У повідомлення — лише шляхи відносно воркспейсу (значення конфігу поза ними не друкуємо).
     $agentWorkFull = [System.IO.Path]::GetFullPath($agentWork).TrimEnd('\', '/')
@@ -361,10 +353,9 @@ function Get-KitProvisionPlan {
     if ($ServerBase) { throw "-ServerBase стосується лише серверної бази агента, а в $($ab.Origin) — файлова ($($ab.Connection))." }
 
     Assert-SafeWorkPath -Path $ab.Path -MustBeUnder $agentWork -RepoRoot $Context.RepoRoot -OwnedRoot $agentWork -Description "база агента воркспейсу $($ws.Path)"
-    # Шлях бази не перетинається з <тека v8project.yaml>/.local: там раннер 0.18 веде пам'ять баз (hashes/,
-    # dump-info/, generation.json) і свій .gitignore. <workPath>/infobases, яку охороняла попередня версія,
-    # раннеру 0.18 нічого не тримає (у workPath лише журнали), тож стара межа нічого реального не охороняла.
-    # Збіг, вкладення чи охоплення — відмова до будь-якого створення; предикат перетину той самий, що в аудиті.
+    # Шлях бази не перетинається з <тека v8project.yaml>/.local: там раннер веде пам'ять баз (hashes/,
+    # dump-info/, generation.json) і свій .gitignore. Збіг, вкладення чи охоплення — відмова до будь-якого
+    # створення; предикат перетину той самий, що в аудиті.
     $runnerLocal = Join-Path $ws.Project.Directory '.local'
     if ((Test-KitPathsOverlap -Left $ab.Path -Right $runnerLocal) -or (Test-KitPathsOverlap -Left $ab.Path -Right (Get-KitRunnerMemoryPath -Project $ws.Project))) {
         throw ("Шлях бази агента воркспейсу '$($ws.Path)' збігається з '.local' воркспейсу (тека пам'яті раннера), лежить у ній чи над нею — " +
@@ -379,7 +370,7 @@ function Get-KitProvisionPlan {
     $plan.CreatedBy = if ($plan.KitCreates) { 'kit' } else { 'unica' }
 
     # Будь-яка наявна тека (чи файл) за шляхом бази — зупинка, незалежно від -Apply: kit нічого не стирає
-    # й не перезаписує. Людина видаляє дві теки сама (спека §3.4 п.3, п.4; §4.2 п.16).
+    # й не перезаписує. Людина видаляє дві теки сама (§3.4 п.3, п.4; §4.2 п.16).
     if (Test-Path -LiteralPath $ab.Path) {
         # Непорожня тека без 1Cv8.1CD (чи файл) — не база агента: окрема зупинка без поради видаляти.
         if (-not $ab.Exists -and ((Test-Path -LiteralPath $ab.Path -PathType Leaf) -or @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction SilentlyContinue).Count -gt 0)) {
@@ -402,7 +393,7 @@ function Get-KitProvisionPlan {
 function Invoke-KitProvision {
     <#
     .SYNOPSIS
-        База агента (спека 2026-11-19 §3.4): kit перевіряє, записує вибір і друкує кроки; базу агента
+        База агента (§3.4): kit перевіряє, записує вибір і друкує кроки; базу агента
         НЕ видаляє ніколи й серверних баз не створює.
     .DESCRIPTION
         Придатне дерево основної конфігурації — базу створює Уніка (infobase.create / infobase.restore), kit
@@ -446,7 +437,7 @@ function Invoke-KitProvision {
     # містить це джерело» — форма, якою його й кличуть: людина знає ім'я розширення, а не
     # ім'я теки воркспейсу. Звуження йде через наявну Select-KitSources, а не власним
     # пошуком: вона вже дає правильні зупинки на невідомому ключі й на ключі, що є в кількох
-    # воркспейсах (kit-dev, випадок 5: друга перевірка з іншою логікою гірша за жодну).
+    # воркспейсах (друга перевірка з іншою логікою гірша за жодну).
     if ($Source) {
         $matched = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
         $wsOfSource = @($matched.Workspace | Sort-Object -Unique)
@@ -508,7 +499,7 @@ function Invoke-KitProvision {
             if ($plan.KitCreates) { Write-Host '  З -Apply kit сам створить порожню файлову базу.' -ForegroundColor Cyan }
             elseif (-not $plan.Fitness.Fit) { Write-Host '  Першим базу наповнить kit; створює її Уніка (restore) — крок нижче.' -ForegroundColor Cyan }
             Write-KitNextSteps -Title 'Далі:' -Steps $steps
-            # F6 (рев'ю B4 Task 1): -Remember без -Apply не мовчить — шаблон ще не записано.
+            # -Remember без -Apply не мовчить — шаблон ще не записано.
             if ($Remember) { Write-Host '  Шаблон буде записано в накладку разом із -Apply (-Remember саме по собі нічого не пише).' -ForegroundColor DarkGray }
             continue
         }

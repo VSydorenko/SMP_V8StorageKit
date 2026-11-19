@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot/RepoRoot.psm1"
 Import-Module "$PSScriptRoot/Manifest.psm1"
 Import-Module "$PSScriptRoot/V8Project.psm1"
-# Без -Force, як і вкладений імпорт V8 у V8Project: потрібна Assert-V8SecretQuoteFree (П23) для пароля сховища.
+# Без -Force, як і вкладений імпорт V8 у V8Project: потрібна Assert-V8SecretQuoteFree для пароля сховища.
 Import-Module "$PSScriptRoot/V8.psm1"
 
 $script:ManifestFileName = 'v8storagekit.yaml'
@@ -75,20 +75,9 @@ function Invoke-KitPreflight {
     $ctx.ManifestPath = Join-Path $root $script:ManifestFileName
 
     if (-not (Test-Path -LiteralPath $ctx.ManifestPath -PathType Leaf)) {
-        # Правка H5 (фінальне рев'ю) — до 0.6.0 конвенція клала storage.json у кожну підтеку
-        # продукту в корені репозиторію; такий репозиторій уже має все, що потрібно
-        # маніфесту (шляхи сховищ, імена розширень, дев-бази), просто не в тому файлі. check
-        # мусить розрізняти два стани, не давати одну й ту саму пораду обом. Пошук навмисно
-        # неглибокий (Get-ChildItem -Directory по самому кореню, тоді перевірка файлу) — не
-        # рекурсія по всьому дереву, воно може бути великим.
-        #
-        # Правка (рев'ю, 2026-09-04; знято в Task 6 B5) — маршрут на v8storagekit:migrate сам по
-        # собі вів у глухий кут, бо ні скіла, ні команди kit migrate не було — вони мали прийти в
-        # B6. За чинною спекою (2026-09-03, §9) окремого migrate не буде НІКОЛИ: усі вхідні форми,
-        # включно з напівмігрованим 0.6.0, веде v8storagekit:onboarding (зупиняється й питає
-        # людину — skills/onboarding/references/gitsync-migration.md, розділ «Спадок 0.6.0: якщо
-        # storage.json трапився поза парком»). Порада тепер називає скіл, який справді існує, без
-        # обіцянки "з'явиться пізніше".
+        # Стара конвенція 0.6.0 клала storage.json у підтеку продукту: такий репозиторій має все для
+        # маніфесту, просто не в тому файлі, — check розрізняє цей стан і веде в v8storagekit:onboarding.
+        # Пошук навмисно неглибокий (лише підтеки кореня): дерево може бути великим.
         $legacyDirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
             Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') -PathType Leaf })
         if ($legacyDirs.Count -gt 0) {
@@ -101,25 +90,12 @@ function Invoke-KitPreflight {
             return $ctx
         }
 
-        # Task 2а (task-2-brief.md, знахідка прогону B5) — інша вхідна форма: gitsync-вивантаження
-        # (skills/onboarding/SKILL.md §5, skills/onboarding/references/gitsync-migration.md) МОЖЕ ховатись за ознакою DT-INF/, БЕЗ storage.json
-        # (інакше вище вже спрацював би гілка 0.6.0). Вимір по живому парку (10 репозиторіїв)
-        # показав DT-INF/ на РІЗНИХ глибинах — у корені репозиторію, на глибині 1 (усередині
-        # підпродукту), і навіть ДВІЧІ в одному репозиторії окремо для конфігурації й розширення
-        # (cf/DT-INF і cfe/DT-INF) — тому шукаємо в корені й на двох рівнях підтек, а не лише
-        # "корінь" чи лише "підтеки", як $legacyDirs вище. Глибина навмисно ОБМЕЖЕНА (корінь + 2
-        # рівні), а не рекурсія по всьому дереву: тека вихідників поруч із DT-INF/ може тримати
-        # десятки тисяч файлів .mdo, а префлайт іде на КОЖНІЙ команді kit — Get-ChildItem без
-        # обмеження глибини зробив би check/sync/verify помітно повільнішими саме на тих
-        # репозиторіях, заради яких ця ознака існує. На кожному з трьох рівнів перевіряємо лише
-        # Test-Path одного імені (DT-INF) — не читаємо вміст жодної знайденої теки.
-        #
-        # Рев'ю Task 2, п. 6 — ДВА шви в первинному тексті повідомлення, обидва зайва впевненість:
-        # (1) перевірка не доводить "поруч із текою вихідників" — лише сам факт DT-INF/, тож
-        # текст цього більше не стверджує; (2) "EDT-вивантаження сховища (gitsync)" ховало
-        # ПОХОДЖЕННЯ всередині назви ФОРМАТУ — рівно те, від чого застерігає наступне ж речення.
-        # check каже лише, ЩО ВИДНО (EDT-формат із DT-INF/); походження встановлює й підтверджує
-        # проба доступу до сховища всередині v8storagekit:onboarding, не ця перевірка.
+        # Інша вхідна форма — gitsync-вивантаження з ознакою DT-INF/ без storage.json. У парку DT-INF/
+        # трапляється в корені, на глибині 1 і 2 (окремо cf/DT-INF і cfe/DT-INF), тож шукаємо в корені й
+        # на двох рівнях підтек. Глибина навмисно ОБМЕЖЕНА: поруч можуть бути десятки тисяч .mdo, а
+        # префлайт іде на КОЖНІЙ команді kit; на кожному рівні — лише Test-Path одного імені.
+        # Текст каже лише, ЩО ВИДНО (EDT-формат із DT-INF/), не походження: його встановлює проба
+        # сховища в v8storagekit:onboarding.
         $dtInfSearchRoots = [System.Collections.Generic.List[string]]::new()
         $dtInfSearchRoots.Add($root)
         $level1Dirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)
@@ -142,11 +118,8 @@ function Invoke-KitPreflight {
                 "з'ясовує сам скіл v8storagekit:onboarding (skills/onboarding/SKILL.md §1): він показує знайдене й питає.")
             return $ctx
         }
-        # Правка 5а (живий прогін задачі 11) — "шлях уперед: скіл v8storagekit:onboarding"
-        # сам по собі вів у глухий кут: цього скіла ще немає (з'явиться в B5), а це перше й
-        # часто ЄДИНЕ повідомлення, яке бачить новий споживач. Пряма дія поруч зі скілом —
-        # не замість нього. Правка H3 (фінальне рев'ю) — "з теки плагіна" саме собою не
-        # каже, де та тека: додано, як її знайти.
+        # Це перше й часто ЄДИНЕ повідомлення, яке бачить новий споживач: пряма дія (і як знайти теку
+        # плагіна) поруч зі скілом, не замість нього.
         & $fail 'manifest' ("Маніфест $script:ManifestFileName не знайдено в $root. Репозиторій не підключено до kit — " +
                             'скопіюйте templates/v8storagekit.yaml.example з теки плагіна (знайти теку: claude plugin list, ' +
                             "або /plugin у сесії Claude Code) у корінь репозиторію як $script:ManifestFileName, заповніть " +
@@ -185,7 +158,7 @@ function Invoke-KitPreflight {
         try { $project = Read-V8Project -Path $projectPath }
         catch { & $fail 'workspace' $_.Exception.Message; continue }
 
-        # П23 п. 5: " у паролі бази агента — відмова тут (і в kit check), а не лише при запуску платформи.
+        # " у паролі бази агента — відмова тут (і в kit check), а не лише при запуску платформи.
         # Та сама Assert-V8SecretQuoteFree, що для пароля сховища; Invoke-V8Designer лишає свою перевірку.
         try {
             $agentIb = Read-V8ProjectLocalInfobase -Path (Join-Path $wsFull 'v8project.local.yaml')
@@ -207,7 +180,7 @@ function Invoke-KitPreflight {
                 if ($ov.Path)     { $storagePath = $ov.Path }
                 if ($ov.User)     { $storageUser = $ov.User }
                 if ($ov.Password) {
-                    # П23: " у паролі сховища — відмова ДО першого запуску платформи (та сама перевірка, що для пароля бази агента).
+                    # " у паролі сховища — відмова ДО першого запуску платформи (та сама перевірка, що для пароля бази агента).
                     try { Assert-V8SecretQuoteFree -Value $ov.Password -Origin "Пароль сховища (накладка $script:OverlayFileName, storages.$($src.Key).password)" }
                     catch { & $fail 'overlay' $_.Exception.Message; continue }
                     $storagePassword = $ov.Password
@@ -241,7 +214,7 @@ function Select-KitSources {
     .SYNOPSIS
         Джерела за спільними параметрами -Workspace / -Source / -Truth (спека §5).
     .DESCRIPTION
-        -Source без -Workspace дозволений лише коли ключ унікальний у маніфесті (Q9);
+        -Source без -Workspace дозволений лише коли ключ унікальний у маніфесті;
         інакше зупинка з переліком воркспейсів. Повертає масив (може бути порожнім) —
         що робити з порожнім, вирішує команда.
     #>
@@ -278,10 +251,7 @@ function Select-KitSources {
     if ($Truth) {
         $sources = @($sources | Where-Object { $Truth -contains $_.Truth })
     }
-    # Без коми-обгортки: виклики в кожному тесті обгортають @(...) самі (як і скрізь
-    # у цьому репозиторії, напр. @($ctx.Findings | …)), а `, $sources` тут ламав саме
-    # це — @(Select-KitSources …) додає ще один рівень масиву поверх уже "захищеного"
-    # $sources, і .Count бачить розмір 1 замість справжньої кількості джерел.
+    # Без коми-обгортки: викликачі загортають у @(...) самі, і кома дала б .Count = 1.
     $sources
 }
 

@@ -9,9 +9,8 @@ Import-Module "$PSScriptRoot/CaseGuard.psm1"
 Import-Module "$PSScriptRoot/TreeCompare.psm1"
 
 $script:BranchPrefix = 'storage/'
-# Get-KitPendingVersions (Task 2, рев'ю п. 9): поріг, після якого зупинка на -FromVersion
-# поза межами звіту показує лише мінімум/максимум, а не повний перелік — клієнтська база
-# із сотнями версій (мотив задачі) інакше друкує рядок на кілька тисяч символів у консоль.
+# Поріг, після якого зупинка на -FromVersion поза звітом показує лише мінімум/максимум, а не
+# повний перелік — на сховищі із сотнями версій інакше рядок на тисячі символів.
 $script:ManyVersionsThreshold = 20
 
 function Get-KitStorageBranchName {
@@ -31,8 +30,8 @@ function Test-KitBranchUnborn {
     <#
     .SYNOPSIS
         Чи HEAD — ненароджена гілка з цим ім'ям (свіжий репозиторій до першого коміту): symbolic-ref HEAD
-        указує на refs/heads/<Branch>, а самого ref ще немає. Спільний розрізнювач для check і session-check
-        (спека a7a5d45): без нього порада «зробіть перший коміт» на описку в mainBranch створила б зайву гілку.
+        указує на refs/heads/<Branch>, а самого ref ще немає. Спільний розрізнювач для check і session-check:
+        без нього порада «зробіть перший коміт» на описку в mainBranch створила б зайву гілку.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch)
@@ -49,10 +48,10 @@ function Get-KitStorageActivity {
         Коли у сховище останнім разом писали об'єкти — максимальний mtime під data/objects/**
         (LatestObjectWrite) і під data/pack/** (LatestPackWrite) окремо: 1cv8ddb.1CD не
         використовується як індикатор ЧАСУ — він оновлюється при кожному інтерактивному
-        підключенні Конфігуратора (спека §5, дослідження п. 5), лише як ознака «це взагалі
+        підключенні Конфігуратора (§5), лише як ознака «це взагалі
         сховище» (IsStorage).
 
-        Пакування — норма, не аномалія (спека 9f6ad5e §5, «Запаковане сховище»): конфігураційні
+        Пакування — норма, не аномалія (§5, «Запаковане сховище»): конфігураційні
         сховища тримають по 60 pack-файлів, а розширення можуть мати data/objects порожньою
         цілком, якщо всю історію вже запаковано, — IsStorage тоді все одно $true, і Reason
         порожній (це не привід для скарги session-check). Reason заповнюється лише коли
@@ -79,12 +78,8 @@ function Get-KitStorageActivity {
         return $result
     }
 
-    # Рев'ю раунд 2, C1 (успадковано й тут для data/pack — ловили тричі за блок B3) — Count
-    # ПЕРШИМ, @() обов'язковий: на справді порожньому вводі (жодного файла) конвеєр
-    # |Measure-Object -Maximum не повертає об'єкт із Count=0 — він не повертає НІЧОГО, і
-    # .Maximum на $null під StrictMode кидає "The property 'Count' cannot be found on this
-    # object", а не дає дружній [-]-рядок; на рівно ОДНОМУ файлі голий .Count без @() так само
-    # падає (скалярний FileInfo, не масив).
+    # Count ПЕРШИМ і @() обов'язковий: на порожньому вводі Measure-Object не повертає нічого, і
+    # .Maximum на $null під StrictMode кидає; на одному файлі голий .Count без @() теж падає (скаляр).
     $objectsDir  = Join-Path $StoragePath 'data/objects'
     $objectFiles = @()
     if (Test-Path -LiteralPath $objectsDir -PathType Container) {
@@ -145,9 +140,8 @@ function Get-KitBranchCommits {
         if ($parts.Count -ge 2 -and $parts[1].Trim()) { $parents = @($parts[1].Trim() -split '\s+') }
         $result.Add([pscustomobject]@{ Sha = $parts[0].Trim(); Parents = $parents; Trailers = $trailers })
     }
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap (`, $x`): усі виклики загортають результат у @(...), а @() поверх коми бачить
+    # один елемент — вкладений масив.
     $result.ToArray()
 }
 
@@ -218,16 +212,13 @@ function Test-KitStorageBranchInvariants {
     }
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/') + '/'
-    # Get-KitTreePaths (CaseGuard): ls-tree -r -z через Invoke-KitGitProcess — UTF-8 незалежно від
-    # консолі й без квотування не-ASCII. Колишній голий конвеєр `git ls-tree | …` декодував вивід за
-    # кодуванням консолі: на cp866 кирилиця ламалась, і групування регістру нижче давало б хибні 0.
+    # Get-KitTreePaths (CaseGuard), не голий `git ls-tree | …`: UTF-8 незалежно від консолі — на cp866
+    # кирилиця ламалась би, і групування регістру нижче давало б хибні 0.
     $tree = @(Get-KitTreePaths -RepoRoot $RepoRoot -Ref $Branch)
     $stray = @($tree | Where-Object { $_ -and -not $_.StartsWith($prefix) })
     if ($stray.Count -gt 0) {
-        # Один запис на весь перелік, а не на кожен файл (той самий прийом, що
-        # Merge-KitBranchInto для брудних шляхів, GitMerge.psm1) — на живому прогоні одна
-        # гілка з кириличними іменами дала 241 майже однакову знахідку й затопила в
-        # виводі check реальне, нічим не пов'язане попередження, яке стояло вище.
+        # Один запис на весь перелік, а не на кожен файл: сотні однакових знахідок затоплюють
+        # у виводі check інші попередження.
         $shown = @($stray | Select-Object -First 5)
         $more  = $stray.Count - $shown.Count
         $detail = ($shown -join ', ') + $(if ($more -gt 0) { ", …і ще $more" } else { '' })
@@ -245,9 +236,7 @@ function Test-KitStorageBranchInvariants {
             'Розбір: docs/storage-and-git.md, «Перейменування регістром».')))
     }
 
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap — з тієї ж причини, що в Get-KitBranchCommits.
     $findings.ToArray()
 }
 
@@ -256,30 +245,17 @@ function Get-KitPendingVersions {
     .SYNOPSIS
         Версії зі звіту, які ще не в дзеркалі: перелік із версіями > LastVersion (§3.2), не діапазон.
     .DESCRIPTION
-        $null у LastVersion — гілки ще немає: реплеїти все. Два запобіжники успадковані від
-        Get-PendingVersions (SyncState.psm1, вилучається): дзеркало попереду максимуму звіту, і
-        порожній звіт при непорожньому дзеркалі — обидва зупинка, розбір за людиною.
+        $null у LastVersion — гілки ще немає: реплеїти все. Два запобіжники: дзеркало попереду
+        максимуму звіту, і порожній звіт при непорожньому дзеркалі — обидва зупинка, розбір за людиною.
 
-        -FromVersion/-FromLatest (Task 2, §9.4) — друга вісь: НЕ скільки версій узяти
-        (-MaxVersions — вирішує це незалежно), а З ЯКОЇ версії почати. Виклик sync.psm1 гарантує,
-        що вони приходять сюди лише коли LastVersion = $null (перший реплей порожньої гілки) —
-        тут це вдруге не перевіряється, бо це вже зроблено раніше й дешевше (sync.psm1, перед
-        зверненням до платформи). -FromVersion N лишає версії >= N (ВКЛЮЧНО — не діапазон
-        "більше за", а нижня межа з тим самим номером у переліку); -FromLatest — рівно
-        найновішу версію звіту, обчислену тут-таки (без другого прогону платформи, який
-        знадобився б, щоб спершу дізнатися цей номер окремим прев'ю). Приклад комбінації:
-        -FromVersion 5 -MaxVersions 2 = версії 5 і 6.
+        -FromVersion/-FromLatest (§9.4) — З ЯКОЇ версії почати (незалежно від -MaxVersions —
+        скільки). Сюди вони приходять лише при LastVersion = $null — це перевіряє sync.psm1
+        раніше й дешевше. -FromVersion N лишає версії >= N (ВКЛЮЧНО); -FromLatest — рівно
+        найновішу версію звіту. Приклад: -FromVersion 5 -MaxVersions 2 = версії 5 і 6.
 
-        Рев'ю Task 2, п. 5: порожній звіт (AllVersions.Count = 0) при LastVersion = $null —
-        легальний стан САМ ПО СОБІ (щойно підключене, ще зовсім порожнє сховище), але якщо
-        при цьому задано -FromVersion/-FromLatest, мовчазне "pending порожній" видало б людині
-        оману "дзеркало синхронне зі сховищем", хоча насправді версії, яку просили, просто
-        нема з чого взяти. Окрема зупинка нижче — до обчислення $effectiveFrom.
-
-        Рев'ю Task 2, п. 9: перелік доступних версій у зупинці ">max" — повний лише поки версій
-        небагато ($script:ManyVersionsThreshold); на сховищі з сотнями версій (мотив усієї
-        задачі) рядок на кілька тисяч символів у консолі — гірше за жодного переліку. Понад
-        поріг — лише мінімум і максимум зі звіту.
+        Порожній звіт при LastVersion = $null легальний (порожнє сховище), але з
+        -FromVersion/-FromLatest мовчазне «pending порожній» читалося б як «синхронне» — тому
+        окрема зупинка.
     #>
     [CmdletBinding()]
     param(
@@ -333,7 +309,7 @@ function Get-KitPendingVersions {
         ($null -eq $effectiveFrom -or $_.Version -ge $effectiveFrom)
     } | Sort-Object Version)
     if ($MaxVersions -gt 0) { $pending = @($pending | Select-Object -First $MaxVersions) }
-    # Кома навмисно: викликачі (sync, тести) беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
+    # Кома навмисно: викликачі (sync, тести) беруть результат присвоєнням або (…), НЕ @(…).
     , $pending
 }
 
@@ -412,7 +388,7 @@ function New-KitStorageWorktree {
         Worktree гілки дзеркала під build/sync: orphan, якщо гілки ще немає (§3.3, шар 1).
     .DESCRIPTION
         Робоча копія й поточна гілка людини не торкаються взагалі — тому запобіжник «чиста
-        робоча копія перед -Apply» зі старого storage-sync.ps1 тут не потрібен. Залишок
+        робоча копія перед -Apply» тут не потрібен. Залишок
         перерваного прогону (тека є, worktree зареєстрований) прибирається: у ньому немає
         нічого, чого не можна перевивантажити.
     #>
@@ -459,8 +435,7 @@ function Remove-KitStorageWorktree {
         летить (наприклад — з падіння платформи на версії N), і причина, яку мав показати
         Assert-NoLicenseProblem чи текст зупинки платформи, зникає безслідно. --force теж може
         не впоратись (заблокований файл — антивірус, індексатор на Windows), тож перевіряємо
-        Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо. Той самий приклад —
-        Merge-KitBranchInto (GitMerge.psm1), написаний і рев'юєний у цьому ж блоці.
+        Test-Path і, якщо тека все ще на місці, попереджаємо, а не мовчимо (як Merge-KitBranchInto).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Path)
@@ -500,11 +475,11 @@ function Write-KitStorageVersion {
         та сама гарантія, яку в main дає -text. ConfigDumpInfo.xml і DumpFilesIndex.txt —
         службові файли платформи, у дзеркалі їх немає (у споживача вони й так у .gitignore).
         Тека поставки вендора Ext/ParentConfigurations (.cf на сотні МБ і позначка .kit-bin-sha1) у
-        дзеркало не потрапляє: лишається лише .bin (спека 2026-09-30 §5.2, ліміт GitHub 100 МБ на файл).
-        V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука B1), не механізм: в orphan-worktree дзеркала хука
+        дзеркало не потрапляє: лишається лише .bin (§5.2, ліміт GitHub 100 МБ на файл).
+        V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука pre-commit), не механізм: в orphan-worktree дзеркала хука
         немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
         де хук є. Індекс піддерева знімається (`rm --cached`) перед `add -A` і звіряється з диском до
-        коміту — перейменування лише регістром (спека 2026-10-04 §4.1). Дати автора й
+        коміту — перейменування лише регістром (§4.1). Дати автора й
         комітера — дата версії сховища. --allow-empty: сусідні версії можуть дати однаковий дамп,
         а коміт — єдиний носій автора, дати й коментаря версії.
     #>
@@ -525,7 +500,7 @@ function Write-KitStorageVersion {
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
 
-    # Поставка вендора (спека 2026-09-30 §5.2): у worktree дзеркала немає .gitignore, і
+    # Поставка вендора (§5.2): у worktree дзеркала немає .gitignore, і
     # `git add -A` нижче забрав би .cf на 0,5–1,1 ГБ у коміт storage/<ключ> — push на GitHub
     # відмовить (ліміт 100 МБ на файл). У дзеркалі лишається лише .bin (ознаки підтримки).
     # Для розширень і конфігурацій без підтримки теки немає — виклик нічого не робить.
@@ -539,7 +514,7 @@ function Write-KitStorageVersion {
     Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
 
     try {
-        # Індекс піддерева — наново з того, що вивантажила платформа (спека 2026-10-04 §4.1). Без
+        # Індекс піддерева — наново з того, що вивантажила платформа (§4.1). Без
         # цього `add -A` при core.ignorecase=true лишає запис старого регістру: git складає регістр
         # лише ASCII (memihash), а lstat старого шляху на NTFS успішний — кирилична зміна регістру
         # дає фантом поруч із новим шляхом, ASCII — губить новий регістр. Clear-KitWorktreeSource
@@ -549,7 +524,7 @@ function Write-KitStorageVersion {
 
         # -f: файл дерева платформи мусить потрапити в індекс, навіть якщо його ігнорує .git/info/exclude
         # (спільний для всіх worktree) чи core.excludesFile користувача: інакше rm --cached вище мовчки
-        # знімає з відстеження відстежуваний раніше файл (спека 2026-10-04 §4.1, фінальне рев'ю, H2).
+        # знімає з відстеження відстежуваний раніше файл (§4.1).
         # Службові файли й поставка прибрані з диска раніше, тож -f їх не втягне.
         $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -f -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
@@ -604,16 +579,13 @@ function Get-KitVerifyVersion {
         throw "'$Ref' ніколи не зливав $Branch — спільного предка немає. Спершу: kit sync (перше злиття в головну гілку), тоді verify."
     }
 
-    # 2>$null + перевірка $LASTEXITCODE — як і в сусіднього виклику нижче (git log --reverse):
-    # рев'ю B3 раунд 2 (дрібна правка 5) спіймало, що тут стояв 2>&1 без перевірки коду —
-    # збій git заганяв stderr у $value, і людина читала «коміт не має трейлера Storage-Version,
-    # розбір: kit check», хоча трейлер там насправді є, а впав сам git.
+    # 2>$null + перевірка $LASTEXITCODE: інакше збій git виглядав би як «коміт не має трейлера».
     $value = (git -C $RepoRoot log -1 --format='%(trailers:key=Storage-Version,valueonly)' $base 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw "git log -1 $($base.Substring(0,7)) завершився з кодом ${LASTEXITCODE} — verify не може прочитати трейлер Storage-Version." }
     if ($value -notmatch '^\d+$') { throw "Коміт $($base.Substring(0,7)) (merge-base '$Ref' і $Branch) не має трейлера Storage-Version:. Розбір: kit check." }
 
     $newerRaw = git -C $RepoRoot log --reverse --format='%(trailers:key=Storage-Version,valueonly)' "$base..$Branch" 2>$null
-    # Без перевірки збій git дав би порожній список → хибний equal, коли сховище насправді попереду (рев'ю B3).
+    # Без перевірки збій git дав би порожній список → хибний equal, коли сховище насправді попереду.
     if ($LASTEXITCODE -ne 0) { throw "git log $($base.Substring(0,7))..$Branch завершився з кодом ${LASTEXITCODE} — verify не може визначити, чи є нові версії." }
     $newer = @(@($newerRaw) | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
 
@@ -621,7 +593,7 @@ function Get-KitVerifyVersion {
 }
 
 function Get-KitCommitSha {
-    <# rev-parse з перевіркою коду виходу — правило Global Constraints без винятків, навіть одразу після успішного коміту. #>
+    <# rev-parse з перевіркою коду виходу — без винятків, навіть одразу після успішного коміту. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Ref)
     $out = git -C $RepoRoot rev-parse --verify "$Ref^{commit}" 2>&1

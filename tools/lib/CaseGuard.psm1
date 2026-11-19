@@ -83,7 +83,7 @@ function Assert-KitIndexMatchesDisk {
     }
     $disk = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@(Get-KitRelativeFiles -Root (Join-Path $RepoRoot $prefix)), [System.StringComparer]::Ordinal)
-    # Ігноровані файли з диска НЕ віднімаємо (спека 2026-10-04 §4.1, фінальне рев'ю, H2): обидва викликачі
+    # Ігноровані файли з диска НЕ віднімаємо (§4.1): обидва викликачі
     # додають із -f, тож будь-який файл на диску поза індексом — розбіжність (інакше rm --cached + add без -f,
     # що мовчки зняв з відстеження файл під ігнором машини, лишився б непоміченим).
     $onlyIndex = @($index | Where-Object { -not $disk.Contains($_) } | Sort-Object -CaseSensitive)

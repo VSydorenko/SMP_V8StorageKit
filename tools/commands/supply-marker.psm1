@@ -2,8 +2,7 @@
 Set-StrictMode -Version Latest
 
 # Командний модуль нічого не імпортує сам: lib-модулі вже завантажив kit.ps1 у порядку
-# module-order.txt, і вкладений Import-Module тут лише ризикував би перезавантаженням
-# (docs/follow-ups.md §5, коментар у StorageReport.psm1).
+# module-order.txt, і вкладений Import-Module ризикував би перезавантаженням (docs/follow-ups.md §5).
 
 function Invoke-KitSupplyMarker {
     <#

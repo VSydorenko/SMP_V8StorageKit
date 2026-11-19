@@ -11,10 +11,9 @@ Import-Module "$PSScriptRoot/AgentBase.psm1"
 # потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
 Import-Module "$PSScriptRoot/UnicaStep.psm1"
 
-# Результат спайку B2 (спека §14, «Результат спайку»): чи потребує UpdateCfg для ОСНОВНОЇ
-# конфігурації прив'язки ІБ до сховища. $true — kit робить ConfigurationRepositoryBindCfg під
-# користувачем сховища на час роботи й знімає її UnbindCfg -force у finally: єдиний запис у
-# сховище, який kit виконує. Значення перенесено з tools/commands/sync.psm1 (B2).
+# Чи потребує UpdateCfg для ОСНОВНОЇ конфігурації прив'язки ІБ до сховища (виміряно спайком,
+# §14). $true — kit робить ConfigurationRepositoryBindCfg під користувачем сховища на час роботи
+# й знімає її UnbindCfg -force у finally: єдиний запис у сховище, який kit виконує.
 $script:ConfigurationStorageNeedsBind = $false
 $script:DefaultStubPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../assets/empty-extension'))
 $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
@@ -22,11 +21,11 @@ $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
 function Get-KitRepositoryArguments {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Source)
-    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
+    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…).
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
-        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword   # пароль лише з накладки (B2 Task 2a); ніколи не друкувати
+        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword   # пароль лише з накладки; ніколи не друкувати
     )
 }
 
@@ -217,9 +216,8 @@ function Invoke-KitStorageCheckout {
     $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
-        # Спека 1.3.1 §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний
-        # виняток; текст для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion,
-        # verify — без них). Повідомлення лишається тим самим, що й до 1.3.1.
+        # §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний виняток; текст
+        # для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion, verify — без них).
         $ex = [System.InvalidOperationException]::new("Вивантаження версії $Version не вдалося: $($dump.Output)")
         $ex.Data['KitDumpFailure'] = $true
         $ex.Data['Version'] = $Version
@@ -232,13 +230,7 @@ function Invoke-KitStorageCheckout {
         $j = Join-Path $Target $junk
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
-    # @(...) навмисно: на нулі файлів (порожній дамп — саме такий дає мокована платформа в
-    # тестах sync) Get-ChildItem повертає $null, а не порожній масив, і .Count на $null під
-    # Set-StrictMode -Version Latest падає "The property 'Count' cannot be found on this
-    # object" — той самий клас дефекту, від якого в цьому репозиторії скрізь загортають у
-    # @(...) (StorageBranch.psm1, Read-StorageReport тощо). Виявлено лише зараз (B3 Task 1,
-    # раунд правок Sync.Tests.ps1): доти виконання не доходило сюди — падало раніше на
-    # немокованому виклику платформи.
+    # @(...) навмисно: на порожньому дампі Get-ChildItem повертає $null, і .Count під StrictMode падає.
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
@@ -323,7 +315,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
     }
 
     # Крок 6: проміжні .cf і тимчасова ІБ своє відслужили. .cf живої конфігурації — порядку
-    # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону (пілот 1.3.1).
+    # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону.
     # На збої вище не прибираємо: лишаються для діагностики, наступний прогін їх перезапише.
     # Прибирання непринципове: файл, який ще тримає процес платформи, не має зірвати коміт
     # успішно вивантаженої версії — лише попередження.

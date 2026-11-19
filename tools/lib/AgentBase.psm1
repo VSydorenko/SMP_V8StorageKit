@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 # V8Project. AgentBase бере звідти Resolve-V8AgentInfobase і Resolve-KitAgentInfobasePath.
 Import-Module "$PSScriptRoot/V8Project.psm1"
 # Так само без -Force (та сама конвенція, що в StoragePlatform.psm1): AgentBase напряму
-# кличе ConvertFrom-V8Connection (Get-KitInfobaseCanonicalForm, issue #9) — V8Project.psm1
+# кличе ConvertFrom-V8Connection (Get-KitInfobaseCanonicalForm) — V8Project.psm1
 # уже вкладено імпортує V8.psm1, але явний імпорт тут потрібен для тестів, які вантажать
 # цей модуль окремо від диспетчера.
 Import-Module "$PSScriptRoot/V8.psm1"
@@ -48,7 +48,7 @@ function Get-KitInfobaseCanonicalForm {
     if (-not [System.IO.Path]::IsPathRooted($raw)) {
         return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = 'відносний File= — kit звіряє лише абсолютні File=.'; Exception = $null }
     }
-    # Канонізація (П26): без \\?\, з розкритими посиланнями по наявних компонентах. Збій читання
+    # Канонізація: без \\?\, з розкритими посиланнями по наявних компонентах. Збій читання
     # атрибута — нерозбірне (fail-closed), текст без шляху.
     try { $full = Get-KitCanonicalPath -Path $raw }
     catch { return [pscustomobject]@{ Parsed = $false; Kind = $null; Identity = ''; Reason = $_.Exception.Message; Exception = $null } }
@@ -224,7 +224,7 @@ function Get-KitProtectedPaths {
                 else { & $add 'otherbase' $other.Path $label $null $ib.Connection }
             }
             if ('othermemory' -in $Kinds) {
-                # Уся тека .local/infobases (батьківська для бази origin), як раніше була вся <workPath>/infobases: чужа база
+                # Уся тека .local/infobases (батьківська для бази origin): чужа база
                 # під будь-якою пам'яттю раннера чужого воркспейсу — перетин. Шлях бази — лише з Get-KitRunnerMemoryPath.
                 $mem = Split-Path -Parent (Get-KitRunnerMemoryPath -Project $other.Project)
                 & $add 'othermemory' $other.Path "пам'ять раннера воркспейсу '$($other.Path)' (.local/infobases)" $mem $null
@@ -232,10 +232,10 @@ function Get-KitProtectedPaths {
         }
     }
     if ('template' -in $Kinds) {
-        # Шаблон — файл людини: захищені -Template прогону й agentBase.template накладки КОЖНОГО воркспейсу (N1),
+        # Шаблон — файл людини: захищені -Template прогону й agentBase.template накладки КОЖНОГО воркспейсу,
         # не лише цього: .dt іншого воркспейсу чи накладковий шаблон за іншого -Template теж лежить десь на диску людини.
         # Порожнього чи пробільного шаблону тут не буває: це помилка конфігу ще при читанні накладки
-        # (Read-KitLocalOverlay). Нерозбірний шлях — відмова, що називає ключ, але не значення (П23).
+        # (Read-KitLocalOverlay). Нерозбірний шлях — відмова, що називає ключ, але не значення.
         $templates = [System.Collections.Generic.List[object]]::new()
         if ($Template) { $templates.Add(@($Template, 'параметр -Template')) }
         if ($Context.Overlay) {
@@ -418,7 +418,7 @@ function Test-KitInfobasesOverlap {
     }
     if ($l.Kind -ne $r.Kind) { return $false }
     if ($l.Kind -eq 'file') {
-        # Перетин, не рівність (П26): база всередині теки іншої, чи над нею, знищується разом із нею.
+        # Перетин, не рівність: база всередині теки іншої, чи над нею, знищується разом із нею.
         # Шляхи вже канонізовано (Get-KitInfobaseCanonicalForm) — предикат той самий, що в Test-KitPathsOverlap.
         return (Test-KitCanonicalPathsOverlap -Left $l.Path -Right $r.Path)
     }
