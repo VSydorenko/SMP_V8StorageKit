@@ -72,7 +72,8 @@ function Invoke-KitReviewPack {
     Write-KitLine $line
     # Пакет читає рецензент, а не той, хто його зібрав: даємо шлях, не вміст.
     $target = if ($r.Parts -gt 1) { "$($r.Parts) частини" } else { & $rel $r.Files[0].Path }
-    Write-KitNext "передай $target рецензенту"
+    # Агент і скіл переносить сесія скілів блоку «процес kit» під тими самими іменами, що в agent-kit.
+    Write-KitNext "передай $target рецензенту (агент v8storagekit:task-reviewer або скіл v8storagekit:landed-review)"
     return 0
 }
 
