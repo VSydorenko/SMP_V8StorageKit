@@ -8,7 +8,7 @@
 
 **Tech Stack:** PowerShell 7, Pester 5, git, платформа 1С 8.3.27.x, `powershell-yaml`; Unica 0.16 (збірка §1 спеки або upstream 0.16) з v8-runner 0.18.x.
 
-**Spec:** `docs/superpowers/specs/2026-11-19-unica-016-adaptation-design.md` на коміті **`cc82a4f`** (звірка плану архітектором — §4.2 п.15–18). Посилання `§N` нижче ведуть у цю спеку, «спека 1.5.0» — `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md`. Архітектор — сесія `unica-016-adaptation`. Якщо план розходиться зі спекою або спека мовчить, виконавець зупиняється й питає архітектора, сам не обирає.
+**Spec:** `docs/superpowers/specs/2026-11-19-unica-016-adaptation-design.md` на коміті **`8699fb4`** (звірки плану архітектором — §4.2 п.15–22; п.7 уточнено: `extension` лише в `pull`). Посилання `§N` нижче ведуть у цю спеку, «спека 1.5.0» — `docs/superpowers/specs/2026-10-11-unica-013-adaptation-design.md`. Архітектор — сесія `unica-016-adaptation`. Якщо план розходиться зі спекою або спека мовчить, виконавець зупиняється й питає архітектора, сам не обирає.
 
 **Форма плану (вимога власника 2026-11-19).** План не містить готового коду. Він називає задачі, файли, імена й сигнатури, значення зі спеки, патерни й антипатерни та перевірки, які мусять бути в тестах. Код пише виконавець.
 
@@ -87,7 +87,9 @@
 - Consumes: `Get-UnicaInstallation` (`Environment.psm1`) → `.InstallPath`, `.PathExists`.
 - Produces:
   - `Get-KitRunnerPath [-InstalledPluginsPath <string>] → string`. Шлях `<InstallPath>/bin/win-x64/v8-runner-windows-x86_64/v8-runner.exe` [вимір: кеш `unica/0.16.0` цієї машини]. Немає Уніки чи файла — виняток з поясненням, що саме не знайдено. Запасного `Get-V8Path` немає (§4.2 п.5).
-  - **Шов для тестів-підпроцесів (рішення автора плану).** Тести `check`/`session-check` кличуть справжній `kit.ps1` підпроцесом (`Invoke-KitCommand`), тож мок туди не дістає, а фальшивого `.exe` немає з чого зробити. Змінна оточення `V8KIT_RUNNER` — шлях до фальшивого раннера-скрипта `.ps1`. Це той самий клас шва, що й наявна `V8KIT_PLUGINS_REGISTRY`. `Get-KitRunnerPath` віддає її значення замість пошуку, а `Invoke-KitRunner` і `Get-KitRunnerVersion` запускають `.ps1` через `pwsh -NoProfile -File`. Поки шов активний, `check` друкує `info` «раннер підмінено змінною V8KIT_RUNNER», щоб він не був непомітним у живому оточенні. Фальшивий раннер лежить у `tools/tests/fixtures/runner/` і відповідає знімками зі Step 0.
+  - **Фальшивий раннер у тестах-підпроцесах — явним параметром, не змінною оточення** (§4.2 п.20; правило П21 спеки 1.5.0 переноситься: жодної змінної оточення, яку production читає заради тестів). Команди, що користуються раннером (`check`, `session-check`, `sync`, `verify`), приймають `[string]$RunnerPath`. За замовчуванням `-RunnerPath` дорівнює `Get-KitRunnerPath -InstalledPluginsPath <той самий реєстр, що й у команди>`. Параметр доходить до `Invoke-KitRunner`, `Get-KitRunnerVersion`, `Get-KitAgentPlatform`, `Invoke-KitAgentRelease` — усі вони приймають `-RunnerPath` уже за Interfaces вище. Окремої гілки «тестовий раннер» у production немає: `Invoke-KitRunner` запускає той файл, який йому дали.
+  - Форма фальшивого раннера (рішення автора плану): `tools/tests/fixtures/runner/v8-runner.cmd`. Його запускає `CreateProcess` сам, тож `Invoke-KitRunner` не розрізняє `.exe` і `.cmd`. Фальшивий раннер за першим аргументом друкує знімок зі Step 0 (`platforms`, `agent release`) або рядок `v8-runner <версія>` (`--version`). Версію задає тест через файл поруч або аргумент фікстури — рішення виконавця. **Виміряти першим:** чи запуск `Start-Process -FilePath <.cmd>` з перенаправленням виводу у файли (форма `Invoke-V8Designer`) працює без проміжного `cmd /c`. Якщо ні — `Invoke-KitRunner` кличе будь-який файл однаково через `cmd /c`, а не лише `.cmd`, щоб тестової гілки не з'явилось.
+  - Властивість (§4.2 п.20): тест, що забув `-RunnerPath`, на машині зі справжнім раннером червоніє. Це тримається тим, що типове значення береться з реєстру `-InstalledPluginsPath`. Фальшивий реєстр тестів не має раннера, тож без `-RunnerPath` `check` дає `error` `runner-version`.
   - `Get-KitRunnerVersion -RunnerPath <string> → string`. З `v8-runner --version` береться `0.18.1` з рядка `v8-runner 0.18.1`.
   - `Invoke-KitRunner -RunnerPath <string> -Arguments <string[]> -WorkingDirectory <string> → pscustomobject` — **єдина точка запуску раннера і точка моку для тестів**. Повертає розібраний JSON `--json-message`: `ok`, `data`, `error`, `warnings`.
   - `Get-KitAgentPlatform -Project <об'єкт V8Project воркспейсу> [-RunnerPath] → string` — шлях `data.selected.designer.path`.
@@ -107,7 +109,7 @@
   - Review Focus 1: на знімку `ok:false` — виняток, текст якого містить підрядок з `data.message` знімка (`no infobase is selected`). Шляху не повертає.
   - `Get-KitRunnerPath` на фальшивому реєстрі без файла раннера — виняток, і `Get-V8Path` не викликається (мок `Get-V8Path` з `Should -Invoke -Times 0`).
   - Контроль, що вміє впасти: тест на `ok:false` мусить почервоніти, якщо в production перевірку `ok` замінити перевіркою коду виходу. Мутацію робити на копії дерева.
-  - Шов: з `V8KIT_RUNNER`, що вказує на фальшивий раннер, `Get-KitRunnerPath` повертає саме цей шлях, а `Get-KitRunnerVersion` — версію, яку друкує фальшивий раннер.
+  - Фальшивий раннер `v8-runner.cmd`: `Get-KitRunnerVersion -RunnerPath <він>` повертає версію, яку він друкує, а `Get-KitAgentPlatform -RunnerPath <він>` — шлях зі знімка `ok:true`. Тест справжнього запуску без моку `Invoke-KitRunner`, і він же вимір форми запуску `.cmd`.
 - [ ] **Step 2: Прогін — тести червоні** (функцій немає).
 - [ ] **Step 3: Реалізувати модуль і додати його в `module-order.txt`** з рядком причини порядку в шапці файлу, за наявним зразком.
 - [ ] **Step 4: Повний прогін — зелений.**
@@ -287,11 +289,11 @@
 - `tools.platform.version` у `v8project.local.yaml` — не знахідка: Уніка дописує цей ключ сама (§7.1 «Побічне»).
 - Дефект пілоту §5 п.2: коли є помилки конфігу, підсумок має рахувати воркспейси й джерела маніфесту, а не 0.
 - Аудит бази агента (`Get-KitProtectedPaths` вид `othermemory`, `Find-KitAgentBaseCollisions` ціль `memory` в `AgentBase.psm1`) рахує пам'ять раннера як `<workPath>/infobases` — шлях 1.5.0. Для раннера 0.18 це `<тека v8project.yaml>/.local/infobases` (§4.2 п.15). Перевести обидва місця на `Get-KitRunnerMemoryPath` (Task 6) — без власних копій шляху (kit-dev case 5). Тест — наявний тест аудиту перетину з пам'яттю чужого воркспейсу, переведений на новий шлях: база агента, покладена в `.local/infobases` іншого воркспейсу, дає знахідку.
-- `-InstalledPluginsPath` лишається (П21) і доходить до пошуку раннера. Без раннера кожен підпроцесний `check` у тестах дав би `error`, тож `Invoke-KitCommand` для `check`/`session-check` виставляє `V8KIT_RUNNER` на фальшивий раннер (шов Task 1). Тест, що навмисно перевіряє відсутність раннера, знімає змінну сам — за тим самим зразком, що й наявна підстановка `-InstalledPluginsPath`. `New-KitFakeUnicaRegistry` отримує типову версію `0.16.0`.
+- `-InstalledPluginsPath` лишається (П21) і доходить до пошуку раннера. Без раннера кожен підпроцесний `check` у тестах дав би `error`. Тож `Invoke-KitCommand` для `check`/`session-check` додає `-RunnerPath <tools/tests/fixtures/runner/v8-runner.cmd>`, якщо тест не передав його сам, — за тим самим зразком, що й наявна підстановка `-InstalledPluginsPath` (Task 1, §4.2 п.20). Тест, що навмисно перевіряє відсутність раннера, передає `-RunnerPath` на неіснуючий файл. `New-KitFakeUnicaRegistry` отримує типову версію `0.16.0`. Тест фікстури (`KitFixtures.Tests.ps1`): підстановка `-RunnerPath` справді відбувається, і її можна перекрити.
 - `tools.platform.version`: у `V8Project.psm1`/`check.psm1` зараз немає жодної перевірки ключа `tools`, тож тест на терпимість сьогодні не може бути червоним. Спека §8 його вимагає як закріплення контракту з Унікою: вона дописує цей ключ сама. Тест є, але це не TDD-цикл, а запобіжник від майбутньої суворої перевірки невідомих ключів. Так і позначити в його назві чи коментарі.
 
 - [ ] **Step 1: Тести** (рівно ці, §8):
-  - Уніка `0.15.2` → `error`, `0.17.0` → `warn`. Раннера немає (`V8KIT_RUNNER` знято, у фальшивому реєстрі раннера немає) → `error` `runner-version`. Фальшивий раннер з версією `0.19.0` → `warn`.
+  - Уніка `0.15.2` → `error`, `0.17.0` → `warn`. Раннера немає (`-RunnerPath` на неіснуючий файл) → `error` `runner-version`. Без `-RunnerPath` і з фальшивим реєстром без раннера — теж `error` (властивість §4.2 п.20). Фальшивий раннер з версією `0.19.0` → `warn`.
   - Підсумок за помилки конфігу називає ненульову кількість воркспейсів маніфесту.
   - Аудит пам'яті раннера на новому шляху (див. вище).
   - Закріплення контракту §8: `check` підпроцесом на воркспейсі, де `v8project.local.yaml` має `tools.platform.version` поруч з `infobases.origin`, не дає жодної знахідки з підрядком `tools.platform`, а база агента читається (знахідки `agent-base-required` немає). Червоним до зміни цей тест не буде — див. вище.
@@ -532,6 +534,10 @@
 | §4.2 п.16 (дві теки в зупинці) | 6 |
 | §4.2 п.17 (звичайний `push` після `infobase.create`) | 6 |
 | §4.2 п.18 (рецепт поставки без `push force`) | 3 |
+| §4.2 п.19 («Уніка обов'язкова для `sync`/`verify`») | 7, 12 |
+| §4.2 п.20 (`-RunnerPath` замість змінної-шва) | 1, 7 |
+| §4.2 п.21 (`New-V8FileInfobase -NoReplace`) | 6 |
+| §4.2 п.22 (`Get-KitSupplyRecipe` — одне джерело) | 3 |
 | §5 п.1 (довгі операції — справа Уніки) | 9 (запобіжник `unica_task_`), 10 |
 | §5 п.2 (підсумок `check`) | 7 |
 | §5 п.3 (код виходу `provision`) | 6 |
