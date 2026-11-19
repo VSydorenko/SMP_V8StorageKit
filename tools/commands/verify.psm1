@@ -105,7 +105,8 @@ function Invoke-KitVerify {
     # Раннер і платформа (спека 2026-11-19 §3.6 п.4, §4.2 п.14, п.20): усі перевірки git вище вже пройдено,
     # тож відсутній раннер зупиняє тут — до першого звернення до платформи. Платформу визначаємо один
     # раз на воркспейс і передаємо явним -V8Path.
-    $runner = if ($RunnerPath) { $RunnerPath } else { Get-KitRunnerPath }
+    # Шлях раннера резолвиться ліниво — у циклі, після Get-KitSourceInfobase (він уже виконаний у плані вище).
+    $runner = $RunnerPath
     $platformByWs = @{}
 
     # Кроки вирівнювання пам'яті раннера (спека 2026-10-11 §4.1): по одному на набір, базу якого зрушив verify.
@@ -125,6 +126,7 @@ function Invoke-KitVerify {
             New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
             $ib = $agent.IbSwitch
+            if (-not $runner) { $runner = Get-KitRunnerPath }
             if (-not $platformByWs.ContainsKey($agent.Workspace)) {
                 $platformByWs[$agent.Workspace] = Get-KitAgentPlatform -Project $agent.Project -RunnerPath $runner
             }

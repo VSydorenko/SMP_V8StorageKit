@@ -247,10 +247,12 @@ function Invoke-KitSync {
     }
 
     # Раннер і платформа (спека 2026-11-19 §3.6 п.4, §4.2 п.14, п.20): платформу для пакетних операцій
-    # у базі агента обирає раннер, не Get-V8Path. Раннера немає — зупинка тут, до fetch і до будь-якого
+    # у базі агента обирає раннер, не Get-V8Path. Раннера немає — зупинка до будь-якого
     # звернення до платформи. Платформу визначаємо один раз на воркспейс (кеш), до першого звернення до неї
     # для джерел цього воркспейсу, і далі передаємо явним -V8Path.
-    $runner = if ($RunnerPath) { $RunnerPath } else { Get-KitRunnerPath }
+    # Шлях раннера резолвиться ліниво: у циклі — ПІСЛЯ Get-KitSourceInfobase (аудит бази агента й запобіжник
+    # «це не дев-база людини» дешеві й мають бути першими), у -DumpPlatform — у власній точці нижче.
+    $runner = $RunnerPath
     $platformByWs = @{}
     $mainPlatformVersion = $null
     if ($hasDump) {
@@ -258,6 +260,7 @@ function Invoke-KitSync {
         # джерела (-Source обов'язковий для -DumpPlatform). Порівняння після Select-KitSources: платформа
         # раннера визначається для воркспейсу, а воркспейс відомий лише тепер. Шлях ІНШОЇ платформи й далі
         # береться з Get-KitInstalledPlatforms.
+        if (-not $runner) { $runner = Get-KitRunnerPath }
         $installed = @(Get-KitInstalledPlatforms)
         $dumpWs = @($Context.Workspaces | Where-Object Path -eq $sources[0].Workspace)[0]
         $mainPath = Get-KitAgentPlatform -Project $dumpWs.Project -RunnerPath $runner
@@ -390,6 +393,7 @@ function Invoke-KitSync {
 
             $ibSwitch = $agent.IbSwitch; $ibUser = $agent.User; $ibPassword = $agent.Password; $fallback = $false
             Write-Host "База агента: $ibSwitch (воркспейс $($agent.Workspace))"
+            if (-not $runner) { $runner = Get-KitRunnerPath }
             if (-not $platformByWs.ContainsKey($agent.Workspace)) {
                 $platformByWs[$agent.Workspace] = Get-KitAgentPlatform -Project $agent.Project -RunnerPath $runner
             }

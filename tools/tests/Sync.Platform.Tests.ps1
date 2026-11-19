@@ -27,8 +27,8 @@ Describe 'kit sync/verify — платформу для бази агента о
         }
         # Основна конфігурація під сховищем, дзеркало вже на v6, у звіті v7.
         function script:New-PlatformRepo {
-            param([string]$Name, $Workspaces)
-            $p = @{ Root = (Join-Path $TestDrive $Name); WithHooks = $true; WithGitignore = $true; WithAgentBase = $true }
+            param([string]$Name, $Workspaces, [switch]$NoAgentBase)
+            $p = @{ Root = (Join-Path $TestDrive $Name); WithHooks = $true; WithGitignore = $true; WithAgentBase = (-not $NoAgentBase) }
             if ($Workspaces) { $p.Workspaces = $Workspaces }
             $repo = New-KitFakeRepo @p
             $ctx0 = Invoke-KitPreflight -RepoRoot $repo
@@ -129,6 +129,16 @@ Describe 'kit sync/verify — платформу для бази агента о
         @($script:Calls).Count | Should -Be 0
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0 -Exactly
         Should -Invoke -ModuleName sync Get-StorageVersions -Times 0 -Exactly
+    }
+
+    It 'порядок зупинок: бази агента немає — зупинка з рецептом provision, а не «Раннер не знайдено» (раннер резолвиться після аудиту бази)' {
+        $repo = New-PlatformRepo 'sync-no-base-first' -NoAgentBase
+        Mock -ModuleName sync Get-KitRunnerPath { throw 'Раннер не знайдено: ПОЯСНЕННЯ-ТЕСТ' }
+        $err = $null
+        try { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true 6>$null } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*v8storagekit:provision*'
+        $err | Should -Not -BeLike '*ПОЯСНЕННЯ-ТЕСТ*'
+        Should -Invoke -ModuleName sync Get-KitRunnerPath -Times 0 -Exactly
     }
 
     It 'раннер не визначив платформу: sync зупиняється з текстом раннера до release і до звіту' {
