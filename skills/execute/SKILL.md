@@ -30,7 +30,7 @@ description: Виконує прийнятий план задача за зад
 | --- | --- | --- | --- |
 | trivial | sonnet | ти читаєш diff | ти |
 | standard | sonnet | `task-reviewer` sonnet | `task-reviewer` sonnet, лише diff виправлення |
-| risky | opus | `task-reviewer` opus, названі ризики, живі проби | opus |
+| risky | opus | `task-reviewer` opus, названі ризики, читальні проби (`unica_view`, `unica_check`) | opus |
 
 Яку перевірку застосувати до задачі й чи потрібні мутаційні повтори, каже бриф задачі, не цей скіл: тести — мінімум, лише на логіку й механізми, які справді треба перевіряти. <!-- tests: ADR-0004, pending owner discussion --> Мутаційні повтори рецензента — лише в режимі `worktree`; у `shared` їх немає, і рецензент пише це в «Cannot verify».
 
@@ -40,6 +40,7 @@ Sonnet виконує standard-задачі: в agent-kit (Simetra) викона
 
 1. `sdd dispatch <N> -Model … -Weight …` → `v8storagekit:implementer` лише з тим, що називає [references/dispatch.md](references/dispatch.md); один рядок власнику: «Task N → implementer, <model>». Попередження `warn:` про сирі команди тестів передай виконавцю разом із формою прогону, яку називає бриф. <!-- tests: ADR-0004, pending owner discussion -->
 2. Статус не DONE → [references/reports.md](references/reports.md).
+   2а. Коміт робиш ти, бо класифікатор дозволів відхиляє `git commit` із субагента: звір `git diff --cached --name-only` з переліком файлів звіту (чужий шлях — зупинка й питання архітектору) і закоміть `git commit --only -F <файл повідомлення> -- <той самий перелік>`. Так само після кожного раунду виправлень — до `sdd review`.
 3. `sdd review <N>` → `v8storagekit:task-reviewer` з брифом, звітом і надрукованим пакетом.
 4. Blocker чи major → [references/fix-loop.md](references/fix-loop.md). Minor → `sdd log <N> parked -Note "minor: …"`, ніколи не раунд.
 5. `sdd done <N>`.
