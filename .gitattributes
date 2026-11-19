@@ -34,3 +34,6 @@ tools/assets/empty-extension/**/*.xml text eol=crlf
 # рядка ("command not found: exit\r"), а ці файли не пише платформа — вони мусять
 # бути LF у будь-якому клоні й у будь-якому кеші плагіна.
 templates/githooks/* text eol=lf
+
+# Фальшивий раннер тестів: cmd чутливий до кінців рядків, файл мусить бути CRLF на будь-якій ОС.
+tools/tests/fixtures/runner/*.cmd text eol=crlf

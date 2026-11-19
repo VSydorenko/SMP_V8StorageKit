@@ -42,7 +42,13 @@ function Get-KitRunnerPath {
 function ConvertTo-KitRunnerArgLine {
     param([Parameter(Mandatory)][string[]]$Arguments)
     ($Arguments | ForEach-Object {
-        if ($_ -match '[\s"]') { '"{0}"' -f ($_ -replace '"', '\"') } else { $_ }
+        # Правила CommandLineToArgvW: бекслеші перед лапкою подвоюються разом з екрануванням
+        # лапки, а бекслеші наприкінці аргументу — перед закривальною лапкою.
+        if ($_ -match '[\s"]' -or $_ -eq '') {
+            $escaped = $_ -replace '(\\*)"', '$1$1\"'
+            $escaped = $escaped -replace '(\\+)$', '$1$1'
+            '"{0}"' -f $escaped
+        } else { $_ }
     }) -join ' '
 }
 
@@ -183,6 +189,9 @@ function Invoke-KitAgentRelease {
     $response = Invoke-KitRunner -RunnerPath $RunnerPath -Arguments @('agent', 'release') -WorkingDirectory $Project.Directory
     if (-not $response.ok) {
         throw "Раннер не виконав agent release для воркспейсу $($Project.Directory): $(Get-KitRunnerFailureText -Response $response)"
+    }
+    if (-not $response.data -or -not $response.data.PSObject.Properties['released']) {
+        throw "Відповідь раннера на agent release ok, але без data.released: $($response | ConvertTo-Json -Depth 6 -Compress)"
     }
     [pscustomobject]@{
         released     = [bool]$response.data.released

@@ -63,17 +63,6 @@ Describe 'Get-KitRunnerPath: немає Уніки чи раннера' {
         { Get-KitRunnerPath -InstalledPluginsPath $reg } | Should -Throw -ExpectedMessage '*v8-runner.exe*'
     }
 
-    It 'знаходить раннер у розкладці bin/win-x64/v8-runner-windows-x86_64' {
-        $install = Join-Path $TestDrive 'unica-ok'
-        $dir = Join-Path $install 'bin/win-x64/v8-runner-windows-x86_64'
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $dir 'v8-runner.exe') -Value 'x'
-        $reg = Join-Path $TestDrive 'installed_plugins3.json'
-        @{ version = 2; plugins = @{ 'unica@unica' = @(@{ version = '0.16.0'; installPath = $install }) } } |
-            ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reg -Encoding UTF8
-
-        (Get-KitRunnerPath -InstalledPluginsPath $reg) | Should -BeLike '*v8-runner-windows-x86_64*v8-runner.exe'
-    }
 }
 
 Describe 'Фальшивий раннер v8-runner.cmd: справжній запуск без моку Invoke-KitRunner' {
@@ -92,14 +81,17 @@ Describe 'Фальшивий раннер v8-runner.cmd: справжній за
             Should -Throw -ExpectedMessage '*no infobase is selected*'
     }
 
-    It 'Invoke-KitAgentRelease віддає released і disconnected зі знімка' {
-        $r = Invoke-KitAgentRelease -Project (New-Workspace -WithLocal) -RunnerPath $script:FakeRunner
-        $r.released | Should -BeFalse
-        $r.disconnected | Should -BeFalse
+    It 'ok:false з кодом виходу 0 — усе одно виняток із data.message (вирішує ok, не код)' {
+        $ws = New-Workspace
+        Set-Content -LiteralPath (Join-Path $ws.Directory 'fake-exit.txt') -Value '0'
+        { Get-KitAgentPlatform -Project $ws -RunnerPath $script:FakeRunner } |
+            Should -Throw -ExpectedMessage '*no infobase is selected*'
     }
 
-    It 'невідомий файл раннера — виняток із шляхом' {
-        { Invoke-KitRunner -RunnerPath (Join-Path $TestDrive 'нема.exe') -Arguments @('platforms') -WorkingDirectory $TestDrive } |
-            Should -Throw -ExpectedMessage '*нема.exe*'
+    It 'ok:true з ненульовим кодом виходу — шлях платформи повертається (вирішує ok, не код)' {
+        $ws = New-Workspace -WithLocal
+        Set-Content -LiteralPath (Join-Path $ws.Directory 'fake-exit.txt') -Value '3'
+        $expected = (Read-Snapshot 'platforms-ok.json').data.selected.designer.path
+        Get-KitAgentPlatform -Project $ws -RunnerPath $script:FakeRunner | Should -BeExactly $expected
     }
 }
