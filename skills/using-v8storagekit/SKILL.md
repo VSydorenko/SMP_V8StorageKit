@@ -58,8 +58,6 @@ Kit говорить лише мовою Уніки 0.13. Стара повер�
 | завантажити дерево в базу агента | `unica.run {"op":"push","args":{"sourceSet":"<набір>"},"dryRun":true}` |
 | перезібрати лише одне розширення, не всю базу | `unica.run {"op":"push","args":{"sourceSet":"<розширення>","full":true},"dryRun":true}` — `full` теж звіряє покоління: без пам'яті раннера відповідь `no_memory`, і тоді — той самий виклик з `"force":true` (лише база агента, див. нижче) |
 | зібрати `.cf`/`.cfe` | `unica.run {"op":"make","args":{"sourceSet":"<набір>","extension":"<ім'я>","output":"build/artifacts/<ім'я>.cfe"},"dryRun":true}` — `output` відносний до воркспейсу (поза свій корінь Уніка не пише), `extension` обов'язковий для `.cfe` |
-| довга операція | `unica.task.get`, `unica.task.result` |
-
 Уніка вимагає явний `"dryRun"` у кожному `unica.run`; kit **за власною конвенцією** друкує
 спершу `"dryRun":true` (превью показує попередження на кшталт `infobase_overwritten` до виконання),
 потім той самий виклик з `"dryRun":false`.

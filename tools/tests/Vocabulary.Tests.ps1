@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'Запобіжник словника Уніки 0.12.3 (спека 2026-10-11 §8, §10 П14)' {
+Describe 'Запобіжник словника: поверхня Уніки 0.12.3 і інструменти задач 0.13 (спека 2026-10-11 §8, §10 П14; спека 2026-11-19 §8)' {
     BeforeAll {
         $script:KitRoot = (Resolve-Path "$PSScriptRoot/../..").Path
         # Повний перелік інструментів MCP unica 0.12.3 (mcp__plugin_unica_unica__unica_<x>_<y>) — знята
@@ -31,19 +31,29 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
                 $seg = $name -split '_'
                 '(?:mcp__plugin_unica_unica__)?(?:unica[._])?' + [regex]::Escape($seg[0]) + '[._]' + (($seg[1..($seg.Count - 1)] | ForEach-Object { [regex]::Escape($_) }) -join '[._-]')
             }
-            '(?<![\w.:$-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner'
+            # Інструменти задач Уніки (unica.task.get/result/cancel) — у протоколі MCP 2026-07-28 Уніки 0.16
+            # їх немає в tools/list (спека 2026-11-19 §5 п.1, §7.1 Б3): будь-яка форма — mcp__…unica_task_x,
+            # unica_task_x, unica.task.x. Окремою гілкою, бо в 0.13 ці імена були новою поверхнею.
+            '(?<![\w.:$-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner|unica[._]task[._]'
         }
-        function script:Get-ScannedLines { param([string]$Root)
+        # Заголовок, з якого скануються переходи в upgrades.md. Розділи до нього — історія словником своєї
+        # епохи (примітка на початку файлу); розділ «1.4.0 → 1.6.0» і все після нього — мова Уніки 0.16.
+        $script:UpgradesHeader = '^##\s+1\.4\.0\s+→\s+1\.6\.0'
+        function script:Get-ScannedLines { param([string]$Root, [switch]$AllowNoUpgradesHeader)
             $md = @(Get-ChildItem -LiteralPath (Join-Path $Root 'skills') -Filter '*.md' -File -Recurse) +
                   @(Get-ChildItem -LiteralPath (Join-Path $Root 'templates') -File -Recurse)
             foreach ($f in $md) {
                 $n = 0
-                # upgrades.md: розділи переходів до 1.4.0 — історія словником своєї епохи (з приміткою
-                # на початку файлу, Task 16); скануються лише розділ «1.4.0 → 1.5.0» і все після нього.
                 $scan = $f.Name -ne 'upgrades.md'
-                foreach ($line in (Get-Content -LiteralPath $f.FullName -Encoding UTF8)) {
+                $lines = @(Get-Content -LiteralPath $f.FullName -Encoding UTF8)
+                # Без заголовка скан upgrades.md мовчки дав би нуль рядків — і запобіжник був би зеленим
+                # на будь-якому тексті. Тому відсутній заголовок — виняток, а не порожній скан.
+                if (-not $scan -and -not $AllowNoUpgradesHeader -and -not ($lines -match $script:UpgradesHeader)) {
+                    throw "У $($f.FullName) немає заголовка розділу переходу (регулярний вираз $script:UpgradesHeader): скан цього файлу дав би нуль рядків."
+                }
+                foreach ($line in $lines) {
                     $n++
-                    if (-not $scan -and $line -match '^##\s+1\.4\.0\s+→\s+1\.5\.0') { $scan = $true }
+                    if (-not $scan -and $line -match $script:UpgradesHeader) { $scan = $true }
                     if ($scan) { [pscustomobject]@{ File = $f.FullName; Line = $n; Text = $line } }
                 }
             }
@@ -65,7 +75,16 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
     It 'на дереві kit — нуль збігів у skills/, templates/ і некоментованому коді tools/' {
         $hits = @(Get-ScannedLines -Root $script:KitRoot | Where-Object { $_.Text -match $script:Pattern } |
             ForEach-Object { "$([IO.Path]::GetRelativePath($script:KitRoot, $_.File)):$($_.Line): $($_.Text.Trim())" })
-        $hits | Should -BeNullOrEmpty -Because 'kit 1.5.0 говорить лише мовою Уніки 0.13 (рішення 9 спеки)'
+        $hits | Should -BeNullOrEmpty -Because 'kit 1.6.0 говорить лише мовою Уніки 0.16 (спека 2026-11-19 §4.1, рішення 9 спеки 1.5.0)'
+    }
+
+    It 'upgrades.md без заголовка «1.4.0 → 1.6.0» — виняток, а не порожній скан' {
+        $root = Join-Path $TestDrive 'no-header'
+        $ref = Join-Path $root 'skills/onboarding/references'
+        New-Item -ItemType Directory -Path $ref, (Join-Path $root 'templates'), (Join-Path $root 'tools/commands'), (Join-Path $root 'tools/lib') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $ref 'upgrades.md') -Encoding UTF8 -Value "## 1.3.1 → 1.4.0`n`nunica_task_get"
+        New-Item -ItemType File -Path (Join-Path $root 'tools/kit.ps1'), (Join-Path $root 'tools/check-environment.ps1') -Force | Out-Null
+        { @(Get-ScannedLines -Root $root) } | Should -Throw '*немає заголовка розділу переходу*'
     }
 
     It 'шаблон ловить кожну форму: <Probe>' -ForEach @(
@@ -75,20 +94,22 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
         @{ Probe = 'operation=build' }
         @{ Probe = 'скіл unica:v8-runner' }
         @{ Probe = 'unica_cfe_patch_method' }
+        @{ Probe = '| довга операція | `unica.task.get`, `unica.task.result` |' }
+        @{ Probe = '"mcp__plugin_unica_unica__unica_task_cancel"' }
+        @{ Probe = 'unica_task_result' }
     ) {
         $Probe | Should -Match $script:Pattern
     }
 
-    It 'шаблон НЕ чіпає нову поверхню 0.13: <Probe>' -ForEach @(
+    It 'шаблон НЕ чіпає поверхню 0.16: <Probe>' -ForEach @(
         @{ Probe = 'unica.view {}' }
         @{ Probe = 'unica.check {at: x}' }
         @{ Probe = 'unica.diff' }
         @{ Probe = 'mcp__plugin_unica_unica__unica_search' }
         @{ Probe = 'unica.run {"op":"make"}' }
         @{ Probe = 'unica.apply object.borrow' }
-        @{ Probe = 'unica.task.result' }
         @{ Probe = 'скіл unica:cfe-borrow' }
-        @{ Probe = 'mcp__plugin_unica_unica__unica_task_result' }
+        @{ Probe = 'mcp__plugin_unica_unica__unica_run' }
         @{ Probe = '$template.Add(1); $meta.Add(2)' }
     ) {
         $Probe | Should -Not -Match $script:Pattern
@@ -109,7 +130,9 @@ Describe 'Запобіжник словника Уніки 0.12.3 (спека 20
         # Відносні шляхи: GNU tar із Git for Windows читає "C:" в абсолютному шляху як ім'я віддаленого хоста.
         Push-Location -LiteralPath $TestDrive
         try { tar -xf old.tar -C old-tree } finally { Pop-Location }
-        $hits = @(Get-ScannedLines -Root $old | Where-Object { $_.Text -match $script:Pattern })
+        # Дерево до адаптації ще не має розділу «1.4.0 → 1.6.0»: upgrades.md там не сканується зовсім,
+        # збіги дають інші файли кожної зони.
+        $hits = @(Get-ScannedLines -Root $old -AllowNoUpgradesHeader | Where-Object { $_.Text -match $script:Pattern })
         foreach ($zone in 'skills', 'templates', 'tools') {
             @($hits | Where-Object { [IO.Path]::GetRelativePath($old, $_.File) -like "$zone*" }).Count |
                 Should -BeGreaterThan 0 -Because "запобіжник мусить бачити старий словник у зоні $zone"

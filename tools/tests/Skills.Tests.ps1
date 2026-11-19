@@ -368,7 +368,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
 
     It 'using-v8storagekit: маршрутизація 0.13, крок з виводу, сітка infobase_state_unverified, виняток force (П17), ЗУПИНКА, #13' {
         $t = Skill 'using-v8storagekit'
-        foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow', 'unica\.task\.result',
+        foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow',
                        '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
                        'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків') {
             $t | Should -Match $m

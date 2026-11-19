@@ -18,16 +18,13 @@
       "mcp__plugin_unica_unica__unica_docs",
       "mcp__plugin_unica_unica__unica_check",
       "mcp__plugin_unica_unica__unica_diff",
-      "mcp__plugin_unica_unica__unica_task_get",
-      "mcp__plugin_unica_unica__unica_task_result"
+      "mcp__plugin_unica_unica__unica_run"
     ],
     "ask": [
       "Bash(git push:*)",
       "Bash(gh pr create:*)",
       "Bash(gh release:*)",
-      "mcp__plugin_unica_unica__unica_run",
-      "mcp__plugin_unica_unica__unica_apply",
-      "mcp__plugin_unica_unica__unica_task_cancel"
+      "mcp__plugin_unica_unica__unica_apply"
     ],
     "deny": [
       "Bash(gitsync:*)",
