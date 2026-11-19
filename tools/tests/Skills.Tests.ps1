@@ -294,8 +294,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     Context 'finish' {
         It 'sync → push force → pull force → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build',
+            foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify',
                            'unica\.check', '"op":"make"', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            $t | Should -Not -Match 'kit\.ps1" build'   # Task 5: збірку робить лише make Уніки
             $t | Should -Not -Match 'kit\.ps1" canon'
             $t | Should -Not -Match 'testRunner'
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'

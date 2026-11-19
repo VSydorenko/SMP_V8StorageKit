@@ -43,7 +43,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . [
 | Вердикт | Означає | Дія |
 |---|---|---|
 | `equal` | `<ref>` ≡ сховище на злитій версії | нічого |
-| `ref-ahead` | у `<ref>` є робота, якої немає у сховищі | зібрати артефакт (`v8storagekit:finish` / `kit build`, `unica.run` з `"op":"make"`) і **застосувати залишок у сховищі** — це робить людина в Конфігураторі |
+| `ref-ahead` | у `<ref>` є робота, якої немає у сховищі | зібрати артефакт (`v8storagekit:finish`, `unica.run` з `"op":"make"`) і **застосувати залишок у сховищі** — це робить людина в Конфігураторі |
 | `storage-ahead` | у сховищі є версії повз `<ref>` (на дзеркалі коміти після merge-base) | звірочний коміт: `verify -Apply` |
 | `mixed` | і те, і те | спершу `verify -Apply`, потім розбір залишку |
 

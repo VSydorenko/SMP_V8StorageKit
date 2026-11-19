@@ -35,7 +35,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 реліквія форми 0.6.0, яка зникла з парку: побачивши його, зупиніться й спитайте людину.
 
 Команди kit: `check`, `session-check`, `sync`, `dump`, `verify`, `supply-marker`, `adopt`,
-`provision`, `build`, `install-hooks`, `rename-edt` (лише крок переходу, його кличе `onboarding`). Запускаються з кореня репозиторію:
+`provision`, `install-hooks`, `rename-edt` (лише крок переходу, його кличе `onboarding`). Запускаються з кореня репозиторію:
 `pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" <команда> -RepoRoot .`
 Без `-Apply` жодна команда нічого не змінює в git, сховищі чи базах — але `sync` і `verify`
 без `-Apply` усе одно піднімають платформу (хвилина-дві, ліцензія). `dump` — ні: без `-Apply`

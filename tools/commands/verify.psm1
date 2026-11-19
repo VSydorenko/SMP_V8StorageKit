@@ -237,7 +237,7 @@ function Invoke-KitVerify {
                 switch ($verdict) {
                     'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
                     'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; $anyAction = $true }
-                    'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: kit build і unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
+                    'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
                     'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
                 }
 

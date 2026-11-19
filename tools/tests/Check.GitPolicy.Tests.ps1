@@ -64,7 +64,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
 
     # Другий тест не декоративний (брифа задачі): він відрізняє інваріант «артефакт НЕ В GIT» від
     # «файла з таким розширенням НІДЕ немає» — це різні речі. Файл тут ТАКОЖ закомічений (git
-    # ls-files його бачить), просто лежить під workPath/artifacts, куди пише kit build.
+    # ls-files його бачить), просто лежить під workPath/artifacts, куди пише make Уніки.
     It 'Task 1: той самий файл, закомічений УСЕРЕДИНІ build/artifacts/ — check мовчить про build-artifacts' {
         $repo = New-GoodRepo 'build-artifacts-in-place'
         New-Item -ItemType Directory -Force -Path (Join-Path $repo 'Alpha_SMB/build/artifacts') | Out-Null
