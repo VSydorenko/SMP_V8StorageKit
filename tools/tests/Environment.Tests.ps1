@@ -179,8 +179,15 @@ Describe 'check-environment.ps1: Уніка й раннер — обов''язк
             param([string]$Registry, [string]$Runner)
             $a = @('-NoProfile', '-File', $script:CheckScript, '-InstalledPluginsPath', $Registry)
             if ($Runner) { $a += @('-RunnerPath', $Runner) }
-            $out = & pwsh @a 2>&1 | Out-String
-            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+            # Кодування виводу дочірнього процесу — властивість консолі воркера, а не тесту (його виставляють сусідні файли
+            # в тому ж воркері): без явного UTF-8 кирилиця могла прийти OEM-кодуванням, і -BeLike на ній мовчки не збігався.
+            $prevEnc = [Console]::OutputEncoding
+            try {
+                [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                $out = & pwsh @a 2>&1 | Out-String
+                $code = $LASTEXITCODE
+            } finally { [Console]::OutputEncoding = $prevEnc }
+            [pscustomobject]@{ ExitCode = $code; Output = $out }
         }
     }
 

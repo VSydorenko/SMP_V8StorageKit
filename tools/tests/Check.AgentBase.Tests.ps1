@@ -69,6 +69,9 @@ Describe 'kit check — інваріанти репозиторію-спожив
         # memory-theirs: з боку Beta його база лежить в .local/infobases Alpha. З боку Alpha збігу немає: захищена лише її origin.
         $r.Output | Should -BeLike "*Beta_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить у '.local/infobases' воркспейсу 'Alpha_SMB'*"
         $r.Output | Should -Not -BeLike "*Alpha_SMB/v8project.local.yaml: база агента воркспейсу 'Beta_SMB' лежить*"
+        # Наслідок — те, що правда після Task 6: kit нічого не видаляє, шкода в чужій теці й пораді provision.
+        $r.Output | Should -BeLike '*kit створив би чи завантажив базу агента в теку (базу) іншого воркспейсу*порада provision видалити теку бази*'
+        $r.Output | Should -Not -BeLike '*-Force*'
     }
 
     It 'П26 п. 7: база Beta лежить у пам''яті раннера Alpha (.local/infobases/origin) — memory-mine: текст називає пам''ять раннера, а не infobases' {
@@ -114,7 +117,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike "*та сама серверна база (збігаються сервер і Ref)*"
-        $r.Output | Should -BeLike '*(збігаються сервер і Ref) — provision*'
+        $r.Output | Should -BeLike '*(збігаються сервер і Ref) — kit створив би чи завантажив базу агента*'
         ([regex]::Matches($r.Output, 'та сама серверна база')).Count | Should -Be 1
     }
 

@@ -15,6 +15,12 @@ Import-Module "$PSScriptRoot/check.psm1"
 # записана невдовзі після sync, не дала б сигналу НІКОЛИ, бо дата дзеркала вже не зрушить.
 $script:StorageMirrorTolerance = [timespan]::FromSeconds(5)
 
+# Знахідки check про СТАН МАШИНИ (Уніка, її раннер), а не про репозиторій. Сигнали (git, теки сховищ, відбитки) раннера
+# не потребують, тож такі errors не блокують їх обчислення: session-check друкує і сигнали, і ці знахідки. Блокують лише
+# errors репозиторію й конфігу. ЄДИНЕ місце переліку: новий check про стан машини додається сюди, за ідентифікатором
+# знахідки (Check), а не за текстом повідомлення.
+$script:MachineStateChecks = @('runner-version', 'unica-version')
+
 function Invoke-KitSessionCheck {
     <#
     .SYNOPSIS
@@ -54,7 +60,9 @@ function Invoke-KitSessionCheck {
     } catch {
         $checkFindings = @(New-KitFinding -Level error -Check 'check' -Message "check не відпрацював: $($_.Exception.Message)")
     }
-    $checkErrors = @($checkFindings | Where-Object Level -eq 'error')
+    $allErrors = @($checkFindings | Where-Object Level -eq 'error')
+    $checkErrors = @($allErrors | Where-Object { $_.Check -notin $script:MachineStateChecks })   # блокують сигнали
+    $machineErrors = @($allErrors | Where-Object { $_.Check -in $script:MachineStateChecks })    # друкуються поряд із сигналами
     # Недоступне сховище описує сигнал джерела (з порадою про накладку) — check-рядок про той самий шлях опускаємо.
     $checkWarns  = @($checkFindings | Where-Object { $_.Level -eq 'warn' -and $_.Check -ne 'storage-path' })
     # info друкуємо лише з білого списку: check дає info на кожному прогоні (рядок-зведення «Маніфест: …»), і
@@ -74,7 +82,7 @@ function Invoke-KitSessionCheck {
             Write-Host (ConvertTo-Json -InputObject @() -Depth 4)
         } else {
             Write-Host "session-check — $($Context.Kind) $($Context.Label)"
-            foreach ($e in $checkErrors) { Write-Host "[-] $($e.Message)" -ForegroundColor Red }
+            foreach ($e in $allErrors) { Write-Host "[-] $($e.Message)" -ForegroundColor Red }   # і знахідки стану машини: вони теж інформація
             Write-Host 'Сигнали не обчислювались: репозиторій суперечливий — спершу kit check.' -ForegroundColor Red
         }
         return [pscustomobject]@{ ExitCode = 1; CheckFindings = $checkFindings; Signals = @() }
@@ -238,6 +246,7 @@ function Invoke-KitSessionCheck {
         Write-Host (ConvertTo-Json -InputObject $signals.ToArray() -Depth 4)
     } else {
         Write-Host "session-check — $($Context.Kind) $($Context.Label)"
+        foreach ($m in $machineErrors) { Write-Host "[-] $($m.Message)" -ForegroundColor Red }
         foreach ($i in $checkInfos) { Write-Host "[i] $($i.Message)" -ForegroundColor Gray }
         foreach ($w in $checkWarns) { Write-Host "[!] $($w.Message)" -ForegroundColor Yellow }   # warn/info не міняють коду: його визначають сигнали
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }

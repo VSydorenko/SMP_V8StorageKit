@@ -81,7 +81,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         # Той самий сценарій, що я прогнав уручну проти старого $norm: 'File=D:\Bases\SMP_UNF\'
         # (з кінцевим \) і 'File=D:\Bases\SMP_UNF' (без) — та сама тека, текстово різні рядки.
         # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — принцип 3
-        # не спрацював би, і provision -Apply -Force стер би базу людини.
+        # не спрацював би, і provision поклав би базу агента в теку бази людини.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'trailing-slash') -OverlayText "infobases:`n  devUNF:`n    connection: 'File=D:\Bases\SMP_UNF\'"
         Set-KitFakeAgentBase -Repo $repo -Connection 'File=D:\Bases\SMP_UNF'
         $ctx = Invoke-KitPreflight -RepoRoot $repo
@@ -173,7 +173,7 @@ Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичніс�
     }
     It 'Srvr у лапках і без лапок — та сама база (§4.3 п. 4)' {
         # Властивість безпеки: якби лапки робили запис «іншою базою», аудит «база агента ≠ база
-        # людини» пропустив би колізію (мовчазний дозвіл до provision -Apply -Force).
+        # людини» пропустив би колізію (мовчазний дозвіл до provision).
         Test-KitInfobasesOverlap -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref=smp_unf;Srvr=vsdev' | Should -BeTrue
     }
 

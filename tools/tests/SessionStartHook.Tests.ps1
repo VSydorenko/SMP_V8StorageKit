@@ -47,8 +47,11 @@ Describe 'templates/hooks/session-start.ps1 — шим хука SessionStart (§
         $json.hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
         $json.hookSpecificOutput.additionalContext | Should -BeLike '*using-v8storagekit*'
         # Шим -RunnerPath не передає (за дизайном), а фальшивий дім не несе справжнього v8-runner.exe (його не підробити
-        # .cmd: шлях жорстко закінчується на .exe) — тож session-check чесно доповідає «раннер недоступний», а не перелік джерел.
-        $json.hookSpecificOutput.additionalContext | Should -BeLike '*session-check*Раннер Уніки недоступний*'
+        # .cmd: шлях жорстко закінчується на .exe). runner-version — знахідка про СТАН МАШИНИ й сигнали не блокує: у контексті
+        # сесії є і перелік джерел (git, теки сховищ раннера не потребують), і рядок про недоступний раннер.
+        $json.hookSpecificOutput.additionalContext | Should -BeLike '*session-check*- Alpha_SMB:*'
+        $json.hookSpecificOutput.additionalContext | Should -BeLike '*Раннер Уніки недоступний*'
+        $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*Сигнали не обчислювались*'
         $json.hookSpecificOutput.additionalContext | Should -Not -BeLike '*<корінь плагіна>*'
         $json.hookSpecificOutput.additionalContext | Should -BeLike "*$script:KitRoot*"   # без -replace: у -BeLike екран — бектик, не бекслеш (P8)
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
