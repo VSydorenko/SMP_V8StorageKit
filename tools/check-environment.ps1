@@ -71,7 +71,7 @@ $pester = Get-PesterAvailability
 $checks.Add((New-EnvironmentCheck -Name 'Pester 5+' -Category 'Розробка kit' -Ok $pester.Available `
     -Detail $(if ($pester.Available) { "версія $($pester.Version)" } else { $pester.Reason })))
 
-# Уніка й раннер — частина конвеєра (спека 2026-11-19 §4.2 п.4, п.19), а не «вихідники»: без них sync, verify
+# Уніка й раннер — частина конвеєра (§4.2 п.4, п.19), а не «вихідники»: без них sync, verify
 # і provision не працюють. Версія 0.16.x — ok; нижча — помилка; вища — попередження (проходить як Ok).
 
 $unica = Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath

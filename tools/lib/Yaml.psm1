@@ -2,10 +2,9 @@
 Set-StrictMode -Version Latest
 
 # Єдине місце в kit, де відомо, ЯКИМ парсером читається YAML. Рішення (спека §2.4):
-# модуль powershell-yaml із PSGallery — залежність категорії «Конвеєр». Регекс, яким
-# читався v8project.local.yaml до 1.0, не витягне flow-стиль маніфесту
-# (`{ truth: vendor, dump: { from: devUNF } }`), а вендорити YamlDotNet.dll у
-# git-розповсюджуваний плагін означало б бінарник у репозиторії.
+# модуль powershell-yaml із PSGallery — залежність категорії «Конвеєр». Регекс не витягне
+# flow-стиль маніфесту (`{ truth: vendor, dump: { from: devUNF } }`), а вендорити YamlDotNet.dll
+# у git-розповсюджуваний плагін означало б бінарник у репозиторії.
 $script:YamlModuleName  = 'powershell-yaml'
 $script:YamlInstallHint = "Install-Module $script:YamlModuleName -Scope CurrentUser"
 

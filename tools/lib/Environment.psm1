@@ -234,7 +234,7 @@ function Get-PesterAvailability {
     return $result
 }
 
-# Перевірена мінорна версія Уніки (спека 2026-11-19 §4.2 п.4): будь-який патч 0.16.x — норма.
+# Перевірена мінорна версія Уніки (§4.2 п.4): будь-який патч 0.16.x — норма.
 $script:UnicaTestedMinor = [version]'0.16'
 
 function Get-KitUnicaVersionVerdict {

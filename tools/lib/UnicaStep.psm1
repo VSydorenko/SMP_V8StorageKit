@@ -72,7 +72,7 @@ function Get-KitAlignStep {
 
     $set = $Source.Key
     $ws = $Source.Workspace
-    # Виняток стану поставки (спека 0174871) — не зупинка команди: база вже зрушена, агентові потрібен
+    # Виняток стану поставки — не зупинка команди: база вже зрушена, агентові потрібен
     # крок. Рядок друкує спільна Write-KitSupplyStateNotComputed.
     $supply = 'none'
     if ($Source.Type -eq 'CONFIGURATION') {
