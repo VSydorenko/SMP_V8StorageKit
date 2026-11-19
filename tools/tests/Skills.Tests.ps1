@@ -2,7 +2,7 @@
 Describe 'skills/*/SKILL.md — правила, які легко порушити' {
     BeforeAll {
         $script:SkillsDir = (Resolve-Path "$PSScriptRoot/../../skills").Path
-        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')   # migrate немає: спека 2f2da62, §9
+        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'unica-folders')   # migrate немає: спека 2f2da62, §9
         # Лише скіли 1.0. Три старі (storage-pipeline, product-onboarding, repo-migration) живуть у
         # дереві до Task 6 і НЕ мусять проходити ці правила: у них є storage-sync.ps1, dump-config.ps1
         # і перехресні посилання на імена поза $Allowed. Без фільтра весь файл був би червоний із
@@ -146,16 +146,16 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'гітігноровано'
             $t | Should -Match 'мовчазного дефолту немає|Мовчазних дефолтів'
         }
-        It 'шаблон v8project.yaml 0.13: providers designer, без builder/execution_timeout і без бази; база — infobases.origin у блоці local' {
+        It 'v8project.yaml — рецепт Уніки (unica.view {} → setup) плюс providers designer; власного шаблону немає; база — infobases.origin у блоці local' {
+            # Спека 2026-11-19 §3.8 п.1: шаблон kit старів би разом з Унікою; kit дописує лише свої вимоги.
             $t = Skill 'onboarding'
+            $t | Should -Match 'unica\.view \{\}'
+            $t | Should -Match '`setup`'
             $blocks = [regex]::Matches($t, '(?ms)^```yaml\s*\r?\n(.*?)^```') | ForEach-Object { $_.Groups[1].Value }
-            $committed = @($blocks | Where-Object { $_ -match '(?m)^format:\s*DESIGNER' })
-            $committed | Should -HaveCount 1
-            $c = $committed[0]
-            $c | Should -Match '(?m)^providers:\s*$'
-            foreach ($op in 'push', 'pull', 'download') { $c | Should -Match "(?m)^\s+${op}:\s*designer" }
-            $c | Should -Not -Match '(?m)^\s*(builder|execution_timeout|infobase|infobases):'
-            $c | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            @($blocks | Where-Object { $_ -match '(?m)^\s*(format|workPath|source-set):' }) | Should -BeNullOrEmpty -Because 'власного шаблону v8project.yaml у скілі немає'
+            $prov = @($blocks | Where-Object { $_ -match '(?m)^providers:\s*$' })
+            $prov | Should -HaveCount 1
+            foreach ($op in 'push', 'pull', 'download') { $prov[0] | Should -Match "(?m)^\s+${op}:\s*designer\s*$" }
             $local = @($blocks | Where-Object { $_ -match '(?m)^infobases:\s*$' -and $_ -match '(?m)^\s+origin:\s*$' })
             $local | Should -Not -BeNullOrEmpty
             $t.IndexOf('v8project.local.yaml') | Should -BeLessThan $t.IndexOf($local[0]) -Because 'блок бази стоїть після назви файлу, у який його пишуть'
@@ -184,8 +184,10 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             # й тест починає вимагати переходу, якого вже немає (спіймано бампом 1.0.1 → 1.1.0).
             $pluginVersion = [string]((Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.claude-plugin/plugin.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version)
             $pluginVersion | Should -Not -BeNullOrEmpty
-            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike "*$pluginVersion*" `
-                -Because "upgrades.md мусить описувати перехід на версію, яку плагін щойно оголосив ($pluginVersion)"
+            # Заголовок розділу переходу, а не підрядок: голе число трапляється й у прозі («версії 1.5.0
+            # не випускалось»), і тест на підрядок зеленів би без розділу переходу.
+            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -Match ('(?m)^##\s+\d+\.\d+\.\d+\s+→\s+' + [regex]::Escape($pluginVersion) + '\s*$') `
+                -Because "upgrades.md мусить мати розділ переходу на версію, яку плагін щойно оголосив ($pluginVersion)"
         }
     }
 

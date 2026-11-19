@@ -65,24 +65,23 @@ Describe 'templates/githooks — хуки захисту storage/*' {
     }
 }
 
-Describe 'onboarding — шаблон v8project.yaml (Task 6: колишній product-onboarding)' {
+Describe 'onboarding — v8project.yaml за рецептом Уніки (спека 2026-11-19 §3.8 п.1)' {
     BeforeAll {
         $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
             Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
-    It 'шаблон v8project.yaml не оголошує бази агента: вона машинна, у infobases.origin v8project.local.yaml (спека §4.3 п. 2–3)' {
+    It 'бази агента скіл не оголошує в закоміченому файлі: вона машинна, у infobases.origin v8project.local.yaml (спека 1.5.0 §4.3 п. 2–3)' {
         $script:Skill | Should -Not -Match "(?m)^\s*infobase:\s*$"
-        $script:Skill | Should -Match "(?m)^\s*providers:\s*$"
-        $script:Skill | Should -Match "connection:\s*'File=build/ib'"   # тепер — у блоці v8project.local.yaml розділу 3.2.1
+        $script:Skill | Should -Match "connection:\s*'File=build/ib'"   # у блоці v8project.local.yaml розділу 3.2
     }
 
-    It 'імʼя EXTENSION-джерела — реальне ім''я розширення, не ім''я теки продукту' {
+    It 'імʼя EXTENSION-набору — реальне ім''я розширення: kit дописує його до рецепта Уніки' {
         # v8-runner виводить імʼя розширення з імені source-set. Якщо там імʼя теки
-        # продукту, operation=make падає на валідації:
+        # продукту, make падає на валідації:
         #   source-set 'X' resolves to extension 'X', expected 'SMP_X'
-        $script:Skill | Should -Not -Match "(?m)^\s*-\s*name:\s*<Продукт>\s*$"
-        $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<ІмʼяРозширення>\s*$"
+        $script:Skill | Should -Match 'unica\.view \{\}'
+        $script:Skill | Should -Match '<ІмʼяРозширення>'
         $script:Skill | Should -Match 'name:.*мусить дорівнювати імені розширення'
     }
 }

@@ -29,6 +29,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 | «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply]` |
 | «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
 | «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit.ps1 check`, `kit.ps1 install-hooks [-Apply]` |
+| Уніка не бачить потрібної теки (немає в `unica.view {}`, тека поза сесією) | `v8storagekit:unica-folders` | — |
 
 Окремої команди чи скіла для переходу зі старої схеми немає навмисно: обидві вхідні форми —
 порожній репозиторій і gitsync-вивантаження сховища — веде `onboarding`; `storage.json` —
