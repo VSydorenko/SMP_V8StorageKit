@@ -60,11 +60,12 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*[!]*артефакти збірки*Foo.epf*'
         $r.Output | Should -BeLike '*git rm --cached*'
+        $r.Output | Should -BeLike '*тека Alpha_SMB/build/ воркспейсу*'
     }
 
     # Другий тест не декоративний (брифа задачі): він відрізняє інваріант «артефакт НЕ В GIT» від
     # «файла з таким розширенням НІДЕ немає» — це різні речі. Файл тут ТАКОЖ закомічений (git
-    # ls-files його бачить), просто лежить під workPath/artifacts, куди пише make Уніки.
+    # ls-files його бачить), просто лежить під <воркспейс>/workPath/ (аудит приймає всю цю теку), куди пише make Уніки.
     It 'Task 1: той самий файл, закомічений УСЕРЕДИНІ build/artifacts/ — check мовчить про build-artifacts' {
         $repo = New-GoodRepo 'build-artifacts-in-place'
         New-Item -ItemType Directory -Force -Path (Join-Path $repo 'Alpha_SMB/build/artifacts') | Out-Null
