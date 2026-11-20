@@ -37,9 +37,8 @@ function Invoke-KitMainMerge {
         Write-Host "  Гілки '$Into' ще немає — злиття пропущено. Створіть її (перший коміт) і повторіть: $retry" -ForegroundColor Yellow
         return $false
     }
-    # Запобіжник (§6.3.4): ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка (master
-    # gitsync-репозиторію до переходу). Там злиття проходить чисто й кладе Designer-дерево ДО
-    # коміту конверсії — зворотний порядок, що обнуляє git blame (§9.2).
+    # Запобіжник (§6.3.4): ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка:
+    # злиття пройде чисто, але покладе дерево на гілку, де kit не підключено.
     if (-not (Test-KitBranchMergedInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into)) {
         git -C $Context.RepoRoot cat-file -e "${Into}:v8storagekit.yaml" 2>$null
         if ($LASTEXITCODE -ne 0) {

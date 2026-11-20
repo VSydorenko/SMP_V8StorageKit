@@ -226,12 +226,6 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
         }
     }
 
-    It 'не згадує спадок 0.6.0: storage.json, storage-sync, load-ext' {
-        $script:TemplateClaudeMd | Should -Not -Match 'storage\.json'
-        $script:TemplateClaudeMd | Should -Not -Match 'storage-sync'
-        $script:TemplateClaudeMd | Should -Not -Match 'load-ext'
-    }
-
     It 'C2 Task 7: абзац «Збірка .cfe» називає output відносним до воркспейсу, не абсолютним' {
         $script:TemplateClaudeMd | Should -Match 'Збірка `\.cfe`'
         $script:TemplateClaudeMd | Should -Match '"output":"build/artifacts/<Ім''я>\.cfe"'

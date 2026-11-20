@@ -44,7 +44,6 @@ Authors
 V8
 StorageReport
 StoragePlatform
-EdtPaths
 Runner
 # == процес ==
 # Розділ команд процесу (sdd, review-pack, doc, pr-gate, …). tools/kit-process.ps1 імпортує ЛИШЕ

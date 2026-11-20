@@ -75,27 +75,9 @@ function Invoke-KitPreflight {
     $ctx.ManifestPath = Join-Path $root $script:ManifestFileName
 
     if (-not (Test-Path -LiteralPath $ctx.ManifestPath -PathType Leaf)) {
-        # Стара конвенція 0.6.0 клала storage.json у підтеку продукту: такий репозиторій має все для
-        # маніфесту, просто не в тому файлі, — check розрізняє цей стан і веде в v8storagekit:onboarding.
-        # Пошук навмисно неглибокий (лише підтеки кореня): дерево може бути великим.
-        $legacyDirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'storage.json') -PathType Leaf })
-        if ($legacyDirs.Count -gt 0) {
-            & $fail 'manifest' (
-                "Маніфест $script:ManifestFileName не знайдено в $root, але в підтеках є storage.json " +
-                "($(($legacyDirs.Name | Sort-Object) -join ', ')) — це репозиторій старої конвенції 0.6.0. " +
-                'Правильний шлях — скіл v8storagekit:onboarding: він зупиниться й спитає, як діяти ' +
-                '(skills/onboarding/references/gitsync-migration.md, розділ «Спадок 0.6.0: якщо ' +
-                'storage.json трапився поза парком»).')
-            return $ctx
-        }
-
-        # Інша вхідна форма — gitsync-вивантаження з ознакою DT-INF/ без storage.json. У парку DT-INF/
-        # трапляється в корені, на глибині 1 і 2 (окремо cf/DT-INF і cfe/DT-INF), тож шукаємо в корені й
-        # на двох рівнях підтек. Глибина навмисно ОБМЕЖЕНА: поруч можуть бути десятки тисяч .mdo, а
-        # префлайт іде на КОЖНІЙ команді kit; на кожному рівні — лише Test-Path одного імені.
-        # Текст каже лише, ЩО ВИДНО (EDT-формат із DT-INF/), не походження: його встановлює проба
-        # сховища в v8storagekit:onboarding.
+        # Вихідники у форматі EDT (ознака — DT-INF/) kit не підтримує. Шукаємо в корені й на двох рівнях
+        # підтек: глибина навмисно ОБМЕЖЕНА (дерево може бути величезним, а префлайт іде на КОЖНІЙ
+        # команді kit); на кожному рівні — лише Test-Path одного імені.
         $dtInfSearchRoots = [System.Collections.Generic.List[string]]::new()
         $dtInfSearchRoots.Add($root)
         $level1Dirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)
@@ -112,10 +94,8 @@ function Invoke-KitPreflight {
             } | Sort-Object)
         if ($dtInfFound.Count -gt 0) {
             & $fail 'manifest' (
-                "Маніфест $script:ManifestFileName не знайдено в $root, але знайдено DT-INF/ без storage.json " +
-                "($($dtInfFound -join ', ')) — дерево у EDT-форматі з DT-INF/, маніфесту немає. DT-INF/ доводить " +
-                'лише ФОРМАТ дерева, не походження — яке сховище за ним стоїть, якщо взагалі стоїть, ' +
-                "з'ясовує сам скіл v8storagekit:onboarding (skills/onboarding/SKILL.md §1): він показує знайдене й питає.")
+                "Вихідники у форматі EDT kit не підтримує ($($dtInfFound -join ', ')): перетворіть їх операцією " +
+                '`convert` раннера Уніки або вивантажте сховище наново.')
             return $ctx
         }
         # Це перше й часто ЄДИНЕ повідомлення, яке бачить новий споживач: пряма дія (і як знайти теку

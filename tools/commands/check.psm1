@@ -264,8 +264,7 @@ function Invoke-KitCheck {
                     }
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: тека поставки вендора '$supplyRel/' не гітігнорована — .cf на сотні МБ потрапив би в git " +
-                            "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/' " +
-                            '(оновлення до kitVersion 1.3.0 — скіл v8storagekit:onboarding, references/upgrades.md).')
+                            "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/'.")
                     } elseif ($code -gt 1) { & $add error gitignore "$tag`: git check-ignore завершився з кодом $code." }
                 }
                 $trackedSupply = @(git -c core.quotepath=false -C $root ls-files -- $supplyRel 2>$null)

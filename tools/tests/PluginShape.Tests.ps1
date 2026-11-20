@@ -12,7 +12,7 @@ BeforeAll {
     # тест падає: перелік не гниє); нові скіли й усе поза переліком — фейл.
     $script:KnownViolators = @(
         foreach ($s in 'dump', 'finish', 'onboarding', 'provision', 'reconcile', 'unica-folders', 'verify', 'using-v8storagekit') { @{ Skill = $s; Check = 'description' } }
-        foreach ($s in 'onboarding', 'sync', 'provision', 'using-v8storagekit') { @{ Skill = $s; Check = 'skill-size' } }
+        foreach ($s in 'onboarding', 'provision', 'using-v8storagekit') { @{ Skill = $s; Check = 'skill-size' } }
     )
 
     # Класифікація знахідок перевірки $Check (рядки на кшталт «skills/ІМ'Я/SKILL.md — …») за переліком

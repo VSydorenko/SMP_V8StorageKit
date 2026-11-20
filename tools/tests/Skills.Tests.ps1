@@ -65,10 +65,8 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             }
         }
     }
-    It 'жодних згадок вилучених скриптів і storage.json (крім onboarding, який читає спадок 0.6.0)' {
-        # onboarding — єдиний, кому storage.json дозволено згадувати: він бере звідти підказки для
-        # двох перехідних репозиторіїв (B6). Після їх переходу розділ і цей виняток вилучаються.
-        foreach ($s in ($script:Skills | Where-Object { $_.Name -notin @('onboarding') })) {
+    It 'жодних згадок вилучених скриптів' {
+        foreach ($s in $script:Skills) {
             $s.Text | Should -Not -Match 'storage-sync\.ps1|dump-config\.ps1|load-ext\.ps1|build\.ps1' -Because "у $($s.Name)"
         }
     }
