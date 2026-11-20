@@ -1,0 +1,3 @@
+# v8storagekit: гітігноровані файли, що копіюються в кожен новий worktree
+.claude/settings.local.json
+.agents/kit.profile.local.json
