@@ -63,7 +63,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         git -C $repo branch 'storage/Alpha_SMB' 2>&1 | Out-Null
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*v8storagekit:provision*'
+        $r.Output   | Should -BeLike '*v8storagekit:infobase-agent*'
         Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
     }
 
@@ -574,7 +574,7 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         $script:Storage = 'R:\СховищаРозширень_1С\СМП_BankExchange_SMB'
         $ws = [ordered]@{ 'SMP_BankExchange_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'SMP_BankExchange_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
-        $manifest = @('version: 1', 'kitVersion: 1.0.1', 'product: BankExchange', 'workspaces:', '  - path: SMP_BankExchange_SMB', '    sources:',
+        $manifest = @('version: 1', 'product: BankExchange', 'workspaces:', '  - path: SMP_BankExchange_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: devUNF } }',
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore

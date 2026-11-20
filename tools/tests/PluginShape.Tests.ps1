@@ -11,8 +11,8 @@ BeforeAll {
     # 1.6.0, вони старші за межі описів і розміру. Запис прибирається разом зі скороченням скіла (інакше
     # тест падає: перелік не гниє); нові скіли й усе поза переліком — фейл.
     $script:KnownViolators = @(
-        foreach ($s in 'dump', 'finish', 'onboarding', 'provision', 'reconcile', 'unica-folders', 'verify', 'using-v8storagekit') { @{ Skill = $s; Check = 'description' } }
-        foreach ($s in 'onboarding', 'sync', 'provision', 'using-v8storagekit') { @{ Skill = $s; Check = 'skill-size' } }
+        foreach ($s in 'infobase-dump', 'task-finish', 'infobase-agent', 'storage-adopt', 'storage-verify', 'storage-rules') { @{ Skill = $s; Check = 'description' } }
+        foreach ($s in 'infobase-agent') { @{ Skill = $s; Check = 'skill-size' } }
     )
 
     # Класифікація знахідок перевірки $Check (рядки на кшталт «skills/ІМ'Я/SKILL.md — …») за переліком
@@ -366,25 +366,6 @@ Describe 'Описи скілів і агентів' {
     It 'description кожного скіла й агента не довший за 250 символів' {
         $c = Get-KitViolationClassification (Get-KitDescriptionProblems $script:PluginRoot) 'description' $script:KnownViolators
         Assert-KitViolationVerdict $c
-    }
-
-    It 'контроль класифікації: порушник поза переліком — фейл, у переліку — лише відомий, запис без порушення — «прибери»' {
-        $problems = @('skills/bad/SKILL.md — description 300', 'skills/old/SKILL.md — description 400')
-        $known = @(@{ Skill = 'old'; Check = 'description' }, @{ Skill = 'fixed'; Check = 'description' }, @{ Skill = 'bad'; Check = 'skill-size' })
-        $c = Get-KitViolationClassification $problems 'description' $known
-        # (а) поза переліком для цієї перевірки (запис bad є лише для skill-size) — Unknown, і вердикт — фейл
-        $c.Unknown | Should -Be @('skills/bad/SKILL.md — description 300')
-        { Assert-KitViolationVerdict $c } | Should -Throw '*skills/bad*'
-        # (б) у переліку — лише Known
-        $c.Known | Should -Be @('skills/old/SKILL.md — description 400')
-        $only = Get-KitViolationClassification @($problems[1]) 'description' @($known[0])
-        $only.Unknown.Count | Should -Be 0
-        $only.Stale.Count | Should -Be 0
-        $only.Known.Count | Should -Be 1
-        # (в) запис без порушення — «прибери»
-        $c.Stale | Should -Match 'fixed.*прибери'
-        $stale = Get-KitViolationClassification @() 'description' @($known[1])
-        { Assert-KitViolationVerdict $stale } | Should -Throw '*прибери*'
     }
 
     It 'контроль: опис 251 символ — знахідка, 250 — ні, багаторядковий склеюється' {

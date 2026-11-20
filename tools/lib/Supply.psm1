@@ -147,7 +147,7 @@ function Get-KitSupplyRecipe {
             "перейдіть на ${MainBranch} і виконайте там kit verify -Source $SourceKey, далі — надруковане ним; потім поверніться на гілку задачі." + $onboarding
     }
     if ($Purpose -eq 'check') {
-        return $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте), база агента є (інакше v8storagekit:provision): " +
+        return $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте), база агента є (інакше v8storagekit:infobase-agent): " +
             "kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією зі сховища — merge-base) → виконати його зупинку поставки." + $onboarding
     }
     $pull = 'unica.run ' + ([ordered]@{ op = 'pull'; args = [ordered]@{ sourceSet = $SourceKey; force = $true }; dryRun = $true } | ConvertTo-Json -Compress -Depth 5)

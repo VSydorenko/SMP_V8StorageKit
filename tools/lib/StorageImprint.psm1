@@ -54,7 +54,7 @@ function Write-KitStorageImprint {
     # Ключ джерела приходить із маніфесту БЕЗ перевірки на шляхоподібність, тож '..' у ключі вивів би
     # відбиток за межі build/session-check. Перевірка — ПЕРЕД зверненням до сховища (дешева першою).
     $path = Get-KitStorageImprintPath -RepoRoot $RepoRoot -Key $Key
-    Assert-SafeWorkPath -Path $path -MustBeUnder (Join-Path $RepoRoot 'build/session-check') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description "відбиток сховища $Key"
+    Assert-KitBuildPath -Path $path -MustBeUnder (Join-Path $RepoRoot 'build/session-check') -RepoRoot $RepoRoot -Description "відбиток сховища $Key"
 
     $activity = Get-KitStorageActivity -StoragePath $StoragePath
     New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null

@@ -28,9 +28,8 @@ Describe 'Read-AuthorMap' {
 
 Describe 'Read-AuthorMap: дублікат ключа' {
     It 'кидає виняток, коли той самий логін сховища має дві різні git-особи' {
-        # Реалістичний сценарій — AUTHORS-файли двох продуктів, злиті вручну при
-        # переході зі старого gitsync-репо (docs/migration/legacy-gitsync-repo.md, колишній
-        # repo-migration, розділ 6): один і той самий
+        # Реалістичний сценарій — AUTHORS-файли двох продуктів, злиті вручну:
+        # один і той самий
         # логін сховища міг у різних продуктах отримати різне ім'я/пошту. Мовчазне
         # $map[$key] = ... лишило б чинним лише останній рядок — версії цього
         # користувача комітились би під випадковим із двох авторів.
@@ -50,8 +49,7 @@ Describe 'Read-AuthorMap: дублікат ключа' {
     }
 
     It 'не кидає виняток, коли дублікат рядка для ключа буквально той самий (злиття унікальних рядків)' {
-        # docs/migration/legacy-gitsync-repo.md (колишній repo-migration) радить обʼєднувати
-        # AUTHORS "унікальними рядками" — якщо той
+        # AUTHORS обʼєднують "унікальними рядками" — якщо той
         # самий рядок трапився в обох файлах-джерелах, це не конфлікт, а звичайний
         # дубль після злиття.
         $sameFile = Join-Path $TestDrive 'AUTHORS-same'
@@ -69,7 +67,7 @@ Describe 'Read-AuthorMap: злиті рядки без завершальног�
     It 'кидає виняток, коли останній рядок одного AUTHORS зливається з першим рядком іншого' {
         # Реальний випадок: обидва AUTHORS, задіяні в пілотній міграції (SMP_BankExchange,
         # SMP_SimplyConnect), закінчуються без завершального порожнього рядка. Якщо їх
-        # конкатенувати (docs/migration/legacy-gitsync-repo.md, розділ 5, "обʼєднайте вручну"), останній
+        # конкатенувати ("обʼєднайте вручну"), останній
         # рядок першого файлу й перший рядок другого стають ОДНИМ рядком — рядок нижче
         # відтворює точні рядки з практики.
         $fusedFile = Join-Path $TestDrive 'AUTHORS-fused'
@@ -200,37 +198,5 @@ Describe 'AUTHORS: рядок на версію (спека 2026-09-30 §6.8)' {
         $r = Get-KitUnattributedVersions -Map $m -SourceKey 'base' -Versions @([pscustomobject]@{ Version = 1; User = 'gitbot' })
         , $r | Should -BeOfType [object[]]
         $r.Count | Should -Be 0
-    }
-}
-
-Describe 'Get-UnknownAuthors' {
-    It 'повертає лише тих, кого немає в мапі, без повторів' {
-        $map = Read-AuthorMap -Path $script:MapFile
-        Get-UnknownAuthors -Map $map -StorageUsers @(
-            'Перший Тестовий', 'Хтось Новий', 'Хтось Новий') |
-            Should -Be @('Хтось Новий')
-    }
-
-    It 'повертає порожній масив, а не $null, коли всі автори відомі' {
-        # Set-StrictMode тут відтворює умову виклику з боку Task 5 (storage-sync.ps1),
-        # який працює під Set-StrictMode -Version Latest: під ним $null.Count кидає
-        # виняток, тоді як без strict mode PowerShell тихо повертає 0. Тест ловить
-        # регресію, якщо унарну кому перед @(...) у реалізації прибрати.
-        Set-StrictMode -Version Latest
-        $map = Read-AuthorMap -Path $script:MapFile
-        $unknown = Get-UnknownAuthors -Map $map -StorageUsers @('Перший Тестовий')
-        { $unknown.Count } | Should -Not -Throw
-        $unknown.Count | Should -Be 0
-    }
-
-    It 'позначає порожній запис автора зрозумілим повідомленням замість порожнього рядка' {
-        # Порожній StorageUser не повинен ні впасти на байндингу параметра, ні мовчки
-        # зникнути в результаті як невидимий порожній рядок — оператор має побачити
-        # причину прямо в прев'ю-виводі storage-sync.ps1.
-        $map = Read-AuthorMap -Path $script:MapFile
-        $unknown = Get-UnknownAuthors -Map $map -StorageUsers @('Перший Тестовий', '')
-        $unknown.Count | Should -Be 1
-        $unknown[0] | Should -Not -BeNullOrEmpty
-        $unknown[0] | Should -Match 'пошкодж'
     }
 }

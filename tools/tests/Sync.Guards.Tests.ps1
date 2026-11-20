@@ -45,7 +45,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
     }
 
     It 'джерело truth: storage на EXTERNAL_DATA_PROCESSORS — зупинка (сховища для обробок не буває)' {
-        $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', "      tools: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
+        $text = @('version: 1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', "      tools: { truth: storage, storage: { path: '$TestDrive' } }") -join "`n"
         $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ext-proc') -Workspaces $ws -ManifestText $text -WithHooks
         $r = Invoke-Sync -Repo $repo
@@ -85,7 +85,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*v8storagekit:provision*'
+        $r.Output   | Should -BeLike '*v8storagekit:infobase-agent*'
         (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }
@@ -117,6 +117,6 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
         $r.Output   | Should -BeLike '*Alpha_SMB*'
-        $r.Output   | Should -BeLike '*Alpha_SMB*не налаштована*v8storagekit:provision*'
+        $r.Output   | Should -BeLike '*Alpha_SMB*не налаштована*v8storagekit:infobase-agent*'
     }
 }

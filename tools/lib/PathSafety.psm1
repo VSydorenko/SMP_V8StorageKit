@@ -6,7 +6,7 @@ function Assert-SafeWorkPath {
     .SYNOPSIS
         Зупиняє видалення/створення за шляхом, який не є свідомо звуженою підтекою.
     .DESCRIPTION
-        Спільний запобіжник перед кожним рекурсивним видаленням у tools/: storage.json
+        Спільний запобіжник перед кожним рекурсивним видаленням у tools/: маніфест
         пишеться вручну при підключенні продукту, і його поле sourcePath доходить до
         Join-Path і далі до Remove-Item -Recurse -Force без жодної перевірки. Порожній
         sourcePath ("") робить Join-Path $productPath "" рівним самому $productPath —
@@ -19,7 +19,7 @@ function Assert-SafeWorkPath {
         - $Path порожній або складається лише з пробілів;
         - $Path містить сегмент ".." (перевіряється на сирому рядку, до нормалізації —
           GetFullPath згорнув би ".." непомітно, а сама наявність такого сегмента в
-          закомодженому storage.json чи в аргументі скрипта підозріла незалежно від
+          закомодженому маніфесті чи в аргументі скрипта підозріла незалежно від
           того, чи виводить він за межу після згортання);
         - нормалізований $Path не є ВЛАСНЕ підтекою $MustBeUnder (рівність з межею —
           саме той порожній-sourcePath випадок — теж відхиляється, не тільки вихід за неї);
@@ -165,4 +165,22 @@ function Remove-KitDirectory {
     }
 }
 
-Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory, Get-KitDirectoryEntriesNoLinks
+function Assert-KitBuildPath {
+    <#
+    .SYNOPSIS
+        Assert-SafeWorkPath з єдиним коренем власності build/ репозиторію (П25).
+    .DESCRIPTION
+        Межа -MustBeUnder — як в Assert-SafeWorkPath; -OwnedRoot завжди <RepoRoot>/build, тож посиланням
+        дозволено бути лише самій теці build/. Семантику перевірки не змінює.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [Parameter(Mandatory)][string]$Description,
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
+    Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description $Description
+}
+
+Export-ModuleMember -Function Assert-SafeWorkPath, Assert-KitBuildPath, Remove-KitDirectory, Get-KitDirectoryEntriesNoLinks

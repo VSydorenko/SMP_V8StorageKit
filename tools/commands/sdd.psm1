@@ -283,7 +283,7 @@ function Get-SddNextCommand {
         if (-not (Test-KitSddDone $r)) { return Get-SddNextFor $C $r }
     }
     # Усі задачі завершено: далі фінальна рецензія всієї гілки, а не одразу close.
-    "review-pack -Branch, потім скіл v8storagekit:landed-review на цьому пакеті; після його виправлень: $(Get-SddCmd $C 'close')"
+    "review-pack -Branch, потім скіл v8storagekit:review на цьому пакеті; після його виправлень: $(Get-SddCmd $C 'close')"
 }
 
 function Add-SddRow {
@@ -678,7 +678,7 @@ function Invoke-SddFix {
     # Повторний security-major на тій самій зоні: незалежна модель до наступного раунду (не блокує).
     $lastFix = if ($r.Fixes.Count) { $r.Fixes[$r.Fixes.Count - 1] } else { $null }
     if ($lastFix -and [regex]::IsMatch([string]$lastFix.Note, '^security:', 'IgnoreCase')) {
-        Out-Sdd 'підказка: попередній раунд мав нотатку "security:" — до цього раунду зроби незалежний аудит цієї зони скілом codex-companion (якщо він є на машині); перевір кожну знахідку й внеси підтверджені в бриф раунду'
+        Out-Sdd 'підказка: попередній раунд мав нотатку "security:" — до цього раунду зроби незалежний аудит цієї зони скілом v8storagekit:codex-audit (якщо на машині налаштовано Codex CLI); перевір кожну знахідку й внеси підтверджені в бриф раунду'
     }
     Write-KitNext (Get-SddCmd $C "watch $N")
 }

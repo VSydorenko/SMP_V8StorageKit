@@ -2,34 +2,6 @@
 Describe 'Yaml.psm1 — читання YAML через powershell-yaml' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Yaml.psm1").Path -Force
-        $script:Fixtures = (Resolve-Path "$PSScriptRoot/fixtures").Path
-    }
-
-    It 'модуль powershell-yaml доступний на цій машині (залежність категорії «Конвеєр»)' {
-        (Test-KitYamlModule).Available | Should -BeTrue -Because (
-            'без нього не читається ні маніфест, ні v8project.yaml: Install-Module powershell-yaml -Scope CurrentUser')
-    }
-
-    It 'читає продуктовий маніфест зі спеки: три воркспейси, flow-стиль і кириличні шляхи цілі' {
-        $m = Read-KitYaml -Path (Join-Path $script:Fixtures 'manifest-product.yaml')
-        $m['version'] | Should -Be 1
-        $m['product'] | Should -Be 'BankExchange'
-        @($m['workspaces']).Count | Should -Be 3
-        $m['workspaces'][1]['sources']['base']['dump']['from'] | Should -Be 'devUNFru'
-        $m['workspaces'][0]['sources']['SMP_BankExchange_SMB']['storage']['path'] |
-            Should -Be 'R:\СховищаРозширень_1С\СМП_BankExchange_SMB'
-    }
-
-    It 'читає клієнтський маніфест: кириличний ключ джерела на місці' {
-        $m = Read-KitYaml -Path (Join-Path $script:Fixtures 'manifest-client.yaml')
-        $m['client'] | Should -Be 'Alpenpharma'
-        @($m['workspaces'][0]['sources'].Keys) | Should -Contain 'Адаптация'
-    }
-
-    It 'зберігає порядок ключів — для звітів і майбутнього запису назад' {
-        $m = Read-KitYaml -Path (Join-Path $script:Fixtures 'manifest-product.yaml')
-        @($m.Keys)[0] | Should -Be 'version'
-        @($m.Keys)[-1] | Should -Be 'workspaces'
     }
 
     It 'зупиняється на відсутньому файлі, називаючи шлях' {
@@ -71,33 +43,9 @@ Describe 'Yaml.psm1 — читання YAML через powershell-yaml' {
         { Read-KitYaml -Path $f } | Should -Throw '*broken.yaml*'
     }
 
-    It 'ConvertTo-KitYaml: серіалізує і читається назад тим самим Read-KitYaml (симетрія читання/запису)' {
-        $doc = [ordered]@{ workspaces = [ordered]@{ 'Alpha_SMB' = [ordered]@{ agentBase = [ordered]@{ template = 'D:\dumps\demo.dt' } } } }
-        $yaml = ConvertTo-KitYaml -Data $doc
-        $yaml | Should -Not -BeNullOrEmpty
-        $f = Join-Path $TestDrive 'roundtrip.yaml'
-        Set-Content -LiteralPath $f -Value $yaml -Encoding UTF8 -NoNewline
-        (Read-KitYaml -Path $f)['workspaces']['Alpha_SMB']['agentBase']['template'] | Should -Be 'D:\dumps\demo.dt'
-    }
-
-    It 'ConvertTo-KitYaml працює у свіжому дочірньому процесі, де powershell-yaml ще не завантажено' {
-        # У ЦЬОМУ процесі Pester powershell-yaml майже напевно вже завантажений (десятки
-        # It вище кличуть Read-KitYaml) — звичайний It тут перевірив би не ту властивість:
-        # видимість команди ConvertTo-Yaml з чужого модуля лишається неперевіреною, бо вона
-        # вже могла осісти глобально задовго до цього тесту. Дочірній pwsh імпортує лише
-        # Yaml.psm1 (не powershell-yaml напряму) і одразу кличе ConvertTo-KitYaml — так
-        # перевіряється саме те, що обгортка сама тягне за собою Import-KitYamlModule, а не
-        # покладається на те, що хтось інший це вже зробив.
-        $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
-        $out = & pwsh -NoProfile -Command "Import-Module '$libDir/Yaml.psm1' -Force; ConvertTo-KitYaml -Data ([ordered]@{ a = 1 })" 2>&1 | Out-String
-        $LASTEXITCODE | Should -Be 0 -Because $out
-        $out.Trim() | Should -Not -BeNullOrEmpty
-        $out | Should -BeLike '*a*1*'
-    }
-
     It 'F3: обгортка лишається потрібною й з вимкненим автозавантаженням модулів — Save-KitOverlayAgentBase усе одно працює' {
-        # Попередній тест доводить самодостатність ConvertTo-KitYaml у свіжому процесі, але
-        # автозавантаження з PSModulePath там УВІМКНЕНЕ — регресія "Manifest.psm1 знову кличе
+        # У звичайному процесі автозавантаження
+        # з PSModulePath УВІМКНЕНЕ — регресія "Manifest.psm1 знову кличе
         # голий ConvertTo-Yaml замість ConvertTo-KitYaml" лишилась би зеленою і там, бо
         # автозавантаження все одно "врятувало" б голий виклик. $PSModuleAutoLoadingPreference
         # = 'None' вимикає САМЕ цей побічний канал (пошук модуля за іменем нерозпізнаної

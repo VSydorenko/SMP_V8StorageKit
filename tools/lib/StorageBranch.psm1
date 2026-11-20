@@ -8,16 +8,9 @@ Import-Module "$PSScriptRoot/CaseGuard.psm1"
 # Get-KitCurrentBranch. module-order ставить StorageBranch раніше за TreeCompare, тож імпорт вкладений (як у GitMerge).
 Import-Module "$PSScriptRoot/TreeCompare.psm1"
 
-$script:BranchPrefix = 'storage/'
 # Поріг, після якого зупинка на -FromVersion поза звітом показує лише мінімум/максимум, а не
 # повний перелік — на сховищі із сотнями версій інакше рядок на тисячі символів.
 $script:ManyVersionsThreshold = 20
-
-function Get-KitStorageBranchName {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$SourceKey)
-    "$script:BranchPrefix$SourceKey"
-}
 
 function Test-KitBranchExists {
     [CmdletBinding()]
@@ -399,7 +392,7 @@ function New-KitStorageWorktree {
         [Parameter(Mandatory)][string]$Path
     )
 
-    Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'worktree гілки дзеркала'
+    Assert-KitBuildPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -Description 'worktree гілки дзеркала'
 
     if (Test-Path -LiteralPath $Path) {
         git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
@@ -442,27 +435,13 @@ function Remove-KitStorageWorktree {
     git -C $RepoRoot worktree remove --force $Path 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree remove '$Path' завершився кодом ${LASTEXITCODE} — перевіряю теку напряму." }
     if (Test-Path -LiteralPath $Path) {
-        try { Assert-SafeWorkPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'worktree гілки дзеркала'; Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
+        try { Assert-KitBuildPath -Path $Path -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -Description 'worktree гілки дзеркала'; Remove-KitDirectory -Path $Path } catch { Write-Verbose "Прибирання worktree '$Path' не вдалось: $($_.Exception.Message)" }
         if (Test-Path -LiteralPath $Path) {
             Write-Warning "Не вдалося прибрати worktree '$Path' — приберіть вручну (git worktree remove --force) перед наступним sync."
         }
     }
     git -C $RepoRoot worktree prune 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning "git worktree prune завершився кодом ${LASTEXITCODE} — застарілі реєстрації worktree могли не прибратись." }
-}
-
-function Clear-KitWorktreeSource {
-    <#
-    .SYNOPSIS
-        Порожня тека <wt>/<RepoPath> під дамп версії: /DumpConfigToFiles не видаляє зниклих об'єктів.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$WorktreePath, [Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$RepoRoot)
-    $target = Join-Path $WorktreePath $RepoPath
-    Assert-SafeWorkPath -Path $target -MustBeUnder $WorktreePath -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тека джерела у worktree'
-    Remove-KitDirectory -Path $target
-    New-Item -ItemType Directory -Path $target -Force | Out-Null
-    (Resolve-Path -LiteralPath $target).Path
 }
 
 function Write-KitStorageVersion {
@@ -517,8 +496,8 @@ function Write-KitStorageVersion {
         # Індекс піддерева — наново з того, що вивантажила платформа (§4.1). Без
         # цього `add -A` при core.ignorecase=true лишає запис старого регістру: git складає регістр
         # лише ASCII (memihash), а lstat старого шляху на NTFS успішний — кирилична зміна регістру
-        # дає фантом поруч із новим шляхом, ASCII — губить новий регістр. Clear-KitWorktreeSource
-        # уже лишив на диску рівно дамп, тож нічого живого цим не втрачається.
+        # дає фантом поруч із новим шляхом, ASCII — губить новий регістр. Дамп платформи
+        # уже лишив у теці рівно дамп (стару теку знесено перед ним), тож нічого живого цим не втрачається.
         $rmOut = git -C $WorktreePath rm -r -q --cached --ignore-unmatch -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git rm --cached у worktree завершився з кодом ${LASTEXITCODE}: $($rmOut -join "`n")" }
 
@@ -601,4 +580,4 @@ function Get-KitCommitSha {
     (@($out) -join '').Trim()
 }
 
-Export-ModuleMember -Function Get-KitStorageBranchName, Test-KitBranchExists, Test-KitBranchUnborn, Get-KitStorageActivity, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Clear-KitWorktreeSource, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion
+Export-ModuleMember -Function Test-KitBranchExists, Test-KitBranchUnborn, Get-KitStorageActivity, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion

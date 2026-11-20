@@ -187,7 +187,7 @@ function Get-V8ProjectConfigProblems {
                 if ($data['infobases'].Contains('origin')) {
                     $o = $data['infobases']['origin']
                     if ($o -isnot [System.Collections.IDictionary] -or -not $o.Contains('connection') -or [string]::IsNullOrWhiteSpace([string]$o['connection'])) {
-                        $problems.Add("${p}: infobases.origin без connection — база агента оголошена, але не описана. Допишіть connection: 'File=build/ib' (файлова) або 'Srvr=…;Ref=…;' (серверна) — скіл v8storagekit:provision.")
+                        $problems.Add("${p}: infobases.origin без connection — база агента оголошена, але не описана. Допишіть connection: 'File=build/ib' (файлова) або 'Srvr=…;Ref=…;' (серверна) — скіл v8storagekit:infobase-agent.")
                     }
                 }
             }

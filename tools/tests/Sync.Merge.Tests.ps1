@@ -108,18 +108,18 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
-    It '-MergeInto гілка без v8storagekit.yaml (gitsync-master) — злиття не виконується, код 2, гілка не зрушила' {
+    It '-MergeInto гілка без v8storagekit.yaml (чужа гілка) — злиття не виконується, код 2, гілка не зрушила' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-legacy') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-into-legacy-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
             -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
-        # Гілка без маніфесту — так виглядає master gitsync-репозиторію до переходу (#15).
+        # Гілка без маніфесту — не та гілка, куди зливати (#15).
         git -C $repo checkout -q --orphan legacy 2>&1 | Out-Null
         git -C $repo rm -rqf . 2>&1 | Out-Null
-        Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'gitsync' -Encoding UTF8
-        git -C $repo add README.md; git -C $repo commit -qm 'gitsync-стан' 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'README.md') -Value 'readme' -Encoding UTF8
+        git -C $repo add README.md; git -C $repo commit -qm 'стан без маніфесту' 2>&1 | Out-Null
         git -C $repo checkout -q main 2>&1 | Out-Null
         $legacyBefore = git -C $repo rev-parse legacy
 

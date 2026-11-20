@@ -136,7 +136,7 @@ Describe 'kit sync/verify — платформу для бази агента о
         Mock -ModuleName sync Get-KitRunnerPath { throw 'Раннер не знайдено: ПОЯСНЕННЯ-ТЕСТ' }
         $err = $null
         try { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true 6>$null } catch { $err = $_.Exception.Message }
-        $err | Should -BeLike '*v8storagekit:provision*'
+        $err | Should -BeLike '*v8storagekit:infobase-agent*'
         $err | Should -Not -BeLike '*ПОЯСНЕННЯ-ТЕСТ*'
         Should -Invoke -ModuleName sync Get-KitRunnerPath -Times 0 -Exactly
     }

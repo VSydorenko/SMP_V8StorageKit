@@ -5,12 +5,12 @@
 Репозиторій працює під плагіном Claude Code `v8storagekit`
 (https://github.com/VSydorenko/SMP_V8StorageKit): сховища конфігурацій 1С — істина, git —
 робоче середовище агента, Unica — основний інструмент. На старті сесії хук плагіна показує «Стан
-сховищ» і називає скіл `v8storagekit:using-v8storagekit` (правила контуру — завантажити перед першою
+сховищ» і називає скіл `v8storagekit:storage-rules` (правила контуру — завантажити перед першою
 командою kit); далі — скіли по одному на намір.
 
 **Сесію Claude Code відкривати в корені цього репозиторію.** Уніка бачить лише теки сесії, а
 воркспейси — підтеки кореня; сесія в підтеці бачить лише її (хук попередить). Тека поза сесією —
-`v8storagekit:unica-folders`.
+`v8storagekit:1c-unica` (`references/unica-folders.md`).
 
 ## Структура
 
@@ -19,7 +19,7 @@
 | Маніфест kit: воркспейси, джерела, `truth`, сховища | `v8storagekit.yaml` (корінь) |
 | Локальне цієї машини: дев-бази, шляхи сховищ, шаблон `.dt` бази агента | `v8storagekit.local.yaml` (гітігнорований) |
 | Воркспейс Уніки: source-set-и, `providers` (`designer` — інваріант контуру) | `<Воркспейс>/v8project.yaml` |
-| База агента — `infobases.origin` (`connection`, `user`, `password`); пише скіл `v8storagekit:provision` | `<Воркспейс>/v8project.local.yaml` (гітігнорований, файл Уніки) |
+| База агента — `infobases.origin` (`connection`, `user`, `password`); пише скіл `v8storagekit:infobase-agent` | `<Воркспейс>/v8project.local.yaml` (гітігнорований, файл Уніки) |
 | Вихідники платформи | `<Воркспейс>/<тип>/src` — шляхи з `v8project.yaml`; `truth: vendor` у git не потрапляє |
 | Дзеркала сховищ | гілки `storage/<джерело>` — пише лише `kit sync` |
 | Артефакти для людини | `<Воркспейс>/build/artifacts/` (збирає `make` Уніки; гітігноровано) |
@@ -32,33 +32,31 @@
 
 `<mainBranch>` — історія проєкту: злиття PR-ів і звірочні коміти. `storage/<джерело>` — дзеркало
 сховища, лише дописується. `feature/<задача>` — гілка агента від головної; прийняття версії
-сховища заміною піддерева (`adopt`) — `v8storagekit:reconcile`; PR — `v8storagekit:finish`.
+сховища заміною піддерева (`adopt`) — `v8storagekit:storage-adopt`; PR — `v8storagekit:task-finish`.
 Реплей у головну гілку не йде.
 
 ## Наміри → скіли
 
 | Намір | Скіл |
 |---|---|
-| нові версії у сховищі → git | `v8storagekit:sync` |
-| вивантажити з бази людини (`truth: dump`/`vendor`) | `v8storagekit:dump` |
-| людина перенесла частину в сховище | `v8storagekit:reconcile` |
-| закрити задачу, PR | `v8storagekit:finish` |
-| база агента | `v8storagekit:provision` |
-| звірити git зі сховищем | `v8storagekit:verify` |
+| нові версії у сховищі → git | `v8storagekit:storage-sync` |
+| вивантажити з бази людини (`truth: dump`/`vendor`) | `v8storagekit:infobase-dump` |
+| людина перенесла частину в сховище | `v8storagekit:storage-adopt` |
+| закрити задачу, PR | `v8storagekit:task-finish` |
+| база агента | `v8storagekit:infobase-agent` |
+| звірити git зі сховищем | `v8storagekit:storage-verify` |
 | додати воркспейс/джерело | `v8storagekit:onboarding` |
-| Уніка не бачить потрібної теки | `v8storagekit:unica-folders` |
-| карта інструментів Уніки, пастки платформи | `v8storagekit:unica-1c` |
+| Уніка не бачить потрібної теки | `v8storagekit:1c-unica` (`references/unica-folders.md`) |
+| карта інструментів Уніки, пастки платформи | `v8storagekit:1c-unica` |
 | тексти для людини в багатомовній конфігурації | `v8storagekit:1c-localization` |
 | службовий користувач ІБ із розширення на БСП | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-з'єднання бази з зовнішнім сервером | `v8storagekit:1c-websocket-client` |
 
 Редагування (`unica.apply`), перевірка (`unica.check`), завантаження в базу агента й збірка
-(`unica.run`) — Unica 0.16; маршрутизація — `v8storagekit:using-v8storagekit`.
+(`unica.run`) — Unica 0.16; маршрутизація — `v8storagekit:storage-rules`.
 
-**Збірка `.cfe`:** `unica.run {"op":"make","args":{"sourceSet":"<Ім'я>","extension":"<Ім'я>","output":"build/artifacts/<Ім'я>.cfe"},"dryRun":true}` — шлях
-`output` **відносний до воркспейсу**, бо поза свій корінь Уніка писати відмовляється. Файл лягає у
-`<Воркспейс>/build/artifacts/`; `.epf`/`.erf` збирає той самий `make`. Kit файлів не копіює й
-не перейменовує.
+**Збірка `.cfe`/`.epf`/`.erf`:** операція `make` Уніки (аргументи — з відповіді `unica.run` без
+`op`), `output` — у `build/artifacts/` воркспейсу. Kit файлів не копіює й не перейменовує.
 
 **Збірка `.cf`** основної конфігурації — так само, поруч із `.cfe`. Людина в сховищі робить
 «Порівняти, об'єднати з конфігурацією з файлу», а **не** завантажує `.cf` цілком: це замінило б
@@ -68,19 +66,19 @@
 агента — лише з явного підтвердження людини; для правок розширення — `sourceSet` цього розширення.
 Після команд kit, що зрушили базу (`sync`, `verify`), — крок, який вони надрукували: `push` з
 `"force":true`. Уніка спитає людину про перезапис бази — це очікувано; крок виконується лише в
-інтерактивній сесії, відповідь `cancelled` — зупинка з доповіддю (`v8storagekit:using-v8storagekit`).
+інтерактивній сесії, відповідь `cancelled` — зупинка з доповіддю (`v8storagekit:storage-rules`).
 
 ## Процес розробки
 
 Задача, більша за одну правку, йде процесом плагіна: `v8storagekit:discuss` (обговорення) →
 `v8storagekit:spec` → `v8storagekit:plan` → `v8storagekit:execute` (субагенти, журнал — `sdd`) →
-`v8storagekit:landed-review` → `v8storagekit:finish` → `v8storagekit:close-block`. Кілька сесій
-веде `v8storagekit:architect`; дослідження — `v8storagekit:research`, уроки — `v8storagekit:retro`.
+`v8storagekit:review` → `v8storagekit:task-finish` → `v8storagekit:close-block`. Кілька сесій
+веде `v8storagekit:architect`; дослідження — `v8storagekit:research`, уроки — ретро, крок `v8storagekit:close-block`.
 
 Проєктні значення процесу — `.agents/kit.profile.json` (комітиться; локальне перекриття —
 `.agents/kit.profile.local.json`). Режим робочої копії `workspace.mode`: `shared` — одне дерево й
 одна база агента, коміти точкові; `worktree` — лише для репозиторію без бази. Підключення процесу
-й оновлення після нової версії плагіна — `v8storagekit:kit-onboard` (`kit-scan`, `kit-setup`).
+й оновлення після нової версії плагіна — `v8storagekit:onboarding` (`kit-scan`, `kit-setup`).
 
 ## Межі
 

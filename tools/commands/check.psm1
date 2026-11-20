@@ -70,26 +70,6 @@ function Invoke-KitCheck {
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
             "воркспейсів $($declared.Count), джерел у перевірці $($declaredSources.Count) ($byTruth)$unresolved.")
 
-        # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
-        # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
-        # розходяться, і мовчати про це означає дати агентові працювати не тими правилами.
-        #
-        # Формат $pluginVersion (сирий рядок plugin.json) нічим не гарантований — '1.1.0-rc1' можливий,
-        # і [version] на ньому кидає. check іде в кожній сесії через session-check, тож нестандартна
-        # версія плагіна не має ламати старт сесії: на невдачу формату знахідки немає (як і на $null).
-        $pluginVersion = Get-KitPluginVersion
-        if ($pluginVersion -and $Context.Manifest.KitVersion -and $pluginVersion -match '^\d+\.\d+\.\d+$') {
-            $have = [version]$Context.Manifest.KitVersion
-            $need = [version]$pluginVersion
-            if ($have -lt $need) {
-                & $add 'warn' 'kit-version' ("Структуру репозиторію доведено до v$have, а плагін уже v$need — " +
-                    'кроки оновлення: скіл v8storagekit:onboarding, references/upgrades.md.')
-            } elseif ($have -gt $need) {
-                & $add 'warn' 'kit-version' ("Структура репозиторію на v$have, а плагін у цьому оточенні старіший — v$need. " +
-                    'Оновіть плагін (claude plugin update), інакше агент працюватиме застарілими правилами.')
-            }
-        }
-
         # Дамп версії сховища виконується в базі агента (§3), тож для
         # кожного truth: storage база — передумова, а не зручність. Сказати на старті сесії дешевше,
         # ніж зупинити sync, який людина вже запустила. warn, не error: репозиторій несуперечливий —
@@ -115,7 +95,7 @@ function Invoke-KitCheck {
                 & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації. " + (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path))
             } elseif ($ab.Kind -eq 'file' -and -not $ab.Exists) {
                 & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
-                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:provision.")
+                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:infobase-agent.")
             }
         }
 
@@ -264,8 +244,7 @@ function Invoke-KitCheck {
                     }
                     if ($code -eq 1) {
                         & $add error gitignore ("$tag`: тека поставки вендора '$supplyRel/' не гітігнорована — .cf на сотні МБ потрапив би в git " +
-                            "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/' " +
-                            '(оновлення до kitVersion 1.3.0 — скіл v8storagekit:onboarding, references/upgrades.md).')
+                            "(ліміт GitHub 100 МБ на файл). Додайте в .gitignore рядок '**/Ext/ParentConfigurations/'.")
                     } elseif ($code -gt 1) { & $add error gitignore "$tag`: git check-ignore завершився з кодом $code." }
                 }
                 $trackedSupply = @(git -c core.quotepath=false -C $root ls-files -- $supplyRel 2>$null)
@@ -476,7 +455,7 @@ function Invoke-KitCheck {
                         $consequence = if ($c.Kind -eq 'memory-both') { "раннер двох воркспейсів вів би пам'ять в одній теці, а порада provision видалити теку пам'яті зачепила б пам'ять іншого воркспейсу" }
                                        else { 'kit створив би чи завантажив базу агента в теку (базу) іншого воркспейсу, а порада provision видалити теку бази зачепила б чужу базу' }
                         & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — $consequence. " +
-                            'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:provision).')
+                            'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:infobase-agent).')
                     }
                 } catch {
                     & $add error local-audit "$($ws.Path)/v8project.local.yaml: звірка бази агента з базами інших воркспейсів впала: $($_.Exception.Message)"
@@ -501,7 +480,7 @@ function Invoke-KitCheck {
                             -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
                             & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit або перетинається з нею (та сама, вкладена чи батьківська тека) — " +
                                 'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
-                                'й дайте агентові окрему базу (v8storagekit:provision).')
+                                'й дайте агентові окрему базу (v8storagekit:infobase-agent).')
                             break
                         }
                     }

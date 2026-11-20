@@ -37,9 +37,8 @@ function Invoke-KitMainMerge {
         Write-Host "  Гілки '$Into' ще немає — злиття пропущено. Створіть її (перший коміт) і повторіть: $retry" -ForegroundColor Yellow
         return $false
     }
-    # Запобіжник (§6.3.4): ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка (master
-    # gitsync-репозиторію до переходу). Там злиття проходить чисто й кладе Designer-дерево ДО
-    # коміту конверсії — зворотний порядок, що обнуляє git blame (§9.2).
+    # Запобіжник (§6.3.4): ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка:
+    # злиття пройде чисто, але покладе дерево на гілку, де kit не підключено.
     if (-not (Test-KitBranchMergedInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into)) {
         git -C $Context.RepoRoot cat-file -e "${Into}:v8storagekit.yaml" 2>$null
         if ($LASTEXITCODE -ne 0) {
@@ -331,7 +330,7 @@ function Invoke-KitSync {
 
             # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
             $workDir = Join-Path $root 'build/sync' $src.Key
-            Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека джерела $($src.Key)"
+            Assert-KitBuildPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -Description "робоча тека джерела $($src.Key)"
             $staleWt = Join-Path $workDir 'wt'
             if (Test-Path -LiteralPath $staleWt) {
                 # Ґейт на Test-Path: без нього git worktree remove на незареєстрованій теці штатно

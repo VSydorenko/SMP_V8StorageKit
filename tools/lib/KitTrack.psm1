@@ -131,7 +131,7 @@ $script:Head = [ordered]@{
 }
 # Id блока — токен на початку клітинки до першої `.`, `:`, пробілу чи тире: `B1a`, `B1b-1`, `B3-6`,
 # `ПГ-2`, `D1`, `Права-3`. Регістр і кирилицю зберігаємо: маркер `track:block <спека>#<id>` і
-# `doc section <спека> <id>` мусять бачити те саме написання, що й спека.
+# `doc <спека> <id>` мусять бачити те саме написання, що й спека.
 $script:RxId = [regex]::new('^([^\s.:;,—–()]+)')
 # Межа токена з Unicode; дефіс — частина id, тому `B3` не збігається всередині `B3-2`.
 $script:Word = '[\p{L}\p{N}_-]'
@@ -263,7 +263,7 @@ function Get-TrackBlockBody {
     $deps = (@($B.Deps | ForEach-Object { if ($Numbers[$_]) { "#$($Numbers[$_])" } else { $_ } })) -join ', '
     $tail = if ($B.DepsText -and $B.DepsText -ne '—') { " (spec: $($B.DepsText))" } else { '' }
     @(
-        "Spec: ``$Rel`` — block $($B.Id). Read: ``doc section $Rel $($B.Id)``", '',
+        "Spec: ``$Rel`` — block $($B.Id). Read: ``doc $Rel $($B.Id)``", '',
         "**Scope:** $($B.Scope)", '',
         "**Done when:** $($B.Done)", '',
         "Depends on: $(if ($deps) { $deps } else { '—' })$tail", '',

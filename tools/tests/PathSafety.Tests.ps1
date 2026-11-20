@@ -16,7 +16,7 @@ Describe 'Assert-SafeWorkPath' {
 
     It 'кидає виняток на порожньому рядку — I2: саме цей випадок сьогодні мовчки стирає весь каталог продукту' {
         # Join-Path $Boundary '' повертає сам $Boundary — той-таки сценарій із
-        # "sourcePath": "" у storage.json, який реально видаляв весь каталог продукту
+        # "sourcePath": "" у маніфесті, який реально видаляв весь каталог продукту
         # разом із негітованим v8project.local.yaml (I2 у фінальному ревʼю).
         $collapsedToBoundary = Join-Path $script:Boundary ''
         { Assert-SafeWorkPath -Path $collapsedToBoundary -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
@@ -52,8 +52,8 @@ Describe 'Assert-SafeWorkPath' {
     }
 
     It 'повідомлення про помилку називає Description, щоб було видно, яке саме поле завинило' {
-        { Assert-SafeWorkPath -Path '' -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourcePath у storage.json продукту XYZ' } |
-            Should -Throw '*sourcePath у storage.json продукту XYZ*'
+        { Assert-SafeWorkPath -Path '' -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourcePath у маніфесті продукту XYZ' } |
+            Should -Throw '*sourcePath у маніфесті продукту XYZ*'
     }
 }
 

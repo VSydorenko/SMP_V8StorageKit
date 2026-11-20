@@ -24,7 +24,7 @@
 <чого ця задача не робить>
 ```
 
-<!-- tests: ADR-0004, pending owner discussion -->
+
 
 ## Кроки
 

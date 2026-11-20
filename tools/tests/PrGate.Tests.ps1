@@ -58,7 +58,7 @@ Describe 'pr-gate — запобіжники' {
             $o = [ordered]@{
                 number = 5; state = 'OPEN'; isDraft = $false; mergeable = 'MERGEABLE'; mergeStateStatus = 'CLEAN'
                 headRefOid = $script:OldSha; headRefName = 'feat'; baseRefName = 'main'; isCrossRepository = $false
-                url = 'https://github.com/acme/app/pull/5'; mergeCommit = $null
+                url = 'https://github.com/acme/app/pull/5'; mergeCommit = $null; files = @(@{ path = 'x.txt' })
             }
             foreach ($k in $Over.Keys) { $o[$k] = $Over[$k] }
             $o | ConvertTo-Json -Compress
@@ -112,22 +112,22 @@ Describe 'pr-gate — запобіжники' {
         $ok.Calls | Should -Contain 'pr create --base develop --head feat --title T --fill'
     }
 
-    It 'merge на конфлікті (mergeable=CONFLICTING) — відмова, у журналі gh немає pr merge' {
-        $r = New-PgRepo -Name 'conflict' -Profile @{ pr = @{ mergeMethod = 'squash' } }
+    It 'land: на конфлікті (mergeable=CONFLICTING) — відмова, у журналі gh немає pr merge' {
+        $r = New-PgRepo -Name 'conflict' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         $rules = @(
             @{ prefix = @('pr', 'view'); stdout = (New-PrJson @{ mergeable = 'CONFLICTING'; mergeStateStatus = 'DIRTY' }) }
             @{ prefix = @('pr', 'merge') }
         )
-        $c = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $rules
+        $c = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
         @($c.Calls | Where-Object { $_ -like 'pr view 5 --json*' }) | Should -Not -BeNullOrEmpty -Because 'гейт мав дійти до gh'
         @($c.Calls | Where-Object { $_ -like 'pr merge*' }) | Should -BeNullOrEmpty
         $c.Code | Should -Be 1
         $c.Err | Should -Match 'конфлікті з main'
-        $c.Err | Should -Match 'merge origin/main'
+        ($c.Out + $c.Err) | Should -Match 'merge origin/main'
     }
 
-    It 'merge: голова змінилась після перевірки — GitHub відмовляє, код 1, гілку не видалено' {
-        $r = New-PgRepo -Name 'headmoved' -Profile @{ pr = @{ mergeMethod = 'squash' } }
+    It 'land: голова змінилась після перевірки — GitHub відмовляє, код 1, гілку не видалено' {
+        $r = New-PgRepo -Name 'headmoved' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         # PR після злиття стає MERGED (тож злиття без прив'язки до голови пройшло б до кінця й видалило гілку);
         # а `pr merge` із закріпленою старою головою GitHub відхиляє, бо голова вже інша.
         $rules = @(
@@ -137,20 +137,20 @@ Describe 'pr-gate — запобіжники' {
             @{ prefix = @('pr', 'merge') }
             @{ prefix = @('api') }
         )
-        $c = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $rules
+        $c = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
         $c.Code | Should -Be 1
         $c.Calls | Should -Contain "pr merge 5 --squash --match-head-commit $script:OldSha" -Because 'злиття має бути прив''язане до перевіреної голови'
         @($c.Calls | Where-Object { $_ -like 'api -X DELETE*' }) | Should -BeNullOrEmpty
     }
 
     It 'gh pr merge повернув 0, але PR досі OPEN — гілку не видалено, код 1; контроль: MERGED — видалення гілки є в журналі' {
-        $r = New-PgRepo -Name 'notmerged' -Profile @{ pr = @{ mergeMethod = 'squash' } }
+        $r = New-PgRepo -Name 'notmerged' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         $rules = @(
             @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
             @{ prefix = @('pr', 'merge') }
             @{ prefix = @('api') }
         )
-        $bad = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $rules
+        $bad = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
         $bad.Code | Should -Be 1
         $bad.Err | Should -Match 'гілку лишено'
         @($bad.Calls | Where-Object { $_ -like 'pr merge*' }).Count | Should -Be 1 -Because 'до перевірки стану злиття дійшло'
@@ -163,14 +163,14 @@ Describe 'pr-gate — запобіжники' {
             @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }   # верхівка на origin = голова PR
             @{ prefix = @('api') }
         )
-        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $okRules
+        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $okRules
         $ok.Code | Should -Be 0 -Because $ok.Err
         $ok.Out | Should -Match 'ЗЛИТО #5 як ccccccc'
         $ok.Calls | Should -Contain 'api -X DELETE repos/{owner}/{repo}/git/refs/heads/feat'
     }
 
     It 'remote-гілка з комітами після голови PR не видаляється: верхівка на origin != headRefOid — немає DELETE, є рядок пояснення' {
-        $r = New-PgRepo -Name 'tipmoved' -Profile @{ pr = @{ mergeMethod = 'squash' } }
+        $r = New-PgRepo -Name 'tipmoved' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         $moved = @(
             @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
             @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
@@ -178,7 +178,7 @@ Describe 'pr-gate — запобіжники' {
             @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = ('b' * 40) }
             @{ prefix = @('api') }
         )
-        $extra = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $moved
+        $extra = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $moved
         $extra.Code | Should -Be 0 -Because $extra.Err
         $extra.Calls | Should -Contain 'api repos/{owner}/{repo}/git/ref/heads/feat --jq .object.sha' -Because 'верхівку на origin читано перед видаленням'
         @($extra.Calls | Where-Object { $_ -like 'api -X DELETE*' }) | Should -BeNullOrEmpty

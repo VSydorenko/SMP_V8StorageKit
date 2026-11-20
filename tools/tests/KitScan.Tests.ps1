@@ -74,14 +74,14 @@ Describe 'kit-scan — скан підключення' {
         $userSkills = Join-Path $TestDrive 'claude-config/skills'
         $mk = { param($name, $body) New-Item -ItemType Directory -Path (Join-Path $userSkills $name) -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $userSkills "$name/SKILL.md") -Encoding utf8NoBOM -Value "---`nname: $name`ndescription: x`n---`n$body`n" }
-        & $mk 'sync' 'копія, яка лишилась після перенесення'
+        & $mk 'storage-sync' 'копія, яка лишилась після перенесення'
         & $mk 'bsp-recipe' 'Розширення 1С на БСП: службовий користувач створюється в обробнику оновлення.'
         # Одна ознака предмета — не domain: «1С» мимохідь у скілі про інше.
         & $mk 'notes' 'Нотатки про нараду; згадали 1С один раз.'
         try { $r = Invoke-Scan $repo } finally { Remove-Item -LiteralPath $userSkills -Recurse -Force }
         $r.Code | Should -Be 0 -Because $r.Out
         $r.Out | Should -Match '(?m)^## Skills outside the plugin \(3\)' -Because $r.Out
-        $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/sync/` \| user \| same-name \| remove: у плагіні є v8storagekit:sync' -Because $r.Out
+        $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/storage-sync/` \| user \| same-name \| remove: у плагіні є v8storagekit:storage-sync' -Because $r.Out
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/bsp-recipe/` \| user \| domain \| move-to-plugin' -Because $r.Out
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/notes/` \| user \| other \|' -Because $r.Out
     }
