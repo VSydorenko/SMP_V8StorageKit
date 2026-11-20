@@ -10,7 +10,12 @@ Set-StrictMode -Version Latest
 #   - немає `wait`, прогонів CI, requiredChecks, waitTimeout, попередження про скасування CI;
 #     гейт злиття — стан PR (відкритий, не draft, MERGEABLE), а не прогони;
 #   - `workspace.mode`: у `shared` `start` відмовляє, а `land` не зсуває головне дерево — друкує
-#     `next:` для людини; у `worktree` усе як в оригіналі.
+#     `next:` для людини; у `worktree` усе як в оригіналі. Режиму «гілка в головному
+#     checkout» немає: start вирішує лише за workspace.mode;
+#   - суворіше за оригінал: захищені гілки (main, base, -Base, ціль origin/HEAD) не пушаться й не
+#     видаляються ніде; віддалена гілка PR видаляється, лише коли її верхівка на origin = голова PR;
+#     prune без gh не видаляє віддалених; назви гілок порівнюються з урахуванням регістру;
+#     legacy-гілки scratch rm (kit-scratch-*/tree) немає.
 #
 # Уся логіка — тут, без `exit` і без читання профілю: значення приходять у контексті
 # (New-PrGateContext). Друкує через -Say; помилки — винятки з кодом виходу (New-KitRefusal та ін.),
@@ -27,7 +32,6 @@ $script:MergeFields = @('number', 'state', 'isDraft', 'mergeable', 'headRefName'
 $script:JournalDirs = @('.agents/out', '.agents/sdd', '.superpowers')
 $script:ScratchDir = '.scratch'
 $script:ScratchPrefix = 's-'
-$script:LegacyScratchPrefix = 'kit-scratch-'
 $script:WorkspaceModes = @('shared', 'worktree')
 
 # ---------------------------------------------------------------------------------------------
@@ -79,16 +83,17 @@ pr-gate <крок> …
         -Resume прикріплює worktree до наявної гілки issue (локальної чи з origin), коли жодне
         worktree її не тримає. Git-ignored нетрековані файли за .worktreeinclude (синтаксис
         gitignore: локальні налаштування, локальний профіль) копіюються в нове worktree; наявні
-        лишаються. pr.worktrees: false -> гілка в головному checkout, лише коли він чистий і на <base>
+        лишаються
   pr-gate open [-Draft] [-Base <b>] [-Title <т>] [-BodyFile <ф>]
-        push поточної гілки в гілку з тим самим іменем на origin (ніколи force; відмовляє на base і
-        на main), створює PR (-Draft: як draft) або бере відкритий; друкує URL і draft/ready
+        push поточної гілки в гілку з тим самим іменем на origin (ніколи force; відмовляє на base з
+        профілю, на -Base, на main і на цілі origin/HEAD), створює PR (-Draft: як draft) або бере відкритий; друкує URL і draft/ready
   pr-gate ready [<pr>]
         позначити draft-PR готовим (gh pr ready); нічого робити, коли він уже готовий
   pr-gate merge [<pr>] [-Squash|-Merge] [-DryRun]
         зливає лише відкритий не-draft PR зі станом MERGEABLE; прив'язаний до перевіреної голови
         (--match-head-commit: хтось запушив після перевірки — GitHub відмовить); потім перечитує
-        стан і лише після підтвердженого MERGED видаляє віддалену гілку (гілку з форка не чіпає).
+        стан і лише після підтвердженого MERGED видаляє віддалену гілку (гілку з форка не чіпає; і
+        таку, чия верхівка на origin не дорівнює голові PR; і захищену: main, base).
         UNKNOWN — код 3; конфлікт — відмова з порадою `git merge origin/<base>`. Прогонів CI не
         дивиться: workflow немає
   pr-gate after-merge [<pr>]
@@ -96,17 +101,17 @@ pr-gate <крок> …
         pr.afterMerge, чиї шляхи збігаються зі злитими файлами (код 1, якщо котрась упала)
   pr-gate prune [-DryRun] [-Remote]
         видаляє локальні гілки, злиті в origin/<base> (вміщені або голова злитого PR); -Remote —
-        і віддалені. Ніколи base, гілку worktree, гілку з комітами після злиття PR і віддалену
-        гілку з відкритим PR
+        і віддалені (без gh віддалені не видаляються, код 3). Ніколи захищені (main, base, ціль
+        origin/HEAD), гілку worktree, гілку з комітами після злиття PR і віддалену гілку з відкритим PR
   pr-gate cleanup <worktree>
         git worktree remove (без --force); git-ignored теки журналів (.agents/out/, .agents/sdd/,
         .superpowers/) зникають разом з ним, копії немає; потім видаляє локальну гілку worktree,
         якщо її PR злито на цій верхівці. Головний checkout — ніколи
   pr-gate scratch add [<ref>=HEAD]
         одноразове відокремлене worktree в новій унікальній теці <main>/<worktrees.root>/.scratch/<id>
-        (тимчасова тека, поки корінь не git-ignored) для перевірок мутацією; друкує лише шлях
+        для перевірок мутацією; відмовляє, коли <worktrees.root>/.scratch не git-ignored; друкує лише шлях
   pr-gate scratch rm <шлях>
-        force-видаляє його; відмовляє на будь-яке worktree, якого scratch add не робив
+        force-видаляє його; відмовляє на будь-яке дерево, якого scratch add не робив
 
 <pr> типово — PR поточної гілки. Нічого не примушує force: ні push, ні видалення гілок.
 Коди виходу: 0 виконано; 1 збій (не зливається, помилка git чи gh, лишився крок land);
@@ -117,7 +122,6 @@ $script:ProfileUsage = @'
 Профіль .agents/kit.profile.json (шари: машинний, проєктний, локальний):
   workspace.mode  "shared"|"worktree"   (start, land; обов'язкове: скрипт його не вгадує)
   pr.base         гілка                 (open, start, prune, land; типово "main"; -Base у open сильніший)
-  pr.worktrees    true|false            (start у режимі worktree; типово true; false = гілка в головному checkout)
   pr.mergeMethod  "squash"|"merge"      (merge, land, якщо не задано прапорець)
   pr.afterMerge   [{ paths: [glob], run: [argv] }]   (after-merge; argv без shell, у корені репо)
   worktrees.root  шлях                  (start, scratch; типово ".worktrees", відносно головного checkout, git-ignored)
@@ -134,8 +138,8 @@ function New-PrGateContext {
     <#
     .SYNOPSIS
         Значення профілю й шляхи для кроків: Root (checkout, у якому працюємо), MainRoot (головний
-        checkout — спільний стан), Base, WorktreesRoot (відносно MainRoot), WorkspaceMode, UseWorktree
-        (pr.worktrees), AfterMerge (pr.afterMerge), OutDir (.agents/out головного checkout).
+        checkout — спільний стан), Base, WorktreesRoot (відносно MainRoot), WorkspaceMode,
+        AfterMerge (pr.afterMerge), OutDir (.agents/out головного checkout).
     #>
     param(
         [Parameter(Mandatory)][string]$Root,
@@ -143,20 +147,20 @@ function New-PrGateContext {
         [string]$Base = 'main',
         [string]$WorktreesRoot = '.worktrees',
         [string]$WorkspaceMode,
-        [bool]$UseWorktree = $true,
         $AfterMerge = @(),
         [string]$OutDir
     )
     [pscustomobject]@{
         Root = $Root; MainRoot = $MainRoot; Base = $Base; WorktreesRoot = $WorktreesRoot
-        WorkspaceMode = $WorkspaceMode; UseWorktree = $UseWorktree; AfterMerge = $AfterMerge
+        WorkspaceMode = $WorkspaceMode; AfterMerge = $AfterMerge
         OutDir = $(if ($OutDir) { $OutDir } else { Join-Path $MainRoot '.agents/out' })
     }
 }
 
 function Assert-PrGateWorkspaceMode {
     <# Значення workspace.mode з профілю: інше за shared|worktree — «не перевірено» (код 3) з переліком. #>
-    param([Parameter(Mandatory)]$Value)
+    param([AllowNull()][AllowEmptyString()]$Value)
+    if ($null -eq $Value) { throw (New-KitNotChecked 'поле профілю "workspace.mode" порожнє (null); допустимі: shared, worktree') }
     $v = [string]$Value
     if ($v -notin $script:WorkspaceModes) {
         throw (New-KitNotChecked "поле профілю `"workspace.mode`" має значення `"$v`"; допустимі: $($script:WorkspaceModes -join ', ')")
@@ -278,8 +282,56 @@ function Get-PgPr {
 function Get-PgConflictNext {
     <# Наступний крок при конфлікті PR з base: однаковий для merge і land. #>
     param($Ctx, [string]$Branch, [string]$Base, [string]$Then)
-    $wt = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { $_.Branch -eq $Branch } | Select-Object -First 1
+    $wt = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { $_.Branch -ceq $Branch } | Select-Object -First 1
     "git -C $(if ($wt) { $wt.Path } else { '<worktree гілки>' }) merge origin/$Base, розв'яжи, pr-gate open, потім $Then"
+}
+
+function Get-PgProtectedBranches {
+    <#
+        Захищені гілки: main, base профілю, base цього виклику (-Extra: -Base, baseRefName PR) і ціль
+        origin/HEAD. Їх pr-gate не пушить і не видаляє ніде (віддалено чи локально). Порівнювати —
+        лише -ccontains: на регістрочутливих ФС Main і main — різні гілки.
+    #>
+    param($Ctx, [string[]]$Extra = @())
+    $set = [System.Collections.Generic.List[string]]::new()
+    foreach ($b in (@('main', $Ctx.Base) + @($Extra))) { if ($b) { $set.Add([string]$b) } }
+    $head = Invoke-PgGit -GitArgs @('symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') -Cwd $Ctx.MainRoot
+    if ($head.Ok -and $head.Out -cmatch '^refs/remotes/origin/(.+)$') { $set.Add($Matches[1]) }
+    $set.ToArray()
+}
+
+function ConvertTo-PgRefPath {
+    <# Шлях ref гілки в gh api: кожен сегмент між `/` кодується (`#`, `%`, `?` у назві не ріжуть URL). #>
+    param([Parameter(Mandatory)][string]$Branch)
+    (($Branch -split '/') | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
+}
+
+function Remove-PgRemoteBranch {
+    <#
+        Видалення гілки на origin через gh api — лише коли гілка не захищена й її верхівка на origin
+        (gh api .../git/ref/heads/<гілка>, читання в момент видалення) дорівнює -ExpectedOid (голова
+        злитого PR або верхівка, яку перевірено). Інакше гілка лишається з поясненням і точною командою
+        для людини. Повертає $true, коли видалено.
+    #>
+    param($Ctx, [Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$ExpectedOid,
+        [string[]]$Protected = @(), [Parameter(Mandatory)][scriptblock]$Say)
+    if ($Protected -ccontains $Name) { & $Say "віддалену гілку $Name лишено: захищена (main, base чи ціль origin/HEAD)"; return $false }
+    $refPath = "repos/{owner}/{repo}/git/refs/heads/$(ConvertTo-PgRefPath $Name)"
+    $tip = $null
+    try { $tip = [string](Invoke-KitGh -Arguments @('api', "repos/{owner}/{repo}/git/ref/heads/$(ConvertTo-PgRefPath $Name)", '--jq', '.object.sha')) }
+    catch [KitGhUnavailable] { throw (New-KitNotChecked "gh api: $($_.Exception.Message)") }
+    catch [KitGhError] {
+        if ($_.Exception.Message -match '404|Not Found') { & $Say "віддаленої гілки $Name немає"; return $false }
+        throw (New-KitRefusal $_.Exception.Message)
+    }
+    $tip = $tip.Trim()
+    if ($tip -cne $ExpectedOid) {
+        $shown = if ($tip) { $tip.Substring(0, [Math]::Min(7, $tip.Length)) } else { 'невідома' }
+        & $Say "віддалену гілку $Name лишено: її верхівка на origin ($shown) не дорівнює $($ExpectedOid.Substring(0, [Math]::Min(7, $ExpectedOid.Length))), тож там є зайві коміти; видали сам, якщо вона не потрібна: gh api -X DELETE $refPath"
+        return $false
+    }
+    $null = Invoke-PgGh -Arguments @('api', '-X', 'DELETE', $refPath)
+    $true
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -293,8 +345,8 @@ function Invoke-PrGateOpen {
     $target = if ($Base) { $Base } else { $Ctx.Base }
     # Агенти пушать гілки блоків без питання (рішення власника): тому base і main pr-gate не пушить
     # ніколи, навіть із -Base іншої гілки.
-    if ($branch -eq $target -or $branch -eq 'main') {
-        throw (New-KitUsageError "на $branch`: pr-gate ніколи не пушить $(if ($branch -eq $target) { 'базову гілку' } else { 'main' }); відкривай PR із гілки задачі")
+    if ((Get-PgProtectedBranches -Ctx $Ctx -Extra @($Base)) -ccontains $branch) {
+        throw (New-KitUsageError "на $branch`: pr-gate ніколи не пушить захищену гілку (main, base, ціль origin/HEAD); відкривай PR із гілки задачі")
     }
     # Лише звичайний push і явний refspec у гілку з тим самим іменем: worktree від origin/main має
     # upstream origin/main, і push.default=upstream інакше пішов би в main. Force не існує.
@@ -375,8 +427,7 @@ function Invoke-PgMergeChecked {
     & $Say "ЗЛИТО #$($p.number) як $oid"
     # Гілку — лише після підтвердженого злиття; гілка з форка не наша.
     if ($p.isCrossRepository) { & $Say "гілка $($p.headRefName) у форку: не видалено" }
-    else {
-        $null = Invoke-PgGh -Arguments @('api', '-X', 'DELETE', "repos/{owner}/{repo}/git/refs/heads/$($p.headRefName)")
+    elseif (Remove-PgRemoteBranch -Ctx $Ctx -Name $p.headRefName -ExpectedOid $p.headRefOid -Protected (Get-PgProtectedBranches -Ctx $Ctx -Extra @($p.baseRefName)) -Say $Say) {
         & $Say "видалено віддалену гілку $($p.headRefName)"
     }
     0
@@ -412,10 +463,10 @@ function Invoke-PrGateStart {
     if ($Slug -and $Slug -cnotmatch '^[a-z0-9]+(-[a-z0-9]+)*$') { throw (New-KitUsageError 'start: slug — слова a-z0-9, з''єднані «-»') }
     # shared: одне дерево, одна база агента. Гілку обирає архітектор чи власник; перемкнути гілку в
     # спільному дереві — зсунути HEAD іншим сесіям (ADR-0005).
-    if ($Ctx.WorkspaceMode -eq 'shared') {
+    if ($Ctx.WorkspaceMode -ceq 'shared') {
         throw (New-KitRefusal "start: workspace.mode = shared: гілку задачі обирає архітектор чи власник, а перемикання гілки в спільному дереві зсуває HEAD іншим сесіям`nпрацюй у наявній гілці; worktree для задач — лише в профілі з workspace.mode = worktree")
     }
-    if ($Resume -and -not $Ctx.UseWorktree) { throw (New-KitUsageError 'start -Resume: pr.worktrees = false, worktree, до якого прикріплюватись, немає') }
+    if ($Ctx.WorkspaceMode -cne 'worktree') { throw (New-KitNotChecked 'поле профілю "workspace.mode" має бути "shared" або "worktree"') }
     $root = $Ctx.MainRoot
     $base = $Ctx.Base
     $ghIssue = Invoke-PgGh -Arguments @('issue', 'view', $Issue, '--json', 'number,title,state') -Json
@@ -429,29 +480,15 @@ function Invoke-PrGateStart {
     $wts = @(Get-PgWorktrees -Cwd $root)
     $existing = if ($localBranches.Count) { $localBranches[0] } elseif ($remoteBranches.Count) { $remoteBranches[0] } else { $null }
     if ($existing) {
-        $held = $wts | Where-Object { $_.Branch -eq $existing } | Select-Object -First 1
+        $held = $wts | Where-Object { $_.Branch -ceq $existing } | Select-Object -First 1
         if ($held) { throw (New-KitRefusal "ВІДМОВА: issue #$Issue уже має гілку $existing у worktree $($held.Path); продовжуй: cd $($held.Path)") }
         if (-not $Resume) {
-            throw (New-KitRefusal "ВІДМОВА: issue #$Issue уже має гілку $existing$(if ($localBranches -notcontains $existing) { ' на origin' }); продовжити: pr-gate start $Issue -Resume")
+            throw (New-KitRefusal "ВІДМОВА: issue #$Issue уже має гілку $existing$(if ($localBranches -cnotcontains $existing) { ' на origin' }); продовжити: pr-gate start $Issue -Resume")
         }
     } elseif ($Resume) {
         throw (New-KitRefusal "ВІДМОВА: у issue #$Issue немає гілки $prefix* для продовження; почати: pr-gate start $Issue")
     }
     $branch = if ($existing) { $existing } else { "$prefix$(if ($Slug) { $Slug } else { Get-PrGateSlug $ghIssue.title })" }
-
-    if (-not $Ctx.UseWorktree) {
-        # Правило проєкту «без worktree»: гілка в головному checkout, але лише коли там немає чужої
-        # роботи — чисте дерево на базовій гілці.
-        $current = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
-        $dirty = Get-PgGit -GitArgs @('status', '--porcelain') -Cwd $root
-        if ($current -ne $base) { throw (New-KitRefusal "ВІДМОВА: pr.worktrees = false, а головний checkout на $(if ($current) { $current } else { 'відокремленому HEAD' }), не на ${base}: там може йти інша задача") }
-        if ($dirty) { throw (New-KitRefusal 'ВІДМОВА: pr.worktrees = false, а в головному checkout є незакомічені зміни') }
-        $null = Get-PgGit -GitArgs @('switch', '-q', '-c', $branch, "origin/$base") -Cwd $root
-        $null = Invoke-PgGit -GitArgs @('branch', '--unset-upstream', $branch) -Cwd $root
-        & $Say "розпочато #$Issue `"$($ghIssue.title)`"`nгілка $branch у головному checkout $root (pr.worktrees: false)"
-        Write-KitNext 'pr-gate open (спершу працюй і коміть тут)'
-        return 0
-    }
 
     # Тека worktree — номер і slug гілки: `issue-56-fix` -> `<root>/56-fix`.
     $path = Join-Path (Join-Path $root $Ctx.WorktreesRoot) $branch.Substring('issue-'.Length)
@@ -465,7 +502,7 @@ function Invoke-PrGateStart {
         throw (New-KitRefusal "ВІДМОВА: $path уже існує$(if ($held) { " (worktree гілки $(if ($held.Branch) { $held.Branch } else { 'відокремленого HEAD' })); продовжуй: cd $path" } else { '; прибери його або дай інший slug' })")
     }
     New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
-    if ($existing -and $localBranches -contains $existing) {
+    if ($existing -and $localBranches -ccontains $existing) {
         $null = Get-PgGit -GitArgs @('worktree', 'add', '-q', $path, $existing) -Cwd $root
         & $Say "продовжено #$Issue `"$($ghIssue.title)`"`n$path`nгілка $existing (локальна, $(Get-PgGit -GitArgs @('rev-parse', '--short', $existing) -Cwd $root))"
     } elseif ($existing) {
@@ -567,8 +604,8 @@ function Invoke-PgAfterMergeReport {
     $base = "origin/$($p.baseRefName)"
     $advised = 0
     foreach ($wt in (Get-PgWorktrees -Cwd $root)) {
-        if (-not $wt.Branch -or $wt.Branch -eq $p.baseRefName) { continue }
-        if ($wt.Branch -eq $p.headRefName) {
+        if (-not $wt.Branch -or $wt.Branch -ceq $p.baseRefName) { continue }
+        if ($wt.Branch -ceq $p.headRefName) {
             if (-not $InLand) { & $Say "$($wt.Path) ($($wt.Branch)): злита гілка -> pr-gate cleanup $($wt.Path)" }
             continue
         }
@@ -621,7 +658,9 @@ function Invoke-PgPrune {
     $cwd = $Ctx.MainRoot   # не Root: у land worktree цього checkout уже видалено
     $null = Get-PgGit -GitArgs @('fetch', '-q', '--prune', 'origin') -Cwd $cwd
     $baseRef = "origin/$base"
-    $held = @{}
+    $protected = Get-PgProtectedBranches -Ctx $Ctx
+    # Словник чутливий до регістру: гілки Feat і feat різні.
+    $held = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
     foreach ($w in (Get-PgWorktrees -Cwd $cwd)) { if ($w.Branch) { $held[$w.Branch] = $w.Path } }
     $refs = {
         param($pattern)
@@ -645,13 +684,17 @@ function Invoke-PgPrune {
     } catch [KitGhUnavailable], [KitGhError] {
         & $Say "gh недоступний ($(Get-PgGhWhy $_)): squash-злиті гілки не перевірено"
     }
-    $prsOf = { param($b) @($prs | Where-Object { $_ -and $_.headRefName -eq $b }) }
+    $prsOf = { param($b) @($prs | Where-Object { $_ -and $_.headRefName -ceq $b }) }
+    # Віддалені гілки видаляємо лише з повним переліком PR: без нього (gh недоступний, pr list
+    # впав) чи з обрізаним (--limit) відкритий PR міг лишитись невидимим.
+    $prsComplete = ($null -ne $prs) -and $prs.Count -lt 500
 
     $deleted = 0; $skipped = 0; $notChecked = 0
     foreach ($br in $branches) {
         $label = "$($br.Where) $($br.Name)"
-        if ($br.Name -eq $base) { continue }
+        if ($protected -ccontains $br.Name) { continue }
         if ($held.ContainsKey($br.Name)) { $skipped++; & $Say "пропущено ${label}: тримає worktree $($held[$br.Name])"; continue }
+        if ($br.Where -eq 'remote' -and -not $prsComplete) { $notChecked++; continue }
         $open = (& $prsOf $br.Name) | Where-Object { $_.state -eq 'OPEN' } | Select-Object -First 1
         if ($br.Where -eq 'remote' -and $open) { $skipped++; & $Say "пропущено ${label}: відкритий PR #$($open.number)"; continue }
         $reason = $null
@@ -666,7 +709,7 @@ function Invoke-PgPrune {
         if ($DryRun) { & $Say "видалив би $label ($reason)" }
         else {
             if ($br.Where -eq 'local') { $null = Get-PgGit -GitArgs @('branch', '-D', $br.Name) -Cwd $cwd }
-            else { $null = Invoke-PgGh -Arguments @('api', '-X', 'DELETE', "repos/{owner}/{repo}/git/refs/heads/$($br.Name)") }
+            elseif (-not (Remove-PgRemoteBranch -Ctx $Ctx -Name $br.Name -ExpectedOid $br.Sha -Protected $protected -Say $Say)) { $skipped++; continue }
             & $Say "видалено $label ($reason)"
         }
         $deleted++
@@ -728,9 +771,10 @@ function Remove-PgMergedBranch {
     #>
     param($Ctx, [Parameter(Mandatory)][string]$Branch, [Parameter(Mandatory)][scriptblock]$Say, [string]$KnownHead)
     $root = $Ctx.MainRoot
+    if ((Get-PgProtectedBranches -Ctx $Ctx) -ccontains $Branch) { & $Say "гілку $Branch лишено: захищена (main, base чи ціль origin/HEAD)"; return }
     $tip = Invoke-PgGit -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$Branch") -Cwd $root
     if (-not $tip.Ok) { & $Say "гілка ${Branch}: локальної немає"; return }
-    $holder = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -eq $Branch } | Select-Object -First 1
+    $holder = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -ceq $Branch } | Select-Object -First 1
     if ($holder) { & $Say "гілку $Branch лишено: її тримає worktree $($holder.Path)"; return }
     $baseRef = "origin/$($Ctx.Base)"
     $null = Invoke-PgGit -GitArgs @('fetch', '-q', 'origin') -Cwd $root
@@ -785,17 +829,17 @@ function Invoke-PrGateScratchAdd {
     $sha = Invoke-PgGit -GitArgs @('rev-parse', '--verify', '--quiet', "$Ref^{commit}") -Cwd $Ctx.Root
     if (-not $sha.Ok) { throw (New-KitUsageError "scratch add: невідомий ref $Ref") }
     $place = Get-PgScratchPlace -Ctx $Ctx
-    $id = -join (1..6 | ForEach-Object { 'abcdefghijklmnopqrstuvwxyz0123456789'[(Get-Random -Maximum 36)] })
-    if ($place.InRepo) {
-        $cleanupDir = Join-Path $place.Dir "$script:ScratchPrefix$id"
-        $path = $cleanupDir
-        # Порожня тека: git worktree add приймає порожню теку, а ім'я унікальне для паралельних агентів.
-        New-Item -ItemType Directory -Path $cleanupDir -Force | Out-Null
-    } else {
-        $cleanupDir = Join-Path ([System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())) "$script:LegacyScratchPrefix$id"
-        New-Item -ItemType Directory -Path $cleanupDir -Force | Out-Null
-        $path = Join-Path $cleanupDir 'tree'
+    # Дерево — лише в git-ignored <worktrees.root>/.scratch: інакше scratch rm не мав би надійної ознаки,
+    # що тека зроблена scratch add (запасного місця в тимчасовій теці немає: його прибирання
+    # видаляло б батьківську теку з чужими файлами).
+    if (-not $place.InRepo) {
+        throw (New-KitRefusal "scratch add: $($Ctx.WorktreesRoot)/$script:ScratchDir не git-ignored у $($Ctx.MainRoot); додай рядок `"$($Ctx.WorktreesRoot)/`" у .gitignore, потім повтори")
     }
+    $id = -join (1..6 | ForEach-Object { 'abcdefghijklmnopqrstuvwxyz0123456789'[(Get-Random -Maximum 36)] })
+    $cleanupDir = Join-Path $place.Dir "$script:ScratchPrefix$id"
+    $path = $cleanupDir
+    # Порожня тека: git worktree add приймає порожню теку, а ім'я унікальне для паралельних агентів.
+    New-Item -ItemType Directory -Path $cleanupDir -Force | Out-Null
     $r = Invoke-PgGit -GitArgs @('worktree', 'add', '-q', '--detach', $path, $sha.Out) -Cwd $Ctx.Root
     if (-not $r.Ok) {
         Remove-Item -LiteralPath $cleanupDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -804,8 +848,7 @@ function Invoke-PrGateScratchAdd {
     $copied = Format-KitCopiedLine (Copy-KitWorktreeInclude -Root $Ctx.MainRoot -Dest $path -Skip @($Ctx.WorktreesRoot))
     # stdout — лише шлях, щоб `t=$(pr-gate scratch add …)` працював; підказка — в stderr.
     & $Say $path
-    $note = if ($place.InRepo) { '' } else { "примітка: $($Ctx.WorktreesRoot)/$script:ScratchDir не git-ignored, тож дерево в тимчасовій теці; додай рядок у .gitignore`n" }
-    [Console]::Error.Write("scratch-дерево на $($sha.Out.Substring(0, 7)) (відокремлене)`n$(if ($copied) { "$copied`n" })${note}next: змінюй і ганяй там, потім pr-gate scratch rm $path`n")
+    [Console]::Error.Write("scratch-дерево на $($sha.Out.Substring(0, 7)) (відокремлене)`n$(if ($copied) { "$copied`n" })next: змінюй і ганяй там, потім pr-gate scratch rm $path`n")
     0
 }
 
@@ -817,15 +860,14 @@ function Invoke-PrGateScratchRm {
     $parent = Split-Path -Parent $full
     $place = Get-PgScratchPlace -Ctx $Ctx
     $inRepo = (Test-PgSamePath $parent $place.Dir) -and (Split-Path -Leaf $full).StartsWith($script:ScratchPrefix, [System.StringComparison]::Ordinal)
-    $legacy = ((Split-Path -Leaf $full) -eq 'tree') -and (Split-Path -Leaf $parent).StartsWith($script:LegacyScratchPrefix, [System.StringComparison]::Ordinal)
-    if (-not $inRepo -and -not $legacy) {
-        throw (New-KitUsageError "scratch rm: $full зроблено не pr-gate scratch add (очікувалось $(Join-Path $place.Dir "$script:ScratchPrefix*") або …/$script:LegacyScratchPrefix*/tree); worktree задачі прибирає pr-gate cleanup")
+    if (-not $inRepo) {
+        throw (New-KitUsageError "scratch rm: $full зроблено не pr-gate scratch add (очікувалось $(Join-Path $place.Dir "$script:ScratchPrefix*")); worktree задачі прибирає pr-gate cleanup")
     }
     $wt = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { Test-PgSamePath $_.Path $full } | Select-Object -First 1
     if ($wt -and $wt.Branch) { throw (New-KitUsageError "scratch rm: $full на гілці $($wt.Branch), не відокремлене: відмова") }
     $null = Move-PgOutOf -Path $full -To $Ctx.MainRoot
     if ($wt) { $null = Get-PgGit -GitArgs @('worktree', 'remove', '--force', $full) -Cwd $Ctx.MainRoot }
-    Remove-Item -LiteralPath $(if ($inRepo) { $full } else { $parent }) -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue
     if (-not $wt) { $null = Invoke-PgGit -GitArgs @('worktree', 'prune') -Cwd $Ctx.MainRoot }
     & $Say $(if ($wt) { "видалено scratch-дерево $full" } else { "${full}: це вже не worktree; теку видалено" })
     Write-KitNext 'none'
@@ -844,7 +886,7 @@ function Invoke-PrGateLand {
     if (-not $Pr) { throw (New-KitUsageError 'land: назви номер PR') }
     $root = $Ctx.MainRoot
     $base = $Ctx.Base
-    $shared = ($Ctx.WorkspaceMode -eq 'shared')
+    $shared = ($Ctx.WorkspaceMode -ceq 'shared')
     $rerun = "pr-gate land $Pr"
     $done = [System.Collections.Generic.List[string]]::new()
     $left = [System.Collections.Generic.List[string]]::new()
@@ -882,9 +924,12 @@ function Invoke-PrGateLand {
         if ($p.state -eq 'MERGED') {
             & $stepSay "уже злито як $(if ($p.mergeCommit -and $p.mergeCommit.oid) { ([string]$p.mergeCommit.oid).Substring(0, 7) } else { '?' })"
             # Збій міг статися між злиттям і видаленням гілки на origin.
-            if (-not $p.isCrossRepository -and (Invoke-PgGit -GitArgs @('ls-remote', '--exit-code', '--heads', 'origin', $p.headRefName) -Cwd $root).Ok) {
-                $null = Invoke-PgGh -Arguments @('api', '-X', 'DELETE', "repos/{owner}/{repo}/git/refs/heads/$($p.headRefName)")
-                & $stepSay "видалено віддалену гілку $($p.headRefName)"
+            if (-not $p.isCrossRepository) {
+                $c0 = & $newCollector
+                if (Remove-PgRemoteBranch -Ctx $Ctx -Name $p.headRefName -ExpectedOid $p.headRefOid -Protected (Get-PgProtectedBranches -Ctx $Ctx -Extra @($p.baseRefName)) -Say $c0.Add) {
+                    $c0.Add.Invoke("видалено віддалену гілку $($p.headRefName)")
+                }
+                foreach ($l in $c0.Lines) { & $stepSay $l }
             }
         } elseif ($p.state -ne 'OPEN') {
             & $stop "PR #$($p.number) має стан $($p.state)" "gh pr view $($p.number)"
@@ -919,13 +964,13 @@ function Invoke-PrGateLand {
         } else {
             $cur = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
             $dirty = Get-PgGit -GitArgs @('status', '--porcelain', '--untracked-files=no') -Cwd $root
-            # pr.worktrees: false — гілка PR у головному checkout; після злиття — назад на base.
-            if ($cur -eq $p.headRefName -and -not $dirty) {
+            # Гілка PR могла лишитись у головному checkout (поза pr-gate start); після злиття — назад на base.
+            if ($cur -ceq $p.headRefName -and -not $dirty) {
                 $null = Get-PgGit -GitArgs @('switch', '-q', $base) -Cwd $root
                 & $stepSay "головний checkout перемкнено з $cur на $base"
                 $cur = $base
             }
-            if ($cur -ne $base) {
+            if ($cur -cne $base) {
                 & $stepSay "пропущено: головний checkout $root на $(if ($cur) { $cur } else { 'відокремленому HEAD' }), не на $base"
                 $left.Add("git -C $root switch $base && $ff")
             } elseif ($dirty) {
@@ -972,7 +1017,7 @@ function Invoke-PrGateLand {
         # 5. Worktree гілки PR: видалення разом із журналом.
         $step = 'cleanup'
         $cdHint = $null
-        $wt = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -eq $p.headRefName -and -not (Test-PgSamePath $_.Path $root) } | Select-Object -First 1
+        $wt = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -ceq $p.headRefName -and -not (Test-PgSamePath $_.Path $root) } | Select-Object -First 1
         if (-not $wt) { & $stepSay "worktree гілки $($p.headRefName) немає" }
         else {
             $c = & $newCollector

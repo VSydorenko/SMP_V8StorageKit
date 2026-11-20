@@ -22,6 +22,12 @@ Describe 'pr-gate — запобіжники' {
         foreach ($k in $script:Git.Keys) { $script:SavedGit[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $script:Git[$k]) }
 
         # Головний checkout з bare-origin і одним комітом у main; профіль — хеш-таблиця.
+        # SetEnvironmentVariable(k, $null) із PowerShell лишає порожню змінну, а не прибирає її: порожнє
+        # GIT_AUTHOR_NAME ламало б git у наступних файлах того ж процесу.
+        function script:Restore-PgEnv {
+            param([string]$Name, $Value)
+            if ($null -eq $Value) { Remove-Item -LiteralPath "env:$Name" -ErrorAction SilentlyContinue } else { [Environment]::SetEnvironmentVariable($Name, $Value) }
+        }
         function script:New-PgRepo {
             param([string]$Name, [hashtable]$Profile)
             $origin = Join-Path $TestDrive "$Name-origin.git"
@@ -67,7 +73,7 @@ Describe 'pr-gate — запобіжники' {
             foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
             Push-Location $Cwd
             try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit-process.ps1') pr-gate @Arguments 2>$err; $code = $LASTEXITCODE }
-            finally { Pop-Location; foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
+            finally { Pop-Location; foreach ($k in $saved.Keys) { Restore-PgEnv $k $saved[$k] } }
             [pscustomobject]@{
                 Code = $code; Out = ($out -join "`n"); Err = (Get-Content -LiteralPath $err -Raw -Encoding UTF8)
                 Calls = @(Get-KitFakeGhCalls -Log $script:Journal)
@@ -76,7 +82,7 @@ Describe 'pr-gate — запобіжники' {
     }
 
     AfterAll {
-        foreach ($k in $script:SavedGit.Keys) { [Environment]::SetEnvironmentVariable($k, $script:SavedGit[$k]) }
+        foreach ($k in $script:SavedGit.Keys) { Restore-PgEnv $k $script:SavedGit[$k] }
     }
 
     It 'open на base і на main — відмова, push не відбувся (origin без нової гілки); контроль: гілка задачі пушиться' {
@@ -90,12 +96,12 @@ Describe 'pr-gate — запобіжники' {
         # На main (а base — develop): main не пушиться ніколи.
         $onMain = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('open') -Rules $rules
         $onMain.Code | Should -Be 2
-        $onMain.Err | Should -Match 'не пушить main'
+        $onMain.Err | Should -Match 'не пушить захищену гілку'
         # На base.
         git -C $r.Dir switch -q -c develop
         $onBase = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('open') -Rules $rules
         $onBase.Code | Should -Be 2
-        $onBase.Err | Should -Match 'не пушить базову гілку'
+        $onBase.Err | Should -Match 'не пушить захищену гілку'
         Get-PgOriginBranches $r.Origin | Should -Be $before -Because 'відмова мала спрацювати до git push'
 
         # Контроль: гілка задачі — push і PR створено проти base з профілю.
@@ -154,12 +160,30 @@ Describe 'pr-gate — запобіжники' {
             @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
             @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
             @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }   # верхівка на origin = голова PR
             @{ prefix = @('api') }
         )
         $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $okRules
         $ok.Code | Should -Be 0 -Because $ok.Err
         $ok.Out | Should -Match 'ЗЛИТО #5 як ccccccc'
         $ok.Calls | Should -Contain 'api -X DELETE repos/{owner}/{repo}/git/refs/heads/feat'
+    }
+
+    It 'remote-гілка з комітами після голови PR не видаляється: верхівка на origin != headRefOid — немає DELETE, є рядок пояснення' {
+        $r = New-PgRepo -Name 'tipmoved' -Profile @{ pr = @{ mergeMethod = 'squash' } }
+        $moved = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = ('b' * 40) }
+            @{ prefix = @('api') }
+        )
+        $extra = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('merge', '5') -Rules $moved
+        $extra.Code | Should -Be 0 -Because $extra.Err
+        $extra.Calls | Should -Contain 'api repos/{owner}/{repo}/git/ref/heads/feat --jq .object.sha' -Because 'верхівку на origin читано перед видаленням'
+        @($extra.Calls | Where-Object { $_ -like 'api -X DELETE*' }) | Should -BeNullOrEmpty
+        $extra.Out | Should -Match 'віддалену гілку feat лишено'
+        $extra.Out | Should -Match 'gh api -X DELETE repos/\{owner\}/\{repo\}/git/refs/heads/feat'
     }
 
     It 'start у workspace.mode = shared — код 1, жодної нової гілки чи worktree; контроль: у worktree-режимі start працює' {

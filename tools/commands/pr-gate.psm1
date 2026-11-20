@@ -63,11 +63,10 @@ function Invoke-KitPrGate {
     $wtRoot = Resolve-KitInsidePath -Value ([string](Get-KitProfileValue $p 'worktrees.root' -Default '.worktrees')) -Field 'worktrees.root'
     # workspace.mode читають лише кроки, що від нього залежать; поля не вгадуємо (код 3 з назвою поля).
     $mode = if ($step -in @('start', 'land')) { Assert-PrGateWorkspaceMode (Get-KitProfileValue $p 'workspace.mode') } else { $null }
-    $useWorktree = if ($step -eq 'start') { (Get-KitProfileValue $p 'pr.worktrees' -Default $true) -ne $false } else { $true }
     $afterMerge = if ($step -in @('land', 'after-merge')) { Get-KitProfileValue $p 'pr.afterMerge' -Default @() } else { @() }
     $outDir = if ($step -eq 'land') { Get-KitAgentsDir -Name out -RepoRoot $RepoRoot -Create } else { $null }
     $ctx = New-PrGateContext -Root $p.Root -MainRoot $p.MainRoot -Base $base -WorktreesRoot $wtRoot -WorkspaceMode $mode `
-        -UseWorktree $useWorktree -AfterMerge $afterMerge -OutDir $outDir
+        -AfterMerge $afterMerge -OutDir $outDir
 
     $method = $null
     if ($step -in @('merge', 'land')) {
