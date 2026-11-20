@@ -154,15 +154,19 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     }
 
     Context 'onboarding' {
+        BeforeAll {
+            # Роутер SKILL.md + references/storage.md: зміст підключення контуру живе в довідці, не в роутері.
+            $script:OnboardingText = (Skill 'onboarding') + "`n" + (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/onboarding/references/storage.md') -Raw -Encoding UTF8)
+        }
         It 'питає truth з чотирма варіантами й наслідками для git' {
-            $t = Skill 'onboarding'
+            $t = $script:OnboardingText
             foreach ($v in 'storage', 'dump', 'vendor', 'git') { $t | Should -Match "\*\*$v\*\*" }
             $t | Should -Match 'гітігноровано'
             $t | Should -Match 'мовчазного дефолту немає|Мовчазних дефолтів'
         }
         It 'v8project.yaml — рецепт Уніки (unica.view {} → setup) плюс providers designer; власного шаблону немає; база — infobases.origin у блоці local' {
             # Спека 2026-11-19 §3.8 п.1: шаблон kit старів би разом з Унікою; kit дописує лише свої вимоги.
-            $t = Skill 'onboarding'
+            $t = $script:OnboardingText
             $t | Should -Match 'unica\.view \{\}'
             $t | Should -Match '`setup`'
             $blocks = [regex]::Matches($t, '(?ms)^```yaml\s*\r?\n(.*?)^```') | ForEach-Object { $_.Groups[1].Value }
@@ -175,14 +179,14 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t.IndexOf('v8project.local.yaml') | Should -BeLessThan $t.IndexOf($local[0]) -Because 'блок бази стоїть після назви файлу, у який його пишуть'
         }
         It 'ставить хуки командою install-hooks, дописує -text і .gitignore під фактичні шляхи, перший коміт до -Apply' {
-            $t = Skill 'onboarding'
+            $t = $script:OnboardingText
             $t | Should -Match 'install-hooks'
             $t | Should -Match '<ws>/<path>/\*\* -text'
             $t | Should -Match 'перший коміт|Перший коміт'
             $t | Should -Not -Match 'v8storagekit:migrate'   # команди й скіла migrate немає (спека 2f2da62)
         }
         It 'Task 1 (B8): закомічені артефакти збірки — показ переліком, git rm --cached лише з підтвердженням людини' {
-            $t = Skill 'onboarding'
+            $t = $script:OnboardingText
             $t | Should -Match 'build-artifacts'
             $t | Should -Match 'git rm --cached'
             $t | Should -Match 'Лише з підтвердженням'

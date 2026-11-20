@@ -123,35 +123,8 @@ function New-KitFakeRepo {
         }
     }
 
-    # Версія — читанням .claude-plugin/plugin.json НАПРЯМУ, тим самим шляхом, що й
-    # Get-KitPluginVersion (Preflight.psm1, Task 9), але БЕЗ Import-Module цього модуля тут:
-    # New-KitFakeRepo кличуть із BeforeAll тестів, які вже самі імпортували Preflight.psm1 у
-    # глобальну область — вкладений Import-Module -Force звідси перезавантажив би той самий
-    # файл як вкладений модуль KitFixtures і зняв би Invoke-KitPreflight та решту з глобальної
-    # області (спіймано живим прогоном: Preflight.Tests.ps1 і всі тести, що йдуть після нього
-    # в тому ж процесі, впали з CommandNotFoundException на Invoke-KitPreflight — той самий
-    # ризик, що застерігає коментар check.psm1 і docs/follow-ups.md §5). Читання самого файлу
-    # без Import-Module цього ризику не несе: інакше фікстура й production-код розходяться
-    # мовчки, щойно .claude-plugin/plugin.json підніме версію — і саме це мала ловити перевірка
-    # check.psm1 "версії збігаються" (Check.AgentBase.Tests.ps1).
-    # Фолбек на літерал прибрано (бамп 1.0.1 → 1.1.0 показав, чому): він тихо підставляв
-    # застарілу версію щоразу, коли plugin.json не прочитався, — і тест check.psm1 «версії
-    # збігаються» порівнював вигадане число замість справжнього, тобто маскував саме те
-    # розходження, яке мав ловити (deferred-minor звіту C2: production віддає $null, фікстура
-    # брала літерал). Відсутній або нечитабельний plugin.json у пісочниці — аномалія
-    # (Copy-KitTools його копіює), тож зупинка тут чесніша за будь-яке значення.
-    $pluginJsonPath = Join-Path $kitRoot '.claude-plugin/plugin.json'
-    if (-not (Test-Path -LiteralPath $pluginJsonPath -PathType Leaf)) {
-        throw "Фікстура не знайшла $pluginJsonPath — kitVersion у синтетичному маніфесті нізвідки взяти."
-    }
-    $kitPluginVersion = [string]((Get-Content -LiteralPath $pluginJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).version)
-    if (-not $kitPluginVersion) {
-        throw "У $pluginJsonPath немає поля version — kitVersion у синтетичному маніфесті нізвідки взяти."
-    }
-
     $manifest = [System.Collections.Generic.List[string]]::new()
     $manifest.Add('version: 1')
-    $manifest.Add("kitVersion: $kitPluginVersion")
     $manifest.Add('product: Fake')
     $manifest.Add('workspaces:')
 
@@ -236,7 +209,7 @@ function New-KitFakeRepo {
     if ($WithGitattributes) {
         Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitattributes') -Destination (Join-Path $Root '.gitattributes')
         # Шаблон знає лише маски **/cfe/src/** і **/epf/src/**; для решти дерев у git (CONFIGURATION
-        # не-vendor, EXTENSION із іншим шляхом) onboarding §3.4 дописує рядок під фактичний шлях —
+        # не-vendor, EXTENSION із іншим шляхом) onboarding (references/storage.md, 2.4) дописує рядок під фактичний шлях —
         # робимо те саме, інакше check дає error gitattributes на cf/src і cfe/<Ім'я>/src.
         $attrLines = [System.Collections.Generic.List[string]]::new()
         foreach ($wsName in @($Workspaces.Keys)) {
@@ -548,10 +521,8 @@ function Copy-KitTools {
     # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі
     # спіймав: "Cannot find path ...\templates\settings.json").
     Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $Root 'templates/settings.json') -Force
-    # .claude-plugin/plugin.json: Get-KitPluginVersion (Preflight.psm1, Task 9) рахує шлях від
-    # розташування МОДУЛЯ (tools/lib → корінь плагіна) — у цій копії, не в робочій копії плагіна,
-    # бо саме копію запускає підпроцес kit.ps1 нижче. Без цього файлу тут функція повертає $null,
-    # і знахідка 'kit-version' у check ніколи не з'являється в тестах, що йдуть через Copy-KitTools.
+    # .claude-plugin/plugin.json: версію плагіна читають від кореня копії (KitVersion.psm1: kit-scan,
+    # kit-setup) — у цій копії, не в робочій копії плагіна, бо саме копію запускає підпроцес kit.ps1.
     New-Item -ItemType Directory -Path (Join-Path $Root '.claude-plugin') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $kitRoot '.claude-plugin/plugin.json') -Destination (Join-Path $Root '.claude-plugin/plugin.json') -Force
     # CHANGELOG.md: журнал змін плагіна читають хук старту сесії (рядок оновлення), kit-setup і

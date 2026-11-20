@@ -137,7 +137,7 @@ Describe 'секрети не у виводі (П23)' {
             Assert-NoMarkers -Text $r.Output
         }
         It 'маніфест v8storagekit.yaml: невідомий ключ джерела — імені немає' {
-            $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', '      tools: { truth: git, password=MARKZ9МАРКЗ9 }') -join "`n"
+            $text = @('version: 1', 'product: Fake', 'workspaces:', '  - path: epf', '    sources:', '      tools: { truth: git, password=MARKZ9МАРКЗ9 }') -join "`n"
             $ws = [ordered]@{ 'epf' = @{ Sets = @(@{ Name = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } }
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'g4') -Workspaces $ws -ManifestText $text -WithHooks
             $r = Invoke-Kit -Command 'check' -Repo $repo
@@ -210,7 +210,7 @@ Describe 'секрети не у виводі (П23)' {
             $r.Output | Should -Not -BeLike '*МАРКЗ9*'
         }
         It 'маніфест storage.path «password:…» (check): відмова без значення' {
-            $text = @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:', "      Alpha_SMB: { truth: storage, storage: { path: 'password:MARKZ9МАРКЗ9' } }") -join "`n"
+            $text = @('version: 1', 'product: Fake', 'workspaces:', '  - path: Alpha_SMB', '    sources:', "      Alpha_SMB: { truth: storage, storage: { path: 'password:MARKZ9МАРКЗ9' } }") -join "`n"
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h3') -ManifestText $text -WithHooks
             $r = Invoke-Kit -Command 'check' -Repo $repo
             $r.ExitCode | Should -Not -Be 0

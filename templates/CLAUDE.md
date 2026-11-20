@@ -78,7 +78,7 @@
 Проєктні значення процесу — `.agents/kit.profile.json` (комітиться; локальне перекриття —
 `.agents/kit.profile.local.json`). Режим робочої копії `workspace.mode`: `shared` — одне дерево й
 одна база агента, коміти точкові; `worktree` — лише для репозиторію без бази. Підключення процесу
-й оновлення після нової версії плагіна — `v8storagekit:kit-onboard` (`kit-scan`, `kit-setup`).
+й оновлення після нової версії плагіна — `v8storagekit:onboarding` (`kit-scan`, `kit-setup`).
 
 ## Межі
 

@@ -56,7 +56,7 @@ kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInc
                $script:LocalProfileRel; у режимі worktree ще й <worktrees.root>/
   profile      створити $script:ProfileRel зі знайденими значеннями й TODO-маркерами, лише якщо його
                немає; новий профіль отримує kit.version = версія плагіна. Наявний профіль не
-               змінюється: нижчу kit.version команда називає (оновлення — /v8storagekit:kit-onboard)
+               змінюється: нижчу kit.version команда називає (оновлення — /v8storagekit:onboarding)
   worktreeinclude  лише в режимі worktree: дописати $($script:IncludeLines -join ', ') до
                $script:IncludeFile (гітігноровані файли, що копіюються в кожен новий worktree)
   -DryRun      надрукувати точний diff кожного файла, нічого не писати
@@ -315,14 +315,14 @@ function Get-SetupTodoFields {
 }
 
 function Get-SetupVersionNote {
-    <# Наявний профіль із нижчою kit.version: команда його не міняє, версію виставляє kit-onboard. #>
+    <# Наявний профіль із нижчою kit.version: команда його не міняє, версію виставляє скіл onboarding. #>
     param([Parameter(Mandatory)][string]$Root)
     if (Test-KitPluginRepo -Root $Root) { return '' }
     $p = Get-KitProjectVersion -Root $Root
     if ($p.Source -eq 'invalid') { return "; $($p.Error)" }
     $plugin = (Get-KitPluginInfo).Version
     if (-not $p.Version -or (Compare-KitVersion -A $p.Version -B $plugin) -ge 0) { return '' }
-    "; kit.version $($p.Version)$(if ($p.Source -eq 'default') { ' (поля немає)' }) < плагін $plugin — оновлення: /v8storagekit:kit-onboard (kit-scan покаже кроки)"
+    "; kit.version $($p.Version)$(if ($p.Source -eq 'default') { ' (поля немає)' }) < плагін $plugin — оновлення: /v8storagekit:onboarding (kit-scan покаже кроки)"
 }
 
 function Get-SetupProfilePlan {

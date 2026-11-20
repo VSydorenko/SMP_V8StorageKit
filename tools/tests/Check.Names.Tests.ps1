@@ -91,7 +91,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
         $manifest = @(
-            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            'version: 1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: dev } }',
             '      Alpha_SMB: { truth: git }'
@@ -118,7 +118,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
         $manifest = @(
-            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            'version: 1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: dev } }',
             '      Alpha_SMB: { truth: git }'
@@ -136,7 +136,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
         $manifest = @(
-            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            'version: 1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: dev } }',
             '      Alpha_SMB: { truth: git }'
@@ -154,7 +154,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
         $manifest = @(
-            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            'version: 1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: dev } }',
             '      Alpha_SMB: { truth: git }'
@@ -176,7 +176,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
         $manifest = @(
-            'version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:',
+            'version: 1', 'product: Fake', 'workspaces:',
             '  - path: Alpha_SMB', '    sources:',
             '      base: { truth: vendor, dump: { from: dev } }',
             '      Alpha_SMB: { truth: git }'

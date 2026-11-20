@@ -47,10 +47,10 @@ Unica не вміє: сховища, дамп із живої бази, база
 | рецензія готової роботи | `v8storagekit:landed-review` |
 | роль архітектора частини | `v8storagekit:architect` |
 | статус, віхи, issues у GitHub | `v8storagekit:track` |
-| лише власник: закрити блок, ретро, підключити процес | `/v8storagekit:close-block`, `/v8storagekit:retro`, `/v8storagekit:kit-onboard` |
+| лише власник: закрити блок, ретро, підключити проєкт | `/v8storagekit:close-block`, `/v8storagekit:retro`, `/v8storagekit:onboarding` |
 
-`v8storagekit:onboarding` підключає контур сховища, `v8storagekit:kit-onboard` — процес; це
-різні підключення, і одне не потребує іншого.
+`v8storagekit:onboarding` підключає проєкт: процес — завжди, контур сховища — коли є сховища 1С;
+він же оновлює відсталий проєкт до нової версії плагіна (версія проєкту — `kit.version` профілю).
 
 Вихідники в EDT-форматі (`DT-INF/`) kit не підтримує: зупиніться й скажіть людині про `convert`
 раннера Уніки чи повторне вивантаження сховища.

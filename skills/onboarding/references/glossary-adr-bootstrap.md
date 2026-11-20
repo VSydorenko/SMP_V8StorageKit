@@ -1,4 +1,4 @@
-<!-- Ported from agent-kit 0.9.1 skills/kit-onboard/references/glossary-adr-bootstrap.md, modified. -->
+<!-- Ported from agent-kit 0.9.1 references/glossary-adr-bootstrap.md, modified. -->
 # Стартові глосарій і ADR для проєкту зі старішими спеками
 
 **Завантаж, коли** в проєкті є спеки, реєстри рішень чи нотатки про дизайн, але немає

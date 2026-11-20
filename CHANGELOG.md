@@ -9,7 +9,7 @@
 - версія проєкту — поле `kit.version` у `.agents/kit.profile.json`: версія плагіна, до якої проєкт
   востаннє підключено або оновлено. Поля немає — проєкт на `0.1.0` (підключено до появи версій);
 - проєкт відстав → `kit-scan` (розділ `Kit version`) друкує чеклісти всіх версій після версії
-  проєкту, хук старту сесії каже про це одним рядком, власник запускає `/v8storagekit:kit-onboard`.
+  проєкту, хук старту сесії каже про це одним рядком, власник запускає `/v8storagekit:onboarding`.
   Скіл проходить пункти як рядки звіту й останнім кроком того самого PR записує нову `kit.version`.
 
 ## Формат
@@ -35,7 +35,7 @@
 
 ### Чекліст оновлення проєкту
 
-- [ ] Запусти `kit-scan` і розбери розділ `Skills outside the plugin` за `/v8storagekit:kit-onboard`: рядки `same-name` — прибрати локальну копію скіла (у `~/.claude/skills/` чи `.claude/skills/` проєкту) після звірки вмісту.
+- [ ] Запусти `kit-scan` і розбери розділ `Skills outside the plugin` за `/v8storagekit:onboarding`: рядки `same-name` — прибрати локальну копію скіла (у `~/.claude/skills/` чи `.claude/skills/` проєкту) після звірки вмісту.
 - [ ] Якщо проєкт вантажив `check-localization.py` у CI — заміни крок на `pwsh -NoProfile -File <копія check-localization.ps1>` зі скіла `v8storagekit:1c-localization`.
 - [ ] Допиши в таблицю «Наміри → скіли» кореневого `CLAUDE.md` проєкту рядки предметних скілів 1С з `templates/CLAUDE.md` плагіна.
 - [ ] Останнім комітом PR виставити `"kit": { "version": "1.6.2" }` у `.agents/kit.profile.json`.
@@ -55,7 +55,7 @@
 - [ ] Запусти `kit-scan` у корені проєкту й збережи звіт (розділ `Kit version` покаже розрив версій).
 - [ ] Запусти `kit-setup -DryRun`, перегляньте diff власником, потім `kit-setup` — дозволи, `.gitignore` і скелет профілю.
 - [ ] Заповни TODO-поля `.agents/kit.profile.json` з фактів (`pr.mergeMethod`, `docs.specs`, `docs.plans`, `workspace.mode`).
-- [ ] Останнім комітом PR виставити `"kit": { "version": "1.6.1" }` у `.agents/kit.profile.json` (скіл `/v8storagekit:kit-onboard`).
+- [ ] Останнім комітом PR виставити `"kit": { "version": "1.6.1" }` у `.agents/kit.profile.json` (скіл `/v8storagekit:onboarding`).
 
 ## 1.6.0 — 2026-11-20
 

@@ -3,7 +3,7 @@
 Set-StrictMode -Version Latest
 
 <#
-    Механіка протоколу підключення (скіл kit-onboard): знайти в проєкті копії й прототипи частин kit,
+    Механіка протоколу підключення (скіл onboarding): знайти в проєкті копії й прототипи частин kit,
     посилання на superpowers і файли пам'яті про процедури, які тепер робить kit. Лише читання: рішення
     по кожному рядку ухвалює агент разом із власником, команда лише дає таблицю-кандидатів.
 
@@ -24,7 +24,7 @@ $script:TextExt = @('.md', '.json', '.jsonc', '.txt', '.yml', '.yaml', '.toml', 
 $script:Usage = @"
 kit-scan [-Json] [-MinSimilarity <0..1>] [-Memory <тека>]
 
-Скан для підключення проєкту до процесу v8storagekit (скіл kit-onboard). Лише читання: друкує
+Скан для підключення проєкту до процесу v8storagekit (скіл onboarding). Лише читання: друкує
 рядки-кандидати, колонки class/action заповнює агент разом із власником.
 
   Kit version   kit.version у .agents/kit.profile.json (немає поля — 0.1.0) проти версії плагіна; коли
@@ -57,7 +57,7 @@ $script:Known = @(
     , @('^\.claude/commands/виконай-задачу\.md$', 'skill execute + sdd')
     , @('^\.claude/commands/перевір-роботу-агента-кодування\.md$', 'skill landed-review')
     , @('^\.claude/commands/архівуй-виконані-задачі\.md$', 'skill close-block')
-    , @('^\.claude/commands/ревізія-пам[ʼ'’]?яті\.md$', 'skill kit-onboard (класи пам''яті)')
+    , @('^\.claude/commands/ревізія-пам[ʼ'’]?яті\.md$', 'skill onboarding (класи пам''яті)')
     , @('(^|/)code-review[\w-]*(/|\.md$)', 'skill landed-review + agent code-reviewer')
     , @('(^|/)codebase-research(/|\.md$)', 'Уніка (unica.search, unica.view) + agent researcher')
     , @('(^|/)map-search\.py$', 'Уніка (unica.search, unica.view) + agent researcher')

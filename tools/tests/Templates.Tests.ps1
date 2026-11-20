@@ -68,7 +68,7 @@ Describe 'templates/githooks — хуки захисту storage/*' {
 Describe 'onboarding — v8project.yaml за рецептом Уніки (спека 2026-11-19 §3.8 п.1)' {
     BeforeAll {
         $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
+            Resolve-Path "$PSScriptRoot/../../skills/onboarding/references/storage.md").Path
     }
 
     It 'бази агента скіл не оголошує в закоміченому файлі: вона машинна, у infobases.origin v8project.local.yaml (спека 1.5.0 §4.3 п. 2–3)' {
@@ -89,7 +89,7 @@ Describe 'onboarding — v8project.yaml за рецептом Уніки (спе
 Describe 'onboarding — каркас не кладе хука старту сесії у споживача (1.6.0: хук у плагіні)' {
     BeforeAll {
         $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
+            Resolve-Path "$PSScriptRoot/../../skills/onboarding/references/storage.md").Path
     }
 
     It 'жоден git add і жоден рядок каркаса не згадує .claude/hooks/session-start.ps1, settings.json лишається' {

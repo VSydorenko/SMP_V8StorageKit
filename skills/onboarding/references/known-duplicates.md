@@ -1,4 +1,4 @@
-<!-- Ported from agent-kit 0.9.1 skills/kit-onboard/references/known-duplicates.md, modified. -->
+<!-- Ported from agent-kit 0.9.1 references/known-duplicates.md, modified. -->
 # Відомі залишки й прототипи
 
 Те, що трапляється в 1С-проєктах, які вели процес через superpowers і власні ручні адаптації, до підключення (`kit-scan`). `kit-scan` знає ці шляхи; схожі файли знаходить за назвою й вмістом. Переліки доповнюють за живими проєктами; рядок скану — не вирок (див. скіл).
@@ -43,7 +43,7 @@
 
 | Проєктний файл | Заміна в kit | Звичайний клас |
 | --- | --- | --- |
-| `.claude/commands/*` з процедурою обговорення, дослідження, виконання плану, рев'ю роботи агента, архівування задач, ревізії пам'яті | скіли `discuss`, `research`, `execute`, `landed-review`, `close-block`, `kit-onboard` | remove |
+| `.claude/commands/*` з процедурою обговорення, дослідження, виконання плану, рев'ю роботи агента, архівування задач, ревізії пам'яті | скіли `discuss`, `research`, `execute`, `landed-review`, `close-block`, `onboarding` | remove |
 | проєктні агенти й скіли рев'ю коду (`.claude/agents/code-review*.md`, `.agents/skills/code-review/`) | скіл `landed-review`, агенти `code-reviewer`, `code-review-verifier` | keep-knowledge: предметні критерії → файл, названий полем `review.criteria`; процедуру прибрати |
 | проєктна копія пошуку по коду чи дослідника | Уніка (`unica.search`, `unica.view`) і агент `researcher` | remove |
 | `superpowers:*` у `CLAUDE.md` / проєктних командах | таблиця «Скіли superpowers» вище | replace |
@@ -58,6 +58,6 @@
 
 ## Підключення контуру сховища
 
-Не залишок і не крок цього скіла: контур «сховище ↔ git» підключає `v8storagekit:onboarding`.
+Не залишок: контур «сховище ↔ git» підключається окремим кроком — [storage.md](storage.md).
 
 Частину kit, якої ще нема (`kit-scan` позначає її «planned»), не видаляй у проєкті: познач рядок `keep` з issue, що її замінить. Виняток — planned лише одна з альтернатив заміни, а інша вже є (рядок `superpowers:finishing-a-development-branch`: `v8storagekit:finish` є, `pr-gate` planned): тоді **replace** наявною.

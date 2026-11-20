@@ -22,7 +22,7 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
             'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitInfobasesOverlap', 'Test-KitPathsOverlap', 'Get-KitDirectoryEntriesNoLinks',
             'Get-KitDirtyRecords', 'Backup-KitDirtyFiles', 'Get-KitInvisibleWork', 'Format-KitInvisibleWorkStop',
-            'Get-KitOriginGap', 'Get-KitPluginVersion', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
+            'Get-KitOriginGap', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
             'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',

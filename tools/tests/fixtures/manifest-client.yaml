@@ -1,5 +1,4 @@
 version: 1
-kitVersion: 1.0.1
 client: Alpenpharma
 workspaces:
   - path: Alpenpharma_UNF

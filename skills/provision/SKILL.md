@@ -53,7 +53,7 @@ git grep -c "ObjectBelonging>Adopted"
 (рецепт (ii)). `kit provision` сам створить лише порожню файлову базу — і лише коли шляху бази ще немає (базу з
 `.dt` створює Уніка: `provision` друкує її крок `infobase.restore`; серверну створила людина) — і надрукує наступний крок kit:
 `kit sync -Source <ключ> -FromLatest -Apply` (або `-FromVersion N`) для (i), `kit verify -Source <ключ>`
-на головній гілці для (ii) — це рецепти з `v8storagekit:onboarding`, розділ «Клієнтська основна
+на головній гілці для (ii) — це рецепти з `v8storagekit:onboarding` (`references/storage.md`), розділ «Клієнтська основна
 конфігурація». Базу наповнює kit, а пам'ять раннера вирівнює крок, який надрукує `sync`/`verify`
 (`push` з `"force":true` для набору; за поставки вендора відсутньої чи застарілої — зупинка з рецептом:
 повний `pull` з `"force":true` і `kit supply-marker … -Apply`). Це попередження про поставку, не зупинка: `provision` розгортає базу в
@@ -98,7 +98,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot 
 звідти; у вивід він не потрапляє; подвійна лапка в паролі — зупинка kit). Лапки в рядку
 підключення — лише парою навколо всього значення (`Srvr="SRV";Ref="BASE";`) або без лапок; непарна
 лапка — помилка. Завести `infobases.origin` для **наявної файлової** бази — це не `provision`: за
-наявної теки бази він зупиняється, а не вписує її (`v8storagekit:onboarding`, розділ 3.2.1).
+наявної теки бази він зупиняється, а не вписує її (`v8storagekit:onboarding`, `references/storage.md`, розділ 2.2.1).
 
 ## 3. Виконання — лише на явне прохання
 
