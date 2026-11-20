@@ -18,7 +18,7 @@ Set-StrictMode -Version Latest
 
 $script:Usage = @"
 codex-audit -Prompt <file> [-Embed <file>]… [-NoRepo] [-Freeze] [-Out <file>]
-codex-audit review (-Commit <sha> | -Base <branch> | -Uncommitted) [-Prompt <file>] [-Out <file>]
+codex-audit review (-Commit <sha> | -Base <branch> | -Uncommitted) [-Out <file>]
 
 One independent Codex run in the normal CLI mode (codex exec --ignore-user-config --ephemeral
 --json) and a check from the JSONL events that it really happened. Verify every finding yourself;
@@ -300,6 +300,9 @@ function Invoke-KitCodexAudit {
     if ($mode -eq 'review') {
         if (@($target | Where-Object { $_.StartsWith('--') }).Count -ne 1) { throw (New-KitUsageError 'review потребує рівно одного з -Commit <sha>, -Base <гілка>, -Uncommitted') }
         if ($embeds.Count -or $a.Named['NoRepo'] -or $a.Named['Freeze']) { throw (New-KitUsageError '-Embed, -NoRepo і -Freeze — параметри аудиту, не review') }
+        # codex-cli 0.170: `exec review --base` відмовляє власним інструкціям («cannot be used with [PROMPT]»).
+        # Нативне рев'ю — без промпту; вузькі питання до коду — режим аудиту.
+        if ($a.Named.ContainsKey('Prompt')) { throw (New-KitUsageError 'review не приймає -Prompt (Codex CLI відмовляє інструкціям у exec review); питання до коду — режим аудиту: codex-audit -Prompt <файл>') }
     } else {
         if (-not $a.Named.ContainsKey('Prompt')) { throw (New-KitUsageError '-Prompt <файл> обов''язковий') }
         if ($target.Count) { throw (New-KitUsageError '-Commit, -Base, -Uncommitted — параметри review') }
