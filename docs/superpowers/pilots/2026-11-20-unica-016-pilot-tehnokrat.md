@@ -212,3 +212,16 @@ Task failed: {"summary":"load failed for source-set 'ТК_Адаптация' wi
 перезавантажував).** Рецепт `d66a680` пройдено без відмов. Правило `.gitignore` `**/Ext/ParentConfigurations/` не завадило
 ні `pull`, ні `supply-marker`. Байти `pull` 0.16 = байти дзеркала: тезу §4.2 п.12 на цій серверній базі виміряно — різниці
 0. `kit check` після кроку → помилок немає, одне попередження (`kitVersion`).
+
+### 2026-11-20 — крок 10
+
+`kitVersion: 1.6.0` у `v8storagekit.yaml`; `kit check` (знімок `ca7ca74`) → «Помилок немає. Попереджень: 0.».
+`git diff -- CLAUDE.md` показано власнику. Коміт з його погодження: `f3bd75bc7` на `feature/kit-1.6.0`, 6 шляхів явним
+переліком (`v8storagekit.yaml`, `tehnokrat/v8project.yaml`, `.claude/settings.json`, `CLAUDE.md`,
+`.claude/hooks/session-start.ps1` — видалення, `.githooks/pre-commit`). Не пушилось.
+
+Зауважа до процедури: `git add <перелік>` з уже видаленим (`git rm`) шляхом дає «fatal: pathspec
+'.claude/hooks/session-start.ps1' did not match any files». Видалений шлях іде лише в `commit --only -- …`, не в `add`.
+Крок 10 цього не каже.
+
+**Лишилось:** вимір «Стан сховищ рівно один раз» і хук знімка `f610e73` — у новій сесії в корені `tehnokrat_unf`.
