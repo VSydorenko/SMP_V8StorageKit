@@ -283,7 +283,7 @@ function Get-SddNextCommand {
         if (-not (Test-KitSddDone $r)) { return Get-SddNextFor $C $r }
     }
     # Усі задачі завершено: далі фінальна рецензія всієї гілки, а не одразу close.
-    "review-pack -Branch, потім скіл v8storagekit:landed-review на цьому пакеті; після його виправлень: $(Get-SddCmd $C 'close')"
+    "review-pack -Branch, потім скіл v8storagekit:review на цьому пакеті; після його виправлень: $(Get-SddCmd $C 'close')"
 }
 
 function Add-SddRow {

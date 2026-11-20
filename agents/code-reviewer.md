@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Рецензент лише для читання: код, що вже потрапив у гілку, крізь одну лінзу з виклику, зокрема приймальні лінзи. Кличе скіл landed-review чи архітектор на прийманні блоку; модель задає викликач. Доводить дефекти, не виправляє.
+description: Рецензент лише для читання: код, що вже потрапив у гілку, крізь одну лінзу з виклику, зокрема приймальні лінзи. Кличе скіл review чи архітектор на прийманні блоку; модель задає викликач. Доводить дефекти, не виправляє.
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 ---

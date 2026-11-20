@@ -112,7 +112,7 @@ function Get-KitSourceInfobase {
     if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
     if ($ab.Kind -eq 'file' -and -not $ab.Exists) {
         throw ("Бази агента воркспейсу '$($ws.Path)' ще немає на диску ($($ab.Path)), а джерело '$($Source.Key)' (truth: storage) " +
-               'вивантажується в контексті базової конфігурації. Спершу v8storagekit:provision (kit provision -Workspace ' +
+               'вивантажується в контексті базової конфігурації. Спершу v8storagekit:infobase-agent (kit provision -Workspace ' +
                "$($ws.Path) -Apply і надрукований ним крок), тоді повторіть команду.")
     }
     [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path; Project = $ws.Project }

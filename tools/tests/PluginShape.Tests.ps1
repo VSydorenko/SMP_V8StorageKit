@@ -11,8 +11,8 @@ BeforeAll {
     # 1.6.0, вони старші за межі описів і розміру. Запис прибирається разом зі скороченням скіла (інакше
     # тест падає: перелік не гниє); нові скіли й усе поза переліком — фейл.
     $script:KnownViolators = @(
-        foreach ($s in 'dump', 'finish', 'provision', 'reconcile', 'unica-folders', 'verify', 'using-v8storagekit') { @{ Skill = $s; Check = 'description' } }
-        foreach ($s in 'provision') { @{ Skill = $s; Check = 'skill-size' } }
+        foreach ($s in 'infobase-dump', 'task-finish', 'infobase-agent', 'storage-adopt', 'storage-verify', 'storage-rules') { @{ Skill = $s; Check = 'description' } }
+        foreach ($s in 'infobase-agent') { @{ Skill = $s; Check = 'skill-size' } }
     )
 
     # Класифікація знахідок перевірки $Check (рядки на кшталт «skills/ІМ'Я/SKILL.md — …») за переліком

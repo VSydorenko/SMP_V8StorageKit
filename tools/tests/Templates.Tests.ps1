@@ -97,7 +97,7 @@ Describe 'onboarding — каркас не кладе хука старту се
         $script:MigrationSkill | Should -Match 'git add .*\.claude/settings\.json'
     }
 }
-Describe 'templates/settings.json, хук плагіна і using-v8storagekit' {
+Describe 'templates/settings.json, хук плагіна і storage-rules' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
     It 'settings.json споживача не має розділу hooks: хук старту сесії поставляє плагін' {
@@ -139,9 +139,9 @@ Describe 'templates/settings.json, хук плагіна і using-v8storagekit' 
         $hook | Should -Match 'PSScriptRoot'
         Join-Path $script:Root 'templates/hooks/session-start.ps1' | Should -Not -Exist
     }
-    It 'using-v8storagekit: шлях до kit через токен кореня плагіна (хук його більше не підставляє), з префіксованими іменами скілів' {
-        $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/using-v8storagekit/SKILL.md') -Raw
-        foreach ($n in 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
+    It 'storage-rules: шлях до kit через токен кореня плагіна (хук його більше не підставляє), з префіксованими іменами скілів' {
+        $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/storage-rules/SKILL.md') -Raw
+        foreach ($n in 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
         $skill | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1'
         $skill | Should -Not -Match '<корінь плагіна>'
     }
@@ -221,7 +221,7 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
     It 'згадує v8storagekit.yaml, гілки storage/ і всі сім скілів життєвого циклу з префіксом' {
         $script:TemplateClaudeMd | Should -Match 'v8storagekit\.yaml'
         $script:TemplateClaudeMd | Should -Match 'storage/'
-        foreach ($n in 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify') {
+        foreach ($n in 'onboarding', 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify') {
             $script:TemplateClaudeMd | Should -Match "v8storagekit:$n" -Because "шаблон не називає скіл $n"
         }
     }

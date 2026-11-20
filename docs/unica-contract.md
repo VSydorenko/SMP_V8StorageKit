@@ -35,7 +35,7 @@
 
 | # | Залежність | Де використовується | Швидка перевірка | Статус |
 |---|---|---|---|---|
-| A1 | `unica.run` з `"op":"make"` збирає `.cf`, `.cfe`, `.epf`, `.erf` і публікує їх у `output` напряму, не в стейдж (`output` — лише всередині воркспейсу; `extension` обов'язковий для `.cfe`; для `.epf`/`.erf` — набір з рівно одним зовнішнім об'єктом і оголошена основна конфігурація воркспейсу) | уся збірка артефактів — крок «артефакти» скіла `finish`; власної збірки в kit немає | `make` з `"dryRun":false` дає файл; немає `.meta.json` з `"kind": "stage"` і немає `os error 5` | **[гіп]**; 0.16: `.epf`/`.erf` підтримано [код `v13_artifact_build.rs`, `tool_catalog.rs`] |
+| A1 | `unica.run` з `"op":"make"` збирає `.cf`, `.cfe`, `.epf`, `.erf` і публікує їх у `output` напряму, не в стейдж (`output` — лише всередині воркспейсу; `extension` обов'язковий для `.cfe`; для `.epf`/`.erf` — набір з рівно одним зовнішнім об'єктом і оголошена основна конфігурація воркспейсу) | уся збірка артефактів — крок «артефакти» скіла `task-finish`; власної збірки в kit немає | `make` з `"dryRun":false` дає файл; немає `.meta.json` з `"kind": "stage"` і немає `os error 5` | **[гіп]**; 0.16: `.epf`/`.erf` підтримано [код `v13_artifact_build.rs`, `tool_catalog.rs`] |
 | A2 | `unica.run` з `"op":"push"` вантажить набори в базу `origin`; перед завантаженням набору звіряє пам'ять покоління (`no_memory`, `non_fast_forward`), `force:true` обходить звірку (розділ F) і **завжди питає людину** «Перезаписать базу «origin» исходниками набора …?»; модель згоди не дає | наповнення бази агента; крок вирівнювання після `sync`/`verify` | `push` з `"dryRun":true` показує план; після кроку вирівнювання, який надрукував kit, `push` проходить | [док `v8project.md`; код `v13_source_import.rs`]; 0.16: питання на `force:true` [код, правило `INV.RUNTIME.DESTRUCTIVE-CONFIRMATION`; вимір — розділ F2] |
 | A2а | `unica.run` з `"op":"pull"`, `force:true` повністю вивантажує набір з бази агента тим самим Конфігуратором (`providers: designer`) і заміняє каталог набору; з незбереженими правками набору чи поза git — питає людину, на чистому наборі — ні; для набору розширення потрібен `extension` | канонізація дерева (`reconcile`, `finish`) і повне вивантаження поставки вендора | на одній платформі з дампом kit дає ті самі байти, крім `ConfigDumpInfo.xml` | 0.16: [код]; рівність байтів на файловій базі й одній платформі [вимір]; на серверній — **[гіп]**, перевіряє пілот |
 | A3 | `v8project.yaml`: два source-set-и (`CONFIGURATION` → `cf/src`, `EXTENSION` → `cfe/src`) і `providers: {push, pull, download: designer}`; ключі `builder`, `execution_timeout`, `partialLoadThreshold`, `basePath` Уніка не приймає; база агента — `infobases.origin` у `v8project.local.yaml` | `onboarding`; `kit check` | `unica.check {}` → `ready`; `unica.view {}` показує обидва набори | [док `v8project.md`]; `providers` у закоміченому файлі — інваріант контуру (розділ F), не вимога Уніки |
@@ -57,8 +57,8 @@
 `references/tooling/v8project.md` пакета Уніки [док].
 
 **Kit не запускає Уніку сам.** Її викликає агент за скілами v8storagekit
-(`using-v8storagekit` — таблиця маршрутизації й правило дисципліни `dryRun`; `provision`,
-`finish`, `reconcile`, `sync`, `verify` — конкретні застосовні кроки), а точні виклики друкує
+(`storage-rules` — таблиця маршрутизації й правило дисципліни `dryRun`; `infobase-agent`,
+`task-finish`, `storage-adopt`, `storage-sync`, `storage-verify` — конкретні застосовні кроки), а точні виклики друкує
 команда kit (`tools/lib/UnicaStep.psm1`). Раннер Уніки — інша справа: kit запускає його сам як
 інструмент (розділ F3). `templates/settings.json` дозволяє читальні інструменти Уніки й
 `unica_run`: запит Claude Code на кожен виклик `unica_run` знято свідомо («дозволити й не питати
@@ -285,12 +285,12 @@ source-set і падає з `validation error: source-set 'X' resolves to extens
   ще й єдиний шлях: Конфігуратор у кластері токена не віддає (#184), тож вирівняти пам'ять там
   інакше нічим.
 - **Канон `pull force` дозволено й на серверній базі.** Канон — питання байтів, не пам'яті, тож
-  скіли `reconcile` і `finish` дають пару «`push force` → `pull force`» на будь-якій базі. Рівність
+  скіли `storage-adopt` і `task-finish` дають пару «`push force` → `pull force`» на будь-якій базі. Рівність
   байтів на серверній базі — **[гіп]**, перевіряє пілот.
 - **Крок вирівнювання kit і сітка.** Команда kit, що зрушила базу агента, друкує точний крок
   (таблиця «команда → крок» — `docs/storage-and-git.md`, розділ «Пам'ять покоління раннера
   і вирівнювання»). Від пропущеного кроку захищає лише сам крок, а не раннер; сітка —
-  правило `using-v8storagekit`: `infobase_state_unverified`, `non_fast_forward` чи `no_memory` у
+  правило `storage-rules`: `infobase_state_unverified`, `non_fast_forward` чи `no_memory` у
   відповіді `push` бази агента — виконати `push force:true` для названих наборів.
 - **`dryRun`.** Явний булів обов'язковий, превью — ні. `dryRun:true` першим — конвенція kit.
 
@@ -313,7 +313,7 @@ source-set і падає з `validation error: source-set 'X' resolves to extens
   агента не вирівняна»), а не повтор.
 
 **Зовнішня перевірка:** питання на `push force:true` досі ставиться людині (не зникло й не стало
-доступним моделі); текст кроку kit і правило `using-v8storagekit` про `cancelled` з ним
+доступним моделі); текст кроку kit і правило `storage-rules` про `cancelled` з ним
 узгоджені.
 
 ### F3. Раннер — інструмент kit; ядро kit раннером не дублюється

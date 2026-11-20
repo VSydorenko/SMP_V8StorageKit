@@ -55,7 +55,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $json = $r.Output | ConvertFrom-Json
         $json.hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
         $ctx = $json.hookSpecificOutput.additionalContext
-        $ctx | Should -BeLike '*using-v8storagekit*'
+        $ctx | Should -BeLike '*storage-rules*'
         # Хук -RunnerPath не передає (за дизайном), а фальшивий дім не несе справжнього v8-runner.exe. runner-version —
         # знахідка про СТАН МАШИНИ й сигнали не блокує: у контексті є і перелік джерел, і рядок про недоступний раннер.
         $ctx | Should -BeLike '*session-check*- Alpha_SMB:*'
@@ -84,11 +84,11 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo-order') -WithHooks -WithGitattributes -WithGitignore
         $ctx = ((Invoke-Hook -ProjectDir $repo).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
         $state = $ctx.IndexOf('Стан сховищ')
-        $pointer = $ctx.IndexOf('v8storagekit:using-v8storagekit')
+        $pointer = $ctx.IndexOf('v8storagekit:storage-rules')
         $state | Should -BeGreaterOrEqual 0
         $pointer | Should -BeGreaterThan $state -Because 'прев''ю виводу обрізається з кінця: стан мусить стояти першим'
         # Рядок, що є лише в SKILL.md (перевірено пошуком по дереву поза docs/superpowers/): його присутність у виводі = вступ вклеєно.
-        $skillText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/using-v8storagekit/SKILL.md') -Raw -Encoding UTF8
+        $skillText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/storage-rules/SKILL.md') -Raw -Encoding UTF8
         $skillText | Should -BeLike '*Крок, надрукований командою kit, — виконати дослівно*' -Because 'контроль: маркер мусить існувати в SKILL.md'
         $ctx | Should -Not -BeLike '*Крок, надрукований командою kit, — виконати дослівно*'
     }
@@ -170,8 +170,8 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
             $script:FakePlugin = Join-Path $TestDrive 'fake-plugin'
             New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'tools') -Force | Out-Null
             New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'hooks') -Force | Out-Null
-            New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'skills/using-v8storagekit') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'skills/using-v8storagekit/SKILL.md') -Encoding UTF8 -Value '# вступ'
+            New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'skills/storage-rules') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'skills/storage-rules/SKILL.md') -Encoding UTF8 -Value '# вступ'
             Copy-Item -LiteralPath $script:Hook -Destination (Join-Path $script:FakePlugin 'hooks/session-start.ps1')
             $script:FakeHook = Join-Path $script:FakePlugin 'hooks/session-start.ps1'
             # Репо з маніфестом: без нього хук мовчить і session-check не кличе.

@@ -457,7 +457,7 @@ function Invoke-KitProvision {
     .PARAMETER Template
         Файл .dt; без нього береться workspaces.<ws>.agentBase.template з накладки; без обох — порожня база.
     .PARAMETER Remember
-        Записати -Template у v8storagekit.local.yaml (те, що робить скіл provision після питання).
+        Записати -Template у v8storagekit.local.yaml (те, що робить скіл infobase-agent після питання).
     .PARAMETER ServerBase
         Лише для серверної бази агента: Existing — базу створила людина в кластері.
     .PARAMETER RunnerPath

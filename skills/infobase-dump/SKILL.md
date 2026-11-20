@@ -1,13 +1,13 @@
 ---
-name: dump
+name: infobase-dump
 description: Вивантажити поточний стан конфігурації або розширення з живої бази людини в дерево джерела з truth dump або vendor — kit dump за накладкою v8storagekit.local.yaml. Тригери — «вивантаж конфігурацію з бази», «онови cf/src», «дамп базової конфігурації», «вивантаж з дев-бази».
 ---
 
-# dump — жива база людини → дерево джерела (лише читання бази)
+# infobase-dump — жива база людини → дерево джерела (лише читання бази)
 
 Kit із бази людини лише **читає**, і лише на явне прохання. Куди — каже `v8project.yaml`
 (шлях source-set); з якої бази — `dump: { from: <ключ> }` у маніфесті плюс `infobases:` у
-`v8storagekit.local.yaml`. Джерела `truth: storage` не дампляться (для них `v8storagekit:sync`),
+`v8storagekit.local.yaml`. Джерела `truth: storage` не дампляться (для них `v8storagekit:storage-sync`),
 `truth: git` — не мають зовнішнього джерела.
 
 ## 1. Прев'ю
@@ -42,7 +42,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . -So
 
 **Оновлення вендора** (рідко) — рівно так:
 
-1. Людина оновлює базу агента: свіжий `.dt` чи копія дев-бази (`v8storagekit:provision`), бо основа
+1. Людина оновлює базу агента: свіжий `.dt` чи копія дев-бази (`v8storagekit:infobase-agent`), бо основа
    доходить до бази лише разом із нею.
 2. `kit dump` основи (цей скіл) — дерево для читання Унікою оновлено.
 3. `push` з `"force":true` **розширень**, кожного з явним `sourceSet`
@@ -54,7 +54,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . -So
 - `Дев-базу '…' не описано в v8storagekit.local.yaml під infobases:` — команда друкує готовий
   блок для вставки; підключення й користувача знає людина.
 - `База '…' зайнята — її відкрито Конфігуратором…` — закрити Конфігуратор (для серверної — `rac session list`, якщо піднято `ras`) і повторити. Це порада kit, не сире повідомлення платформи.
-- `Джерело '…' має truth: storage — dump працює лише з truth: dump або vendor` — потрібен `v8storagekit:sync`.
+- `Джерело '…' має truth: storage — dump працює лише з truth: dump або vendor` — потрібен `v8storagekit:storage-sync`.
 - Підрядки `лиценз`, `ліценз`, `license`, `HASP` — зупинка й доповідь.
 
 ## 4. Межі

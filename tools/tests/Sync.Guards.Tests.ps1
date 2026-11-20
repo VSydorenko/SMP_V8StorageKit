@@ -85,7 +85,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*v8storagekit:provision*'
+        $r.Output   | Should -BeLike '*v8storagekit:infobase-agent*'
         (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }
@@ -117,6 +117,6 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
         $r.Output   | Should -BeLike '*Alpha_SMB*'
-        $r.Output   | Should -BeLike '*Alpha_SMB*не налаштована*v8storagekit:provision*'
+        $r.Output   | Should -BeLike '*Alpha_SMB*не налаштована*v8storagekit:infobase-agent*'
     }
 }

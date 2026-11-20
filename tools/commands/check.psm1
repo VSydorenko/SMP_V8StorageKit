@@ -95,7 +95,7 @@ function Invoke-KitCheck {
                 & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації. " + (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path))
             } elseif ($ab.Kind -eq 'file' -and -not $ab.Exists) {
                 & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
-                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:provision.")
+                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:infobase-agent.")
             }
         }
 
@@ -455,7 +455,7 @@ function Invoke-KitCheck {
                         $consequence = if ($c.Kind -eq 'memory-both') { "раннер двох воркспейсів вів би пам'ять в одній теці, а порада provision видалити теку пам'яті зачепила б пам'ять іншого воркспейсу" }
                                        else { 'kit створив би чи завантажив базу агента в теку (базу) іншого воркспейсу, а порада provision видалити теку бази зачепила б чужу базу' }
                         & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — $consequence. " +
-                            'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:provision).')
+                            'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:infobase-agent).')
                     }
                 } catch {
                     & $add error local-audit "$($ws.Path)/v8project.local.yaml: звірка бази агента з базами інших воркспейсів впала: $($_.Exception.Message)"
@@ -480,7 +480,7 @@ function Invoke-KitCheck {
                             -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
                             & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit або перетинається з нею (та сама, вкладена чи батьківська тека) — " +
                                 'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
-                                'й дайте агентові окрему базу (v8storagekit:provision).')
+                                'й дайте агентові окрему базу (v8storagekit:infobase-agent).')
                             break
                         }
                     }

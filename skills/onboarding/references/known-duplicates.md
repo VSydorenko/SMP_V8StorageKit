@@ -10,8 +10,8 @@
 | `superpowers:brainstorming` у `CLAUDE.md`, проєктних командах, пам'яті | `v8storagekit:discuss` (спека — `v8storagekit:spec`) | replace |
 | `superpowers:writing-plans` | `v8storagekit:plan` | replace |
 | `superpowers:subagent-driven-development`, `superpowers:executing-plans` | `v8storagekit:execute` (журнал — `sdd`) | replace |
-| `superpowers:requesting-code-review`, `superpowers:receiving-code-review` | `v8storagekit:landed-review`, агенти `v8storagekit:task-reviewer`, `v8storagekit:code-reviewer` | replace |
-| `superpowers:finishing-a-development-branch` | `v8storagekit:finish` (репо з `v8storagekit.yaml`) або `pr-gate` | replace |
+| `superpowers:requesting-code-review`, `superpowers:receiving-code-review` | `v8storagekit:review`, агенти `v8storagekit:task-reviewer`, `v8storagekit:code-reviewer` | replace |
+| `superpowers:finishing-a-development-branch` | `v8storagekit:task-finish` (репо з `v8storagekit.yaml`) або `pr-gate` | replace |
 | `superpowers:using-git-worktrees` | режим `workspace.mode` профілю (ADR-0005): у 1С `shared`, без worktree | replace |
 | `superpowers:verification-before-completion` | правило kit: без «готово» без виводу команди, виконаної цього ходу | replace |
 | `superpowers:test-driven-development` | тести — мінімум, лише на логіку й механізми, що справді треба перевіряти; форму називає бриф задачі | replace / remove за рішенням власника |
@@ -43,8 +43,8 @@
 
 | Проєктний файл | Заміна в kit | Звичайний клас |
 | --- | --- | --- |
-| `.claude/commands/*` з процедурою обговорення, дослідження, виконання плану, рев'ю роботи агента, архівування задач, ревізії пам'яті | скіли `discuss`, `research`, `execute`, `landed-review`, `close-block`, `onboarding` | remove |
-| проєктні агенти й скіли рев'ю коду (`.claude/agents/code-review*.md`, `.agents/skills/code-review/`) | скіл `landed-review`, агенти `code-reviewer`, `code-review-verifier` | keep-knowledge: предметні критерії → файл, названий полем `review.criteria`; процедуру прибрати |
+| `.claude/commands/*` з процедурою обговорення, дослідження, виконання плану, рев'ю роботи агента, архівування задач, ревізії пам'яті | скіли `discuss`, `research`, `execute`, `review`, `close-block`, `onboarding` | remove |
+| проєктні агенти й скіли рев'ю коду (`.claude/agents/code-review*.md`, `.agents/skills/code-review/`) | скіл `review`, агенти `code-reviewer`, `code-review-verifier` | keep-knowledge: предметні критерії → файл, названий полем `review.criteria`; процедуру прибрати |
 | проєктна копія пошуку по коду чи дослідника | Уніка (`unica.search`, `unica.view`) і агент `researcher` | remove |
 | `superpowers:*` у `CLAUDE.md` / проєктних командах | таблиця «Скіли superpowers» вище | replace |
 | кореневе правило «commit or push only when the owner asks» | рядок брифу архітектора `Push:` + `pr-gate` | replace: «Агенти комітять у гілках блоків, як кажуть задачі плану, і пушать їх через `pr-gate open -Draft`, коли каже бриф архітектора; ніколи force, ніколи main чи база. Зливає архітектор, коли перевірку пройдено.» — текст адаптує проєкт, схвалює власник |
@@ -53,11 +53,11 @@
 
 | Залишок | Заміна в kit | Звичайний клас |
 | --- | --- | --- |
-| `~/.claude/skills/<ім'я>/` з назвою скіла плагіна (`unica-1c`, `1c-localization`, `1c-bsp-service-user`, `1c-websocket-client`, `codex-companion` — колись жили на рівні користувача) | `v8storagekit:<ім'я>` | remove (звір вміст: новіше знання копії — спершу issue плагіна) |
+| `~/.claude/skills/<ім'я>/` з назвою скіла плагіна (`1c-unica`, `1c-localization`, `1c-bsp-service-user`, `1c-websocket-client`, `codex-companion` — колись жили на рівні користувача) | `v8storagekit:<ім'я>` | remove (звір вміст: новіше знання копії — спершу issue плагіна) |
 | користувацький чи проєктний скіл про 1С або Уніку, якого в плагіні немає | issue плагіна; перенесення з адаптацією: опис ≤ 250 символів, `SKILL.md` ≤ 12000, деталі в `references/`, код лише PowerShell (ADR-0002), посилання з префіксом `v8storagekit:` | move-to-plugin |
 
 ## Підключення контуру сховища
 
 Не залишок: контур «сховище ↔ git» підключається окремим кроком — [storage.md](storage.md).
 
-Частину kit, якої ще нема (`kit-scan` позначає її «planned»), не видаляй у проєкті: познач рядок `keep` з issue, що її замінить. Виняток — planned лише одна з альтернатив заміни, а інша вже є (рядок `superpowers:finishing-a-development-branch`: `v8storagekit:finish` є, `pr-gate` planned): тоді **replace** наявною.
+Частину kit, якої ще нема (`kit-scan` позначає її «planned»), не видаляй у проєкті: познач рядок `keep` з issue, що її замінить. Виняток — planned лише одна з альтернатив заміни, а інша вже є (рядок `superpowers:finishing-a-development-branch`: `v8storagekit:task-finish` є, `pr-gate` planned): тоді **replace** наявною.

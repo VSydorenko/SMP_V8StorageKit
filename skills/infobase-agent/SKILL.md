@@ -1,9 +1,9 @@
 ---
-name: provision
+name: infobase-agent
 description: Підключити базу агента воркспейсу — порожню, з .dt або наявну серверну — через kit provision, з питанням про тип бази й записом вибору в v8project.local.yaml і v8storagekit.local.yaml; kit лише перевіряє й друкує кроки (Уніка створює чи наповнює базу), нічого не видаляє, серверних баз не створює. Зламану файлову базу прибирає людина. Тригери — «розгорни базу», «перезбери базу агента», «створи базу для агента», «база агента зламана».
 ---
 
-# provision — база агента
+# infobase-agent — база агента
 
 База агента — це `infobases.origin` у `<ws>/v8project.local.yaml` (гітігнорований файл Уніки). Його
 пише **цей скіл** (Edit), а kit кодом `v8project*.yaml` не пише ніколи. Kit **нічого не видаляє**:
@@ -13,7 +13,7 @@ description: Підключити базу агента воркспейсу —
 не цілиться в базу людини: якщо підключення бази агента збігається з дев-базою з накладки — команда
 зупиняється.
 
-Ланцюжок: onboarding → sync → **provision** → (робота в Unica) → reconcile → finish → verify.
+Ланцюжок: onboarding → storage-sync → **infobase-agent** → (робота в Unica) → storage-adopt → task-finish → storage-verify.
 
 ## 1. Спершу власник конфігурації, потім тип бази
 
@@ -122,14 +122,14 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot 
 зупинка без поради видаляти, перевірити `infobases.origin.connection` (§4). Так само, коли бази ще
 немає, а пам'ять раннера лишилась: видалити теку пам'яті раннера й виконати крок.
 
-**Далі — кроки, надруковані `provision`, дослівно** (`v8storagekit:using-v8storagekit`, «Крок,
+**Далі — кроки, надруковані `provision`, дослівно** (`v8storagekit:storage-rules`, «Крок,
 надрукований командою kit»): це `infobase.create`/`infobase.restore` і `push` Уніки або крок kit за
 непридатного дерева. Для серверної бази згода людини на `-Apply` покриває й надруковані кроки
 (`push` усіх наборів з `"force":true`); для файлової — спершу `"dryRun":true`, потім `"dryRun":false`,
 як друкує kit. Після `infobase.create` `push` — звичайний, без `force` (раннер запам'ятав набір
 `CONFIGURATION`, з яким створено базу); після `infobase.restore` — з `"force":true`. Будь-який `push` з
 `"force":true` Уніка однаково питає в людини — це очікувано; виконується лише в інтерактивній сесії, а
-`cancelled` — зупинка з доповіддю, без повтору (`v8storagekit:using-v8storagekit`). `push` без
+`cancelled` — зупинка з доповіддю, без повтору (`v8storagekit:storage-rules`). `push` без
 `sourceSet` вантажить усі оголошені набори воркспейсу — для правок розширення потрібен `sourceSet`
 цього розширення.
 

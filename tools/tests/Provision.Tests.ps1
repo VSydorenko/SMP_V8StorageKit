@@ -698,13 +698,13 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         Join-Path $betaIb 'marker.txt' | Should -Exist
     }
-    It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:provision' {
+    It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:infobase-agent' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })
         Add-Owner -Repo $repo
         $r = Invoke-Provision -Repo $repo
         $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*не налаштована*v8storagekit:provision*'
+        $r.Output | Should -BeLike '*не налаштована*v8storagekit:infobase-agent*'
         $r.Output | Should -Not -BeLike '*у v8project.yaml немає infobase:*'
     }
     It 'П16: лише зовнішні обробки — код 0, «бази тут не буває»' {

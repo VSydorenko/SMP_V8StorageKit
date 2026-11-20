@@ -45,10 +45,10 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
             $script:Src = [pscustomobject]@{ Key = 'Alpha_SMB'; Type = 'EXTENSION'; Workspace = 'Alpha_SMB' }
         }
 
-        It 'бази немає (infobases.origin відсутній) — зупинка з рецептом v8storagekit:provision' {
+        It 'бази немає (infobases.origin відсутній) — зупинка з рецептом v8storagekit:infobase-agent' {
             Mock -ModuleName StoragePlatform Resolve-KitAgentBase { $null }
             { Get-KitSourceInfobase -Context $script:Ctx -Source $script:Src } |
-                Should -Throw '*v8storagekit:provision*'
+                Should -Throw '*v8storagekit:infobase-agent*'
         }
 
         It 'база оголошена, але файлу немає — та сама зупинка, з іменем воркспейсу' {

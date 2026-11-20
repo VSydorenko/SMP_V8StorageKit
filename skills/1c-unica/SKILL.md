@@ -1,6 +1,6 @@
 ---
-name: unica-1c
-description: Довідник 1С того, чого не знає Уніка — пастки платформи, межі розширень, правка вихідників агентом, бази й запуск 1cv8, діагностика MCP Уніки. Тригери — пастка платформи, предопределені в розширенні, CRLF/BOM у вихідниках, 1cv8.exe.
+name: 1c-unica
+description: Довідник 1С того, чого не знає Уніка — пастки платформи, межі розширень, правка вихідників, бази й 1cv8, діагностика MCP. Тригери — пастка платформи, CRLF/BOM у вихідниках, 1cv8.exe, «Уніка не бачить теку».
 ---
 
 # 1С поруч з Унікою: довідник
@@ -10,8 +10,7 @@ description: Довідник 1С того, чого не знає Уніка �
 виклику — у скілі Уніки й у відповіді сервера. Цей скіл — те, чого Уніка не знає: виміряні пастки
 платформи й розширень, правка вихідників агентом, вибір бази, діагностика самої Уніки.
 
-Що робить kit, а що Уніка, і маршрутизація за наміром — `v8storagekit:using-v8storagekit`. Уніка
-не бачить потрібної теки — `v8storagekit:unica-folders`.
+Що робить kit, а що Уніка, і маршрутизація за наміром — `v8storagekit:storage-rules`.
 
 ## Куди дивитись
 
@@ -22,6 +21,7 @@ description: Довідник 1С того, чого не знає Уніка �
 | Доопрацювання форм у розширенні без запозичення форми, сигнатура перехоплювача | `references/extension-forms.md` |
 | Правка вихідників агентом: CRLF, BOM, `Write`, перевірка кінців рядків | `references/source-files-editing.md` |
 | Яку базу чіпати, запуск `1cv8.exe` з PowerShell, `/DumpConfigToFiles` у непорожню теку | `references/infobases.md` |
+| Уніка не бачить потрібну теку проєкту (поза текою сесії): причина, `/add-dir`, `additionalDirectories` | `references/unica-folders.md` |
 | Зовнішня компонента Native API: підключення, кеші, постачання | `v8storagekit:1c-native-addin` |
 | Службовий користувач ІБ із розширення (БСП) | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-клієнт у розширенні | `v8storagekit:1c-websocket-client` |
@@ -34,8 +34,8 @@ MCP-сервер Уніки піднімається на старті сесі�
 Він бере найбільшу версію плагіна в кеші й запускає команду з її `.mcp.json`:
 
 ```powershell
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/skills/unica-1c/scripts/unica-call.ps1" --tools
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/skills/unica-1c/scripts/unica-call.ps1" --schema unica.view
+pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/skills/1c-unica/scripts/unica-call.ps1" --tools
+pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/skills/1c-unica/scripts/unica-call.ps1" --schema unica.view
 ```
 
 Коди виходу: 0 успіх, 1 помилка сервера, 64 невірне використання, 66 каталог плагіна не знайдено.

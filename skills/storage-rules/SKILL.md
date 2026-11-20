@@ -1,9 +1,9 @@
 ---
-name: using-v8storagekit
+name: storage-rules
 description: Правила контуру «сховище ↔ git» для агента 1С поруч з Unica — принципи, куди йти за яким наміром, як читати стан сховищ і виконувати кроки kit. Тригер — перша команда kit, крок Уніки над базою агента чи робота зі сховищем у репозиторії під kit: завантаж скіл до неї (хук старту сесії лише показує стан і називає цей скіл).
 ---
 
-# using-v8storagekit — як тут працює агент
+# storage-rules — як тут працює агент
 
 Цей репозиторій підключено до плагіна `v8storagekit`: сховища конфігурацій 1С — істина,
 git — робоче середовище агента, Unica — основний інструмент. Kit закриває рівно те, чого
@@ -22,14 +22,14 @@ Unica не вміє: сховища, дамп із живої бази, база
 
 | Намір | Скіл | Команда kit |
 |---|---|---|
-| «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:sync` | `kit.ps1 sync [-Apply]` |
-| «вивантаж конфігурацію з бази» | `v8storagekit:dump` | `kit.ps1 dump [-Apply]` |
-| «я поклав частину в сховище» | `v8storagekit:reconcile` | `sync` → `push force` → `pull force` → `adopt storage/*` у гілку задачі (заміна, з прев'ю всіх списків) |
-| «закриваємо задачу», «готуй PR» | `v8storagekit:finish` | `sync` → `push force` → `pull force` → `adopt storage/*` → `verify` → артефакти → PR |
-| «розгорни / перезбери базу агента» | `v8storagekit:provision` | `kit.ps1 provision [-Apply]` |
-| «звір git зі сховищем» | `v8storagekit:verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
+| «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:storage-sync` | `kit.ps1 sync [-Apply]` |
+| «вивантаж конфігурацію з бази» | `v8storagekit:infobase-dump` | `kit.ps1 dump [-Apply]` |
+| «я поклав частину в сховище» | `v8storagekit:storage-adopt` | `sync` → `push force` → `pull force` → `adopt storage/*` у гілку задачі (заміна, з прев'ю всіх списків) |
+| «закриваємо задачу», «готуй PR» | `v8storagekit:task-finish` | `sync` → `push force` → `pull force` → `adopt storage/*` → `verify` → артефакти → PR |
+| «розгорни / перезбери базу агента» | `v8storagekit:infobase-agent` | `kit.ps1 provision [-Apply]` |
+| «звір git зі сховищем» | `v8storagekit:storage-verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
 | «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit.ps1 check`, `kit.ps1 install-hooks [-Apply]` |
-| Уніка не бачить потрібної теки (немає в `unica.view {}`, тека поза сесією) | `v8storagekit:unica-folders` | — |
+| Уніка не бачить потрібної теки (немає в `unica.view {}`, тека поза сесією) | `v8storagekit:1c-unica` (`references/unica-folders.md`) | — |
 
 ### Процес розробки (обговорення → спека → план → виконання → приймання)
 
@@ -43,11 +43,11 @@ Unica не вміє: сховища, дамп із живої бази, база
 | питання ширше за один факт, «досліди» | `v8storagekit:research` |
 | спека, глосарій, ADR | `v8storagekit:spec` |
 | план блоку, аудит плану | `v8storagekit:plan` |
-| «виконай план», бриф виконавця | `v8storagekit:execute` — закриття блоку в репозиторії з маніфестом передає `v8storagekit:finish` |
-| рецензія готової роботи | `v8storagekit:landed-review` |
+| «виконай план», бриф виконавця | `v8storagekit:execute` — закриття блоку в репозиторії з маніфестом передає `v8storagekit:task-finish` |
+| рецензія готової роботи | `v8storagekit:review` |
 | роль архітектора частини | `v8storagekit:architect` |
 | статус, віхи, issues у GitHub | `v8storagekit:track` |
-| лише власник: закрити блок, ретро, підключити проєкт | `/v8storagekit:close-block`, `/v8storagekit:retro`, `/v8storagekit:onboarding` |
+| лише власник: закрити блок, ретро, підключити проєкт | `/v8storagekit:close-block` (ретро — його необов'язковий крок), `/v8storagekit:onboarding` |
 
 `v8storagekit:onboarding` підключає проєкт: процес — завжди, контур сховища — коли є сховища 1С;
 він же оновлює відсталий проєкт до нової версії плагіна (версія проєкту — `kit.version` профілю).
@@ -120,7 +120,7 @@ Unica не вміє: сховища, дамп із живої бази, база
 змінює її лише людина.
 
 Набір основи `truth: vendor` — лише для читання Унікою: ні `push`, ні `pull` його не виконувати
-(процедура оновлення вендора — `v8storagekit:dump`, розділ про дерево vendor).
+(процедура оновлення вендора — `v8storagekit:infobase-dump`, розділ про дерево vendor).
 
 `push` без `sourceSet` вантажить **усі оголошені набори** воркспейсу: на серверній базі агента —
 лише з явного підтвердження людини (кроки, які надрукував `provision -ServerBase Existing`, підтверджено
@@ -144,7 +144,7 @@ Unica не вміє: сховища, дамп із живої бази, база
   спитавши: накладка, що маскує помилку маніфесту, розводить репозиторій по машинах — на кожній
   він синхронізується зі свого сховища.
 
-Хук лише повідомляє. Рішення — людині, дія — скіл `v8storagekit:sync`.
+Хук лише повідомляє. Рішення — людині, дія — скіл `v8storagekit:storage-sync`.
 
 ## Межі
 

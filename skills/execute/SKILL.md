@@ -64,7 +64,7 @@ description: Виконує прийнятий план задача за зад
 
 ## 5. Фінальне рев'ю й закриття
 
-[references/final.md](references/final.md): скіл `v8storagekit:landed-review` на `review-pack $(git merge-base <base> HEAD)`, одна хвиля виправлень, `sdd close` (друкує розділ Rulings і рядок `report:`), далі закриття: у репозиторії з `v8storagekit.yaml` його веде скіл `v8storagekit:finish`, без маніфесту — `pr-gate open` і `pr-gate ready`. Потім надішли архітектору рядок `report:` з `sdd close`, дописавши `<PR>`, ворота й відхилення; подробиці — в тілі PR.
+[references/final.md](references/final.md): скіл `v8storagekit:review` на `review-pack $(git merge-base <base> HEAD)`, одна хвиля виправлень, `sdd close` (друкує розділ Rulings і рядок `report:`), далі закриття: у репозиторії з `v8storagekit.yaml` його веде скіл `v8storagekit:task-finish`, без маніфесту — `pr-gate open` і `pr-gate ready`. Потім надішли архітектору рядок `report:` з `sdd close`, дописавши `<PR>`, ворота й відхилення; подробиці — в тілі PR.
 
 ## 6. Розвилки
 

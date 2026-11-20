@@ -496,7 +496,7 @@ function New-KitAgentBaseMissingMessage {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$WorkspacePath)
     ("База агента воркспейсу '$WorkspacePath' не налаштована: у $WorkspacePath/v8project.local.yaml немає infobases.origin " +
-     '(файл гітігнорований — на свіжому клоні його ще немає). Налаштувати й розгорнути базу — скіл v8storagekit:provision, тоді повторіть команду.')
+     '(файл гітігнорований — на свіжому клоні його ще немає). Налаштувати й розгорнути базу — скіл v8storagekit:infobase-agent, тоді повторіть команду.')
 }
 
 Export-ModuleMember -Function Resolve-KitAgentBase, Test-KitInfobasesOverlap, Test-KitPathsOverlap, Find-KitAgentBaseCollisions, Get-KitProtectedPaths, Find-KitProtectedCollisions, Get-KitCanonicalPath, Test-KitWorkspaceNeedsAgentBase, New-KitAgentBaseMissingMessage

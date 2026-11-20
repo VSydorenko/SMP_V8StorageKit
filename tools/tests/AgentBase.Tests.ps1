@@ -60,7 +60,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         $ws = $ctx.Workspaces[0]
         Test-KitWorkspaceNeedsAgentBase -Workspace $ws | Should -BeTrue
         Resolve-KitAgentBase -Context $ctx -Workspace $ws | Should -BeNullOrEmpty
-        New-KitAgentBaseMissingMessage -WorkspacePath 'Alpha_SMB' | Should -BeLike '*infobases.origin*v8storagekit:provision*'
+        New-KitAgentBaseMissingMessage -WorkspacePath 'Alpha_SMB' | Should -BeLike '*infobases.origin*v8storagekit:infobase-agent*'
     }
 
     It 'П16: воркспейс лише з EXTERNAL_DATA_PROCESSORS — бази не потребує' {

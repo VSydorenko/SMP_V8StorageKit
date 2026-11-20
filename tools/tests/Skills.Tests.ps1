@@ -60,8 +60,8 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     It 'перехресні посилання не ведуть на вилучені скіли' {
         # Що посилання v8storagekit:ІМ'Я веде на наявний скіл чи агента, перевіряє It нижче (диск).
         foreach ($s in $script:Skills) {
-            foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
-                $s.Text | Should -Not -Match "v8storagekit:$old" -Because "у $($s.Name) посилання на вилучений скіл $old"
+            foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration', 'using-v8storagekit', 'sync', 'verify', 'reconcile', 'dump', 'provision', 'finish', 'landed-review', 'retro', 'unica-1c', 'unica-folders') {
+                $s.Text | Should -Not -Match "v8storagekit:$old(?![\w-])" -Because "у $($s.Name) посилання на вилучений скіл $old"
             }
         }
     }
@@ -71,7 +71,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     It 'кожен скіл життєвого циклу називає kit.ps1 повним шляхом через ${CLAUDE_PLUGIN_ROOT}' {
-        foreach ($s in ($script:Skills | Where-Object { $_.Name -in @('onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify') })) {
+        foreach ($s in ($script:Skills | Where-Object { $_.Name -in @('onboarding', 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify') })) {
             $s.Text | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1' -Because "у $($s.Name)"
         }
     }
@@ -80,7 +80,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
 
     It 'перехресні посилання v8storagekit:ІМ''Я ведуть на скіл skills/ІМ''Я/SKILL.md або агента agents/ІМ''Я.md' {
         # A: раніше звірялось лише зі статичним переліком — тека могла бути ще не створена (так
-        # було з skills/sync), а тест мовчав. Тепер — диск. Агент — теж законна ціль: скіли
+        # було з skills/storage-sync), а тест мовчав. Тепер — диск. Агент — теж законна ціль: скіли
         # кличуть агентів плагіна як subagent_type v8storagekit:<ім'я>.
         # Джерела — усі .md тек скілів (references/ читається тим самим Read, що й SKILL.md) і всі
         # agents/*.md: посилання з довідки чи агента, що веде в нікуди, ламає ту саму дію.
@@ -106,7 +106,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # альтернацією, підігнаною під те, що кожен скіл випадково казав («лише через sync»,
         # «Без -Apply git не змінюється»). Рев'ю довело мутаціями на копії дерева, що так
         # видаляються справжні межі при зеленому прогоні: у verify — заголовок «— лише на явне
-        # прохання», у reconcile — весь абзац про згоду, у provision — ВСІ ТРИ твердження «kit не
+        # прохання», у storage-adopt — весь абзац про згоду, у infobase-agent — ВСІ ТРИ твердження «kit не
         # пише в базу людини». Наслідок і причина — не те саме: «Без -Apply git не змінюється» це
         # факт про інструмент, а не зобов'язання агента, і воно лишається правдивим у скілі, який
         # тихо став запускати -Apply самовільно.
@@ -114,7 +114,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # Тому тепер: зобов'язання шукається дослівно й ПО ВСЬОМУ тексту скіла (сховати його в
         # інший розділ — можна, не сказати взагалі — ні), а розділ «Межі» додатково мусить бути
         # непорожнім і називати, чого саме kit не робить.
-        $lifecycle = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')
+        $lifecycle = @('storage-rules', 'onboarding', 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify')
         $gate = '(?:лише на\s+явне\s+прохання|лише за\s+явним\s+проханням)'
         foreach ($name in $lifecycle) {
             $t = Skill $name
@@ -124,7 +124,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
                 $section = $Matches[1].Trim()
             }
             $section | Should -Not -BeNullOrEmpty -Because "у $name немає розділу «Межі», або він порожній"
-            if ($name -eq 'provision') {
+            if ($name -eq 'infobase-agent') {
                 # provision — єдиний, хто ПИШЕ в базу (агента) і сховищ не читає, тож «тільки
                 # читання» до нього не застосовне. Замість цього — позитивна вимога назвати межу,
                 # яку він реально тримає: у базу людини не пише. Без неї розділ «Межі», що казав
@@ -148,8 +148,8 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         foreach ($d in $actualDirs) {
             (Join-Path $d.FullName 'SKILL.md') | Should -Exist -Because "тека skills/$($d.Name) без SKILL.md — плагін її не завантажить"
         }
-        foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
-            $actualDirs.Name | Should -Not -Contain $old -Because "скіл $old вилучено в 1.0 — тека не мала з'явитись знову"
+        foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration', 'using-v8storagekit', 'sync', 'verify', 'reconcile', 'dump', 'provision', 'finish', 'landed-review', 'retro', 'unica-1c', 'unica-folders') {
+            $actualDirs.Name | Should -Not -Contain $old -Because "скіл $old вилучено чи перейменовано — тека не мала з'явитись знову"
         }
     }
 
@@ -209,9 +209,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    Context 'sync' {
+    Context 'storage-sync' {
         It 'session-check → прев''ю → -Apply лише на прохання; -MaxVersions; зупинки sync' {
-            $t = Skill 'sync'
+            $t = Skill 'storage-sync'
             $t | Should -Match 'session-check'
             $t | Should -Match 'kit\.ps1" sync -RepoRoot \.'
             $t | Should -Match '-MaxVersions'
@@ -220,27 +220,27 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'піднімає платформу|запускає платформу'
         }
     }
-    Context 'dump' {
+    Context 'infobase-dump' {
         It 'попереджає про Конфігуратор і тривалість; dump лише для dump/vendor' {
-            $t = Skill 'dump'
+            $t = Skill 'infobase-dump'
             $t | Should -Match '20.40 хвилин'
             $t | Should -Match 'Конфігуратор'
             $t | Should -Match 'truth: dump|truth: vendor'
             $t | Should -Match 'infobases:'
         }
     }
-    Context 'verify' {
+    Context 'storage-verify' {
         It 'чотири вердикти, лише CR → text-policy, звірочний коміт лише з -Apply' {
-            $t = Skill 'verify'
+            $t = Skill 'storage-verify'
             foreach ($v in 'equal', 'ref-ahead', 'storage-ahead', 'mixed') { $t | Should -Match $v }
             $t | Should -Match 'text-policy'
             $t | Should -Match '-Apply'
             $t | Should -Match 'merge-base'
         }
     }
-    Context 'provision' {
+    Context 'infobase-agent' {
         It 'три типи бази, лише -ServerBase Existing, infobases.origin, -Remember, крок з виводу; без -Force, -ServerBase New, CrSQLDB' {
-            $t = Skill 'provision'
+            $t = Skill 'infobase-agent'
             $t | Should -Match '\*\*порожня\*\*'
             $t | Should -Match '\*\*з `?\.dt`?\*\*|\*\*з \.dt\*\*'
             $t | Should -Match '\*\*серверна\*\*'
@@ -258,9 +258,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     }
     Context 'provision — цитати зупинок' {
         It 'кожна фраза зупинки, процитована в розділі «Штатні зупинки», існує дослівно в tools/commands чи tools/lib' {
-            $t = Skill 'provision'
+            $t = Skill 'infobase-agent'
             $m = [regex]::Match($t, '(?ms)^## 4\. Штатні зупинки\s*$(.*?)(?=^## )')
-            $m.Success | Should -BeTrue -Because 'розділ «## 4. Штатні зупинки» має бути у скілі provision'
+            $m.Success | Should -BeTrue -Because 'розділ «## 4. Штатні зупинки» має бути у скілі infobase-agent'
             # Форма цитати в розділі: пункт списку починається з `…` (перший спан у бектиках), «…» — місце змінної частини.
             $quotes = foreach ($line in ($m.Groups[1].Value -split "`r?`n")) {
                 $q = [regex]::Match($line, '^- `([^`]+)`')
@@ -284,9 +284,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             @($missing) | Should -BeNullOrEmpty -Because ("скіл цитує тексти зупинок, яких немає в коді (виправляти скіл, не код):`n" + (@($missing) -join "`n"))
         }
     }
-    Context 'reconcile' {
+    Context 'storage-adopt' {
         It 'sync → крок, надрукований sync (push force) → pull force → adopt; #25' {
-            $t = Skill 'reconcile'
+            $t = Skill 'storage-adopt'
             $t | Should -Match 'kit\.ps1" sync'
             $t | Should -Match 'надрукован'
             $t | Should -Match '"force":true'
@@ -314,9 +314,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Not -Match 'git merge --no-ff storage/'   # C2 Task 4: adopt замінює merge
         }
     }
-    Context 'finish' {
+    Context 'task-finish' {
         It 'sync → push force → pull force → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
-            $t = Skill 'finish'
+            $t = Skill 'task-finish'
             foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify',
                            'unica\.check', 'make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
             $t | Should -Not -Match 'kit\.ps1" build'   # Task 5: збірку робить лише make Уніки
@@ -331,7 +331,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     It 'finish: push force стоїть раніше за pull force, а той — раніше за adopt (порядок обох кроків канонізації)' {
-        $t = Skill 'finish'
+        $t = Skill 'task-finish'
         $posPush = $t.IndexOf('"op":"push"')
         $posPull = $t.IndexOf('"op":"pull"')
         $posAdopt = $t.IndexOf('kit.ps1" adopt')
@@ -351,8 +351,8 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $hits = @($files | Where-Object { $_.Text -match '(?i)\bcanon\b' } | ForEach-Object Rel)
         $hits | Should -BeNullOrEmpty -Because ("згадка canon у: " + ($hits -join ', '))
     }
-    It 'reconcile і finish приймають версію сховища через adopt, а не git merge' {
-        foreach ($s in @('reconcile', 'finish')) {
+    It 'storage-adopt і task-finish приймають версію сховища через adopt, а не git merge' {
+        foreach ($s in @('storage-adopt', 'task-finish')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
             $text | Should -BeLike '*kit.ps1" adopt*'
             $text | Should -Not -BeLike '*git merge --no-ff storage/*'
@@ -360,7 +360,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
     }
 
     It 'finish ставить крок, надрукований verify, між verify і unica.check' {
-        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/finish/SKILL.md') -Raw -Encoding UTF8
+        $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/task-finish/SKILL.md') -Raw -Encoding UTF8
         $posVerify = $text.IndexOf('kit.ps1" verify')
         $posStep   = $text.IndexOf('надрукован', $posVerify)
         $posCheck  = $text.IndexOf('unica.check', $posVerify)
@@ -369,12 +369,12 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $posCheck  | Should -BeGreaterThan $posStep
     }
 
-    It 'sync, verify і reconcile попереджають, що база лишається у стані сховища' {
+    It 'storage-sync, storage-verify і storage-adopt попереджають, що база лишається у стані сховища' {
         # verify тут нарівні із sync: verify.psm1 так само робить ConfigurationRepositoryUpdateCfg
         # і так само лишає базу у стані версії сховища, а скіл викликають і напряму, не лише з
         # finish (фінальне рев'ю C1, Important 1). Спека §4 перелічує sync/reconcile/finish —
         # перелік неповний, і це знає код, а не текст.
-        foreach ($s in @('sync', 'verify', 'reconcile')) {
+        foreach ($s in @('storage-sync', 'storage-verify', 'storage-adopt')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
             # Два твердження, не одне (історія C1, лишається): перше тримає, що скіл відсилає до кроку,
             # який надрукувала команда (раніше це був голий operation=build, і для reconcile підрядок
@@ -386,10 +386,10 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'using-v8storagekit: маршрутизація 0.16, push force питає людину, cancelled — зупинка, сітка, воркспейс з виводу, -text' {
+    It 'storage-rules: маршрутизація 0.16, push force питає людину, cancelled — зупинка, сітка, воркспейс з виводу, -text' {
         # Спека 2026-11-19 §3.1 (наслідки 2, 3, 5, 6), §3.3 п.3, §3.9 п.3, §5 п.1: агент споживача виконує
         # ці тексти дослівно, тож кожен наслідок — окремий підрядок, а не загальне «є розділ».
-        $t = Skill 'using-v8storagekit'
+        $t = Skill 'storage-rules'
         # Аргументів операцій Уніки скіл не повторює (словник віддає unica.run без op) — лише конвенції kit.
         foreach ($m in 'unica\.view', 'unica:unica-dev',
                        '"op":"push"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
@@ -404,8 +404,8 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Not -Match $m
         }
     }
-    It 'sync, verify, reconcile наказують перевірити ЗУПИНКА й не йти далі' {
-        foreach ($s in @('sync', 'verify', 'reconcile')) {
+    It 'storage-sync, storage-verify, storage-adopt наказують перевірити ЗУПИНКА й не йти далі' {
+        foreach ($s in @('storage-sync', 'storage-verify', 'storage-adopt')) {
             (Skill $s) | Should -Match 'ЗУПИНКА' -Because "$s мусить зупиняти агента на кроці blocked (умова архітектора)"
         }
     }

@@ -498,10 +498,10 @@ function Copy-KitTools {
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
-    # hooks, skills/using-v8storagekit: хук старту сесії живе в самому плагіні (1.6.0,
+    # hooks, skills/storage-rules: хук старту сесії живе в самому плагіні (1.6.0,
     # hooks/session-start.ps1), бере корінь плагіна зі свого $PSScriptRoot і шукає
-    # skills/using-v8storagekit/SKILL.md у ньому — тож копія плагіна несе обидва.
-    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'hooks', 'skills/using-v8storagekit') {
+    # skills/storage-rules/SKILL.md у ньому — тож копія плагіна несе обидва.
+    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'hooks', 'skills/storage-rules') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
