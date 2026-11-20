@@ -25,6 +25,21 @@
 - Кожна зміна, яку мають побачити споживачі (`skills/`, `agents/`, `hooks/`, `tools/`, `bin/`,
   `.claude-plugin/`), піднімає версію в `plugin.json` і додає запис сюди.
 
+## 1.6.2 — 2026-11-20
+
+### Що змінилось
+
+- Предметні скіли 1С тепер у плагіні: `unica-1c` (карта Уніки й пастки платформи; діагностичний виклик MCP — `scripts/unica-call.ps1`), `1c-localization` (перевірка вихідників — `scripts/check-localization.ps1`), `1c-bsp-service-user`, `1c-websocket-client`, а також `codex-companion` (#39, #40, #46). Скрипти переписано на PowerShell.
+- `kit-scan`: розділ `Skills outside the plugin` (ключ `-Json` — `skills`) — користувацькі й проєктні скіли поза плагіном: копія скіла плагіна (`same-name`), скіл про 1С чи Уніку — кандидат на перенесення в плагін (`domain`), інші (`other`); `kit-onboard` класифікує ці рядки (#46).
+- Шаблон `templates/CLAUDE.md`: у таблиці «Наміри → скіли» — рядки предметних скілів 1С.
+
+### Чекліст оновлення проєкту
+
+- [ ] Запусти `kit-scan` і розбери розділ `Skills outside the plugin` за `/v8storagekit:kit-onboard`: рядки `same-name` — прибрати локальну копію скіла (у `~/.claude/skills/` чи `.claude/skills/` проєкту) після звірки вмісту.
+- [ ] Якщо проєкт вантажив `check-localization.py` у CI — заміни крок на `pwsh -NoProfile -File <копія check-localization.ps1>` зі скіла `v8storagekit:1c-localization`.
+- [ ] Допиши в таблицю «Наміри → скіли» кореневого `CLAUDE.md` проєкту рядки предметних скілів 1С з `templates/CLAUDE.md` плагіна.
+- [ ] Останнім комітом PR виставити `"kit": { "version": "1.6.2" }` у `.agents/kit.profile.json`.
+
 ## 1.6.1 — 2026-11-20
 
 ### Що змінилось

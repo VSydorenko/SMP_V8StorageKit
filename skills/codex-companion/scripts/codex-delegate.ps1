@@ -14,9 +14,9 @@
   '----- CODEX RESULT -----'. Модель за замовчуванням gpt-5.6-sol (config-модель може бути API-only).
 
 .EXAMPLE
-  codex-delegate.ps1 -Task "Аудит безпеки src/transport" -Repo "R:\github\SimplyAddinConnect" -Effort high
+  codex-delegate.ps1 -Task "Аудит безпеки src/transport" -Repo "<абсолютний корінь репо>" -Effort high
 .EXAMPLE
-  codex-delegate.ps1 -Review -Task "Знайди баги в останньому коміті" -Repo "R:\..."
+  codex-delegate.ps1 -Review -Task "Знайди баги в останньому коміті" -Repo "<абсолютний корінь репо>"
 #>
 [CmdletBinding()]
 param(
