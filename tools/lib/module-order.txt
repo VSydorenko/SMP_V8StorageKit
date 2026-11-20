@@ -64,4 +64,7 @@ KitReviewPack
 KitSdd
 KitTrack
 WorktreeInclude
+# PathSafety — і в розділі сховища вище, і тут: загальний запобіжник видалення без залежностей
+# (Remove-KitDirectory, #34), потрібний pr-gate scratch; модулів сховища він не тягне.
+PathSafety
 KitPrGate

@@ -842,7 +842,13 @@ function Invoke-PrGateScratchAdd {
     New-Item -ItemType Directory -Path $cleanupDir -Force | Out-Null
     $r = Invoke-PgGit -GitArgs @('worktree', 'add', '-q', '--detach', $path, $sha.Out) -Cwd $Ctx.Root
     if (-not $r.Ok) {
-        Remove-Item -LiteralPath $cleanupDir -Recurse -Force -ErrorAction SilentlyContinue
+        # Рекурсивне видалення — лише Remove-KitDirectory (#34, PathSafety): повтори й зняття ReadOnly
+        # (об'єкти git на Windows — ReadOnly). Прибирання тут — найкраще можливе, провал не важливіший
+        # за причину, яку повідомляємо далі.
+        try {
+            Assert-SafeWorkPath -Path $cleanupDir -MustBeUnder $place.Dir -RepoRoot $Ctx.MainRoot -OwnedRoot (Join-Path $Ctx.MainRoot $Ctx.WorktreesRoot) -Description 'тека scratch-дерева'
+            Remove-KitDirectory -Path $cleanupDir
+        } catch { }
         throw (New-KitRefusal "scratch add: git worktree add не вдався: $($r.Err); на спільне дерево не відкочуємось")
     }
     $copied = Format-KitCopiedLine (Copy-KitWorktreeInclude -Root $Ctx.MainRoot -Dest $path -Skip @($Ctx.WorktreesRoot))
@@ -867,7 +873,11 @@ function Invoke-PrGateScratchRm {
     if ($wt -and $wt.Branch) { throw (New-KitUsageError "scratch rm: $full на гілці $($wt.Branch), не відокремлене: відмова") }
     $null = Move-PgOutOf -Path $full -To $Ctx.MainRoot
     if ($wt) { $null = Get-PgGit -GitArgs @('worktree', 'remove', '--force', $full) -Cwd $Ctx.MainRoot }
-    Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue
+    # Рекурсивне видалення — лише Remove-KitDirectory (#34): провал кидає виняток, а не мовчить —
+    # інакше наступний рядок сказав би «видалено» про теку, що лишилась.
+    # П25: не видаляти крізь посилання і лише власне під <worktrees.root>/.scratch.
+    Assert-SafeWorkPath -Path $full -MustBeUnder $place.Dir -RepoRoot $Ctx.MainRoot -OwnedRoot (Join-Path $Ctx.MainRoot $Ctx.WorktreesRoot) -Description 'тека scratch-дерева'
+    Remove-KitDirectory -Path $full
     if (-not $wt) { $null = Invoke-PgGit -GitArgs @('worktree', 'prune') -Cwd $Ctx.MainRoot }
     & $Say $(if ($wt) { "видалено scratch-дерево $full" } else { "${full}: це вже не worktree; теку видалено" })
     Write-KitNext 'none'
