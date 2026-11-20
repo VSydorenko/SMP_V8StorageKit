@@ -65,6 +65,18 @@
 `"force":true`. Уніка спитає людину про перезапис бази — це очікувано; крок виконується лише в
 інтерактивній сесії, відповідь `cancelled` — зупинка з доповіддю (`v8storagekit:using-v8storagekit`).
 
+## Процес розробки
+
+Задача, більша за одну правку, йде процесом плагіна: `v8storagekit:discuss` (обговорення) →
+`v8storagekit:spec` → `v8storagekit:plan` → `v8storagekit:execute` (субагенти, журнал — `sdd`) →
+`v8storagekit:landed-review` → `v8storagekit:finish` → `v8storagekit:close-block`. Кілька сесій
+веде `v8storagekit:architect`; дослідження — `v8storagekit:research`, уроки — `v8storagekit:retro`.
+
+Проєктні значення процесу — `.agents/kit.profile.json` (комітиться; локальне перекриття —
+`.agents/kit.profile.local.json`). Режим робочої копії `workspace.mode`: `shared` — одне дерево й
+одна база агента, коміти точкові; `worktree` — лише для репозиторію без бази. Підключення процесу
+й оновлення після нової версії плагіна — `v8storagekit:kit-onboard` (`kit-scan`, `kit-setup`).
+
 ## Межі
 
 - **Формат вихідників — Designer platform XML; платформа — гілка 8.3.27.x.**
@@ -91,5 +103,8 @@
 `.claude/settings.json` дозволяє без запиту лише читання git, читальні інструменти Unica і
 `unica_run` (перелік — `permissions.allow` у `.claude/settings.json`): перезапис бази агента
 однаково підтверджує людина у питанні самої Уніки. `unica_apply` — з запитом (`permissions.ask`).
-Хук `SessionStart` поставляє сам плагін. Команди kit — з підтвердженням
-(правила дозволів працюють за префіксом, і дозвіл на прев'ю дозволив би `-Apply`).
+Хук `SessionStart` поставляє сам плагін. Команди kit (`kit.ps1 sync|verify|…`) — з підтвердженням
+(правила дозволів працюють за префіксом, і дозвіл на прев'ю дозволив би `-Apply`). Команди
+процесу, що лише читають чи пишуть у `.agents/` і тимчасові дерева, — без запиту, кожна у двох
+формах, `Bash(…)` і `PowerShell(…)` (перелік — `permissions.allow`); дії назовні (GitHub: PR, злиття,
+issue) і сам `kit-setup` — з запитом.
