@@ -9,3 +9,6 @@ session-cost
 session-board
 kit-setup
 kit-scan
+doc
+track
+pr-gate
