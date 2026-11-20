@@ -87,10 +87,13 @@ try {
                 if ($proc.WaitForExit($timeoutSec * 1000)) {
                     $raw = (((Get-Content -LiteralPath $outFile -Raw -Encoding UTF8) + (Get-Content -LiteralPath $errFile -Raw -Encoding UTF8)) | Out-String).Trim()
                     # Коди за змістом (§5): 0 — тиша, 3 — є сигнал, 1 — репозиторій суперечливий (сигнали не
-                    # обчислювались; вивід сам каже чому й що робити: «спершу kit check») — друкуються як є;
-                    # БУДЬ-ЯКИЙ інший код — мовчати не можна (порожній $raw читався б як «нових версій немає»).
-                    $status = if ($proc.ExitCode -in 0, 1, 3) {
+                    # обчислювались; вивід сам каже чому й що робити: «спершу kit check») — друкуються як є,
+                    # але лише коли вивід непорожній. Код 0 з порожнім виводом — штатна тиша. Код 1/3 з порожнім
+                    # виводом і БУДЬ-ЯКИЙ інший код — мовчати не можна (порожній $raw читався б як «нових версій немає»).
+                    $status = if ($proc.ExitCode -eq 0 -or ($proc.ExitCode -in 1, 3 -and $raw)) {
                         $raw
+                    } elseif ($proc.ExitCode -in 1, 3) {
+                        "УВАГА: kit session-check завершився кодом $($proc.ExitCode) без жодного виводу — стан сховищ НЕВІДОМИЙ, не «без змін». Перевірити вручну: kit.ps1 session-check -RepoRoot ."
                     } else {
                         "УВАГА: kit session-check завершився неочікуваним кодом $($proc.ExitCode) (очікувалось 0, 1 або 3) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:`n$raw"
                     }

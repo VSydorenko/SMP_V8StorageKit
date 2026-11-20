@@ -178,6 +178,14 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
             $r.Output | Should -BeLike '*кодом 2*'
             ($r.Output | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
         }
+
+        It 'код 1 без жодного виводу — «НЕВІДОМИЙ» із кодом, а не порожній «Стан сховищ», що читався б як «без змін»' {
+            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 1'
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook
+            $r.Output | Should -BeLike '*НЕВІДОМИЙ*'
+            $r.Output | Should -BeLike '*кодом 1*'
+            $r.Output | Should -Not -BeLike '*неочікуваним*' -Because 'код 1 контрактний; маркер інший, ніж для сторонніх кодів'
+        }
     }
 }
 
