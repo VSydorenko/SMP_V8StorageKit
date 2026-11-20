@@ -35,14 +35,94 @@ session-check — client Tehnokrat
 Репозиторій під kit. Правила контуру — скіл `v8storagekit:using-v8storagekit`: завантаж його перед першою командою kit, кроком Уніки над базою агента чи роботою зі сховищем.
 ```
 
-2. Окремий блок — вступ `using-v8storagekit` (11.5KB) — **під `<persisted-output>`**, у контексті лише прев'ю перших ~2KB, решта —
-   у файлі `tool-results/hook-…-SessionStart-…-additionalContext.txt`.
+2. Окремий блок **під `<persisted-output>`** («Output too large (11.5KB)»), у контексті лише прев'ю ~2KB. Файл
+   `tool-results/hook-…-SessionStart-…-additionalContext.txt` (17818 байт) містить повний вступ `using-v8storagekit`
+   **і другу копію** «## Стан сховищ (kit session-check)» з тим самим текстом (рядки 135–143 файлу). Це вивід старого
+   проєктного хука `.claude/hooks/session-start.ps1` (`.claude/settings.json` → `hooks.SessionStart`, `matcher:
+   startup|clear|compact`), який перехід ще не прибрав. `kit check` (крок 3) назвав саме його: «Старий проєктний хук старту
+   сесії … «Стан сховищ» з'явиться двічі».
 
-**Висновок (умова: репо 1.4.0, сесія в корені, Windows Server 2022).** «Стан сховищ» видно одразу, без читання файлу — пункт
-виконано. Блок рівно один. Вміст стану — не сигнали, а три відмови формату 1.4.0 з вказівкою на `upgrades.md` «1.4.0 → 1.6.0»:
-агент без зовнішніх знань бачить, куди йти. Зауваги:
+**Висновок (умова: репо 1.4.0 з неприбраним проєктним хуком, сесія в корені, Windows Server 2022).** Блок хука плагіна —
+«Стан сховищ» інлайн, без `<persisted-output>`, видно одразу: пункт виконано. Друга копія стану йде від старого шима, лежить
+під `<persisted-output>` і з контексту не видна; передбачення `hook-shim` («двічі») підтвердилось, хоча агент бачить лише одну
+копію. Вимір «рівно один раз» після прибирання шима — у наступній сесії (див. запис після кроку 5). Вміст стану — не сигнали,
+а три відмови формату 1.4.0 з вказівкою на `upgrades.md` «1.4.0 → 1.6.0»: агент без зовнішніх знань бачить, куди йти. Зауваги:
 - текст «неочікуваним кодом 1 (очікувалось 0 або 3) … НЕВІДОМИЙ … Зупинка» звучить як аварія, хоча причина — очікуваний
   незавершений перехід, і нижче вона названа точно; чи має session-check для «репо суперечливе» повертати окремий код — питання
   архітектору, не рішення тестера;
-- вступ `using-v8storagekit` під `<persisted-output>` — агентові видно лише прев'ю (принципи й початок таблиці намірів), решта
-  правил контуру — лише якщо він прочитає файл або завантажить скіл (сам блок прямо велить завантажити скіл).
+- блок плагіна сам вступу не несе — лише вказує завантажити скіл `using-v8storagekit`; це й зроблено першим кроком.
+
+### 2026-11-20 — п.2. Процедура `upgrades.md` «1.4.0 → 1.6.0», кроки 1–8
+
+Гілка переходу — `feature/kit-1.6.0` від `main` `4bae2d94b` (вибір власника).
+
+**Крок 1.** Вже виконано власником: `claude plugin list` → `unica@unica` 0.16.0 (`unica-0.16-roots-cc800e0`),
+`v8storagekit@smp-v8storagekit-016` 1.6.0 (`v8storagekit-1.6.0-44dfd9a`).
+
+**Крок 2.** `check-environment.ps1` → EXIT 0; усі `[+]`, зокрема `unica 0.16 - 0.16.0` і `v8-runner 0.18 - 0.18.1`.
+Зауважа: вивід кирилиці в Git Bash — кракозябри (кодова сторінка консолі), `kit check` у тому ж шелі — коректний UTF-8.
+
+**Крок 3.** `kit check -RepoRoot .` → EXIT 1. Помилок 3: `infobase:` у `v8project.yaml`, немає `providers`, `infobase:` у
+`v8project.local.yaml` (тексти — як у хуку п.1). Попереджень 3: `kitVersion` 1.4.0; `.githooks/pre-commit` відрізняється від
+шаблону; старий проєктний хук (`.claude/settings.json` `hooks.SessionStart` + `.claude/hooks/session-start.ps1`).
+
+**Крок 4.** `tehnokrat/v8project.yaml`: прибрано `builder: DESIGNER`, `execution_timeout: 3600000` (з коментарем «повна УНФ:
+наповнення бази агента довше за 10 хв» — свідоме рішення), блок `infobase:` (`connection: 'File=build/ib'`, без `user`);
+додано `providers` (designer ×3). `format`, `workPath`, `source-set` — без змін. `tehnokrat/v8project.local.yaml`:
+`infobase:` → `infobases.origin.connection: 'Srvr=VSDEV;Ref=tehnokrat_unf_sydorenko_claude;'`, `user`/`password` не
+писались (у старому блоці їх не було, вхід — автентифікацією ОС). Власнику повідомлено (за брифом архітектора, новіша
+редакція п.4): ключ `execution_timeout` прибрано, довгі операції в Уніці 0.16 — справа Уніки й хоста; ключ не повертається.
+
+**Крок 5.** З `.claude/settings.json` прибрано `hooks` (єдиний запис — `SessionStart` на `session-start.ps1`);
+`git rm .claude/hooks/session-start.ps1`. `kit install-hooks -RepoRoot . -Apply` (з дозволу власника; різниця шаблону — лише
+текст «dump/canon» → «dump чи pull Уніки») → «Готово. .githooks уже в індексі», EXIT 0.
+
+**Крок 6.** Злиття дозволів JSON-парсером: записи Уніки 0.13 (`unica_project_map`, `unica_cf_info` … 33 шт.) прибрано,
+перелік Уніки = шаблон (`unica_run` — у `allow`, `unica_apply` — у `ask`). Власних записів поза Унікою у споживача не було
+— результат побайтово рівний шаблону (`s == t` → True).
+
+**Крок 7.** `CLAUDE.md`: шапка й абзац споживача (зокрема 8.3.25 / `-DumpPlatform … -ForVersion N` — у 1.6.0 параметр
+чинний, `sync.psm1`) — лишено; преамбула й розділи `##` — з шаблону, `<mainBranch>` → `main`. Розділів поза шаблоном у
+споживача немає. Сім рядків споживача без відповідника в шаблоні показано власнику переліком (база через `infobase.*`,
+кореневий `build/artifacts/`, `operation=build/make/test/syntax`, `kit build -Apply`, `operation=build` без `sourceSet`,
+«`File=build/ib` — не секрет», хук `session-start.ps1`) — усі застарілі правила kit 1.4.0/Уніки 0.13; рішення власника —
+прибрати всі. Процедура дала достатньо, щоб розкласти їх без знань поза текстом.
+
+**Крок 8.** `kit check -RepoRoot .` → EXIT 0: «Помилок немає. Попереджень: 1» — лише `kitVersion` (знімає крок 10).
+Попередження про поставку `base` немає.
+
+### 2026-11-20 — п.3. Крок 9 для `base` (`truth: storage`, з поставкою) — лише `dryRun:true`
+
+**Умова.** Після кроку 8; воркспейс Уніки `tehnokrat_unf/tehnokrat` (`unica.view {}` у корені сесії → «workspace is
+uninitialized … no v8project.yaml», `available[0].workspaces: ["tehnokrat"]`); база агента — серверна, `infobases.origin`.
+
+**Виклик 1.** `unica.run {"op":"push","args":{"sourceSet":"base","force":true},"dryRun":true,"workspace":"tehnokrat_unf/tehnokrat"}`
+
+```
+{"ok":true,"summary":"push planned overwriting the infobase with source set `base` without touching it yet; executing loads every set in full without checking the infobase generation, and changes made in the infobase since this working copy's last exchange are lost","data":{"op":"push","dryRun":true,"plan":{"full":false,"force":true,"generationProtection":false,"appliesDatabaseConfiguration":true,"steps":[{"mode":"full","sourceSet":"base"}],"targetStateKnownBeforeApply":false},"providerDispatched":false,"requiresPlatform":true},"warnings":[{"code":"infobase_overwritten","sourceSets":["base"],"message":"force:true overwrites the infobase: these sets are loaded in full without checking the infobase generation or this working copy's memory of it, and changes made in the infobase since the last exchange are lost"},{"code":"platform_line_written","message":"Unica added tools.platform.version: sources to v8project.local.yaml: the runner now runs on the platform line that writes the format of the sources; set tools.platform.version there to choose a platform yourself"}],"next":[{"tool":"unica.run","args":{"op":"push","args":{"force":true,"sourceSet":"base"},"dryRun":false},"reason":"execute with the current arguments"}]}
+```
+
+**Виклик 2.** `unica.run {"op":"pull","args":{"sourceSet":"base","force":true},"dryRun":true,"workspace":"tehnokrat_unf/tehnokrat"}`
+
+```
+{"ok":true,"summary":"pull planned a full export of source set `base`","data":{"op":"pull","dryRun":true,"plan":{"sourceSet":"base","extension":null,"mode":"full","plannedMode":"full","modeReason":null,"target":"cf/src","targetExists":true,"force":true,"replacesLocalSources":true,"localChanges":{"underGit":true,"files":0}},"providerDispatched":false,"requiresPlatform":true},"next":[{"tool":"unica.run","args":{"op":"pull","args":{"force":true,"sourceSet":"base"},"dryRun":false},"reason":"execute with the current arguments"}]}
+```
+
+**Висновок (умова: лише план, `providerDispatched:false`, платформу не піднято).** Відмови через правило `.gitignore`
+`**/Ext/ParentConfigurations/` на рівні плану немає ні в `push`, ні в `pull`; `pull` бачить `localChanges.files: 0` під git.
+Чи не відмовить виконання — не виміряно (план не доводить поведінку раннера при справжньому записі). Побічний ефект
+`dryRun`: Уніка **записала** `tools: platform: version: sources` у `tehnokrat/v8project.local.yaml` (попередження
+`platform_line_written`) — `dryRun` не повністю без змін; за `upgrades.md` ключ штатний. В плані `push` — `"full":false` поруч
+із кроком `"mode":"full"` (поле `full` — аргумент виклику, не режим кроку; зауважа для читача). **СТОП** перед будь-яким
+`dryRun:false` для `base` — рішення архітектора.
+
+### 2026-11-20 — п.4. Крок 9 для `ТК_Адаптация` — `dryRun:true`
+
+**Виклик.** `unica.run {"op":"push","args":{"sourceSet":"ТК_Адаптация","force":true},"dryRun":true,"workspace":"tehnokrat_unf/tehnokrat"}`
+
+```
+{"ok":true,"summary":"push planned overwriting the infobase with source set `ТК_Адаптация` without touching it yet; executing loads every set in full without checking the infobase generation, and changes made in the infobase since this working copy's last exchange are lost","data":{"op":"push","dryRun":true,"plan":{"full":false,"force":true,"generationProtection":false,"appliesDatabaseConfiguration":true,"steps":[{"mode":"full","sourceSet":"ТК_Адаптация"}],"targetStateKnownBeforeApply":false},"providerDispatched":false,"requiresPlatform":true},"warnings":[{"code":"infobase_overwritten","sourceSets":["ТК_Адаптация"],"message":"force:true overwrites the infobase: these sets are loaded in full without checking the infobase generation or this working copy's memory of it, and changes made in the infobase since the last exchange are lost"}],"next":[{"tool":"unica.run","args":{"op":"push","args":{"force":true,"sourceSet":"ТК_Адаптация"},"dryRun":false},"reason":"execute with the current arguments"}]}
+```
+
+**Висновок (план).** Повне завантаження лише набору розширення, `infobase_overwritten` — як очікувано. Справжній запуск — після
+слова власника.
