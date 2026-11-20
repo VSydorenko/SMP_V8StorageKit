@@ -49,7 +49,11 @@ Kit не викликає Уніку; Уніка не знає про схови
 |---|---|
 | `v8project.yaml`, `v8project.local.yaml`, `.gitignore`, вивантаження Конфігуратором | `references/project-contour.md` |
 | Пастки платформи 1С і YaXUnit, виміряні на практиці | `references/platform-traps.md` |
+| Межі розширень: предопределені, видалення при об'єднанні, типи Ref/AnyRef, перезапозичення | `references/platform-traps.md` |
+| Правка вихідників агентом: CRLF, BOM, `Write`, перевірка кінців рядків | `references/source-files-editing.md` |
+| Яку базу чіпати, запуск `1cv8.exe` з PowerShell, `/DumpConfigToFiles` у непорожню теку | `references/infobases.md` |
 | Доопрацювання форм у розширенні без запозичення форми | `references/extension-forms.md` |
+| Зовнішня компонента Native API: підключення, кеші, постачання | `v8storagekit:1c-native-addin` |
 | Службовий користувач ІБ із розширення (БСП) | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-клієнт у розширенні | `v8storagekit:1c-websocket-client` |
 | Тексти кількома мовами | `v8storagekit:1c-localization` |
