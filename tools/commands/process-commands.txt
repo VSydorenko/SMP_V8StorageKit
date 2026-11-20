@@ -12,3 +12,4 @@ kit-scan
 doc
 track
 pr-gate
+codex-audit
