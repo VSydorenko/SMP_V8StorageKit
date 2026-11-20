@@ -66,12 +66,14 @@ function New-KitFakeConfigurationXml {
     ) -join "`r`n"
 }
 
+$script:KitFakeDefaultConfigTruth = 'vendor'
+
 function Get-KitFakeSetTruth {
     # Внутрішній хелпер фікстури (не експортується): truth source-set'а. Ключ Truth перекриває
     # умовчання; без нього CONFIGURATION — vendor (як було), EXTENSION — storage.
     param([Parameter(Mandatory)]$Set)
     if ($Set.Contains('Truth')) { return [string]$Set.Truth }
-    if ($Set.Type -eq 'CONFIGURATION') { 'vendor' } else { 'storage' }
+    if ($Set.Type -eq 'CONFIGURATION') { $script:KitFakeDefaultConfigTruth } else { 'storage' }
 }
 
 function New-KitFakeRepo {
@@ -87,8 +89,12 @@ function New-KitFakeRepo {
         [switch]$NoSourceTrees,
         [switch]$NoCommit,
         [switch]$WithAgentBase,
-        [switch]$WithSupply
+        [switch]$WithSupply,
+        # Truth CONFIGURATION-набору, коли в Sets його не задано. Умовчання vendor — як було; тести, яким
+        # потрібна основа, що НЕ vendor (provision не створює базу для основи vendor), передають dump.
+        [ValidateSet('vendor', 'dump', 'storage', 'git')][string]$DefaultConfigTruth = 'vendor'
     )
+    $script:KitFakeDefaultConfigTruth = $DefaultConfigTruth
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
     New-Item -ItemType Directory -Path $Root -Force | Out-Null
@@ -183,12 +189,13 @@ function New-KitFakeRepo {
             if (-not $NoSourceTrees) { New-Item -ItemType Directory -Path $setDir -Force | Out-Null }
             $truth = Get-KitFakeSetTruth -Set $set
             switch ($set.Type) {
-                { $_ -eq 'CONFIGURATION' -and $truth -eq 'vendor' } {
+                { $_ -eq 'CONFIGURATION' -and $truth -in 'vendor', 'dump' } {
                     # vendor: дерево лишається порожнім і в git не потрапляє — як у споживача без дампу.
-                    $manifest.Add("      $($set.Name): { truth: vendor, dump: { from: dev } }")
+                    # dump: те саме порожнє дерево, але не гітігноровано (основа, що НЕ vendor).
+                    $manifest.Add("      $($set.Name): { truth: $truth, dump: { from: dev } }")
                 }
-                # switch без break виконує ВСІ підходящі гілки — тому vendor тут виключено явно.
-                { $_ -in 'CONFIGURATION', 'EXTENSION' -and $truth -ne 'vendor' } {
+                # switch без break виконує ВСІ підходящі гілки — тому vendor/dump тут виключено явно.
+                { $_ -in 'CONFIGURATION', 'EXTENSION' -and -not ($_ -eq 'CONFIGURATION' -and $truth -in 'vendor', 'dump') } {
                     if (-not $NoSourceTrees) {
                         Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
                             -Value (New-KitFakeConfigurationXml -Name $set.Name)

@@ -3,6 +3,8 @@
 Describe 'kit provision — прев''ю і зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:Invoke-Provision { param([string]$Repo, [string[]]$More = @())
             $out = & pwsh -NoProfile -File $script:Kit provision -RepoRoot $Repo @More 2>&1 | Out-String
@@ -311,13 +313,25 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         }
 
-        It 'змішаний воркспейс: порожня CONFIGURATION під vendor — зупинка лишається' {
-            # Типова фікстура: base — truth: vendor, дерево порожнє. Зупинка — до будь-якого
+        It 'змішаний воркспейс: порожня CONFIGURATION під не-storage (dump) — зупинка лишається' {
+            # Фікстура з умовчанням truth: dump, дерево порожнє. Зупинка — до будь-якого
             # виклику платформи (throw у Invoke-KitProvision стоїть до гілки -Apply).
-            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-vendor-still') -WithHooks
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'owner-dump-still') -WithHooks
             $r = Invoke-Provision -Repo $repo -More @('-Apply')
             $r.ExitCode | Should -Not -Be 0
             $r.Output | Should -BeLike '*бракує власника*'
+            Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
+        }
+
+        It 'основа truth: vendor, бази агента немає, без -Template — зупинка з рецептом (.dt чи серверна), базу не створено' {
+            # Спека 0.16 §4.2 п.23: ні kit, ні Уніка не вантажать основу vendor у базу. Зупинка стоїть до
+            # будь-якого створення (New-V8FileInfobase не викликано) і навіть до осі власника.
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vendor-no-base') -WithHooks -DefaultConfigTruth vendor
+            Add-KitOwnerTree -Repo $repo
+            $r = Invoke-Provision -Repo $repo -More @('-Apply')
+            $r.ExitCode | Should -Not -Be 0
+            $r.Output | Should -BeLike '*truth: vendor*з .dt*infobase.restore*-ServerBase Existing*не вантажать*'
+            $r.Output | Should -Not -BeLike '*порожня база*'
             Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         }
 
@@ -375,6 +389,8 @@ Describe 'kit provision — прев''ю і зупинки без платфор
 Describe 'kit provision 1.5.0 — хто створює базу (спека §4.2, §10)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:Invoke-Provision { param([string]$Repo, [string[]]$More = @())
             Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $Repo -More $More }
@@ -493,6 +509,8 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
     It 'крок наступного kit: (i) називає крок вирівнювання push force:true; (ii) — дослівно Get-KitSupplyRecipe, без власної копії' {
         # Get-KitProvisionNextKitStep не експортується — кличемо в області модуля.
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
@@ -701,6 +719,8 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
 Describe 'kit provision — CreatedBy у результаті (хто створив базу), у процесі' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
