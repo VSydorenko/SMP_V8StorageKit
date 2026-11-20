@@ -176,9 +176,16 @@ function Get-KitProvisionSteps {
         [Parameter(Mandatory)][ValidateSet('file-empty', 'file-dt', 'server-existing')][string]$Kind,
         [Parameter(Mandatory)]$Fitness,
         [string]$TemplatePath,
-        [string]$NextKitStep
+        [string]$NextKitStep,
+        [AllowNull()][string[]]$PushSets = $null
     )
     $steps = [System.Collections.Generic.List[string]]::new()
+    # Основа truth: vendor у базу не вантажиться ніколи (§4.2 п.23): push — лише з явним sourceSet розширень.
+    $pushStep = {
+        if ($null -ne $PushSets) {
+            foreach ($set in $PushSets) { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true }))) }
+        } else { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ force = $true }))) }
+    }
     if ($Kind -eq 'file-empty') {
         if ($Fitness.Fit) {
             $steps.Add((Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{})))
@@ -189,7 +196,7 @@ function Get-KitProvisionSteps {
         return , $steps.ToArray()
     }
     if ($Kind -eq 'file-dt') { $steps.Add((Format-KitUnicaRun -Op 'infobase.restore' -Arguments ([ordered]@{ input = $TemplatePath; mode = 'create' }))) }
-    if ($Fitness.Fit) { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ force = $true }))) }
+    if ($Fitness.Fit) { & $pushStep }
     else              { $steps.Add($NextKitStep) }
     , $steps.ToArray()
 }
@@ -300,6 +307,18 @@ function Get-KitProvisionPlan {
     if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
         $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
     }
+    # Основа truth: vendor (§4.2 п.23): ні Уніка, ні kit не вантажать її в базу — вона приходить разом з базою
+    # (.dt чи наявна серверна). Порожня база kit/infobase.create → push основи тут глухий кут: зупинка з рецептом.
+    $vendorBases = @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'vendor' })
+    $pushSets = $null
+    if ($vendorBases.Count -gt 0) {
+        $pushSets = @($ws.Sources | Where-Object Type -eq 'EXTENSION' | ForEach-Object { $_.Key })
+        if (-not $wsTemplate -and $ab.Kind -eq 'file') {
+            throw ("Воркспейс '$($ws.Path)': основа '$($vendorBases[0].Key)' має truth: vendor, а бази агента немає. " +
+                   'База агента для воркспейсу з основою vendor — з .dt (kit provision -Template <шлях>.dt, крок infobase.restore) або наявна серверна (-ServerBase Existing); ' +
+                   'kit і Уніка основу vendor у базу не вантажать (Уніка 0.16 відмовляє на гітігнорованому наборі), порожню базу kit тут не створює.')
+        }
+    }
     # Вісь власника — до вибору типу бази: порожнє дерево
     # під truth: storage — не зупинка, а рецепт (i) нижче (Get-KitConfigurationFitness).
     if (-not $wsTemplate -and -not (Test-KitConfigurationOwnerPresent -Workspace $ws)) {
@@ -355,7 +374,7 @@ function Get-KitProvisionPlan {
         }
         if ($wsTemplate) { throw '-Template (.dt) для серверної бази агента не підтримується: розгортання .dt на сервері — поза обсягом. Приберіть -Template чи agentBase.template з накладки.' }
         $plan.Kind = 'server-existing'
-        $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -NextKitStep $nextKit
+        $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -NextKitStep $nextKit -PushSets $pushSets
         $plan.CreatedBy = 'existing'
         return $plan
     }
@@ -374,7 +393,7 @@ function Get-KitProvisionPlan {
 
     $plan.Kind = if ($wsTemplate) { 'file-dt' } else { 'file-empty' }
     $templateFull = if ($wsTemplate -and (Test-Path -LiteralPath $wsTemplate -PathType Leaf)) { (Resolve-Path -LiteralPath $wsTemplate).Path } else { $wsTemplate }
-    $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -TemplatePath $templateFull -NextKitStep $nextKit
+    $plan.Steps = Get-KitProvisionSteps -Kind $plan.Kind -Fitness $fitness -TemplatePath $templateFull -NextKitStep $nextKit -PushSets $pushSets
     $plan.KitCreates = ($plan.Kind -eq 'file-empty' -and -not $fitness.Fit)
     $plan.CreatedBy = if ($plan.KitCreates) { 'kit' } else { 'unica' }
 
