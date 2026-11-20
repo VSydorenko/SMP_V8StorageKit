@@ -15,5 +15,7 @@ build/
 .agents/private/
 .agents/briefs/
 .agents/kit.profile.local.json
+# Артефакти збірки крейта (ADR-0009); зібраний bin/kit.exe комітиться, rust/target/ — ні.
+rust/target/
 # v8storagekit: процес
 .worktrees/
