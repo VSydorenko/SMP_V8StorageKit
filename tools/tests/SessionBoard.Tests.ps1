@@ -55,4 +55,30 @@ Describe 'session-board — злитий PR і нова робота в гілц
         $rowA[0] | Should -Match '#11 merged'
         $rowB[0] | Should -Not -Match 'merged'
     }
+
+    It 'shared: одна гілка поза base — таблиця з одним рядком, код 0 (масив з одного елемента не розгортається)' {
+        $repo = Join-Path $TestDrive 'repo-one'
+        New-Item -ItemType Directory -Path $repo | Out-Null
+        G $repo @('init', '-q', '-b', 'main')
+        G $repo @('config', 'user.name', 't'); G $repo @('config', 'user.email', 't@t'); G $repo @('config', 'commit.gpgsign', 'false')
+        Commit $repo 'init.txt'
+        G $repo @('checkout', '-q', '-b', 'feat-solo'); Commit $repo 'solo.txt'
+        G $repo @('checkout', '-q', 'main')
+        New-Item -ItemType Directory -Path (Join-Path $repo '.agents') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.agents/kit.profile.json') -Value '{ "workspace": { "mode": "shared" } }'
+
+        $ghDir = Join-Path $TestDrive 'fakegh-one'
+        New-Item -ItemType Directory -Path $ghDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $ghDir 'gh.cmd') -Encoding ascii -Value @('@echo off', 'echo []')
+
+        $savedPath = $env:PATH
+        $env:PATH = "$ghDir$([IO.Path]::PathSeparator)$savedPath"
+        Push-Location $repo
+        try { $out = & pwsh -NoProfile -File $script:KitProcess session-board 2>&1 | Out-String; $code = $LASTEXITCODE }
+        finally { Pop-Location; $env:PATH = $savedPath }
+
+        $code | Should -Be 0 -Because $out
+        $out | Should -Not -Match 'outside the bounds'
+        @($out -split "\r?\n" | Where-Object { $_ -match '\bfeat-solo\b' }).Count | Should -Be 1 -Because $out
+    }
 }

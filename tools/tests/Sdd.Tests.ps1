@@ -179,4 +179,25 @@ Second.
         $other.Err[0] | Should -BeLike 'sdd: ERROR *вже complete*'
         @(Get-ChildItem -LiteralPath (Split-Path $repo.Ws -Parent) -Directory).Count | Should -Be 1
     }
+
+    It 'review без нових комітів — відмова, і журнал не дістає рядка закриття вікна' {
+        $repo = New-SddRepo 'repo-review-refuse'
+        Invoke-Sdd $repo.Dir @('init', 'docs/plans/sub.md') | Out-Null
+        Invoke-Sdd $repo.Dir @('dispatch', '1') | Out-Null
+        $before = Read-Ledger $repo
+        $r = Invoke-Sdd $repo.Dir @('review', '1')
+        $r.ExitCode | Should -Be 1
+        $r.Err[0] | Should -BeLike 'sdd: ERROR *немає комітів*'
+        (Read-Ledger $repo) | Should -BeExactly $before -Because 'відмова не закриває вікно'
+    }
+
+    It 'після close dispatch каже, що журнал закрито, а не що план не прив''язано' {
+        $repo = New-SddRepo 'repo-closed'
+        Invoke-Sdd $repo.Dir @('init', 'docs/plans/sub.md') | Out-Null
+        (Invoke-Sdd $repo.Dir @('close')).ExitCode | Should -Be 0
+        $r = Invoke-Sdd $repo.Dir @('dispatch', '1')
+        $r.ExitCode | Should -Be 2
+        $r.Err[0] | Should -BeLike 'sdd: ERROR *журнал плану закрито*'
+        $r.Err[0] | Should -Not -BeLike '*немає відкритого журналу*'
+    }
 }
