@@ -61,8 +61,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $ctx | Should -BeLike '*session-check*- Alpha_SMB:*'
         $ctx | Should -BeLike '*Раннер Уніки недоступний*'
         $ctx | Should -Not -BeLike '*Сигнали не обчислювались*'
-        $ctx | Should -Not -BeLike '*<корінь плагіна>*'
-        $ctx | Should -BeLike "*$script:KitRoot*"   # без -replace: у -BeLike екран — бектик, не бекслеш (P8)
+        $ctx | Should -Not -BeLike '*НЕВІДОМИЙ*' -Because 'знахідка про стан машини не змінює код session-check: код 1 хук читає як «стан невідомий»'
         $ctx | Should -Not -BeLike "*$script:AncestorWarning*"
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
         Join-Path $repo 'build' | Should -Not -Exist
@@ -79,6 +78,33 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $ctx | Should -BeLike "*$script:AncestorWarning*"
         $ctx | Should -BeLike "*$sub*"
         $ctx | Should -BeLike "*$repo*"
+    }
+
+    It 'вступ не вклеюється: стан сховищ стоїть перед вказівкою на скіл, тексту SKILL.md у виводі немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo-order') -WithHooks -WithGitattributes -WithGitignore
+        $ctx = ((Invoke-Hook -ProjectDir $repo).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+        $state = $ctx.IndexOf('Стан сховищ')
+        $pointer = $ctx.IndexOf('v8storagekit:using-v8storagekit')
+        $state | Should -BeGreaterOrEqual 0
+        $pointer | Should -BeGreaterThan $state -Because 'прев''ю виводу обрізається з кінця: стан мусить стояти першим'
+        # Рядок, що є лише в SKILL.md (перевірено пошуком по дереву поза docs/superpowers/): його присутність у виводі = вступ вклеєно.
+        $skillText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/using-v8storagekit/SKILL.md') -Raw -Encoding UTF8
+        $skillText | Should -BeLike '*Крок, надрукований командою kit, — виконати дослівно*' -Because 'контроль: маркер мусить існувати в SKILL.md'
+        $ctx | Should -Not -BeLike '*Крок, надрукований командою kit, — виконати дослівно*'
+    }
+
+    It 'постійна частина виводу хука (без стану й попередження) вміщається у 2048 байт UTF-8' {
+        $plugin = Join-Path $TestDrive 'fake-plugin-size'
+        New-Item -ItemType Directory -Path (Join-Path $plugin 'tools'), (Join-Path $plugin 'hooks') -Force | Out-Null
+        Copy-Item -LiteralPath $script:Hook -Destination (Join-Path $plugin 'hooks/session-start.ps1')
+        Set-Content -LiteralPath (Join-Path $plugin 'tools/kit.ps1') -Encoding UTF8 -Value "'СТАН-ЗАГЛУШКА'"
+        $repo = Join-Path $TestDrive 'repo-size'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
+        $ctx = ((Invoke-Hook -ProjectDir $repo -Hook (Join-Path $plugin 'hooks/session-start.ps1')).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+        $ctx | Should -BeLike '*СТАН-ЗАГЛУШКА*' -Because 'контроль: заглушку стану видно, тож віднімання нижче щось віднімає'
+        $constant = $ctx.Replace('СТАН-ЗАГЛУШКА', '')
+        [System.Text.Encoding]::UTF8.GetByteCount($constant) | Should -BeLessOrEqual 2048
     }
 
     It 'session-check упав (код 1) — хук не мовчить: позначка «стан невідомий» і текст зупинки, код хука 0' {
@@ -127,7 +153,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
 
     Context 'стеля часу' {
         BeforeAll {
-            # Окремий фейковий плагін: kit.ps1 підміняється в кожному It, скіл потрібен хуку для вступу.
+            # Окремий фейковий плагін: kit.ps1 підміняється в кожному It, скіл хукові не потрібен (вступ не вклеюється).
             $script:FakePlugin = Join-Path $TestDrive 'fake-plugin'
             New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'tools') -Force | Out-Null
             New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'hooks') -Force | Out-Null

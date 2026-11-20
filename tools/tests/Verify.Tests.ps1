@@ -618,7 +618,9 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         $v = Run @('verify')
         $v.ExitCode | Should -Be 0 -Because $v.Output
         $v.Output | Should -BeLike '*Вердикт: equal*' -Because $v.Output
-        $v.Output | Should -BeLike '*"op":"pull"*' -Because $v.Output
+        # 1.6.0 (спека §3.1): після verify крок завжди push з sourceSet і force:true, без pull
+        $v.Output | Should -BeLike '*unica.run {"op":"push"*"sourceSet":"SMP_BankExchange_SMB"*"force":true*' -Because $v.Output
+        $v.Output | Should -Not -BeLike '*"op":"pull"*' -Because $v.Output
         $v.Output | Should -Not -Match '\[-\]'      # -BeLike трактує [-] як клас символів; -Match — літерально
     }
 

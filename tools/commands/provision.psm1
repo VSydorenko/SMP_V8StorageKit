@@ -222,20 +222,29 @@ function New-KitExistingBaseMessage {
     }
     ("Тека за шляхом бази агента воркспейсу '$WorkspacePath' уже є ($what): $BasePath. Kit базу агента не видаляє й не перезаписує ніколи — " +
      "ні цю теку, ні пам'ять раннера. Видаліть самі дві теки: '$BasePath' (база) і '$MemoryPath' (пам'ять раннера бази origin; без її видалення " +
-     "нова база успадкує стару пам'ять наборів, і push міг би пропустити набори як незмінені) — і $after.")
+     "нова база успадкує стару пам'ять наборів, і push міг би пропустити набори як незмінені; пам'ять раннера — його записник, не дані бази, " +
+     "і після її видалення перший push буде повним) — і $after.")
 }
 
 function New-KitNotBaseMessage {
     <#
     .SYNOPSIS
-        Зупинка «непорожня тека без 1Cv8.1CD за шляхом бази»: це не база агента, жодної поради видаляти (§4.2 п.16).
+        Зупинка «за шляхом бази лежить не база агента»: жодної поради видаляти (§4.2 п.16).
     .DESCRIPTION
         Описка в infobases.origin.connection (File=build/artifacts усередині workPath) інакше привела б до поради
-        стерти артефакти чи іншу чужу теку. Про пам'ять раннера тут не йдеться.
+        стерти артефакти чи іншу чужу теку. Про пам'ять раннера тут не йдеться. Reason: nonempty — непорожня тека
+        без 1Cv8.1CD; file — за шляхом файл; unreadable — вміст теки не вдалося прочитати (невідоме не трактується
+        як порожнє: інакше порада видалити теку з'явилась би для теки, яку kit не бачив).
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$WorkspacePath, [Parameter(Mandatory)][string]$BasePath)
-    "За шляхом бази агента воркспейсу '$WorkspacePath' лежить не база агента (тека $BasePath непорожня й не містить 1Cv8.1CD); " +
+    param([Parameter(Mandatory)][string]$WorkspacePath, [Parameter(Mandatory)][string]$BasePath,
+          [Parameter(Mandatory)][ValidateSet('nonempty', 'file', 'unreadable')][string]$Reason)
+    $what = switch ($Reason) {
+        'file'       { "за шляхом $BasePath файл, а не тека бази" }
+        'unreadable' { "тека $BasePath, вміст якої kit не зміг прочитати" }
+        default      { "тека $BasePath непорожня й не містить 1Cv8.1CD" }
+    }
+    "За шляхом бази агента воркспейсу '$WorkspacePath' лежить не база агента ($what); " +
         'перевірте infobases.origin.connection у v8project.local.yaml. Kit нічого не створює й не прибирає.'
 }
 
@@ -369,12 +378,31 @@ function Get-KitProvisionPlan {
     $plan.KitCreates = ($plan.Kind -eq 'file-empty' -and -not $fitness.Fit)
     $plan.CreatedBy = if ($plan.KitCreates) { 'kit' } else { 'unica' }
 
+    # Перетин з базою чи пам'яттю раннера ІНШОГО воркспейсу — до гілки «наявна тека»: через посилання
+    # (junction B/build -> A/build) порада «видаліть дві теки» вказала б на базу воркспейсу A. Нової логіки
+    # перетину тут немає — Find-KitAgentBaseCollisions; поради видаляти зупинка не містить.
+    $collisions = @(Find-KitAgentBaseCollisions -Context $Context -Workspace $ws)
+    if ($collisions.Count -gt 0) {
+        $others = (@($collisions | ForEach-Object { "'$($_.Other)'" } | Select-Object -Unique)) -join ', '
+        throw ("База агента чи пам'ять раннера воркспейсу '$($ws.Path)' перетинається з базою агента чи пам'яттю раннера воркспейсу $others " +
+               "(одна тека, вкладена чи батьківська). Kit базу в такому місці не створює й нічого не прибирає; порад видаляти теки немає, поки перетин не усунено. " +
+               'Рішення за людиною: окрема тека infobases.origin.connection кожного воркспейсу (v8project.local.yaml).')
+    }
+
     # Будь-яка наявна тека (чи файл) за шляхом бази — зупинка, незалежно від -Apply: kit нічого не стирає
     # й не перезаписує. Людина видаляє дві теки сама (§3.4 п.3, п.4; §4.2 п.16).
     if (Test-Path -LiteralPath $ab.Path) {
-        # Непорожня тека без 1Cv8.1CD (чи файл) — не база агента: окрема зупинка без поради видаляти.
-        if (-not $ab.Exists -and ((Test-Path -LiteralPath $ab.Path -PathType Leaf) -or @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction SilentlyContinue).Count -gt 0)) {
-            throw (New-KitNotBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path)
+        # Файл, непорожня тека без 1Cv8.1CD чи тека, вміст якої не вдалося прочитати, — не база агента:
+        # окрема зупинка без поради видаляти. Помилка читання не трактується як «порожньо» (fail-closed).
+        if (-not $ab.Exists) {
+            if (Test-Path -LiteralPath $ab.Path -PathType Leaf) {
+                throw (New-KitNotBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path -Reason 'file')
+            }
+            try { $entries = @(Get-ChildItem -LiteralPath $ab.Path -Force -ErrorAction Stop) }
+            catch { throw (New-KitNotBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path -Reason 'unreadable') }
+            if ($entries.Count -gt 0) {
+                throw (New-KitNotBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path -Reason 'nonempty')
+            }
         }
         throw (New-KitExistingBaseMessage -WorkspacePath $ws.Path -BasePath $ab.Path -MemoryPath (Get-KitRunnerMemoryPath -Project $ws.Project) `
             -HasBaseFile $ab.Exists -KitCreates $plan.KitCreates -Steps $plan.Steps)

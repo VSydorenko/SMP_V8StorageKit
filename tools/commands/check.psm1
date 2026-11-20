@@ -459,7 +459,7 @@ function Invoke-KitCheck {
             try { $localIb = Read-V8ProjectLocalInfobase -Path $localPath; if ($localIb) { $localConn = $localIb.Connection } }
             catch { & $add error local-audit "$($ws.Path)/v8project.local.yaml не читається: $($_.Exception.Message)" }
             if ($localConn) {
-                # Бази агента різних воркспейсів не перетинаються (той самий предикат, що в provision).
+                # Бази агента різних воркспейсів не перетинаються (той самий перелік перетинів, що перевіряє provision).
                 # Пара «база проти бази» симетрична — повідомляємо один раз (з воркспейсу, що йде першим за назвою).
                 try {
                     foreach ($c in @(Find-KitAgentBaseCollisions -Context $Context -Workspace $ws)) {

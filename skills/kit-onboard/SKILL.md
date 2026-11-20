@@ -16,6 +16,8 @@ disable-model-invocation: true
 
 **Оновлення.** Проєкт, підключений раніше, відстає, коли `kit-scan` (розділ «Kit version») показує `kit.version` нижче за версію плагіна (поля немає = `0.1.0`). Тоді кроки `V1…Vn` кожної пізнішої версії — рядки того самого звіту й того самого PR, а останній коміт PR виставляє `kit.version` на версію плагіна: [references/upgrade.md](references/upgrade.md). Перше підключення отримує `kit.version` від `kit-setup`.
 
+Журнал змін плагіна: `${CLAUDE_PLUGIN_ROOT}/CHANGELOG.md`.
+
 ## Порядок
 
 1. **Скануй, не змінюй.** `kit-scan` (лише читання; `-Json` — для машинного розбору) починає з розриву версії та його кроків оновлення, далі перелічує дублікати й прототипи, посилання на superpowers, файли пам'яті про процедури, які тепер робить kit, журнали виконання (`.superpowers/sdd/`, `.agents/sdd/`) і місця поза репозиторієм. `kit-setup -DryRun` показує різниці налаштувань, `.gitignore` і профілю. Розділи виводу: `Kit version`, `Duplicates and prototypes`, `Superpowers references`, `Superpowers plugin`, `Superpowers files`, `Journals`, `Memory` (і `Memory index`), `Places outside the repo`; ключі `-Json` — `kitVersion`, `duplicates`, `superpowers`, `superpowersPlugin`, `superpowersDocs`, `journals`, `memory`, `places`. Вивід розходиться з цим переліком — вір виводу й скажи про розбіжність у звіті.
