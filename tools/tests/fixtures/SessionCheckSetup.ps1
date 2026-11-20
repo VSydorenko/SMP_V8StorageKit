@@ -7,8 +7,8 @@
 # Import-Module, яку описує великий коментар у KitFixtures.psm1 і docs/follow-ups.md §5.
 #
 # $PSScriptRoot тут — власна тека ЦЬОГО файлу (tools/tests/fixtures/), А НЕ виклика (як і в
-# CheckSetup.ps1) — звідси подвійний "..": з tools/tests/SessionCheck.*.Tests.ps1
-# ходить "$PSScriptRoot/../lib", а звідси, з fixtures/, треба на рівень глибше:
+# CheckSetup.ps1) — звідси подвійний "..": з tools/tests/ шлях до lib був би
+# "$PSScriptRoot/../lib", а звідси, з fixtures/, треба на рівень глибше:
 # "$PSScriptRoot/../../lib".
 Import-Module (Resolve-Path "$PSScriptRoot/KitFixtures.psm1").Path -Force
 Import-Module (Resolve-Path "$PSScriptRoot/../../lib/GitMerge.psm1").Path -Force

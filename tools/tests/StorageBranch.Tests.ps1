@@ -59,7 +59,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     It 'merge-коміт на storage/X — помилка (два батьки), кореневий без батьків — ні' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge')
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
-        # Злиття main у гілку сховища — саме те, що забороняє контур. Робимо в тимчасовому worktree,
+        # Злиття main у гілку сховища — саме те, що забороняє інваріант дзеркала. Робимо в тимчасовому worktree,
         # щоб не чіпати робочу копію, і без хуків (їх у цій фікстурі немає).
         $wt = Join-Path $repo 'build/sync/merge-wt'
         git -C $repo worktree add -q $wt 'storage/Alpha_SMB'

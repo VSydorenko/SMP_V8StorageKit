@@ -29,8 +29,7 @@ function Invoke-KitFakeGit {
     .DESCRIPTION
         Нативні команди перевіряються через $LASTEXITCODE явно —
         на цій машині $PSNativeCommandUseErrorActionPreference = $false, тож git, що впав,
-        сам винятку не кине. 
-
+        сам винятку не кине. Фікстура довгограюча (тести будують на ній коміти й
         гілки storage/*), і мовчазний збій тут дав би провал далеко від причини.
 
         Навмисно проста функція — без [CmdletBinding()] і без param(): $args приймає усі

@@ -59,7 +59,7 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
     }
 }
 
-Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe ' {
+Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe' {
     # dump лишалась єдиною командою блоку без покриття Apply-гілки платформним моком —
     # Sync.Merge.Tests.ps1 і Verify.Tests.ps1 уже мають такий Describe для sync/verify (мок
     # New-ExtensionInfobase/Invoke-V8Designer -ModuleName StoragePlatform чи verify). Тут той

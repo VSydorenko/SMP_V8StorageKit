@@ -327,7 +327,7 @@ function Find-KitAgentBaseCollisions {
 function Test-KitInfobasesOverlap {
     <#
     .SYNOPSIS
-        Чи ПЕРЕТИНАЮТЬСЯ два підключення: та сама база або одна лежить усередині/над іншою.
+        Чи ПЕРЕТИНАЮТЬСЯ два підключення: та сама база або одна лежить усередині/над іншою (принцип 3).
     .DESCRIPTION
         Семантика: не «та сама база», а ПЕРЕТИН. Файлові бази канонізуються (без \\?\, з
         розкритими посиланнями по наявних компонентах — Get-KitCanonicalPath) і вважаються
@@ -413,7 +413,7 @@ function Test-KitInfobasesOverlap {
         }
         throw ("Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — $badOrigin. " +
                "$reason Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. " +
-               'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки.')
+               'Доки kit не впевнений, що бази РІЗНІ, він зупиняється, а не продовжує мовчки (принцип 3).')
     }
     if ($l.Kind -ne $r.Kind) { return $false }
     if ($l.Kind -eq 'file') {
@@ -429,7 +429,7 @@ function Resolve-KitAgentBase {
     .SYNOPSIS
         База агента воркспейсу — так, як її бачить Unica — плюс аудит: це не база людини.
     .DESCRIPTION
-        Принцип: kit ніколи не пише в базу людини. Підключення бази агента (з
+        Принцип 3: kit ніколи не пише в базу людини. Підключення бази агента (з
         `infobases.origin` у v8project.local.yaml — Resolve-V8AgentInfobase) звіряється проти
         КОЖНОЇ дев-бази з infobases: накладки kit через Test-KitInfobasesOverlap — порівняння за
         ідентичністю бази, не за текстом підключення. Збіг або нерозбірне підключення
@@ -460,7 +460,7 @@ function Resolve-KitAgentBase {
                     -LeftOrigin "база агента воркспейсу '$($Workspace.Path)' (infobases.origin у v8project.local.yaml)" `
                     -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
                 throw ("База агента воркспейсу '$($Workspace.Path)' ($($ib.Origin)) збігається з дев-базою людини '$($human.Name)' із накладки kit або перетинається з нею (та сама тека, вкладена чи батьківська). " +
-                       'Kit ніколи не пише в базу людини: приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.')
+                       'Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.')
             }
         }
     }

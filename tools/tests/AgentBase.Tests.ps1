@@ -26,7 +26,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         $ab.Origin | Should -BeLike '*v8project.local.yaml'
     }
 
-    It 'підключення бази агента збігається з дев-базою людини з накладки kit — зупинка' {
+    It 'підключення бази агента збігається з дев-базою людини з накладки kit — зупинка (принцип 3)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human') -OverlayText "infobases:`n  devUNF:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=SMP_UNF;'
         $ctx = Invoke-KitPreflight -RepoRoot $repo
@@ -80,7 +80,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
     It 'Регресія: кінцевий роздільник у File= — раніше текстовий $norm бачив розбіжність у тій самій теці, тепер зупинка' {
         # Той самий сценарій, що я прогнав уручну проти старого $norm: 'File=D:\Bases\SMP_UNF\'
         # (з кінцевим \) і 'File=D:\Bases\SMP_UNF' (без) — та сама тека, текстово різні рядки.
-        # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — запобіжник
+        # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — принцип 3
         # не спрацював би, і provision поклав би базу агента в теку бази людини.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'trailing-slash') -OverlayText "infobases:`n  devUNF:`n    connection: 'File=D:\Bases\SMP_UNF\'"
         Set-KitFakeAgentBase -Repo $repo -Connection 'File=D:\Bases\SMP_UNF'

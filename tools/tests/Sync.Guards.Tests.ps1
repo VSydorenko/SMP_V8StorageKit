@@ -90,7 +90,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }
 
-    It 'база агента збігається з дев-базою людини — зупинка до платформи' {
+    It 'база агента збігається з дев-базою людини — зупинка до платформи (принцип 3)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'human-base') -WithHooks
         New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
         $ibDir = Join-Path $repo 'Alpha_SMB/build/ib'

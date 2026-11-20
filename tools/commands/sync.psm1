@@ -305,7 +305,7 @@ function Invoke-KitSync {
             # дешевий і стоїть до створення робочої теки.
             $agent = Get-KitSourceInfobase -Context $Context -Source $src
 
-            # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
+            # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту дзеркала,
             # і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
             # Загортати його в інше повідомлення чи вгадувати стан — не можна.
             $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
