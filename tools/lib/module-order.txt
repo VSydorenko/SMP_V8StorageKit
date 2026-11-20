@@ -53,11 +53,15 @@ Runner
 # Кожна сесія дописує сюди рядки своїх модулів, у порядку залежностей.
 KitCli
 KitProfile
+KitVersion
 KitWait
 Markdown
 PathRefs
 KitDoc
 GhRun
+KitGit
+KitReviewPack
+KitSdd
 KitTrack
 WorktreeInclude
 KitPrGate

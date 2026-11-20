@@ -6,17 +6,19 @@
     Читання й нічого більше: платформу не запускає, git-команд, що змінюють стан, не
     виконує, нічого не встановлює.
 
-    Дві категорії у виводі відповідають реальним залежностям, а не оформленню:
+    Три категорії у виводі відповідають реальним залежностям, а не оформленню:
 
       Конвеєр       — без цього конвеєр не працює: PowerShell 7, git, платформа 8.3.27.x,
                       модуль powershell-yaml і, з 1.6.0, Уніка 0.16 з її раннером v8-runner 0.18
                       (sync, verify і provision запускають платформу раннером із встановлення
                       Уніки; без неї вони зупиняються). Виняток — kit dump: він бере платформу
                       напряму й без Уніки працює.
+      Процес        — необов'язкове для процесу розробки: gh (pr-gate і track), Node 22
+                      (сервер скіла visual-companion). Без них решта процесу працює.
       Розробка kit  — без цього не прогнати тести цього репозиторію.
 
     Код виходу 1 — тільки коли провалилась перевірка категорії «Конвеєр». Решта
-    виводиться як попередження й коду виходу не змінює: відсутність Pester — це неповне
+    виводиться як попередження й коду виходу не змінює: відсутність Pester чи gh — це неповне
     робоче місце, а не зламаний конвеєр, і зливати ці стани в один означало б приховати
     різницю, заради якої категорії й заведені.
 .PARAMETER InstalledPluginsPath
@@ -65,6 +67,16 @@ $yaml = Test-KitYamlModule
 $checks.Add((New-EnvironmentCheck -Name 'Модуль powershell-yaml' -Category 'Конвеєр' -Ok $yaml.Available `
     -Detail $(if ($yaml.Available) { "версія $($yaml.Version) — читає v8storagekit.yaml і v8project.yaml" } else { $yaml.Reason })))
 
+# --- Процес ------------------------------------------------------------------
+
+$gh = Get-KitToolAvailability -Name gh
+$checks.Add((New-EnvironmentCheck -Name 'gh (GitHub CLI)' -Category 'Процес' -Ok $gh.Available `
+    -Detail $(if ($gh.Available) { "$($gh.Version) — потрібен для pr-gate і track" } else { $gh.Reason })))
+
+$node = Get-KitToolAvailability -Name node -MinimumMajor 22
+$checks.Add((New-EnvironmentCheck -Name 'Node 22+' -Category 'Процес' -Ok $node.Available `
+    -Detail $(if ($node.Available) { "$($node.Version) — сервер скіла visual-companion" } else { $node.Reason })))
+
 # --- Розробка kit ------------------------------------------------------------
 
 $pester = Get-PesterAvailability
@@ -92,7 +104,7 @@ Write-Host ''
 Write-Host 'Середовище v8storagekit'
 Write-Host '======================='
 
-foreach ($category in @('Конвеєр', 'Розробка kit')) {
+foreach ($category in @('Конвеєр', 'Процес', 'Розробка kit')) {
     $inCategory = @($checks | Where-Object { $_.Category -eq $category })
     if ($inCategory.Count -eq 0) { continue }
 
@@ -144,6 +156,7 @@ if ($warnings.Count -gt 0) {
     foreach ($w in $warnings) {
         $what = switch ($w.Category) {
             'Розробка kit' { 'не прогнати тести цього репозиторію' }
+            'Процес'       { if ($w.Name -like 'gh*') { 'не працюють pr-gate і track' } else { 'не працює скіл visual-companion' } }
             default        { 'неповне робоче місце' }
         }
         Write-Host ("  {0}: {1}" -f $w.Name, $what)

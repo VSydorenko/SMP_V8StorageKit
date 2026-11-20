@@ -39,13 +39,14 @@ function New-EnvironmentCheck {
     .DESCRIPTION
         Category — не косметика: вона каже, що саме перестає працювати без цієї
         складової. 'Конвеєр' — скрипти не запустяться взагалі (з 1.6.0 сюди ж Уніка й її
-        раннер: sync, verify і provision без них не працюють); 'Розробка kit' — не
-        прогнати тести цього репозиторію.
+        раннер: sync, verify і provision без них не працюють); 'Процес' — не працює
+        окрема частина процесу розробки (gh — pr-gate і track, Node — visual-companion);
+        'Розробка kit' — не прогнати тести цього репозиторію.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][ValidateSet('Конвеєр', 'Розробка kit')][string]$Category,
+        [Parameter(Mandatory)][ValidateSet('Конвеєр', 'Процес', 'Розробка kit')][string]$Category,
         [Parameter(Mandatory)][bool]$Ok,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Detail
     )
@@ -275,4 +276,45 @@ function Get-KitUnicaVersionVerdict {
     [pscustomobject]@{ Level = 'ok'; Message = "Плагін unica $raw." }
 }
 
-Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Get-KitUnicaVersionVerdict, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability
+function Get-KitToolAvailability {
+    <#
+    .SYNOPSIS
+        Чи є в PATH необов'язковий інструмент процесу (gh, node) і чи не нижча його мажорна версія за межу.
+    .DESCRIPTION
+        Процес розробки працює й без цих інструментів, але окремі його частини — ні: без gh не
+        працюють pr-gate і track, без Node 22 — сервер скіла visual-companion (виняток ADR-0002).
+        Тому результат іде в окрему категорію, що коду виходу не змінює.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [int]$MinimumMajor = 0
+    )
+
+    $result = [pscustomobject]@{ Available = $false; Version = ''; Reason = '' }
+    $cmd = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $cmd) {
+        $result.Reason = "$Name не знайдено в PATH"
+        return $result
+    }
+    try {
+        $result.Version = ([string](& $cmd.Source --version 2>&1 | Select-Object -First 1)).Trim()
+    } catch {
+        $result.Reason = "$Name знайдено ($($cmd.Source)), але '$Name --version' не виконалась: $($_.Exception.Message)"
+        return $result
+    }
+    if ($MinimumMajor -gt 0) {
+        if ($result.Version -notmatch '(?<maj>\d+)\.\d+') {
+            $result.Reason = "версію $Name '$($result.Version)' не розібрано, потрібна ≥ $MinimumMajor"
+            return $result
+        }
+        if ([int]$Matches['maj'] -lt $MinimumMajor) {
+            $result.Reason = "$($result.Version) — замало, потрібна ≥ $MinimumMajor"
+            return $result
+        }
+    }
+    $result.Available = $true
+    $result
+}
+
+Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Get-KitUnicaVersionVerdict, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability, Get-KitToolAvailability
