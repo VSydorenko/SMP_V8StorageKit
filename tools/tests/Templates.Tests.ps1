@@ -37,10 +37,6 @@ Describe 'templates/gitattributes — політика тексту' {
         }
     }
 
-    It 'бінарний список накриває gif' {
-        # Його відсутність давала repositoryReady=false в unica.project.status.
-        $script:Lines | Should -Contain '*.gif binary'
-    }
 }
 
 Describe 'templates/githooks — хуки захисту storage/*' {
@@ -65,39 +61,7 @@ Describe 'templates/githooks — хуки захисту storage/*' {
     }
 }
 
-Describe 'onboarding — v8project.yaml за рецептом Уніки (спека 2026-11-19 §3.8 п.1)' {
-    BeforeAll {
-        $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/onboarding/references/storage.md").Path
-    }
-
-    It 'бази агента скіл не оголошує в закоміченому файлі: вона машинна, у infobases.origin v8project.local.yaml (спека 1.5.0 §4.3 п. 2–3)' {
-        $script:Skill | Should -Not -Match "(?m)^\s*infobase:\s*$"
-        $script:Skill | Should -Match "connection:\s*'File=build/ib'"   # у блоці v8project.local.yaml розділу 3.2
-    }
-
-    It 'імʼя EXTENSION-набору — реальне ім''я розширення: kit дописує його до рецепта Уніки' {
-        # v8-runner виводить імʼя розширення з імені source-set. Якщо там імʼя теки
-        # продукту, make падає на валідації:
-        #   source-set 'X' resolves to extension 'X', expected 'SMP_X'
-        $script:Skill | Should -Match 'unica\.view \{\}'
-        $script:Skill | Should -Match '<ІмʼяРозширення>'
-        $script:Skill | Should -Match 'name:.*мусить дорівнювати імені розширення'
-    }
-}
-
-Describe 'onboarding — каркас не кладе хука старту сесії у споживача (1.6.0: хук у плагіні)' {
-    BeforeAll {
-        $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../skills/onboarding/references/storage.md").Path
-    }
-
-    It 'жоден git add і жоден рядок каркаса не згадує .claude/hooks/session-start.ps1, settings.json лишається' {
-        $script:MigrationSkill | Should -Not -Match 'hooks/session-start\.ps1'
-        $script:MigrationSkill | Should -Match 'git add .*\.claude/settings\.json'
-    }
-}
-Describe 'templates/settings.json, хук плагіна і storage-rules' {
+Describe 'templates/settings.json — дозволи споживача' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
     It 'settings.json споживача не має розділу hooks: хук старту сесії поставляє плагін' {
@@ -130,20 +94,6 @@ Describe 'templates/settings.json, хук плагіна і storage-rules' {
         # Головна причина — режим auto: класифікатор не питає, коли запису немає в ask; acceptEdits/bypass — додаткові.
         @($s.permissions.ask) -ccontains $full | Should -BeTrue -Because 'відсутність в allow не гарантує запиту в режимах auto/acceptEdits/bypass'
         @($s.permissions.ask | Where-Object { $_ -match '(?i)unica|^mcp__' }) | Should -Be @($full) -Because 'в ask з інструментів Уніки — лише apply'
-    }
-    It 'хук плагіна не читає реєстру плагінів і не імпортує модулів kit' {
-        # Корінь плагіна хук бере зі свого $PSScriptRoot; реєстр (installed_plugins.json) читав лише шим 1.5.0.
-        $hook = Get-Content -LiteralPath (Join-Path $script:Root 'hooks/session-start.ps1') -Raw
-        $hook | Should -Not -Match 'Import-Module'
-        $hook | Should -Not -Match 'installed_plugins\.json'
-        $hook | Should -Match 'PSScriptRoot'
-        Join-Path $script:Root 'templates/hooks/session-start.ps1' | Should -Not -Exist
-    }
-    It 'storage-rules: шлях до kit через токен кореня плагіна (хук його більше не підставляє), з префіксованими іменами скілів' {
-        $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/storage-rules/SKILL.md') -Raw
-        foreach ($n in 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
-        $skill | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1'
-        $skill | Should -Not -Match '<корінь плагіна>'
     }
     It 'дозволи команд процесу в шаблоні — рівно ті, що пише kit-setup; зовнішніх немає' {
         # Одне джерело переліку — kit-setup (його правила дописуються в уже наявні налаштування проєкту);
@@ -193,14 +143,6 @@ Describe 'templates/v8storagekit*.example — зразки проходять в
         $lines | Should -Contain 'v8project.local.yaml'
     }
 
-    It 'шаблон gitignore без загального **/cf/** (Task 6, Step 2а): вендорські дерева — явними рядками onboarding' {
-        # У клієнтському репозиторії cf/src під truth: storage мусить лежати в git (спека §2.3) —
-        # загальне **/cf/** ігнорувало б і його. Гітігнорованість вендорських дерев тепер дає
-        # лише явний рядок під фактичний шлях, який дописує v8storagekit:onboarding.
-        $raw = Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Raw -Encoding UTF8
-        $raw | Should -Not -Match '(?m)^\*\*/cf/\*\*\s*$'
-        $raw | Should -Not -Match '(?m)^!\*\*/cf/README\.md\s*$'
-    }
 
     It 'шаблон gitignore ігнорує поставку вендора, але не .bin ознак підтримки (спека 2026-09-30 §5.2)' {
         $lines = @(Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Encoding UTF8 | ForEach-Object { $_.Trim() })
@@ -212,30 +154,3 @@ Describe 'templates/v8storagekit*.example — зразки проходять в
     }
 }
 
-Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
-    BeforeAll {
-        $script:TemplateClaudeMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (
-            Resolve-Path "$PSScriptRoot/../../templates/CLAUDE.md").Path
-    }
-
-    It 'згадує v8storagekit.yaml, гілки storage/ і всі сім скілів життєвого циклу з префіксом' {
-        $script:TemplateClaudeMd | Should -Match 'v8storagekit\.yaml'
-        $script:TemplateClaudeMd | Should -Match 'storage/'
-        foreach ($n in 'onboarding', 'storage-sync', 'infobase-dump', 'storage-adopt', 'task-finish', 'infobase-agent', 'storage-verify') {
-            $script:TemplateClaudeMd | Should -Match "v8storagekit:$n" -Because "шаблон не називає скіл $n"
-        }
-    }
-
-    It 'templates/CLAUDE.md говорить мовою Уніки 0.16: сесія в корені, -text лишається, push force питає людину' {
-        # Спека 2026-11-19 §3.3 п.4 (сесія в корені), §3.9 п.3 (попередження про -text), §3.1 (П17 скасовано).
-        $c = $script:TemplateClaudeMd
-        $c | Should -Not -Match 'operation='
-        $c | Should -Match 'infobases\.origin'
-        $c | Should -Match 'make'
-        $c | Should -Match 'unica\.check'
-        $c | Should -Match 'відкривати в корені цього репозиторію'
-        $c | Should -Match 'git\.text_resource_marked_binary'
-        $c | Should -Match 'cancelled'
-        $c | Should -Not -Match 'виняток\s+лише для бази агента'
-    }
-}

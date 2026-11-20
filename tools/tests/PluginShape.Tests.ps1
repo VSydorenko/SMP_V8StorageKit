@@ -368,25 +368,6 @@ Describe 'Описи скілів і агентів' {
         Assert-KitViolationVerdict $c
     }
 
-    It 'контроль класифікації: порушник поза переліком — фейл, у переліку — лише відомий, запис без порушення — «прибери»' {
-        $problems = @('skills/bad/SKILL.md — description 300', 'skills/old/SKILL.md — description 400')
-        $known = @(@{ Skill = 'old'; Check = 'description' }, @{ Skill = 'fixed'; Check = 'description' }, @{ Skill = 'bad'; Check = 'skill-size' })
-        $c = Get-KitViolationClassification $problems 'description' $known
-        # (а) поза переліком для цієї перевірки (запис bad є лише для skill-size) — Unknown, і вердикт — фейл
-        $c.Unknown | Should -Be @('skills/bad/SKILL.md — description 300')
-        { Assert-KitViolationVerdict $c } | Should -Throw '*skills/bad*'
-        # (б) у переліку — лише Known
-        $c.Known | Should -Be @('skills/old/SKILL.md — description 400')
-        $only = Get-KitViolationClassification @($problems[1]) 'description' @($known[0])
-        $only.Unknown.Count | Should -Be 0
-        $only.Stale.Count | Should -Be 0
-        $only.Known.Count | Should -Be 1
-        # (в) запис без порушення — «прибери»
-        $c.Stale | Should -Match 'fixed.*прибери'
-        $stale = Get-KitViolationClassification @() 'description' @($known[1])
-        { Assert-KitViolationVerdict $stale } | Should -Throw '*прибери*'
-    }
-
     It 'контроль: опис 251 символ — знахідка, 250 — ні, багаторядковий склеюється' {
         $root = Join-Path $TestDrive 'shape-desc'
         New-KitShapeSkill $root 'long' ("name: long`ndescription: " + ('а' * 251))

@@ -14,7 +14,7 @@ Describe 'Запобіжник П25: кожному Remove-KitDirectory у ко�
                 while ($fn -and $fn -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $fn = $fn.Parent }
                 $guarded = $false
                 if ($fn) {
-                    $guarded = @($fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Assert-SafeWorkPath' -and $n.Extent.StartOffset -lt $c.Extent.StartOffset }, $true)).Count -gt 0
+                    $guarded = @($fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Assert-SafeWorkPath', 'Assert-KitBuildPath') -and $n.Extent.StartOffset -lt $c.Extent.StartOffset }, $true)).Count -gt 0
                 }
                 if (-not $guarded) { "$($f.Name):$($c.Extent.StartLineNumber)" }
             }

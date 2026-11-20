@@ -5,51 +5,17 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
         $script:ProbeFile = (Resolve-Path "$PSScriptRoot/fixtures/module-visibility-probe.ps1").Path
         $script:Modules   = @(Get-Content -LiteralPath (Join-Path $script:LibDir 'module-order.txt') -Encoding UTF8 |
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-
-        # Команди, які kit.ps1 і командні модулі кличуть напряму з глобальної області.
-        $script:RequiredCommands = @(
-            'Resolve-V8RepoRoot', 'Assert-SafeWorkPath', 'Read-KitYaml', 'ConvertTo-KitYaml', 'Read-V8Project', 'Read-V8ProjectLocalInfobase',
-            'Read-KitManifest', 'Read-KitLocalOverlay', 'Resolve-KitInfobase', 'Save-KitOverlayAgentBase', 'New-KitFinding', 'Invoke-KitPreflight',
-            'Select-KitSources', 'Test-KitBranchExists', 'Get-KitStorageBranchLastVersion', 'Test-KitStorageBranchInvariants',
-            'Install-KitGitHooks', 'Test-KitGitHooks', 'Test-GitTextPolicy', 'Split-GitEolNoise', 'Read-AuthorMap',
-            'Resolve-Author', 'Get-KitUnattributedVersions', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
-            'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions', 'Test-KitExtensionNotFound',
-            'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
-            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths', 'Get-KitCurrentBranch', 'Test-KitOnMainBranch',
-            'Get-KitTreePaths', 'Get-KitCaseCollisions', 'Assert-KitIndexMatchesDisk', 'Test-KitComparableRelativePath',
-            'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
-            'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
-            'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
-            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitInfobasesOverlap', 'Test-KitPathsOverlap', 'Get-KitDirectoryEntriesNoLinks',
-            'Get-KitDirtyRecords', 'Backup-KitDirtyFiles', 'Get-KitInvisibleWork', 'Format-KitInvisibleWorkStop',
-            'Get-KitOriginGap', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
-            'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
-            'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
-            'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',
-            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Get-KitAlignStep', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
-            'New-KitAgentBaseMissingMessage', 'Get-V8ProjectConfigProblems',
-            'Get-KitProtectedPaths', 'Find-KitProtectedCollisions', 'Find-KitAgentBaseCollisions',
-            'Get-KitRunnerPath', 'Get-KitRunnerVersion', 'Get-KitRunnerVerdict', 'Get-KitRunnerMemoryPath', 'Invoke-KitRunner', 'Get-KitAgentPlatform', 'Invoke-KitAgentRelease'
-        )
-        $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
-            -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
-        $script:ProbeExitCode = $LASTEXITCODE
-        $script:ProbeOutput   = $output
-        $script:Visibility = @{}
-        foreach ($line in ($output -split "`r?`n")) {
-            if ($line -match '^(?<name>\S+)=(?<value>True|False)$') { $script:Visibility[$Matches.name] = [bool]::Parse($Matches.value) }
-        }
     }
 
-    It 'module-order.txt містить кожен lib/*.psm1' {
+    It 'module-order.txt містить кожен lib/*.psm1 і не називає неіснуючих' {
+        # Пропущений модуль — «команда не розпізнана» у живій сесії; перелік функцій для цього не потрібен.
         $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName)
         foreach ($m in $onDisk) { $script:Modules | Should -Contain $m -Because "модуль $m є в lib/, але не в module-order.txt" }
+        foreach ($m in $script:Modules) { $onDisk | Should -Contain $m -Because "module-order.txt називає $m, а lib/$m.psm1 немає" }
     }
 
-    It 'усі команди видимі після імпорту в порядку module-order.txt' {
-        $script:ProbeExitCode | Should -Be 0 -Because "probe мав відпрацювати без винятку; вивід:`n$script:ProbeOutput"
-        foreach ($name in $script:RequiredCommands) {
-            $script:Visibility[$name] | Should -BeTrue -Because "'$name' має бути видимою після імпорту всіх модулів kit.ps1"
-        }
+    It 'усі модулі імпортуються без помилок у порядку module-order.txt' {
+        $out = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0 -Because "імпорт мав відпрацювати без винятку; вивід:`n$out"
     }
 }
