@@ -2,12 +2,13 @@
 Describe 'skills/*/SKILL.md — правила, які легко порушити' {
     BeforeAll {
         $script:SkillsDir = (Resolve-Path "$PSScriptRoot/../../skills").Path
-        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'unica-folders')   # migrate немає: спека 2f2da62, §9
-        # Лише скіли 1.0. Три старі (storage-pipeline, product-onboarding, repo-migration) живуть у
-        # дереві до Task 6 і НЕ мусять проходити ці правила: у них є storage-sync.ps1, dump-config.ps1
-        # і перехресні посилання на імена поза $Allowed. Без фільтра весь файл був би червоний із
-        # Task 2 по Task 5, і «запускати лише цей файл» не рятувало б (знахідка префлайту B5).
-        # Те, що старих тек більше немає, перевіряє окремий It у Task 6 — саме там це стає правдою.
+        # Перелік скілів — теки skills/ самого репозиторію, а не ручний список: правила нижче мусять
+        # діяти на кожен скіл, зокрема на новий, якого автор списку ще не знав. Колись тут був
+        # фільтр-перелік, що ховав від правил три старі скіли до їх вилучення; їх давно немає, а
+        # фільтр почав ховати нові. Тека без SKILL.md сюди не потрапляє — її ловить окремий It.
+        $script:Allowed = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'SKILL.md') }).Name
+        $script:AgentsDir = Join-Path $PSScriptRoot '../../agents'
         $script:Skills = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory |
             Where-Object { $_.Name -in $script:Allowed } | ForEach-Object {
             [pscustomobject]@{ Name = $_.Name; Text = (Get-Content -LiteralPath (Join-Path $_.FullName 'SKILL.md') -Raw -Encoding UTF8) } })
@@ -56,11 +57,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $d.Text | Should -Not -Match '\$\{CLAUDE_PLUGIN_ROOT\}' -Because "у $($d.Rel) токен не підставляється"
         }
     }
-    It 'перехресні посилання — лише з префіксом v8storagekit: і лише на відомі скіли' {
+    It 'перехресні посилання не ведуть на вилучені скіли' {
+        # Що посилання v8storagekit:ІМ'Я веде на наявний скіл чи агента, перевіряє It нижче (диск).
         foreach ($s in $script:Skills) {
-            foreach ($m in [regex]::Matches($s.Text, 'v8storagekit:([a-z8-]+)')) {
-                $script:Allowed | Should -Contain $m.Groups[1].Value -Because "у $($s.Name) посилання на невідомий скіл"
-            }
             foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
                 $s.Text | Should -Not -Match "v8storagekit:$old" -Because "у $($s.Name) посилання на вилучений скіл $old"
             }
@@ -81,13 +80,23 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
 
     # --- Три загальні перевірки понад брифи (рев'ю B5 Task 2-5, мутаційні прогони) ---
 
-    It 'перехресні посилання v8storagekit:ІМ''Я ведуть на теку skills/ІМ''Я, яка існує на диску' {
-        # A: раніше звірялось лише зі статичним $script:Allowed — тека могла бути ще не
-        # створена (так було з skills/sync до цього циклу), а тест мовчав. Тепер — диск.
-        foreach ($s in $script:Skills) {
-            foreach ($m in [regex]::Matches($s.Text, 'v8storagekit:([a-z8-]+)')) {
+    It 'перехресні посилання v8storagekit:ІМ''Я ведуть на скіл skills/ІМ''Я/SKILL.md або агента agents/ІМ''Я.md' {
+        # A: раніше звірялось лише зі статичним переліком — тека могла бути ще не створена (так
+        # було з skills/sync), а тест мовчав. Тепер — диск. Агент — теж законна ціль: скіли
+        # кличуть агентів плагіна як subagent_type v8storagekit:<ім'я>.
+        # Джерела — усі .md тек скілів (references/ читається тим самим Read, що й SKILL.md) і всі
+        # agents/*.md: посилання з довідки чи агента, що веде в нікуди, ламає ту саму дію.
+        $sources = @($script:SkillDocs | ForEach-Object { [pscustomobject]@{ Rel = "skills/$($_.Rel)"; Text = $_.Text } })
+        if (Test-Path -LiteralPath $script:AgentsDir) {
+            $sources += @(Get-ChildItem -LiteralPath $script:AgentsDir -Filter '*.md' -File | ForEach-Object {
+                    [pscustomobject]@{ Rel = "agents/$($_.Name)"; Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8) } })
+        }
+        foreach ($s in $sources) {
+            foreach ($m in [regex]::Matches($s.Text, 'v8storagekit:([a-z0-9-]+)')) {
                 $refName = $m.Groups[1].Value
-                (Join-Path $script:SkillsDir $refName) | Should -Exist -Because "у $($s.Name) посилання на v8storagekit:$refName, а теки skills/$refName немає"
+                $isSkill = Test-Path -LiteralPath (Join-Path $script:SkillsDir "$refName/SKILL.md")
+                $isAgent = Test-Path -LiteralPath (Join-Path $script:AgentsDir "$refName.md")
+                ($isSkill -or $isAgent) | Should -BeTrue -Because "у $($s.Rel) посилання на v8storagekit:$refName, а ні skills/$refName/SKILL.md, ні agents/$refName.md немає"
             }
         }
     }
@@ -133,18 +142,16 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'у skills/ немає тек поза 1.0-переліком (Task 6: три старі скіли вилучено — виняток знято)' {
-        # C: BeforeAll фільтрує за $Allowed — стороння тека з порушеннями давала нуль фейлів.
-        # До Task 6 тут стояв виняток $legacyStillPresent = storage-pipeline, product-onboarding,
-        # repo-migration: три старі скіли ще лежали в дереві, поки цей блок їх не замінив. Task 6
-        # видалив ці теки (git rm) — виняток знято разом з ними, і тепер цей It ловить і вилучення
-        # (сама перевірка того, що тек більше немає), і випадкове ВОСКРЕСІННЯ будь-якої з них.
-        $actualDirs = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory).Name
-        foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
-            $actualDirs | Should -Not -Contain $old -Because "скіл $old вилучено в Task 6 (B5) — теку не мало лишитись і не мало з'явитись знову"
-        }
+    It 'кожна тека skills/ має SKILL.md; вилучені скіли не воскресли' {
+        # C: BeforeAll бере лише теки з SKILL.md — тека без нього випала б з усіх правил мовчки, а
+        # плагін її не завантажить. Тут вона стає фейлом. Три старі скіли вилучено в 1.0; тека з
+        # їхнім ім'ям знову — помилка, а не новий скіл.
+        $actualDirs = @(Get-ChildItem -LiteralPath $script:SkillsDir -Directory)
         foreach ($d in $actualDirs) {
-            $script:Allowed | Should -Contain $d -Because "тека skills/$d — поза 1.0-переліком ($($script:Allowed -join ', '))"
+            (Join-Path $d.FullName 'SKILL.md') | Should -Exist -Because "тека skills/$($d.Name) без SKILL.md — плагін її не завантажить"
+        }
+        foreach ($old in 'storage-pipeline', 'product-onboarding', 'repo-migration') {
+            $actualDirs.Name | Should -Not -Contain $old -Because "скіл $old вилучено в 1.0 — тека не мала з'явитись знову"
         }
     }
 

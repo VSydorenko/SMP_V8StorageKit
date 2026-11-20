@@ -145,6 +145,29 @@ Describe 'templates/settings.json, хук плагіна і using-v8storagekit' 
         $skill | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1'
         $skill | Should -Not -Match '<корінь плагіна>'
     }
+    It 'дозволи команд процесу в шаблоні — рівно ті, що пише kit-setup; зовнішніх немає' {
+        # Одне джерело переліку — kit-setup (його правила дописуються в уже наявні налаштування проєкту);
+        # шаблон — статичний JSON, який роздає install-hooks, тож він не може взяти перелік під час
+        # роботи. Тест запускає справжній kit-setup на порожньому репо й звіряє множини з урахуванням
+        # регістру: нова команда в kit-setup без рядка в шаблоні (чи навпаки) — червоне.
+        $repo = Join-Path $TestDrive 'kit-setup-perms'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        git -C $repo init -q
+        Push-Location $repo
+        try {
+            $null = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit-process.ps1') kit-setup -NoGitignore -NoProfile -NoWorktreeInclude 2>&1
+            $LASTEXITCODE | Should -Be 0
+        } finally { Pop-Location }
+        $fromSetup = @((Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).permissions.allow | Sort-Object { $_ } -CaseSensitive)
+        $fromSetup.Count | Should -BeGreaterThan 0 -Because 'kit-setup мусить дописати правила команд процесу'
+        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+        $process = '^(Bash|PowerShell)\((sdd|review-pack|doc|session-board|session-cost|kit-scan|kit-setup|track|pr-gate)[ :]'
+        $inTemplate = @($s.permissions.allow | Where-Object { $_ -cmatch $process } | Sort-Object { $_ } -CaseSensitive)
+        ($inTemplate -join "`n") | Should -BeExactly ($fromSetup -join "`n") -Because 'шаблон і kit-setup дозволяють той самий перелік команд процесу'
+        foreach ($e in @($s.permissions.allow)) {
+            $e | Should -Not -Match '^(Bash|PowerShell)\((pr-gate (open|ready|merge|land|prune)|track (spec|milestone)|kit-setup|pr-gate:|track:)' -Because 'зовнішні дії й широкі маски — лише з запитом'
+        }
+    }
 }
 
 Describe 'templates/v8storagekit*.example — зразки проходять власну схему' {

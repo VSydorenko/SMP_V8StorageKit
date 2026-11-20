@@ -6,3 +6,12 @@ build/
 # і комітиться; settings.local.json — машина конкретного розробника, і не має ставати
 # спільним рішенням через випадковий git add.
 .claude/settings.local.json
+
+# Робочі теки процесу розробки (ADR-0003). Кожна з них має й власний .gitignore '*', який
+# створює KitProfile, — ці рядки страхують теку, створену руками або в іншому ворктрі до першої
+# команди процесу. .agents/kit.profile.json не ігнорується: це проєктний шар профілю, він комітиться.
+.agents/out/
+.agents/sdd/
+.agents/private/
+.agents/briefs/
+.agents/kit.profile.local.json
