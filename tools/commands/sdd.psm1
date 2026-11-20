@@ -222,7 +222,8 @@ function Get-SddLedger {
         return [pscustomobject]@{ Dir = $ws.Dir; Id = $ws.Id; Base = $ws.Base; Legacy = $ws.Legacy; File = $file; Created = $true }
     }
     $head = ([System.IO.File]::ReadAllText($file) -split "`n")[0].TrimEnd("`r")
-    if ($head -cne $expected) { throw (New-KitRefusal "$file належить іншому плану (`"$head`"); залиш його й перевір шлях плану") }
+    # Шлях плану на Windows нечутливий до регістру: шапка з іншим написанням того самого id — свій журнал.
+    if (-not [string]::Equals($head, $expected, [System.StringComparison]::OrdinalIgnoreCase)) { throw (New-KitRefusal "$file належить іншому плану (`"$head`"); залиш його й перевір шлях плану") }
     [pscustomobject]@{ Dir = $ws.Dir; Id = $ws.Id; Base = $ws.Base; Legacy = $ws.Legacy; File = $file; Created = $false }
 }
 
@@ -602,12 +603,13 @@ function Invoke-SddReview {
         if ($r.Rounds -gt 0 -and $null -eq $r.ReviewLine) { Out-Sdd "warn: для задачі $N не записано рецензії; пакет охоплює всі її вікна" }
         $after = if ($r.Rounds -gt 0 -and $null -ne $r.ReviewLine) { [int]$r.ReviewLine } else { -1 }
         $tr = Get-KitSddTaskRanges -Parsed $p -N $N -Head $head -AfterLine $after
-        $ranges = if ($null -eq $tr) { @() } else { @($tr) }
+        # @(…) поза if: порожній масив із гілки if у присвоєнні стає $null, і .Count під StrictMode кидає.
+        $ranges = @($tr | Where-Object { $null -ne $_ })
     } else {
         # Журнал до вікон: від BASE, раунд — від голови, яку бачила попередня рецензія.
         $from = if ($r.Rounds -gt 0 -and $r.Reviewed) { $r.Reviewed } else { $r.Base }
         if ($r.Rounds -gt 0 -and -not $r.Reviewed) { Out-Sdd "warn: для задачі $N не записано переглянутої голови; пакет охоплює всю задачу від BASE" }
-        $ranges = if ($head.StartsWith($from, [System.StringComparison]::Ordinal)) { @() } else { @([pscustomobject]@{ From = $from; To = $head }) }
+        $ranges = @(if (-not $head.StartsWith($from, [System.StringComparison]::Ordinal)) { [pscustomobject]@{ From = $from; To = $head } })
     }
     if (-not $ranges.Count) { throw (New-KitRefusal "задача ${N}: у її вікнах немає комітів після останньої рецензії; рецензувати нічого") }
     $pack = Join-Path $l.Dir "task-$N-review$(if ($r.Rounds) { "-round$($r.Rounds)" }).md"

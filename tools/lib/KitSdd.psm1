@@ -102,6 +102,22 @@ function Test-KitSddSamePath {
     [string]::Equals((& $norm $A), (& $norm $B), [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Get-KitSddOnDiskPath {
+    <# Абсолютний шлях із регістром кожного наявного сегмента, як він записаний на диску; решта — як є. #>
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($full)
+    $cur = $root
+    foreach ($seg in ($full.Substring($root.Length) -split '[\\/]' | Where-Object { $_ })) {
+        $hit = $null
+        if ($seg.IndexOfAny([char[]]'*?') -lt 0 -and (Test-Path -LiteralPath $cur -PathType Container)) {
+            $hit = [System.IO.Directory]::EnumerateFileSystemEntries($cur, $seg) | Select-Object -First 1
+        }
+        $cur = if ($hit) { $hit } else { Join-Path $cur $seg }
+    }
+    $cur
+}
+
 function Get-KitSddPlanInfo {
     <#
     .SYNOPSIS
@@ -112,7 +128,10 @@ function Get-KitSddPlanInfo {
         бути задана в короткій (8.3) або іншій формі, ніж повертає `--show-toplevel`.
     #>
     param([Parameter(Mandatory)][string]$Plan)
-    $abs = [System.IO.Path]::GetFullPath($Plan)
+    # Регістр — з диска, а не з того, як шлях набрали: на Windows `DOCS\Plan.md` і `docs/plan.md` —
+    # той самий файл, і інша ідентичність дала б йому другий, паралельний журнал (без «complete не
+    # диспетчеризують» і зі свіжим BASE).
+    $abs = Get-KitSddOnDiskPath -Path $Plan
     $dir = Split-Path -Parent $abs
     $checkout = Get-KitCheckoutRoot -Path $dir
     $prefix = (Invoke-KitGit -Root $dir -Arguments @('rev-parse', '--show-prefix')).Out.Trim()
@@ -162,7 +181,9 @@ function Get-KitSddWorkspace {
             $dir = Join-Path $b $c
             $marker = Join-Path $dir 'plan-path'
             if (Test-Path -LiteralPath $marker -PathType Leaf) {
-                if ([System.IO.File]::ReadAllText($marker).Trim() -ceq $info.Id) { return $dir }
+                # Без регістру: тека, заведена під іншим написанням того самого файлу, — його тека.
+                $markerId = [System.IO.File]::ReadAllText($marker).Trim()
+                if ([string]::Equals($markerId, $info.Id, [System.StringComparison]::OrdinalIgnoreCase)) { $script:SddMarkerId = $markerId; return $dir }
                 continue
             }
             if (Test-Path -LiteralPath $dir -PathType Container) { return $dir }
@@ -170,10 +191,12 @@ function Get-KitSddWorkspace {
         }
         $null
     }
+    # Id — як записано в наявному маркері: з ним збігається шапка журналу.
+    $script:SddMarkerId = $null
     $own = & $find $base
-    if ($own) { return [pscustomobject]@{ Dir = $own; Id = $info.Id; Base = $base; Legacy = $false; WouldBe = $null } }
+    if ($own) { return [pscustomobject]@{ Dir = $own; Id = ($script:SddMarkerId ?? $info.Id); Base = $base; Legacy = $false; WouldBe = $null } }
     $old = & $find $legacy
-    if ($old) { return [pscustomobject]@{ Dir = $old; Id = $info.Id; Base = $legacy; Legacy = $true; WouldBe = $null } }
+    if ($old) { return [pscustomobject]@{ Dir = $old; Id = ($script:SddMarkerId ?? $info.Id); Base = $legacy; Legacy = $true; WouldBe = $null } }
     $free = $candidates | ForEach-Object { Join-Path $base $_ } | Where-Object { -not (Test-Path -LiteralPath $_) } | Select-Object -First 1
     if (-not $free) { throw "немає вільного місця для робочої теки $($info.Id)" }
     if (-not $Create) { return [pscustomobject]@{ Dir = $null; Id = $info.Id; Base = $base; Legacy = $false; WouldBe = $free } }

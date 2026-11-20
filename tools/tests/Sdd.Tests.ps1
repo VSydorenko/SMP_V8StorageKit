@@ -171,5 +171,12 @@ Second.
         $refused = Invoke-Sdd $repo.Dir @('dispatch', '1')
         $refused.ExitCode | Should -Be 1
         $refused.Err[0] | Should -BeLike 'sdd: ERROR *вже complete*'
+
+        # Той самий план іншим регістром (Windows: той самий файл) — не другий, паралельний журнал.
+        (Invoke-Sdd $repo.Dir @('init', 'DOCS\PLANS\Sub.md')).ExitCode | Should -Be 0
+        $other = Invoke-Sdd $repo.Dir @('dispatch', 'DOCS\PLANS\Sub.md', '1')
+        $other.ExitCode | Should -Be 1
+        $other.Err[0] | Should -BeLike 'sdd: ERROR *вже complete*'
+        @(Get-ChildItem -LiteralPath (Split-Path $repo.Ws -Parent) -Directory).Count | Should -Be 1
     }
 }
