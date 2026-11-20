@@ -5,3 +5,5 @@
 # Рядки з # ігноруються.
 session-cost
 session-board
+kit-setup
+kit-scan
