@@ -36,6 +36,9 @@ kit-scan [-Json] [-MinSimilarity <0..1>] [-Memory <тека>]
                 увімкнений плагін superpowers у .claude/settings*.json; теки docs/superpowers/;
                 журнали .superpowers/sdd/ і .agents/sdd/. «planned» — заміни ще немає в плагіні
   Memory        файли пам'яті проєкту про процедури, які тепер робить kit; прогалини MEMORY.md
+  Skills        скіли поза плагіном: користувацькі (<CLAUDE_CONFIG_DIR|~/.claude>/skills) і проєктні про
+                1С чи Уніку — копія скіла плагіна (same-name), кандидат на перенесення в плагін (domain)
+                чи інший користувацький скіл (other)
   Places        теки <репо>-* і <репо>.* поруч із головним checkout: worktree цього репо, інший git-репо
                 чи звичайна тека (її можна перенести в <репо>/.agents/private/)
 
@@ -497,6 +500,58 @@ function Get-ScanMemory {
     $res
 }
 
+# ---------- Skills outside the plugin ----------
+
+# Ознаки предмета плагіна (1С, Уніка) у тексті скіла. Рядок «domain» вимагає щонайменше двох РІЗНИХ ознак:
+# одне слово «1С» у скілі про щось інше — не привід переносити його в плагін.
+$script:DomainMarkers = @(
+    '1[СC]:Підприємств|1[СC]:Предприят|\b1[СC]\b', '\bBSL\b', '\bБСП\b', 'Унік|\bunica\b', 'v8project|v8-runner|1cv8',
+    '\.(epf|erf|cfe|cf)\b', 'Конфігуратор|Конфигуратор', 'НСтр|ИнформационнойБаз|інформаційн\S* баз'
+)
+
+function Get-ScanSkillsOutside {
+    <#
+        Скіли поза плагіном: користувацькі (<CLAUDE_CONFIG_DIR|~/.claude>/skills/*/SKILL.md) і проєктні
+        (.claude/skills, .agents/skills — лише ті, яких рядок Duplicates не покрив назвою). Вид рядка:
+        same-name — у плагіні вже є скіл з цією назвою (копія лишилась після перенесення);
+        domain — предмет плагіна (1С, Уніка), кандидат на перенесення в плагін з адаптацією;
+        other — решта користувацьких скілів (рішення власника: лишити, skillOverrides чи перенести).
+    #>
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)]$Kit, [bool]$IsKitRepo)
+    $cfg = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+    $sources = [System.Collections.Generic.List[object]]::new()
+    $sources.Add(@{ Dir = (Join-Path $cfg 'skills'); Scope = 'user' })
+    # У репозиторії самого плагіна проєктні скіли (kit-dev) свідомо не роздаються — їх не пропонуємо.
+    if (-not $IsKitRepo) { foreach ($d in '.claude/skills', '.agents/skills') { $sources.Add(@{ Dir = (Join-Path $Root $d); Scope = 'project' }) } }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($s in $sources) {
+        if (-not (Test-Path -LiteralPath $s.Dir -PathType Container)) { continue }
+        foreach ($d in (Get-ChildItem -LiteralPath $s.Dir -Directory | Sort-Object Name)) {
+            $f = Join-Path $d.FullName 'SKILL.md'
+            if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+            $sameName = $Kit.Parts.ContainsKey($d.Name) -and $Kit.Parts[$d.Name] -like 'skill *'
+            # Проєктний скіл з назвою частини kit уже стоїть у Duplicates — тут не дублюємо.
+            if ($s.Scope -eq 'project' -and $sameName) { continue }
+            $text = (Read-ScanText -Path $f) ?? ''
+            $hits = @($script:DomainMarkers | Where-Object { $text -match $_ }).Count
+            $kind = if ($sameName) { 'same-name' } elseif ($hits -ge 2) { 'domain' } elseif ($s.Scope -eq 'user') { 'other' } else { $null }
+            if (-not $kind) { continue }
+            $item = if ($s.Scope -eq 'user') { ($d.FullName -replace '\\', '/') + '/' } else { "$(Get-ScanRel -Root $Root -Path $d.FullName)/" }
+            $rows.Add([ordered]@{ item = $item; scope = $s.Scope; name = $d.Name; kind = $kind; markers = $hits })
+        }
+    }
+    , $rows.ToArray()
+}
+
+function Get-ScanSkillOutsideAction {
+    param($Row)
+    switch ($Row.kind) {
+        'same-name' { "remove: у плагіні є v8storagekit:$($Row.name) — звір вміст, потім прибери копію" }
+        'domain' { 'move-to-plugin: issue у плагіні (gh issue create -R VSydorenko/SMP_V8StorageKit) з доказом; перенесення з адаптацією, копію прибрати після випуску' }
+        default { 'keep | skillOverrides | move-to-plugin — рішення власника' }
+    }
+}
+
 # ---------- Places ----------
 
 function Get-ScanNormPath {
@@ -608,7 +663,7 @@ function ConvertTo-ScanCell {
 }
 
 function Write-ScanMarkdown {
-    param($Root, $Version, $Dup, $Sp, $SpPlugin, $SpDocs, $Journals, $Mem, $Places)
+    param($Root, $Version, $Dup, $Sp, $SpPlugin, $SpDocs, $Journals, $Mem, $Skills, $Places)
     $o = [System.Collections.Generic.List[string]]::new()
     $o.Add("kit-scan: $Root")
     $o.Add("memory: $($Mem.dir)$(if ($Mem.missing) { ' (немає)' } else { " ($($Mem.total) файлів)" })")
@@ -661,6 +716,18 @@ function Write-ScanMarkdown {
         foreach ($l in $Mem.index) { $o.Add("- $l") }
     }
     $o.Add('')
+    $o.Add("## Skills outside the plugin ($($Skills.Count))"); $o.Add('')
+    if ($Skills.Count) {
+        $o.Add('| # | skill | scope | kind | action |'); $o.Add('| --- | --- | --- | --- | --- |')
+        for ($i = 0; $i -lt $Skills.Count; $i++) {
+            $r = $Skills[$i]
+            $o.Add("| K$($i + 1) | ``$(ConvertTo-ScanCell $r.item)`` | $($r.scope) | $($r.kind) | $(ConvertTo-ScanCell (Get-ScanSkillOutsideAction -Row $r)) |")
+        }
+        if (@($Skills | Where-Object { $_.kind -eq 'domain' }).Count) {
+            $o.Add(''); $o.Add('domain — скіл про предмет плагіна (1С, Уніка), що живе поза ним: запропонуй власнику перенести його в плагін з адаптацією під форму плагіна, щоб він приходив у кожен проєкт разом із kit.')
+        }
+    } else { $o.Add('- немає: ні користувацьких скілів, ні проєктних скілів про 1С поза плагіном') }
+    $o.Add('')
     $o.Add("## Places outside the repo ($($Places.rows.Count))"); $o.Add('')
     if ($Places.rows.Count) {
         $label = @{ worktree = 'git worktree цього репо'; 'stale-worktree' = 'застарілий worktree цього репо'; repo = 'інший git-репозиторій'; plain = 'звичайна тека' }
@@ -672,7 +739,7 @@ function Write-ScanMarkdown {
         }
     } else { $o.Add("- немає: жодної теки <$(Split-Path -Leaf $Places.main)>-… чи <$(Split-Path -Leaf $Places.main)>.… поруч із головним checkout, private.outside у профілі порожній") }
     $o.Add('')
-    $o.Add('Classes — duplicates: remove | keep-knowledge (перенести в проєктний файл, який читає kit) | keep + kit issue (retro); superpowers: replace | remove | keep (planned); memory: pointer | delete | keep-as-history | move-to-profile; places: move | leave.')
+    $o.Add('Classes — duplicates: remove | keep-knowledge (перенести в проєктний файл, який читає kit) | keep + kit issue (retro); superpowers: replace | remove | keep (planned); memory: pointer | delete | keep-as-history | move-to-profile; skills: remove | move-to-plugin | keep | skillOverrides; places: move | leave.')
     $o.ToArray()
 }
 
@@ -704,16 +771,17 @@ function Invoke-KitKitScan {
     $journals = Get-ScanJournals -Roots @(@($main, $root) | Select-Object -Unique)
     $memDir = if ($a.Named.ContainsKey('Memory')) { [System.IO.Path]::GetFullPath([string]$a.Named['Memory']) } else { Get-ScanMemoryDir -Roots @(@($root, $main) | Select-Object -Unique) }
     $mem = Get-ScanMemory -Root $root -Dir $memDir
+    $skills = Get-ScanSkillsOutside -Root $root -Kit $kit -IsKitRepo $isKitRepo
     $places = Get-ScanPlaces -Root $root -Main $main
 
     if ($a.Named['Json']) {
         $doc = [ordered]@{
             root = ($root -replace '\\', '/'); kitVersion = $version; duplicates = $dup; superpowers = $sp
-            superpowersPlugin = $spPlugin; superpowersDocs = $spDocs; journals = $journals; memory = $mem; places = $places
+            superpowersPlugin = $spPlugin; superpowersDocs = $spDocs; journals = $journals; memory = $mem; skills = $skills; places = $places
         }
         Write-KitLine (ConvertTo-Json -InputObject $doc -Depth 10)
     } else {
-        foreach ($l in (Write-ScanMarkdown -Root ($root -replace '\\', '/') -Version $version -Dup $dup -Sp $sp -SpPlugin $spPlugin -SpDocs $spDocs -Journals $journals -Mem $mem -Places $places)) { Write-KitLine $l }
+        foreach ($l in (Write-ScanMarkdown -Root ($root -replace '\\', '/') -Version $version -Dup $dup -Sp $sp -SpPlugin $spPlugin -SpDocs $spDocs -Journals $journals -Mem $mem -Skills $skills -Places $places)) { Write-KitLine $l }
         Write-KitNext 'kit-setup -DryRun'
     }
     return 0
