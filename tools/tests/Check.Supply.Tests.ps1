@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit check — поставка вендора основної конфігурації (спека 2026-09-30 §5.2)' {
+Describe 'kit check — поставка вендора основної конфігурації' {
     BeforeAll {
         . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1')
         function script:New-ClientRepo {
@@ -12,7 +12,7 @@ Describe 'kit check — поставка вендора основної кон�
     It 'усе правильно: поставка під ігнором, .bin у git, позначка актуальна — без знахідок про поставку, код 0' {
         $repo = New-ClientRepo 'supply-good'
         $r = Invoke-Check -Repo $repo
-        # Код 0 — ще й доказ, що check приймає здоровий клієнтський воркспейс (спека §1). Якщо тут
+        # Код 0 — ще й доказ, що check приймає здоровий клієнтський воркспейс. Якщо тут
         # error — лагодити ФІКСТУРУ (вона мусить зображати здоровий репозиторій), не check, і
         # назвати причину в сумнівах.
         $r.ExitCode | Should -Be 0 -Because $r.Output

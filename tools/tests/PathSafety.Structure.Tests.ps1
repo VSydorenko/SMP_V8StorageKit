@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'Запобіжник П25: кожному Remove-KitDirectory у коді kit передує Assert-SafeWorkPath у тій самій функції' {
+Describe 'Запобіжник: кожному Remove-KitDirectory у коді kit передує Assert-SafeWorkPath у тій самій функції' {
     It 'структурно (AST): жодного виклику Remove-KitDirectory без попереднього Assert-SafeWorkPath' {
         $files = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..') -Recurse -Include *.psm1, *.ps1 -File |
             Where-Object { $_.FullName -notmatch '[\\/]tests[\\/]' -and $_.Name -ne 'PathSafety.psm1' })

@@ -5,6 +5,7 @@ Describe 'review-pack — запобіжники діапазону й влив�
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        $script:Bash = Get-KitBashPath
         $script:KitRoot = Split-Path (Split-Path $script:Kit -Parent) -Parent
 
         function script:Invoke-G {
@@ -46,7 +47,7 @@ Describe 'review-pack — запобіжники діапазону й влив�
             param([string]$Dir, [string[]]$Arguments)
             $errFile = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
             Push-Location $Dir
-            try { $out = & bash (Join-Path $script:KitRoot 'bin/review-pack') @Arguments 2>$errFile; $code = $LASTEXITCODE }
+            try { $out = & $script:Bash (Join-Path $script:KitRoot 'bin/review-pack') @Arguments 2>$errFile; $code = $LASTEXITCODE }
             finally { Pop-Location }
             [pscustomobject]@{
                 ExitCode = $code

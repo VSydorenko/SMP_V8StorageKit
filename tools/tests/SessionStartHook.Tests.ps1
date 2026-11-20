@@ -87,7 +87,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $pointer = $ctx.IndexOf('v8storagekit:storage-rules')
         $state | Should -BeGreaterOrEqual 0
         $pointer | Should -BeGreaterThan $state -Because 'прев''ю виводу обрізається з кінця: стан мусить стояти першим'
-        # Рядок, що є лише в SKILL.md (перевірено пошуком по дереву поза docs/superpowers/): його присутність у виводі = вступ вклеєно.
+        # Рядок, що є лише в SKILL.md (перевірено пошуком по дереву): його присутність у виводі = вступ вклеєно.
         $skillText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/storage-rules/SKILL.md') -Raw -Encoding UTF8
         $skillText | Should -BeLike '*Крок, надрукований командою kit, — виконати дослівно*' -Because 'контроль: маркер мусить існувати в SKILL.md'
         $ctx | Should -Not -BeLike '*Крок, надрукований командою kit, — виконати дослівно*'
@@ -216,7 +216,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
             $r.Output | Should -BeLike '*session-check*-RepoRoot*'
         }
 
-        It 'I5: session-check завершується неочікуваним кодом (не 0, не 3) — «НЕВІДОМИЙ», не порожній сигнал' {
+        It 'session-check завершується неочікуваним кодом (не 0, не 3) — «НЕВІДОМИЙ», не порожній сигнал' {
             # Процес, що завершився нормально з якимось ІНШИМ кодом (антивірус, OOM, неповний запуск pwsh),
             # без цієї гілки друкувався б як є: порожній вивід читався б як «нових версій немає».
             Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 2'

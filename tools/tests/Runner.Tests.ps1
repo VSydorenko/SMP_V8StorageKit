@@ -96,7 +96,7 @@ Describe 'Фальшивий раннер v8-runner.cmd: справжній за
     }
 }
 
-Describe 'Get-KitRunnerVerdict: версія раннера (спека 2026-11-19 §4.2 п.4)' {
+Describe 'Get-KitRunnerVerdict: версія раннера' {
     BeforeAll {
         # Копія фальшивого раннера з іншим version.txt: .cmd читає версію з файла поруч із собою.
         function script:New-VersionedRunner([string]$Line) {

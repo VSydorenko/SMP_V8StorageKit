@@ -155,7 +155,7 @@ function Get-UnicaInstallation {
 function Test-KitGitVersionSupported {
     <#
     .SYNOPSIS
-        Чи достатня версія git для kit: злиття дзеркала йде через merge-tree --write-tree (спека 2026-10-04 §4.2).
+        Чи достатня версія git для kit: злиття дзеркала йде через merge-tree --write-tree.
     .DESCRIPTION
         Мінімум 2.38.0: Documentation/git-merge-tree.txt у тегу v2.38.0 описує --write-tree, --name-only,
         -z і --allow-unrelated-histories, у v2.37.0 — жодного.
@@ -235,7 +235,7 @@ function Get-PesterAvailability {
     return $result
 }
 
-# Перевірена мінорна версія Уніки (§4.2 п.4): будь-який патч 0.16.x — норма.
+# Перевірена мінорна версія Уніки: будь-який патч 0.16.x — норма.
 $script:UnicaTestedMinor = [version]'0.16'
 
 function Get-KitUnicaVersionVerdict {
@@ -243,12 +243,12 @@ function Get-KitUnicaVersionVerdict {
     .SYNOPSIS
         Висновок про версію встановленої Уніки: ok | warn (новіша чи нерозбірна) | error (немає чи < 0.16).
     .DESCRIPTION
-        Kit 1.6.0 говорить лише мовою Уніки 0.16 (спека 2026-11-19 §4.2 п.4): на старішій скіли й шаблони
+        Kit 1.6.0 говорить лише мовою Уніки 0.16: на старішій скіли й шаблони
         посилаються на інструменти й форми операцій, яких там немає, а Уніка, новіша за перевірену, могла
         знову змінити контракт — тоді спершу процедура звірки docs/unica-contract.md.
 
         Без Уніки sync, verify і provision не працюють: раннер, яким вони запускають платформу, береться
-        з її встановлення (§3.6 п.2, §4.2 п.5). Тому відсутня Уніка — error, а не info, як було в 1.5.0.
+        з її встановлення. Тому відсутня Уніка — error, а не info, як було в 1.5.0.
         kit dump без неї працює (бере платформу напряму, Get-V8Path), але це виняток, а не правило.
     #>
     [CmdletBinding()]

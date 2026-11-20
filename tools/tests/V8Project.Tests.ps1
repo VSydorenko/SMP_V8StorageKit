@@ -65,7 +65,7 @@ Describe 'V8Project.psm1 — читання v8project.yaml Уніки' {
         { Read-V8Project -Path $f } | Should -Throw '*двічі*'
     }
 
-    Context 'v8project.local.yaml — вказівник Уніки на базу агента (§2.5)' {
+    Context 'v8project.local.yaml — вказівник Уніки на базу агента' {
         It 'без файлу — $null' {
             Read-V8ProjectLocalInfobase -Path (Join-Path $script:Ws 'v8project.local.yaml') | Should -BeNullOrEmpty
         }
@@ -130,7 +130,7 @@ Describe 'V8Project.psm1 — шлях і ключ бази агента' {
     }
 }
 
-Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10)' {
+Describe 'Get-V8ProjectConfigProblems' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Yaml.psm1").Path
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8Project.psm1").Path -Force
@@ -153,7 +153,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         @($p | Where-Object { $_ -like "*стара форма 'infobase:'*infobases.origin*«1.4.0 → 1.6.0»*" }).Count | Should -Be 2
         $p.Count | Should -Be 2
     }
-    # Ключі, які відхиляє сам раннер, kit не дублює (спека 2026-11-19 §3.8 п.3): його відмова точніша, а перелік у kit
+    # Ключі, які відхиляє сам раннер, kit не дублює: його відмова точніша, а перелік у kit
     # застарівав би з кожною версією раннера. Тест закріплює відсутність перевірки: повернуте правило його почервонить.
     It 'builder, execution_timeout(_seconds), basePath (верхній рівень і в source-set), push/build.partialLoadThreshold — не знахідки kit' {
         $proj = @('builder: DESIGNER', 'execution_timeout: 600000', 'execution_timeout_seconds: 600', 'basePath: x',
@@ -161,7 +161,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         $d = New-Ws -Name 'runner-keys' -Project $proj -Local @('builder: DESIGNER', 'basePath: x', 'infobases:', '  origin:', "    connection: 'File=build/ib'")
         @(Get-V8ProjectConfigProblems -Directory $d).Count | Should -Be 0
     }
-    # Закріплення контракту з Унікою (спека §8, §7.1 «Побічне»), не червоний-спершу тест: перевірки ключа tools тут
+    # Закріплення контракту з Унікою, не червоний-спершу тест: перевірки ключа tools тут
     # ніколи не було. Уніка дописує tools.platform.version у v8project.local.yaml сама.
     It 'контракт: tools.platform.version у v8project.local.yaml поруч з infobases.origin — не знахідка, база читається' {
         $d = New-Ws -Name 'tools-platform' -Project $script:Clean -Local @('infobases:', '  origin:', "    connection: 'File=build/ib'", 'tools:', '  platform:', "    version: '8.3.27.1644'")
@@ -177,7 +177,7 @@ Describe 'Get-V8ProjectConfigProblems (спека §4.3 п. 3, 5; §10 П9, П10
         (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -Not -BeLike "*'dev'*"
         (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike "*відмінний від origin*лише origin*"
     }
-    It 'origin без connection — знахідка, а не тиха відсутність бази (Review Focus 4)' {
+    It 'origin без connection — знахідка, а не тиха відсутність бази' {
         $d = New-Ws -Name 'noconn' -Project $script:Clean -Local @('infobases:', '  origin:', "    user: 'agent'")
         (@(Get-V8ProjectConfigProblems -Directory $d) -join "`n") | Should -BeLike '*infobases.origin*connection*'
     }

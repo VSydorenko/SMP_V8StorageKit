@@ -193,7 +193,7 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
     }
 }
 
-Describe 'New-V8FileInfobase -NoReplace: kit не стирає наявне (спека Unica 0.16 §4.2 п.21)' {
+Describe 'New-V8FileInfobase -NoReplace: kit не стирає наявне' {
     It 'наявна тека (з файлом-маркером і порожня) — виняток; маркер цілий; Remove-KitDirectory не викликано; платформа не запускалась' {
         $boundary = Join-Path $TestDrive 'noreplace-work'
         $withMarker = Join-Path $boundary 'ib-marker'
@@ -279,7 +279,7 @@ Describe 'New-V8FileInfobase -TemplatePath: розгортання з .dt' -Tag 
     }
 }
 
-Describe 'V8.psm1 — розпізнавання «база зайнята» (спека §5)' {
+Describe 'V8.psm1 — розпізнавання «база зайнята»' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
 
     It 'російський, український і англійський тексти платформи розпізнаються' -ForEach @(
@@ -316,7 +316,7 @@ Describe 'Get-KitPlatformVersionFromPath' {
     }
 }
 
-Describe 'Get-KitInstalledPlatforms — платформи оточення (спека 1.3.1 §4.2)' {
+Describe 'Get-KitInstalledPlatforms — платформи оточення' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         function script:New-FakePlatform {
@@ -365,7 +365,7 @@ Describe 'Get-KitInstalledPlatforms — платформи оточення (с�
     }
 }
 
-Describe 'Invoke-V8Designer — пароль (#26, Review Focus 2)' {
+Describe 'Invoke-V8Designer — пароль (#26)' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
     It 'пароль із подвійною лапкою — відмова до запуску платформи, пароль у тексті не з''являється' {
         $err = $null
@@ -385,7 +385,7 @@ Describe 'Invoke-V8Designer — пароль (#26, Review Focus 2)' {
     }
 }
 
-Describe 'ConvertFrom-V8Connection — текст винятку без вхідного рядка (§10.2 П23)' {
+Describe 'ConvertFrom-V8Connection — текст винятку без вхідного рядка' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         function script:Get-ConnError { param([string]$C)
@@ -462,7 +462,7 @@ Describe 'Get-V8CredentialsRecipe — рецепт за походженням �
     }
 }
 
-Describe 'Assert-V8SecretQuoteFree — одна перевірка " для обох паролів (§10.2 П23)' {
+Describe 'Assert-V8SecretQuoteFree — одна перевірка " для обох паролів' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
 
     It 'пароль із " — виняток із Origin, значення в тексті немає' {

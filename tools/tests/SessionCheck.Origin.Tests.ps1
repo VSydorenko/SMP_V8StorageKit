@@ -1,10 +1,10 @@
 #Requires -Version 7
-Describe 'kit session-check — сигнал без платформи (§5)' {
+Describe 'kit session-check — сигнал без платформи' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1') }
 
-    # Task 6 (batch-5-6-brief.md) — відставання локальної гілки від origin: session-check лише
-    # ЧИТАЄ вже наявні remote-tracking refs (Get-KitOriginGap, Task 5), мережі не чіпає взагалі.
-    Context 'origin: відставання без мережі (Task 6)' {
+    # Відставання локальної гілки від origin: session-check лише
+    # ЧИТАЄ вже наявні remote-tracking refs (Get-KitOriginGap), мережі не чіпає взагалі.
+    Context 'origin: відставання без мережі' {
         It 'дзеркало позаду origin — рядок із порадою git fetch' {
             # Дзеркало, яке в origin пішло вперед, а локально лишилось позаду — рівно стан із ішузу #4.
             # Перший коміт — через Add-KitFakeStorageCommit (той самий механізм, що New-Repo вище): орфанна

@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync — origin: fetch перед реплеєм і підказка про push (Task 5, спека 2026-09-17 §6)' {
+Describe 'kit sync — origin: fetch перед реплеєм і підказка про push' {
     # Той самий прийом мокання, що в Describe вище — Invoke-KitSync кличеться напряму в цьому
     # процесі, платформа НЕ запускається. git fetch і Get-KitOriginGap тут НЕ мокані навмисно:
     # реальний локальний "origin" (bare-клон) — найдешевший спосіб довести, що sync справді читає
@@ -42,7 +42,7 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         # origin — реальний bare-клон стану РЕПО ДО нового коміту: sync має fetch'нути його сам
-        # (Task 5, Step 4), і лише тоді Get-KitOriginGap побачить різницю.
+        # і лише тоді Get-KitOriginGap побачить різницю.
         $up = Join-Path $TestDrive 'push-hint-upstream'
         git clone -q --bare $repo $up 2>&1 | Out-Null
         git -C $repo remote add origin $up 2>&1 | Out-Null
@@ -85,7 +85,7 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
-    # Фінальне рев'ю C2 — знахідка §6: підказка друкувалась лише в гілці коду з новими версіями;
+    # Підказка друкувалась лише в гілці коду з новими версіями;
     # дзеркало, що лишилось попереду origin ЩЕ З ПОПЕРЕДНЬОГО прогону (git push тоді не зробили),
     # при sync БЕЗ нових версій мовчало. Тут версія 5 — локальний коміт, зроблений ДО клонування
     # origin (тобто "попередній прогін"), а цей прогін bачить ту саму версію 5 у звіті — pending

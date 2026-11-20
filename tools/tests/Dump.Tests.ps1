@@ -29,7 +29,7 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
         Join-Path $repo 'Alpha_SMB/cf/src/marker.txt' | Should -Exist
     }
 
-    It 'Pwd у підключенні дев-бази — розбір падає до платформи: маркера немає, походження і рецепт є, ціль не чіпалась (П23)' {
+    It 'Pwd у підключенні дев-бази — розбір падає до платформи: маркера немає, походження і рецепт є, ціль не чіпалась' {
         $overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;Usr=u;Pwd=СЕКРЕТ-Ж7SECRETZ7'"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'dev-pwd') -OverlayText $overlay -WithHooks
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cf/src/marker.txt') -Value 'є'
@@ -59,13 +59,13 @@ Describe 'kit dump — прев''ю і штатні зупинки без пла
     }
 }
 
-Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe (рев''ю Task 5, Important 2)' {
+Describe 'kit dump — мок платформного шару: -Apply без реального 1cv8.exe' {
     # dump лишалась єдиною командою блоку без покриття Apply-гілки платформним моком —
     # Sync.Merge.Tests.ps1 і Verify.Tests.ps1 уже мають такий Describe для sync/verify (мок
     # New-ExtensionInfobase/Invoke-V8Designer -ModuleName StoragePlatform чи verify). Тут той
     # самий прийом: lib-модулі в порядку module-order.txt, потім САМЕ commands/dump.psm1 у
     # ЦЬОМУ процесі (не підпроцесом kit.ps1) — лише так Mock -ModuleName бачить приватний
-    # стіл команд саме dump (Mock -ModuleName діє лише в межах названого модуля — урок Task 1,
+    # стіл команд саме dump (Mock -ModuleName діє лише в межах названого модуля — урок,
     # повторений і в Sync.Merge.Tests.ps1, і в Verify.Tests.ps1).
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -147,7 +147,7 @@ Describe 'kit dump — жива дев-база (лише читання, 20–4
     # Запускається лише з V8KIT_LIVE_DUMP=1: це дорого й потребує доступу до бази людини.
     # -Skip: на Describe, а НЕ Set-ItResult у BeforeAll: Set-ItResult легальний лише всередині It,
     # а в BeforeAll кидає "a 'break' or 'continue' statement ... escaped from your code" і, без
-    # захисту Pester, тихо обірвав би ВЕСЬ прогін без результату (живий прогін B3, pester#2669).
+    # захисту Pester, тихо обірвав би ВЕСЬ прогін без результату (pester#2669).
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -164,7 +164,7 @@ Describe 'kit dump — жива дев-база (лише читання, 20–4
     }
 }
 
-Describe 'kit dump -Apply — зупинка на невидимій і незакоміченій роботі під набором (§10.2 П24)' {
+Describe 'kit dump -Apply — зупинка на невидимій і незакоміченій роботі під набором' {
     # dump -Apply стирає теку набору цілком і копії незакоміченого не робить взагалі, тож зупинка
     # стоїть ДО Remove-KitDirectory і до платформи: на невидимій для git status роботі й на
     # будь-якому записі Get-KitDirtyRecords.
@@ -322,7 +322,7 @@ Describe 'kit dump -Apply — вендорське дерево (гітігно�
     }
 }
 
-Describe 'kit dump -Apply — vendor: решта видів невидимої роботи зупиняє; перевірка всіх джерел іде до першого видалення (фікс-раунд 1)' {
+Describe 'kit dump -Apply — vendor: решта видів невидимої роботи зупиняє; перевірка всіх джерел іде до першого видалення' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
@@ -377,7 +377,7 @@ Describe 'kit dump -Apply — vendor: решта видів невидимої �
     }
 }
 
-Describe 'kit dump -Apply — набір за junction (П25): kit нічого не видаляє крізь посилання' {
+Describe 'kit dump -Apply — набір за junction: kit нічого не видаляє крізь посилання' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
@@ -386,7 +386,7 @@ Describe 'kit dump -Apply — набір за junction (П25): kit нічого 
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/dump.psm1").Path -Force
         $script:Overlay = "infobases:`n  dev:`n    connection: 'File=C:\bases\demo;'`n    user: 'Адмін'"
-        # П25: переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
+        # Переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
         # компоненті ВИЩЕ кореня набору (Alpha_SMB/<Parent>), e1 — сам корінь набору (Alpha_SMB/<Parent>/<Leaf>).
         # Повертає ціль (поза репо) з контрольним файлом keep.txt.
         function script:Set-SetBehindLink { param([string]$Repo, [string]$Mode, [string]$Parent, [string]$Leaf, [string]$Tag)

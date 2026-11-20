@@ -1,7 +1,7 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
-# Спека §5: «повний check викликається явно і в session-check». Диспетчер імпортує лише запитаний командний
+# Повний check викликається явно і в session-check. Диспетчер імпортує лише запитаний командний
 # модуль, тому check підключається тут (без -Force — не перезавантажувати вже наявний).
 Import-Module "$PSScriptRoot/check.psm1"
 
@@ -19,7 +19,7 @@ $script:MachineStateChecks = @('runner-version', 'unica-version')
 function Invoke-KitSessionCheck {
     <#
     .SYNOPSIS
-        Дешевий сигнал для старту сесії (спека §5, §7): без платформи, без ліцензії, один обхід
+        Дешевий сигнал для старту сесії: без платформи, без ліцензії, один обхід
         каталогу на джерело. Спершу — повний check (-Quiet) тим самим контекстом: error → код 1 і сигнали
         не обчислюються (на storage/* з чужим комітом дата дзеркала нічого не означає — одне правило замість
         таблиці «які помилки ще дозволяють сигнали»); лише warn → [!]-рядки над сигналами, плюс [i] для знахідок
@@ -36,7 +36,7 @@ function Invoke-KitSessionCheck {
         [string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json'),
         # Шлях до раннера Уніки — прокидається в check (там версія раннера); порожній — із реєстру вище.
         [string]$RunnerPath,
-        # -Apply не оголошено свідомо: команда нічого не мутує (§5). Диспетчер на переданий -Apply
+        # -Apply не оголошено свідомо: команда нічого не мутує. Диспетчер на переданий -Apply
         # зупиняється з поясненням.
         [switch]$AsJson
     )
@@ -45,7 +45,7 @@ function Invoke-KitSessionCheck {
     $main = $Context.MainBranch
     $signals = [System.Collections.Generic.List[object]]::new()
 
-    # --- Повний check першим (спека §5). Виняток із check — теж «репозиторій суперечливий», код 1.
+    # --- Повний check першим. Виняток із check — теж «репозиторій суперечливий», код 1.
     $checkFindings = @()
     try {
         $checkFindings = @((Invoke-KitCheck -Context $Context -Workspace $Workspace -Source $Source -InstalledPluginsPath $InstalledPluginsPath -RunnerPath $RunnerPath -Quiet).Findings)
@@ -87,7 +87,7 @@ function Invoke-KitSessionCheck {
             else { $lastMirror = ([datetimeoffset]$iso).UtcDateTime }
         }
 
-        # Стан origin — з наявних refs, БЕЗ мережі (спека §6): два джерела правди (сховище й
+        # Стан origin — з наявних refs, БЕЗ мережі: два джерела правди (сховище й
         # origin) розходяться мовчки, і сліпота до другого дає впевнено хибну картину першого.
         $originGap = $null
         if ($mirror -and -not $gitProblem) {
@@ -122,7 +122,7 @@ function Invoke-KitSessionCheck {
         #  'no-mirror'     — дзеркала ще немає при доступному сховищі;
         #  'newer'         — mtime data/objects новіший за дзеркало (з допуском);
         #  'packed-newer'  — усе запаковано, а data/pack новіший: дешева перевірка сказати не може
-        #                    (§5 «Запаковане сховище») — теж код 3, не тиша й не 1.
+        #                    — теж код 3, не тиша й не 1.
         $newInStorage = $false; $newInStorageReason = $null
         if ($imprintCurrent) {
             if ($imprint.Version -gt $lastVersion) { $newInStorage = $true; $newInStorageReason = 'imprint-ahead' }
@@ -180,7 +180,7 @@ function Invoke-KitSessionCheck {
                 } elseif ($newInStorageReason -eq 'newer') {
                     $parts.Add(("у сховищі ймовірно нові версії (запис {0:yyyy-MM-dd HH:mm:ss} UTC після дзеркала {1:yyyy-MM-dd HH:mm:ss} UTC) — оновити? kit sync -Source {2} -Apply" -f $activity.LatestObjectWrite, $lastMirror, $src.Key))
                 } elseif ($newInStorageReason -eq 'packed-newer') {
-                    # §5 «Запаковане сховище»: дешева перевірка чесно каже «не знаю»; дія — kit sync БЕЗ
+                    # Дешева перевірка чесно каже «не знаю»; дія — kit sync БЕЗ
                     # -Apply: прочитає звіт і залишить точний відбиток на майбутнє.
                     $parts.Add(("усі об'єкти запаковані після останнього дзеркала ({0:yyyy-MM-dd HH:mm:ss} UTC) — чи є нові версії, дешева перевірка сказати не може; точну відповідь дає kit sync -Source {1} без -Apply" -f $lastMirror, $src.Key))
                 }
@@ -222,7 +222,7 @@ function Invoke-KitSessionCheck {
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
         foreach ($s in $signals) {
             Write-Host $s.Text
-            # Відставання від origin (§6) — окремим рядком лише в людському виводі; у -AsJson це
+            # Відставання від origin — окремим рядком лише в людському виводі; у -AsJson це
             # поле OriginGap сигналу, не текст.
             if ($null -ne $s.OriginGap -and $s.OriginGap.HasRemote -and $s.OriginGap.Behind -gt 0) {
                 Write-Host ("- {0}: локальна гілка {1} позаду origin на {2} комітів — git fetch" -f `
@@ -230,10 +230,10 @@ function Invoke-KitSessionCheck {
             }
         }
     }
-    # Коди за змістом (§5), пріоритет: 1 — хоч одне джерело зі станом git, який не прочитано (той самий
+    # Коди за змістом, пріоритет: 1 — хоч одне джерело зі станом git, який не прочитано (той самий
     # клас, що зупинка check); інакше 3 — хоч один сигнал дії (нові версії, дзеркала немає, шлях не схожий
     # на сховище, незлиті коміти — і коли головної гілки немає); інакше 0. «Сховище недоступне» — стан
-    # машини, 0 з рядком. Винятку немає навмисно: хук на код 1 сам ставить позначку «стан НЕВІДОМИЙ» (§7).
+    # машини, 0 з рядком. Винятку немає навмисно: хук на код 1 сам ставить позначку «стан НЕВІДОМИЙ».
     $exit = if (@($signals | Where-Object { $_.GitProblem }).Count) { 1 }
             elseif (@($signals | Where-Object { $_.NewInStorage -or $_.UnmergedCommits -gt 0 }).Count) { 3 }
             else { 0 }

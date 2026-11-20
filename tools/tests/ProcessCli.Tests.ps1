@@ -1,11 +1,12 @@
 #Requires -Version 7
-# Контракт команд процесу (блок «процес kit», Б0; оригінал — agent-kit 0.9.1 tests/cli.test.mjs):
+# Контракт команд процесу (оригінал — agent-kit 0.9.1 tests/cli.test.mjs):
 # коди 0/1/2/3, перший рядок stderr `<команда>: ERROR …`, останній рядок успіху `next:`.
 # Команди процесу звертаються сюди списком $script:ProcessCommands, коли з'являються (sdd, review-pack).
 Describe 'Команди процесу — контракт виходу й аргументів' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        $script:Bash = Get-KitBashPath
         $script:KitRoot = Split-Path (Split-Path $script:Kit -Parent) -Parent
 
         # Проба-команда процесу лише в копії: друкує, що отримала, і читає профіль.
@@ -36,7 +37,7 @@ Export-ModuleMember -Function Invoke-KitProbeCli
             $errFile = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
             Push-Location $script:Repo
             try {
-                $out = if ($Via -eq 'bash') { & bash (Join-Path $script:KitRoot "bin/$Command") @Arguments 2>$errFile }
+                $out = if ($Via -eq 'bash') { & $script:Bash (Join-Path $script:KitRoot "bin/$Command") @Arguments 2>$errFile }
                        else { & (Join-Path $script:KitRoot "bin/$Command.ps1") @Arguments 2>$errFile }
                 $code = $LASTEXITCODE
             } finally { Pop-Location }

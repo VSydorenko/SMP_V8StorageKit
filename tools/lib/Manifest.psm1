@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/Yaml.psm1"
 
-# Словник truth (спека §2.4) і типові значення. Це єдине місце, де вони оголошені.
+# Словник truth і типові значення. Це єдине місце, де вони оголошені.
 $script:TruthValues         = @('storage', 'dump', 'vendor', 'git')
 $script:DefaultStorageUser  = 'gitbot'
 $script:DefaultMainBranch   = 'main'
@@ -72,7 +72,7 @@ function Assert-KitStoragePathForm {
 function Read-KitManifest {
     <#
     .SYNOPSIS
-        Читає й валідує v8storagekit.yaml (спека §2.4).
+        Читає й валідує v8storagekit.yaml.
     .DESCRIPTION
         Маніфест не дублює структури — шляхи й типи описує v8project.yaml; тут лише truth
         кожного джерела й те, чого Unica не знає (сховище, дев-база). Звірка ключів sources
@@ -195,7 +195,7 @@ function Read-KitManifest {
 function Read-KitLocalOverlay {
     <#
     .SYNOPSIS
-        Читає v8storagekit.local.yaml (спека §2.5) — гітігноровану накладку цієї машини.
+        Читає v8storagekit.local.yaml — гітігноровану накладку цієї машини.
     .DESCRIPTION
         Тут живуть усі локальні сутності kit: дев-бази, з яких лише читаємо; перевизначення
         шляхів сховищ; шаблон .dt для бази агента. Файл порожній або відсутній — законно:

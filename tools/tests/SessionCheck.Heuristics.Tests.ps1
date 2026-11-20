@@ -1,11 +1,11 @@
 #Requires -Version 7
-Describe 'kit session-check — сигнал без платформи (§5)' {
+Describe 'kit session-check — сигнал без платформи' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1') }
 
     It '(а) файли data/objects новіші за дзеркало → сигнал «нові версії»' {
         $s = New-FakeStorage -Name 'newer' -ObjectsWrite $script:New -DbWrite $script:New
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'a-newer' -StoragePath $s -MirrorDate $script:Old -Merge)
-        $r.ExitCode | Should -Be 3     # є що робити (спека §5: коди за змістом)
+        $r.ExitCode | Should -Be 3     # є що робити
         $r.Output | Should -BeLike '*- Alpha_SMB:*нові версії*kit sync*'
     }
 
@@ -23,7 +23,7 @@ Describe 'kit session-check — сигнал без платформи (§5)' {
         $r.Output | Should -Not -BeLike '*нові версії*'
     }
 
-    # Task 8 (task-8-brief.md) — запаковане сховище, три результати евристики (спека 9f6ad5e §5).
+    # Запаковане сховище, три результати евристики.
     Context 'запаковане сховище (data/pack) — евристики без відбитка' {
         It 'objects новіші за дзеркало → «нові версії», НЕЗАЛЕЖНО від того, чи pack теж новіший' {
             $s = New-FakeStorage -Name 'pack-objects-newer' -ObjectsWrite $script:New -DbWrite $script:New -PackWrite $script:New

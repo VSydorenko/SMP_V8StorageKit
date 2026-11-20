@@ -22,12 +22,12 @@ function Test-KitBranchMergedInto {
 function Merge-KitBranchInto {
     <#
     .SYNOPSIS
-        Зливає гілку дзеркала в головну гілку чи гілку задачі (спека §3.4, рішення Q4) — без робочої копії.
+        Зливає гілку дзеркала в головну гілку чи гілку задачі — без робочої копії.
     .DESCRIPTION
         Злиття рахує git merge-tree --write-tree (той самий ort, що git merge), коміт — commit-tree з
         двома батьками, гілку пересуває update-ref з перевіркою старого значення. Робочу копію
         оновлює лише одна команда — read-tree --reset -u HEAD — і лише коли <Into> вибрана тут.
-        Причина (спека 2026-10-04 §2, §4.2): git на Windows не переводить робочу копію через
+        Причина: git на Windows не переводить робочу копію через
         перейменування лише регістром не-ASCII імені — merge/checkout/reset --keep/read-tree -m
         відмовляють з «untracked working tree files would be overwritten», навіть на чистому коміті.
         Проходять лише merge-tree і примусове read-tree --reset -u.
@@ -108,7 +108,7 @@ function Merge-KitBranchInto {
     }
     $tree = $fields[0].Trim()
 
-    # Групи регістру в дереві злиття (§4.2, крок 3): merge-tree віддає код 0 і
+    # Групи регістру в дереві злиття: merge-tree віддає код 0 і
     # дерево з ОБОМА шляхами, коли перше злиття (--allow-unrelated-histories) приносить об'єкт з іншим регістром,
     # ніж у <Into>; після read-tree --reset -u копія була б брудною. Блокують лише групи, яких не було в <Into>
     # (порівняння за НАБОРОМ шляхів): стара зіпсована гілка не мусить блокувати злиття назавжди — її ловить check.
@@ -151,7 +151,7 @@ function Merge-KitBranchInto {
         if ($da.ExitCode -ne 0) { throw "git diff-tree завершився з кодом $($da.ExitCode): $($da.Stderr)" }
         $added = @($da.Stdout -split "`0" | Where-Object { $_ })
         if ($added.Count -gt 0) {
-            # Перетин — OrdinalIgnoreCase (§4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
+            # Перетин — OrdinalIgnoreCase: на NTFS ігнорований x.BIN і доданий
             # x.bin — один файл, і read-tree перезапише його. Хибної зупинки на кириличному перейменуванні
             # регістром це не дає: старий файл відстежуваний, у переліку ігнорованих його немає.
             # Верхні теки для pathspec — фактичні імена в корені, зіставлені OrdinalIgnoreCase: магія icase у

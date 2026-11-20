@@ -11,7 +11,7 @@ $script:DefaultPlatformRoots = [ordered]@{ x64 = 'C:\Program Files\1cv8'; x86 = 
 function Get-KitInstalledPlatforms {
     <#
     .SYNOPSIS
-        Платформи 1С, фактично встановлені в оточенні (спека 1.3.1 §4.2): теки-версії під x64- і
+        Платформи 1С, фактично встановлені в оточенні: теки-версії під x64- і
         x86-коренем, у яких існує bin\1cv8.exe. Тека без exe — залишок деінсталяції, не платформа.
     #>
     [CmdletBinding()]
@@ -50,7 +50,7 @@ function Get-V8Path {
     )
 
     if ($PSBoundParameters.ContainsKey('Version')) {
-        # Явна версія (§6.1.6) — точний збіг у будь-якому корені, x64 першим. Типовий пошук нижче
+        # Явна версія — точний збіг у будь-якому корені, x64 першим. Типовий пошук нижче
         # (без -Version): лише x64, гілка 8.3.27.
         $installed = @(Get-KitInstalledPlatforms -Roots $Roots)
         $exact = @($installed | Where-Object Version -eq $Version) | Select-Object -First 1
@@ -282,7 +282,7 @@ function Assert-V8InfobaseNotBusy {
     <#
     .SYNOPSIS
         Зупинка з порадою, а не сирим повідомленням, коли базу тримає Конфігуратор чи інший
-        монопольний сеанс (спека §5).
+        монопольний сеанс.
     #>
     [CmdletBinding()]
     param(
@@ -353,7 +353,7 @@ function New-V8FileInfobase {
     .SYNOPSIS
         Створює файлову інформаційну базу за шляхом; за умовчанням спершу стирає наявну теку.
     .DESCRIPTION
-        -NoReplace — для бази агента (provision, спека 2026-11-19 §3.4 п.3, §4.2 п.21): kit не видаляє
+        -NoReplace — для бази агента (provision): kit не видаляє
         базу агента ніколи, тож будь-який наявний шлях — теж порожня тека — це виняток, а
         Remove-KitDirectory не викликається. Перевірка стоїть ДО пошуку платформи, а сама тека
         створюється без -Force: тека, що з'явилась між перевіркою й створенням, дає відмову

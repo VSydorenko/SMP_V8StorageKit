@@ -1,6 +1,6 @@
 #Requires -Version 7
-Describe 'kit sync — глибина першого реплею: -FromVersion / -FromLatest (Task 2, §9.4)' {
-    # Той самий прийом мокання, що в Describe вище (Task 4, Task 8) — Invoke-KitSync
+Describe 'kit sync — глибина першого реплею: -FromVersion / -FromLatest' {
+    # Той самий прийом мокання, що в Describe вище — Invoke-KitSync
     # кличеться напряму в цьому процесі, платформа НЕ запускається.
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -29,7 +29,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
         }
         function script:New-KitEmptyBranchRepo {
             param([Parameter(Mandatory)][string]$Root)
-            # -WithAgentBase: Task 3 — sync резолвить базу агента з диска (Get-KitSourceInfobase)
+            # -WithAgentBase: sync резолвить базу агента з диска (Get-KitSourceInfobase)
             # ще до звернення до платформи, для КОЖНОГО джерела в циклі; без цього переключача
             # кожен тест цього Describe, що кличе Invoke-KitSync, отримав би зупинку з рецептом
             # "kit provision" замість роботи мокованої платформи.
@@ -47,7 +47,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
             Mock -ModuleName sync Invoke-KitMainMerge { $true }
             # 60/64/65: розрив (61-63 оптимізовано) — той самий силует, що живий прогін
-            # компаньйона (сховище конфігурації, максимум 65) описаний у брифі задачі.
+            # компаньйона (сховище конфігурації, максимум 65).
             Mock -ModuleName sync Get-StorageVersions {
                 , @(
                     (New-KitFakeStorageVersion -Version 60 -Comment 'стара')
@@ -101,7 +101,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
             Test-KitBranchExists -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -BeFalse
         }
 
-        # Рев'ю Task 2, п. 5: сховище БЕЗ ЖОДНОЇ версії (не плутати з "порожня гілка" вище —
+        # Сховище БЕЗ ЖОДНОЇ версії (не плутати з "порожня гілка" вище —
         # тут порожній сам ЗВІТ) + -From* — до фіксу sync казав "Нових версій немає — дзеркало
         # синхронне зі сховищем", хоча версії, яку просили, у сховищі взагалі не існує.
         It '-FromVersion/-FromLatest на СХОВИЩІ БЕЗ ЖОДНОЇ ВЕРСІЇ — окрема зупинка, не "дзеркало синхронне"' {
@@ -113,7 +113,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
     }
 
     Context 'параметри — валідація до звернення до платформи' {
-        # Рев'ю Task 2, п. 3: без мока Get-StorageVersions регресія будь-якого з трьох гардів
+        # Без мока Get-StorageVersions регресія будь-якого з трьох гардів
         # пропускає виклик далі — СПРАВЖНЯ Get-StorageVersions піде через Invoke-V8Designer у
         # реальну платформу проти неіснуючої ІБ. Тест урешті впав би, але вже ПІСЛЯ запуску
         # 1cv8.exe — у безплатформному Describe. Мокаємо платформні виклики так само, як у
@@ -127,7 +127,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
             $repo = New-KitEmptyBranchRepo -Root (Join-Path $TestDrive 'mutex')
             { Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -FromVersion 5 -FromLatest } |
                 Should -Throw '*взаємовиключ*'
-            # Task 3: sync цієї функції не кличе НІ ЗА ЯКИХ УМОВ — Should -Invoke на
+            # sync цієї функції не кличе НІ ЗА ЯКИХ УМОВ — Should -Invoke на
             # New-ExtensionInfobase був би завжди-зеленим (тавтологічним), вирізання самої
             # валідації його не зачепить (docs/follow-ups.md §4). Замінено на живий доказ:
             # платформа взагалі не викликана.
@@ -156,7 +156,7 @@ Describe 'kit sync — глибина першого реплею: -FromVersion 
             Add-KitFakeStorageCommit -Repo $script:Repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
                 -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
                 -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
-            # До реалізації Task 2 ця зупинка ще не існує — без мока платформа не мокана і
+            # Без мока платформа не мокана і
             # виконання пішло б у реальну платформу. Мокаємо тут теж, щоб тест до фікса падав
             # швидко й з ясної причини, а не зависав на платформі.
             Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }

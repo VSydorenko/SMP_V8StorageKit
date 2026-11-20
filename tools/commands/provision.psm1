@@ -13,7 +13,7 @@ function Test-KitConfigurationOwnerPresent {
         його об'єкти типізуються типами власника. Перевірка ловить будь-яку основу, дерева якої ще
         немає на диску (щойно клонована машина, гітігнороване дерево до kit dump) — інакше мовчазний
         глухий кут. Воркспейс з основою truth: vendor без бази зупиняється раніше: таку основу Уніка
-        й kit у базу не вантажать (§4.2 п.23).
+        й kit у базу не вантажать.
 
         Перевірка безумовна: НЕ залежить від того, чи розширення позичає об'єкти
         (ObjectBelonging>Adopted, Get-KitAdoptedObjectCount нижче) — збірка .cfe й
@@ -41,7 +41,7 @@ function Get-KitMissingOwnerSources {
     .DESCRIPTION
         Єдине місце логіки «порожнє»: Test-KitConfigurationOwnerPresent — це «таких немає», а
         Invoke-KitProvision дивиться на самі джерела, щоб відрізнити законний старт рецепта (i)
-        (усі порожні під truth: storage, §5.3) від зупинки.
+        (усі порожні під truth: storage) від зупинки.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Workspace)
@@ -114,7 +114,7 @@ function New-KitOwnerMissingMessage {
 function Get-KitConfigurationFitness {
     <#
     .SYNOPSIS
-        Чи придатне дерево основної конфігурації до повного завантаження в базу (спека §3 рішення 4).
+        Чи придатне дерево основної конфігурації до повного завантаження в базу.
     .DESCRIPTION
         «Базу створює той, хто першим її наповнює». Придатне → першою наповнює Уніка (infobase.create
         імпортує набір CONFIGURATION). Не придатне — truth: storage і (i) дерева ще немає або (ii)
@@ -166,7 +166,7 @@ function Get-KitProvisionNextKitStep {
 function Get-KitProvisionSteps {
     <#
     .SYNOPSIS
-        Кроки після рішення provision (§4.2 п.17).
+        Кроки після рішення provision.
     .DESCRIPTION
         Придатне дерево: файлова без .dt — infobase.create і ЗВИЧАЙНИЙ push (база створюється з набором
         CONFIGURATION, раннер його пам'ятає); з .dt — infobase.restore і push force:true (restore пам'яті
@@ -182,7 +182,7 @@ function Get-KitProvisionSteps {
         [AllowNull()][string[]]$PushSets = $null
     )
     $steps = [System.Collections.Generic.List[string]]::new()
-    # Основа truth: vendor у базу не вантажиться ніколи (§4.2 п.23): push — лише з явним sourceSet розширень.
+    # Основа truth: vendor у базу не вантажиться ніколи: push — лише з явним sourceSet розширень.
     $pushStep = {
         if ($null -ne $PushSets) {
             foreach ($set in $PushSets) { $steps.Add((Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $set; force = $true }))) }
@@ -208,9 +208,9 @@ function New-KitExistingBaseMessage {
     .SYNOPSIS
         Текст зупинки «тека за шляхом бази вже є»: називає ДВІ теки, які видаляє людина, і крок після цього.
     .DESCRIPTION
-        Kit базу агента не видаляє ніколи (§3.4 п.3). Тека бази й тека пам'яті раннера
+        Kit базу агента не видаляє ніколи. Тека бази й тека пам'яті раннера
         (<воркспейс>/.local/infobases/origin) видаляються разом: без другої нова база лишилась би зі
-        старою пам'яттю наборів, і push міг би пропустити набори як незмінені (§4.2 п.16). Тека без
+        старою пам'яттю наборів, і push міг би пропустити набори як незмінені. Тека без
         1Cv8.1CD — зовсім інша зупинка (New-KitNotBaseMessage), без поради видаляти; сюди потрапляє лише
         порожня тека чи тека з 1Cv8.1CD. Kit сам нічого не прибирає.
     #>
@@ -238,7 +238,7 @@ function New-KitExistingBaseMessage {
 function New-KitNotBaseMessage {
     <#
     .SYNOPSIS
-        Зупинка «за шляхом бази лежить не база агента»: жодної поради видаляти (§4.2 п.16).
+        Зупинка «за шляхом бази лежить не база агента»: жодної поради видаляти.
     .DESCRIPTION
         Описка в infobases.origin.connection (File=build/artifacts усередині workPath) інакше привела б до поради
         стерти артефакти чи іншу чужу теку. Про пам'ять раннера тут не йдеться. Reason: nonempty — непорожня тека
@@ -260,7 +260,7 @@ function New-KitNotBaseMessage {
 function New-KitStaleMemoryMessage {
     <#
     .SYNOPSIS
-        Зупинка «бази немає, а пам'ять раннера лишилась» (§4.2 п.16): нова база стартує лише з чистою пам'яттю.
+        Зупинка «бази немає, а пам'ять раннера лишилась»: нова база стартує лише з чистою пам'яттю.
     #>
     [CmdletBinding()]
     param(
@@ -309,7 +309,7 @@ function Get-KitProvisionPlan {
     if (-not $wsTemplate -and $Context.Overlay -and $Context.Overlay.Workspaces.ContainsKey($ws.Path)) {
         $wsTemplate = $Context.Overlay.Workspaces[$ws.Path].AgentBaseTemplate
     }
-    # Основа truth: vendor (§4.2 п.23): ні Уніка, ні kit не вантажать її в базу — вона приходить разом з базою
+    # Основа truth: vendor: ні Уніка, ні kit не вантажать її в базу — вона приходить разом з базою
     # (.dt чи наявна серверна). Порожня база kit/infobase.create → push основи тут глухий кут: зупинка з рецептом.
     $vendorBases = @($ws.Sources | Where-Object { $_.Type -eq 'CONFIGURATION' -and $_.Truth -eq 'vendor' })
     $pushSets = $null
@@ -344,7 +344,7 @@ function Get-KitProvisionPlan {
         $nextKit = Get-KitProvisionNextKitStep -Fitness $fitness -MainBranch $Context.MainBranch -Workspace $ws.Path -OnMainBranch $onMain
     }
 
-    # Межа: РОБОЧА тека воркспейсу (workPath, §2.5/§4), НЕ вся тека воркспейсу. Kit пише в теку
+    # Межа: РОБОЧА тека воркспейсу (workPath), НЕ вся тека воркспейсу. Kit пише в теку
     # бази (New-V8FileInfobase), тож шлях бази мусить лежати під workPath: аудит Resolve-KitAgentBase
     # ловить базу людини під чужим ім'ям, ця межа — БУДЬ-ЯКУ теку поза робочою (описка
     # infobase.connection: 'File=cfe/src'). $ws.Project.WorkPath, не літерал 'build': workPath конфігурований.
@@ -411,7 +411,7 @@ function Get-KitProvisionPlan {
     }
 
     # Будь-яка наявна тека (чи файл) за шляхом бази — зупинка, незалежно від -Apply: kit нічого не стирає
-    # й не перезаписує. Людина видаляє дві теки сама (§3.4 п.3, п.4; §4.2 п.16).
+    # й не перезаписує. Людина видаляє дві теки сама.
     if (Test-Path -LiteralPath $ab.Path) {
         # Файл, непорожня тека без 1Cv8.1CD чи тека, вміст якої не вдалося прочитати, — не база агента:
         # окрема зупинка без поради видаляти. Помилка читання не трактується як «порожньо» (fail-closed).
@@ -442,7 +442,7 @@ function Get-KitProvisionPlan {
 function Invoke-KitProvision {
     <#
     .SYNOPSIS
-        База агента (§3.4): kit перевіряє, записує вибір і друкує кроки; базу агента
+        База агента: kit перевіряє, записує вибір і друкує кроки; базу агента
         НЕ видаляє ніколи й серверних баз не створює.
     .DESCRIPTION
         Придатне дерево основної конфігурації — базу створює Уніка (infobase.create / infobase.restore), kit

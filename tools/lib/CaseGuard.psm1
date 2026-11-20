@@ -12,7 +12,7 @@ function Get-KitTreePaths {
         Повні шляхи файлів ref (опційно під -Path) — сирі, UTF-8, незалежно від консолі.
     .DESCRIPTION
         ls-tree -r -z через Invoke-KitGitProcess: голий конвеєр PowerShell декодує вивід за кодуванням
-        консолі й на cp866 калічить кирилицю (рев'ю B3), а без -z git квотує не-ASCII у лапках.
+        консолі й на cp866 калічить кирилицю, а без -z git квотує не-ASCII у лапках.
     #>
     [CmdletBinding()]
     param(
@@ -33,7 +33,7 @@ function Get-KitCaseCollisions {
         Групи шляхів, що різняться лише регістром — за юнікодним складанням, як у NTFS.
     .DESCRIPTION
         OrdinalIgnoreCase, а не ASCII: core.ignorecase у git складає лише a–z (memihash), тому
-        кириличну пару git вважає двома файлами, а NTFS — одним (спека 2026-10-04 §2). tr і
+        кириличну пару git вважає двома файлами, а NTFS — одним. tr і
         ASCII-нижній регістр дають на кирилиці хибні 0 (виміряно interoptica).
         Без coma-wrap на результаті: викликачі загортають його в @(...). Кожна група виходить
         одним елементом (кома перед масивом групи).
@@ -59,7 +59,7 @@ function Get-KitCaseCollisions {
 function Assert-KitIndexMatchesDisk {
     <#
     .SYNOPSIS
-        Інваріант спеки 2026-10-04 §4.1: індекс піддерева ≡ файли на диску, побайтово за іменем (Ordinal).
+        Інваріант: індекс піддерева ≡ файли на диску, побайтово за іменем (Ordinal).
     .DESCRIPTION
         Ловить фантом (старий регістр лишився в індексі), загублений ASCII-регістр і будь-яку іншу
         евристику git, яка розводить індекс із диском. Службові файли й поставку не рахує
@@ -83,14 +83,14 @@ function Assert-KitIndexMatchesDisk {
     }
     $disk = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]@(Get-KitRelativeFiles -Root (Join-Path $RepoRoot $prefix)), [System.StringComparer]::Ordinal)
-    # Ігноровані файли з диска НЕ віднімаємо (§4.1): обидва викликачі
+    # Ігноровані файли з диска НЕ віднімаємо: обидва викликачі
     # додають із -f, тож будь-який файл на диску поза індексом — розбіжність (інакше rm --cached + add без -f,
     # що мовчки зняв з відстеження файл під ігнором машини, лишився б непоміченим).
     $onlyIndex = @($index | Where-Object { -not $disk.Contains($_) } | Sort-Object -CaseSensitive)
     $onlyDisk  = @($disk  | Where-Object { -not $index.Contains($_) } | Sort-Object -CaseSensitive)
     if ($onlyIndex.Count -eq 0 -and $onlyDisk.Count -eq 0) { return }
     $fmt = { param($list) $shown = @($list | Select-Object -First 5); ($shown -join ', ') + $(if ($list.Count -gt 5) { ", …і ще $($list.Count - 5)" } else { '' }) }
-    throw ("Індекс '$prefix' не збігається з деревом на диску після git add — коміт не створено (спека 2026-10-04 §4.1; " +
+    throw ("Індекс '$prefix' не збігається з деревом на диску після git add — коміт не створено (" +
            'ймовірна причина — перейменування лише регістром, яке git на Windows не розпізнав). ' +
            "Лише в індексі ($($onlyIndex.Count)): $(& $fmt $onlyIndex). Лише на диску ($($onlyDisk.Count)): $(& $fmt $onlyDisk).")
 }

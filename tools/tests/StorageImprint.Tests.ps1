@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'StorageImprint.psm1 — запис, читання і звірка відбитка (Task 8, task-8-brief.md)' {
+Describe 'StorageImprint.psm1 — запис, читання і звірка відбитка' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageImprint.psm1").Path -Force
@@ -146,7 +146,7 @@ Describe 'StorageImprint.psm1 — ключ джерела не виводить 
     }
 
     It 'ключ із сегментом ".." відхиляється ДО звернення до сховища, і нічого не створено' {
-        # Рев'ю Task 8: ключ джерела приходить із v8storagekit.yaml без перевірки на шляхоподібність
+        # Ключ джерела приходить із v8storagekit.yaml без перевірки на шляхоподібність
         # (Manifest.psm1 звіряє лише шлях воркспейсу), а сусідній запис у sync.psm1 той самий ключ
         # через Assert-SafeWorkPath проганяє. -StoragePath навмисно неіснуючий: якщо зупинка
         # спрацювала до Get-KitStorageActivity, його відсутність ролі не грає — а якщо перевірку

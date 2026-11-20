@@ -117,7 +117,7 @@ Describe 'Resolve-Author' {
     }
 
     It 'кидає виняток з поясненням причини, а не звинувачує AUTHORS, коли автор порожній' {
-        # Порожній User — ознака обрізаного/пошкодженого звіту сховища (Task 2), а не
+        # Порожній User — ознака обрізаного/пошкодженого звіту сховища, а не
         # "автора немає в AUTHORS". Це різні проблеми з різними виправленнями, тому
         # перевіряємо саме зміст повідомлення, а не сам факт винятку.
         $map = Read-AuthorMap -Path $script:MapFile
@@ -127,7 +127,7 @@ Describe 'Resolve-Author' {
     }
 }
 
-Describe 'AUTHORS: рядок на версію (спека 2026-09-30 §6.8)' {
+Describe 'AUTHORS: рядок на версію' {
     It 'рядок на версію читається поруч із рядком на логін' {
         $p = Join-Path $TestDrive 'a-ver.txt'
         Set-Content -LiteralPath $p -Encoding UTF8 -Value @('Робоча база=Спільна Особа <s@x.invalid>', 'base#69=Іван Петренко <ivan@x.invalid>')

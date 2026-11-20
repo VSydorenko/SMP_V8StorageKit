@@ -17,7 +17,7 @@ function Read-V8Project {
     .SYNOPSIS
         Читає v8project.yaml Уніки — рівно ті поля, від яких залежить kit.
     .DESCRIPTION
-        Kit не припускає розкладки воркспейсу (спека §2.3): де лежить cfe/src, cf/src чи src,
+        Kit не припускає розкладки воркспейсу: де лежить cfe/src, cf/src чи src,
         каже цей файл. Тому кожен source-set мусить мати name/type/path, а type — бути з
         відомого списку. Шляхи повертаються і відносними (для .gitignore/.gitattributes і
         RepoPath), і абсолютними (для файлових операцій), розв'язаними від теки самого
@@ -90,7 +90,7 @@ function Read-V8ProjectLocalInfobase {
     .SYNOPSIS
         infobases.origin з v8project.local.yaml → {Connection; User; Password; Dbms} або $null.
     .DESCRIPTION
-        Єдина форма бази агента в kit 1.5.0 (спека 2026-10-11 §4.3 п. 2–3, рішення 9): та сама, з
+        Єдина форма бази агента в kit 1.5.0: та сама, з
         якої базу бере Уніка. Старої infobase: kit не читає зовсім — вона знахідка
         Get-V8ProjectConfigProblems, а не запасне читання. $null — бази не налаштовано на цій
         машині (свіжий клон): що це означає, вирішує викликач за типами наборів воркспейсу
@@ -141,7 +141,7 @@ function Get-V8ProjectConfigProblems {
     .SYNOPSIS
         Знахідки конфігу воркспейсу, з яким kit не працює (чи працює не тим виконавцем), — кожна з рецептом.
     .DESCRIPTION
-        Одне місце правил (спека 2026-11-19 §3.8): префлайт перетворює кожен рядок на fail 'workspace', тож
+        Одне місце правил: префлайт перетворює кожен рядок на fail 'workspace', тож
         на такому конфігу зупиняється БУДЬ-ЯКА команда kit, а kit check показує всі рядки разом. Сумісних
         читань немає: стара форма — це знахідка, не другий шлях.
 
@@ -149,7 +149,7 @@ function Get-V8ProjectConfigProblems {
         designer. Ключі, які відхиляє сам раннер (builder, execution_timeout, basePath,
         push.partialLoadThreshold…), kit НЕ дублює: раннер скаже про них точніше й сам, а перелік у kit
         застарівав би з кожною його версією. Ключ tools.platform.version Уніка дописує в
-        v8project.local.yaml сама — це не знахідка (спека §7.1).
+        v8project.local.yaml сама — це не знахідка.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Directory)
@@ -195,13 +195,13 @@ function Get-V8ProjectConfigProblems {
         if ($file.Committed) {
             $providers = if ($data.Contains('providers')) { $data['providers'] } else { $null }
             if ($providers -isnot [System.Collections.IDictionary]) {
-                $problems.Add("${p}: немає providers — запис і завантаження бази агента мусить робити один виконавець (інваріант C1; дефект раннера #459). Додайте: providers: { push: designer, pull: designer, download: designer }.")
+                $problems.Add("${p}: немає providers — запис і завантаження бази агента мусить робити один виконавець (дефект раннера #459). Додайте: providers: { push: designer, pull: designer, download: designer }.")
             } else {
                 foreach ($op in 'push', 'pull', 'download') {
                     $v = if ($providers.Contains($op)) { [string]$providers[$op] } else { '' }
                     if ($v -ne 'designer') {
                         $shown = if ($v) { "'$v'" } else { 'відсутній' }
-                        $problems.Add("${p}: providers.$op — $shown, потрібно designer (інваріант C1; агентський режим раннера на Windows не заміряний, #429).")
+                        $problems.Add("${p}: providers.$op — $shown, потрібно designer (агентський режим раннера на Windows не заміряний, #429).")
                     }
                 }
             }
@@ -245,7 +245,7 @@ function Get-KitRunnerMemoryPath {
         Тека пам'яті раннера для бази воркспейсу: <тека v8project.yaml>/.local/infobases/<база>.
     .DESCRIPTION
         Єдине місце, де kit знає, де раннер (0.18) веде пам'ять бази — hashes/, dump-info/,
-        generation.json (спека 2026-11-19 §4.2 п.15). Не <workPath>/infobases/<база>, як було в 1.5.0:
+        generation.json. Не <workPath>/infobases/<база>, як було в 1.5.0:
         у workPath раннер лишає лише журнали. Kit цю теку НЕ створює й НЕ видаляє — шлях потрібен
         для тексту зупинки provision й аудиту AgentBase.
     #>

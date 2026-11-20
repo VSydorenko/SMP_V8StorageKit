@@ -53,7 +53,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         $ab.PSObject.Properties.Name | Should -Contain 'Dbms'
     }
 
-    It 'П16: воркспейс з EXTENSION без infobases.origin — потребує бази, Resolve-KitAgentBase дає $null' {
+    It 'Воркспейс з EXTENSION без infobases.origin — потребує бази, Resolve-KitAgentBase дає $null' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } })
         $ctx = Invoke-KitPreflight -RepoRoot $repo
@@ -63,7 +63,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         New-KitAgentBaseMissingMessage -WorkspacePath 'Alpha_SMB' | Should -BeLike '*infobases.origin*v8storagekit:infobase-agent*'
     }
 
-    It 'П16: воркспейс лише з EXTERNAL_DATA_PROCESSORS — бази не потребує' {
+    It 'Воркспейс лише з EXTERNAL_DATA_PROCESSORS — бази не потребує' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'epf') -Workspaces ([ordered]@{
             'Epf' = @{ Sets = @(@{ Name = 'external-processors'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } })
         $ctx = Invoke-KitPreflight -RepoRoot $repo
@@ -77,7 +77,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*приберіть infobases.origin*'
     }
 
-    It 'F1-регресія: кінцевий роздільник у File= — раніше текстовий $norm бачив розбіжність у тій самій теці, тепер зупинка' {
+    It 'Регресія: кінцевий роздільник у File= — раніше текстовий $norm бачив розбіжність у тій самій теці, тепер зупинка' {
         # Той самий сценарій, що я прогнав уручну проти старого $norm: 'File=D:\Bases\SMP_UNF\'
         # (з кінцевим \) і 'File=D:\Bases\SMP_UNF' (без) — та сама тека, текстово різні рядки.
         # Стара текстова нормалізація ($norm у AgentBase.psm1 до фіксу) мовчала б тут — принцип 3
@@ -88,8 +88,8 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
         { Resolve-KitAgentBase -Context $ctx -Workspace $ctx.Workspaces[0] } | Should -Throw '*людини*devUNF*'
     }
 
-    It 'F1-регресія: типовий відносний File=build/ib бази агента НЕ кидає, коли в накладці є (інша) дев-база — регрес, знайдений архітектором' {
-        # Дефект, знайдений під час планування F1: правило "відносний File= кидає"
+    It 'Регресія: типовий відносний File=build/ib бази агента НЕ кидає, коли в накладці є (інша) дев-база — регрес, знайдений архітектором' {
+        # Дефект, знайдений під час планування: правило "відносний File= кидає"
         # застосоване до ОБОХ боків ламало б штатну конфігурацію — фікстура за
         # замовчуванням дає саме відносний File=build/ib, і аудит кидав би на КОЖНОМУ
         # прогоні provision, щойно в накладці є хоч одна infobases:. Без цього тесту
@@ -109,7 +109,7 @@ Describe 'AgentBase.psm1 — база агента з вказівника Ун�
     }
 }
 
-Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичність бази, не текст підключення)' {
+Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (ідентичність бази, не текст підключення)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/AgentBase.psm1").Path -Force
     }
@@ -155,7 +155,7 @@ Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичніс�
         { Test-KitInfobasesOverlap -Left 'File=build/ib' -Right 'File=D:\x' } | Should -Throw
     }
 
-    It 'кидаючий виняток називає нерозбірну сторону за походженням, а не рядком (П23)' {
+    It 'кидаючий виняток називає нерозбірну сторону за походженням, а не рядком' {
         $err = $null
         try { Test-KitInfobasesOverlap -Left 'File=build/ib' -Right 'File=D:\x;Pwd=СЕКРЕТ-Ж7SECRETZ7' -LeftOrigin 'ЛІВА-ПОХОДЖЕННЯ' -RightOrigin 'ПРАВА-ПОХОДЖЕННЯ' } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*ЛІВА-ПОХОДЖЕННЯ*'
@@ -171,7 +171,7 @@ Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичніс�
         $err | Should -Not -BeLike '*Z7*'
         $err | Should -Not -BeLike '*D:\*'
     }
-    It 'Srvr у лапках і без лапок — та сама база (§4.3 п. 4)' {
+    It 'Srvr у лапках і без лапок — та сама база' {
         # Властивість безпеки: якби лапки робили запис «іншою базою», аудит «база агента ≠ база
         # людини» пропустив би колізію (мовчазний дозвіл до provision).
         Test-KitInfobasesOverlap -Left 'Srvr="VSDEV";Ref="SMP_UNF";' -Right 'Ref=smp_unf;Srvr=vsdev' | Should -BeTrue
@@ -186,7 +186,7 @@ Describe 'AgentBase.psm1 — Test-KitInfobasesOverlap (F1: ідентичніс�
     }
 }
 
-Describe 'AgentBase.psm1 — аудит бази людини: ПЕРЕТИН, а не рівність тексту (П26 п. 1)' {
+Describe 'AgentBase.psm1 — аудит бази людини: ПЕРЕТИН, а не рівність тексту' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Preflight.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/AgentBase.psm1").Path -Force
@@ -233,7 +233,7 @@ Describe 'AgentBase.psm1 — аудит бази людини: ПЕРЕТИН, �
 
     # memory-both недосяжний через маніфест (воркспейси — теки в корені репозиторію, їхні .local не вкладаються),
     # тож гілку перевіряємо на розв'язаному контексті, де Beta штучно вкладено в пам'ять раннера Alpha.
-    It 'П26 п. 7: Find-KitAgentBaseCollisions — пам''ять раннера Beta (.local/infobases) усередині origin Alpha дає memory-both; шлях 1.5.0 (workPath/infobases) — ні' {
+    It 'Find-KitAgentBaseCollisions — пам''ять раннера Beta (.local/infobases) усередині origin Alpha дає memory-both; шлях 1.5.0 (workPath/infobases) — ні' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }

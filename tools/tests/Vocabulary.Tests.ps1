@@ -1,9 +1,9 @@
 #Requires -Version 7
-Describe 'Запобіжник словника: поверхня Уніки 0.12.3 і інструменти задач 0.13 (спека 2026-10-11 §8, §10 П14; спека 2026-11-19 §8)' {
+Describe 'Запобіжник словника: поверхня Уніки 0.12.3 і інструменти задач 0.13' {
     BeforeAll {
         $script:KitRoot = (Resolve-Path "$PSScriptRoot/../..").Path
         # Повний перелік інструментів MCP unica 0.12.3 (mcp__plugin_unica_unica__unica_<x>_<y>) — знята
-        # поверхня; Уніка 0.13 не має жодного з цих імен і аліасів до них (спека §2.1).
+        # поверхня; Уніка 0.13 не має жодного з цих імен і аліасів до них.
         $script:Removed = @(
             'build_dump', 'build_load', 'build_make', 'build_run', 'build_update',
             'cf_edit', 'cf_info', 'cf_init', 'cf_validate',
@@ -32,11 +32,11 @@ Describe 'Запобіжник словника: поверхня Уніки 0.1
                 '(?:mcp__plugin_unica_unica__)?(?:unica[._])?' + [regex]::Escape($seg[0]) + '[._]' + (($seg[1..($seg.Count - 1)] | ForEach-Object { [regex]::Escape($_) }) -join '[._-]')
             }
             # Інструменти задач Уніки (unica.task.get/result/cancel) — у протоколі MCP 2026-07-28 Уніки 0.16
-            # їх немає в tools/list (спека 2026-11-19 §5 п.1, §7.1 Б3): будь-яка форма — mcp__…unica_task_x,
+            # їх немає в tools/list: будь-яка форма — mcp__…unica_task_x,
             # unica_task_x, unica.task.x. Окремою гілкою, бо в 0.13 ці імена були новою поверхнею.
             '(?<![\w.:$-])(?:' + ($alts -join '|') + ')(?![\w])|operation=|unica:v8-runner|unica[._]task[._]'
         }
-        # Прибрані команди kit 1.6.0 у формі виклику (спека 2026-11-19 §3.2, §3.5, §8): kit.ps1" canon,
+        # Прибрані команди kit 1.6.0 у формі виклику: kit.ps1" canon,
         # kit.ps1" build, kit canon, kit build, -MarkerOnly. Форма виклику, а не голе слово: «канонізація»,
         # «build/artifacts», «make» лишаються законними.
         # МЕЖА: ця заборона НЕ діє на upgrades.md. Розділ переходу «1.4.0 → 1.6.0» законно пише, що
@@ -87,7 +87,7 @@ Describe 'Запобіжник словника: поверхня Уніки 0.1
     It 'на дереві kit — нуль збігів у skills/, templates/ і некоментованому коді tools/' {
         $hits = @(Get-ScannedLines -Root $script:KitRoot | Where-Object { Test-VocabularyHit $_ } |
             ForEach-Object { "$([IO.Path]::GetRelativePath($script:KitRoot, $_.File)):$($_.Line): $($_.Text.Trim())" })
-        $hits | Should -BeNullOrEmpty -Because 'kit 1.6.0 говорить лише мовою Уніки 0.16 (спека 2026-11-19 §4.1, рішення 9 спеки 1.5.0)'
+        $hits | Should -BeNullOrEmpty -Because 'kit 1.6.0 говорить лише мовою Уніки 0.16'
     }
 
     It 'upgrades.md без заголовка «1.4.0 → 1.6.0» — виняток, а не порожній скан' {

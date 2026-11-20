@@ -36,15 +36,15 @@ function Test-KitBranchUnborn {
 function Get-KitStorageActivity {
     <#
     .SYNOPSIS
-        Ознаки активності сховища й розпізнавання «це взагалі сховище 1С» без платформи (спека §5).
+        Ознаки активності сховища й розпізнавання «це взагалі сховище 1С» без платформи.
     .DESCRIPTION
         Коли у сховище останнім разом писали об'єкти — максимальний mtime під data/objects/**
         (LatestObjectWrite) і під data/pack/** (LatestPackWrite) окремо: 1cv8ddb.1CD не
         використовується як індикатор ЧАСУ — він оновлюється при кожному інтерактивному
-        підключенні Конфігуратора (§5), лише як ознака «це взагалі
+        підключенні Конфігуратора, лише як ознака «це взагалі
         сховище» (IsStorage).
 
-        Пакування — норма, не аномалія (§5, «Запаковане сховище»): конфігураційні
+        Пакування — норма, не аномалія: конфігураційні
         сховища тримають по 60 pack-файлів, а розширення можуть мати data/objects порожньою
         цілком, якщо всю історію вже запаковано, — IsStorage тоді все одно $true, і Reason
         порожній (це не привід для скарги session-check). Reason заповнюється лише коли
@@ -161,7 +161,7 @@ function Get-KitStorageBranchLastVersion {
 function Test-KitStorageBranchInvariants {
     <#
     .SYNOPSIS
-        Інваріанти гілки дзеркала (спека §3.2): кожен коміт має Storage-Version і
+        Інваріанти гілки дзеркала: кожен коміт має Storage-Version і
         Storage-Source = ключ; версії строго зростають; батьків не більше одного (корінь —
         нуль); дерево лише під RepoPath. Повертає знахідки; порожньо — усе гаразд.
     #>
@@ -236,12 +236,12 @@ function Test-KitStorageBranchInvariants {
 function Get-KitPendingVersions {
     <#
     .SYNOPSIS
-        Версії зі звіту, які ще не в дзеркалі: перелік із версіями > LastVersion (§3.2), не діапазон.
+        Версії зі звіту, які ще не в дзеркалі: перелік із версіями > LastVersion, не діапазон.
     .DESCRIPTION
         $null у LastVersion — гілки ще немає: реплеїти все. Два запобіжники: дзеркало попереду
         максимуму звіту, і порожній звіт при непорожньому дзеркалі — обидва зупинка, розбір за людиною.
 
-        -FromVersion/-FromLatest (§9.4) — З ЯКОЇ версії почати (незалежно від -MaxVersions —
+        -FromVersion/-FromLatest — З ЯКОЇ версії почати (незалежно від -MaxVersions —
         скільки). Сюди вони приходять лише при LastVersion = $null — це перевіряє sync.psm1
         раніше й дешевше. -FromVersion N лишає версії >= N (ВКЛЮЧНО); -FromLatest — рівно
         найновішу версію звіту. Приклад: -FromVersion 5 -MaxVersions 2 = версії 5 і 6.
@@ -310,7 +310,7 @@ function Get-KitVersionGapNote {
     <#
     .SYNOPSIS
         Інформаційний рядок, коли мінімум серед нових версій > остання + 1 — сховище оптимізували
-        до того, як ми забрали проміжні (§3.2). Не помилка.
+        до того, як ми забрали проміжні. Не помилка.
     #>
     [CmdletBinding()]
     param(
@@ -328,7 +328,7 @@ function Get-KitVersionGapNote {
 function New-KitStorageCommitMessage {
     <#
     .SYNOPSIS
-        Повідомлення коміту версії сховища: коментар версії + трейлери (§3.1).
+        Повідомлення коміту версії сховища: коментар версії + трейлери.
         Storage-User — сирий рядок зі звіту, окремо від git-автора (docs/storage-and-git.md, «Три трейлери»).
     #>
     [CmdletBinding()]
@@ -378,7 +378,7 @@ function New-KitStorageCommitMessage {
 function New-KitStorageWorktree {
     <#
     .SYNOPSIS
-        Worktree гілки дзеркала під build/sync: orphan, якщо гілки ще немає (§3.3, шар 1).
+        Worktree гілки дзеркала під build/sync: orphan, якщо гілки ще немає.
     .DESCRIPTION
         Робоча копія й поточна гілка людини не торкаються взагалі — тому запобіжник «чиста
         робоча копія перед -Apply» тут не потрібен. Залишок
@@ -454,11 +454,11 @@ function Write-KitStorageVersion {
         та сама гарантія, яку в main дає -text. ConfigDumpInfo.xml і DumpFilesIndex.txt —
         службові файли платформи, у дзеркалі їх немає (у споживача вони й так у .gitignore).
         Тека поставки вендора Ext/ParentConfigurations (.cf на сотні МБ і позначка .kit-bin-sha1) у
-        дзеркало не потрапляє: лишається лише .bin (§5.2, ліміт GitHub 100 МБ на файл).
-        V8KIT_SYNC=1 — контракт §3.3 (дозвіл для хука pre-commit), не механізм: в orphan-worktree дзеркала хука
+        дзеркало не потрапляє: лишається лише .bin (ліміт GitHub 100 МБ на файл).
+        V8KIT_SYNC=1 — контракт (дозвіл для хука pre-commit), не механізм: в orphan-worktree дзеркала хука
         немає (у дереві немає .githooks), але змінна виставляється завжди, щоб коміт був законним і там,
         де хук є. Індекс піддерева знімається (`rm --cached`) перед `add -A` і звіряється з диском до
-        коміту — перейменування лише регістром (§4.1). Дати автора й
+        коміту — перейменування лише регістром. Дати автора й
         комітера — дата версії сховища. --allow-empty: сусідні версії можуть дати однаковий дамп,
         а коміт — єдиний носій автора, дати й коментаря версії.
     #>
@@ -479,7 +479,7 @@ function Write-KitStorageVersion {
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
 
-    # Поставка вендора (§5.2): у worktree дзеркала немає .gitignore, і
+    # Поставка вендора: у worktree дзеркала немає .gitignore, і
     # `git add -A` нижче забрав би .cf на 0,5–1,1 ГБ у коміт storage/<ключ> — push на GitHub
     # відмовить (ліміт 100 МБ на файл). У дзеркалі лишається лише .bin (ознаки підтримки).
     # Для розширень і конфігурацій без підтримки теки немає — виклик нічого не робить.
@@ -493,7 +493,7 @@ function Write-KitStorageVersion {
     Set-Content -LiteralPath $msgFile -Value $Message -Encoding UTF8 -NoNewline
 
     try {
-        # Індекс піддерева — наново з того, що вивантажила платформа (§4.1). Без
+        # Індекс піддерева — наново з того, що вивантажила платформа. Без
         # цього `add -A` при core.ignorecase=true лишає запис старого регістру: git складає регістр
         # лише ASCII (memihash), а lstat старого шляху на NTFS успішний — кирилична зміна регістру
         # дає фантом поруч із новим шляхом, ASCII — губить новий регістр. Дамп платформи
@@ -503,7 +503,7 @@ function Write-KitStorageVersion {
 
         # -f: файл дерева платформи мусить потрапити в індекс, навіть якщо його ігнорує .git/info/exclude
         # (спільний для всіх worktree) чи core.excludesFile користувача: інакше rm --cached вище мовчки
-        # знімає з відстеження відстежуваний раніше файл (§4.1).
+        # знімає з відстеження відстежуваний раніше файл.
         # Службові файли й поставка прибрані з диска раніше, тож -f їх не втягне.
         $addOut = git -C $WorktreePath -c core.autocrlf=false -c core.safecrlf=false add -A -f -- $RepoPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git add у worktree завершився з кодом ${LASTEXITCODE}: $($addOut -join "`n")" }
@@ -536,7 +536,7 @@ function Write-KitStorageVersion {
 function Get-KitVerifyVersion {
     <#
     .SYNOPSIS
-        Версія сховища, з якою порівнювати <Ref> (спека §3.5): трейлер коміту
+        Версія сховища, з якою порівнювати <Ref>: трейлер коміту
         git merge-base <Ref> storage/X. Для Ref = storage/X — вершина. Версії на дзеркалі
         після merge-base — окремо, як інформація «сховище попереду».
     #>

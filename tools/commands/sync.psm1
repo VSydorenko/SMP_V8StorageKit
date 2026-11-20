@@ -4,12 +4,12 @@ Set-StrictMode -Version Latest
 # Lib-модулі вже імпортував kit.ps1 (module-order.txt); тут — лише оркестрація.
 # Платформний шар «версія сховища → дамп» — StoragePlatform.psm1 (спільний із verify). Дамп іде в
 # базі агента воркспейсу (Get-KitSourceInfobase); тимчасова ІБ (New-KitStorageInfobase) — лише
-# запасний шлях для розширення, якого ще немає в базі агента (§6.9).
+# запасний шлях для розширення, якого ще немає в базі агента.
 
 function Sort-KitSyncSources {
     <#
     .SYNOPSIS
-        Порядок sync (§5.4): усередині воркспейсу CONFIGURATION першим — після
+        Порядок sync: усередині воркспейсу CONFIGURATION першим — після
         нього в базі агента остання перенесена версія основної конфігурації, і розширення
         вивантажуються на ній, а не на стані гілки задачі. Воркспейси й розширення — у порядку
         маніфесту. Явний цикл, а не Sort-Object: стабільність тут — контракт, а не деталь.
@@ -26,7 +26,7 @@ function Sort-KitSyncSources {
 function Invoke-KitMainMerge {
     <#
     .SYNOPSIS
-        Перше злиття дзеркала в цільову гілку (§3.4; типово головна, інша — -MergeInto). Невдача
+        Перше злиття дзеркала в цільову гілку (типово головна, інша — -MergeInto). Невдача
         злиття не скасовує реплею: дзеркало вже оновлено, і людина може повторити злиття
         командою з підказки.
     #>
@@ -37,7 +37,7 @@ function Invoke-KitMainMerge {
         Write-Host "  Гілки '$Into' ще немає — злиття пропущено. Створіть її (перший коміт) і повторіть: $retry" -ForegroundColor Yellow
         return $false
     }
-    # Запобіжник (§6.3.4): ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка:
+    # Запобіжник: ПЕРШЕ злиття в гілку без маніфесту — майже напевно не та гілка:
     # злиття пройде чисто, але покладе дерево на гілку, де kit не підключено.
     if (-not (Test-KitBranchMergedInto -RepoRoot $Context.RepoRoot -Branch $Source.Branch -Into $Into)) {
         git -C $Context.RepoRoot cat-file -e "${Into}:v8storagekit.yaml" 2>$null
@@ -81,7 +81,7 @@ function Format-KitPlatformList {
 function New-KitDumpStopMessage {
     <#
     .SYNOPSIS
-        Текст зупинки §4.1 (спека 1.3.1): основна платформа не вивантажує версію. Версія платформи —
+        Текст зупинки: основна платформа не вивантажує версію. Версія платформи —
         з Data.PlatformPath (та, що справді впала); перелік платформ і команди виходу — з оточення.
     #>
     param(
@@ -94,7 +94,7 @@ function New-KitDumpStopMessage {
     $n = [int]$d['Version']
     $mainPath = [string]$d['PlatformPath']
     $mainVer = Get-KitPlatformVersionFromPath -Path $mainPath
-    # Збій переліку платформ не має ховати відповідь платформи: текст §4.1 виходить усе одно.
+    # Збій переліку платформ не має ховати відповідь платформи: текст зупинки виходить усе одно.
     $installed = @()
     $listError = $null
     try { $installed = @(Get-KitInstalledPlatforms) } catch { $listError = $_.Exception.Message }
@@ -111,7 +111,7 @@ function New-KitDumpStopMessage {
         foreach ($l in (Format-KitPlatformList -Platforms $installed -MainPath $mainPath)) { $lines.Add($l) }
     }
     if ($null -ne $PendingSkip) {
-        # §6.2: пропуск N активний і коміту ще не було — команди для N+1 відхилила б §6.1.2/§6.1.5,
+        # Пропуск N активний і коміту ще не було — команди для N+1 відхилила б перевірка -ForVersion/-SkipVersion,
         # тож їх не радимо; рішення — за людиною.
         $lines.Add("Пропуск версії $PendingSkip активний, але версія $n у цьому ж прогоні теж не вивантажується: поєднання пропуску $PendingSkip з вивантаженням іншою платформою чи з пропуском $n у 1.3.1 не підтримується.")
         $lines.Add("Пропуск версії $PendingSkip не відбувся (коміту з Storage-Skipped немає); дзеркало лишилось на версії $LastCommitted. Рішення — за людиною.")
@@ -132,19 +132,19 @@ function New-KitDumpStopMessage {
 function Invoke-KitSync {
     <#
     .SYNOPSIS
-        Реплей нових версій кожного джерела truth: storage у гілку storage/<ключ> (спека §3, §5).
+        Реплей нових версій кожного джерела truth: storage у гілку storage/<ключ>.
     .DESCRIPTION
         Пише відбиток сховища (build/session-check/<ключ>.json, StorageImprint.psm1) одразу після
         читання звіту — і в прев'ю теж: build/ — гітігнорована робоча тека машини, не git, не
         сховище й не дев-база, тож контракт «прев'ю нічого не змінює» не порушено. Без відбитка
         session-check платив би повним прогоном платформи за кожну відповідь про те саме сховище.
 
-        -FromVersion N / -FromLatest (§9.4) — з якої версії почати ПЕРШИЙ реплей порожньої гілки
+        -FromVersion N / -FromLatest — з якої версії почати ПЕРШИЙ реплей порожньої гілки
         (вісь «звідки», незалежна від -MaxVersions — «скільки»). Без них перший реплей великого
         сховища фізично неможливий. Застосовні лише поки на вершині storage/<ключ> немає трейлера
         Storage-Version — інакше зупинка з поясненням, а не тихе ігнорування. Взаємовиключні.
 
-        Порядок (§5.4): усередині воркспейсу спершу джерела CONFIGURATION, далі
+        Порядок: усередині воркспейсу спершу джерела CONFIGURATION, далі
         решта в порядку маніфесту; воркспейси — у порядку маніфесту. Коли вибірка містить
         EXTENSION воркспейсу з CONFIGURATION під truth: storage, а саму CONFIGURATION до
         вибірки не потрапило, друкується попередження (не зупинка) — один раз на воркспейс.
@@ -153,9 +153,9 @@ function Invoke-KitSync {
         маніфесту). Запобіжник: якщо дзеркало ще не злите в цільову гілку, а в ній немає
         v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 2).
 
-        -DumpPlatform <версія> -ForVersion N (спека 1.3.1 §4.3) — версію N основної конфігурації
+        -DumpPlatform <версія> -ForVersion N — версію N основної конфігурації
         вивантажує інша встановлена платформа (через .cf), коміт несе трейлер
-        Storage-Dump-Platform. -SkipVersion N (§4.4) — версію N не переносити зовсім; наступний
+        Storage-Dump-Platform. -SkipVersion N — версію N не переносити зовсім; наступний
         коміт несе Storage-Skipped. Обидва — лише для першої неперенесеної версії, лише з -Source;
         -DumpPlatform — лише для CONFIGURATION; -DumpPlatform/-ForVersion і -SkipVersion взаємовиключні. Усі
         перевірки — до першого UpdateCfg; у прев'ю обрана платформа не викликається.
@@ -188,7 +188,7 @@ function Invoke-KitSync {
         throw "Значення -FromVersion має бути додатним номером версії сховища, отримано: $FromVersion."
     }
 
-    # -DumpPlatform/-ForVersion/-SkipVersion (§4.3, §4.4, §6.1) — теж до Select-KitSources.
+    # -DumpPlatform/-ForVersion/-SkipVersion — теж до Select-KitSources.
     $hasDump = -not [string]::IsNullOrWhiteSpace($DumpPlatform)
     $hasFor  = $null -ne $ForVersion
     $hasSkip = $null -ne $SkipVersion
@@ -227,8 +227,8 @@ function Invoke-KitSync {
         }
     }
 
-    # Платформу для пакетних операцій у базі агента обирає раннер, не Get-V8Path (§3.6 п.4, §4.2 п.14,
-    # п.20); раннера немає — зупинка до звернення до платформи. Платформа кешується на воркспейс і далі
+    # Платформу для пакетних операцій у базі агента обирає раннер, не Get-V8Path;
+    # раннера немає — зупинка до звернення до платформи. Платформа кешується на воркспейс і далі
     # іде явним -V8Path. Шлях раннера — ліниво: у циклі ПІСЛЯ Get-KitSourceInfobase (його дешеві
     # запобіжники — першими), для -DumpPlatform — нижче.
     $runner = $RunnerPath
@@ -264,7 +264,7 @@ function Invoke-KitSync {
         Write-Host "  УВАГА: git fetch origin не вдався (код $($fetch.ExitCode)) — стан origin може бути застарілим." -ForegroundColor Yellow
     }
 
-    # Попередження §5.4: розширення без основної конфігурації воркспейсу, що йде під storage, —
+    # Попередження: розширення без основної конфігурації воркспейсу, що йде під storage, —
     # вивантажуватимуться на тому стані, що зараз у базі агента. Не зупинка.
     foreach ($wsName in @($sources.Workspace | Select-Object -Unique)) {
         $ws = @($Context.Workspaces | Where-Object Path -eq $wsName)[0]
@@ -305,8 +305,8 @@ function Invoke-KitSync {
             # дешевий і стоїть до створення робочої теки.
             $agent = Get-KitSourceInfobase -Context $Context -Source $src
 
-            # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту
-            # (§3.2), і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
+            # Навмисно без try/catch: вершина storage/* без числового Storage-Version — це порушення інваріанту дзеркала,
+            # і виняток із текстом «гілку писав не sync. Розбір: kit check» І Є штатною зупинкою sync.
             # Загортати його в інше повідомлення чи вгадувати стан — не можна.
             $last = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $src.Branch
             # Рядок враховує обрану глибину першого реплею (-FromVersion/-FromLatest).
@@ -356,7 +356,7 @@ function Invoke-KitSync {
             }
             $v8Path = $platformByWs[$agent.Workspace]
             Write-Host "Платформа:  $(Get-KitPlatformVersionFromPath -Path $v8Path) (обрав раннер)"
-            # agent release — перед кожною пакетною операцією в базі агента (§3.6 п.1): раннер тримає
+            # agent release — перед кожною пакетною операцією в базі агента: раннер тримає
             # зв'язок із базою, і платформа в неї не ввійде. released:false — норма, без друку.
             $null = Invoke-KitAgentRelease -Project $agent.Project -RunnerPath $runner
             Write-Host 'Читаю історію сховища...'
@@ -366,7 +366,7 @@ function Invoke-KitSync {
                     -ExtensionName $(if ($src.Type -eq 'EXTENSION') { $src.Key } else { '' }) `
                     -StorageUser $src.StorageUser -StoragePassword $src.StoragePassword -WorkDir $workDir -V8Path $v8Path -User $ibUser -Password $ibPassword
             } catch {
-                # §6.9: розширення, якого ще немає в базі агента, — не зупинка, а весь прогін джерела
+                # Розширення, якого ще немає в базі агента, — не зупинка, а весь прогін джерела
                 # у тимчасовій порожній ІБ із заглушкою. Лише EXTENSION: для основної конфігурації база
                 # агента — єдиний законний контекст. Будь-яка інша помилка звіту — зупинка.
                 if ($src.Type -ne 'EXTENSION' -or -not (Test-KitExtensionNotFound -Output $_.Exception.Message)) { throw }
@@ -395,8 +395,8 @@ function Invoke-KitSync {
 
             $skipShow = $null
             if ($hasFor -or $hasSkip) {
-                # §4.3/§6.1.2: і -ForVersion, і -SkipVersion — лише для ПЕРШОЇ неперенесеної версії, тож
-                # дивимось на перелік без -MaxVersions (він пропущену не рахує, §4.4). Усі зупинки —
+                # І -ForVersion, і -SkipVersion — лише для ПЕРШОЇ неперенесеної версії, тож
+                # дивимось на перелік без -MaxVersions (він пропущену не рахує). Усі зупинки —
                 # до першого UpdateCfg і до перевірки авторів (для пропущеної автор не потрібен).
                 $pendingAll = Get-KitPendingVersions -AllVersions $all -LastVersion $last `
                     -FromVersion $FromVersion -FromLatest:$FromLatest
@@ -446,7 +446,7 @@ function Invoke-KitSync {
                 continue
             }
 
-            # §6.8: автор — на логін АБО на конкретну версію (спільний логін в AUTHORS не вносять).
+            # Автор — на логін АБО на конкретну версію (спільний логін в AUTHORS не вносять).
             # Рядок-заготовка — «<ключ>=Ім'я <пошта>» без хвоста: за цим шаблоном його впізнає
             # Complete-Authors у тестах. Без @(...) навколо виклику: функція повертає масив унарною
             # комою, і @() дав би масив з одного масиву — Group-Object не побачив би .User.
@@ -478,7 +478,7 @@ function Invoke-KitSync {
             Write-Host "До перенесення версій: $($pending.Count)"
             foreach ($v in @(if ($null -ne $skipShow) { $skipShow }) + @($pending)) {
                 $isSkipped = $null -ne $skipShow -and $v.Version -eq $skipShow.Version
-                # Для пропущеної версії автор не потрібен (§4.4) — Resolve-Author на ній міг би зупинити.
+                # Для пропущеної версії автор не потрібен — Resolve-Author на ній міг би зупинити.
                 $authorName = if ($isSkipped) { '—' } else { (Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version).Name }
                 $first  = ($v.Comment -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
                 if (-not $first) { $first = "Версія сховища $($v.Version)" }
@@ -514,7 +514,7 @@ function Invoke-KitSync {
                         $author = Resolve-Author -Map $authors -StorageUser $v.User -SourceKey $src.Key -Version $v.Version
                         Write-Host "→ версія $($v.Version) ($($author.Name), $($v.Date))"
 
-                        # Зупинка §4.1: основна платформа не вивантажила версію ПІСЛЯ успішного
+                        # Зупинка: основна платформа не вивантажила версію ПІСЛЯ успішного
                         # UpdateCfg — розпізнаваний виняток стає текстом із виходами; worktree прибере finally,
                         # коміти попередніх версій лишаються, часткового коміту цієї версії немає.
                         # Збій ОБРАНОЇ платформи — звичайний виняток, не розпізнаваний: його не перекладаємо.
@@ -578,7 +578,7 @@ function Invoke-KitSync {
                 }
 
         } finally {
-            # Крок для КОЖНОГО зсунутого набору (§3.1): зсунутий, щойно почалось перше оновлення бази агента
+            # Крок для КОЖНОГО зсунутого набору: зсунутий, щойно почалось перше оновлення бази агента
             # ($shifted), а не за кількістю перенесених версій — UpdateCfg міг пройти, а дамп впасти. Крок
             # друкується й коли обробка джерела кинула виняток (виняток летить далі незмінним): інакше база
             # тримала б версію сховища, а git — іншу. OnMainBranch лише обирає варіант рецепту поставки.

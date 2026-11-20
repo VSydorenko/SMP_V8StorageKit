@@ -1,5 +1,5 @@
-# Спільна підготовка для розрізаних файлів SessionCheck.*.Tests.ps1 (Task 7, "Швидкість
-# набору тестів") — дослівний перенос тіла BeforeAll з колишнього SessionCheck.Tests.ps1:3-63.
+# Спільна підготовка для розрізаних файлів SessionCheck.*.Tests.ps1 —
+# спільне тіло BeforeAll цих файлів.
 # Підключається DOT-SOURCE із BeforeAll кожного файлу, не Import-Module: перенесені
 # хелпери користуються $TestDrive (Pester-змінна поточного тестового прогону) і
 # function script:, а New-Repo кличе Merge-KitBranchInto з GitMerge.psm1, імпортований
@@ -7,12 +7,12 @@
 # Import-Module, яку описує великий коментар у KitFixtures.psm1 і docs/follow-ups.md §5.
 #
 # $PSScriptRoot тут — власна тека ЦЬОГО файлу (tools/tests/fixtures/), А НЕ виклика (як і в
-# CheckSetup.ps1, Task 6) — звідси подвійний "..": до tools/tests/SessionCheck.Tests.ps1
-# ходило "$PSScriptRoot/../lib", а звідси, з fixtures/, треба на рівень глибше:
+# CheckSetup.ps1) — звідси подвійний "..": з tools/tests/ шлях до lib був би
+# "$PSScriptRoot/../lib", а звідси, з fixtures/, треба на рівень глибше:
 # "$PSScriptRoot/../../lib".
 Import-Module (Resolve-Path "$PSScriptRoot/KitFixtures.psm1").Path -Force
 Import-Module (Resolve-Path "$PSScriptRoot/../../lib/GitMerge.psm1").Path -Force
-# Task 8: StorageImprint.psm1 — записуємо відбиток напряму в тестах (без реального kit
+# StorageImprint.psm1 — записуємо відбиток напряму в тестах (без реального kit
 # sync), щоб перевірити ГІЛКУ ВІДБИТКА session-check ізольовано від платформи.
 Import-Module (Resolve-Path "$PSScriptRoot/../../lib/StorageBranch.psm1").Path -Force
 Import-Module (Resolve-Path "$PSScriptRoot/../../lib/StorageImprint.psm1").Path -Force
@@ -20,7 +20,7 @@ $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
 
 # Фейкове сховище: 1cv8ddb.1CD + data/objects/* (типово) і опційно data/pack/* (-PackWrite).
 # -NoObjectFile — сховище, де всю історію вже запаковано: data/objects лишається без
-# жодного файла (Task 8, спека 9f6ad5e §5, «Запаковане сховище»). Шлях підставляється
+# жодного файла (запаковане сховище). Шлях підставляється
 # накладкою (storages:).
 function script:New-FakeStorage {
     param([string]$Name, [datetime]$ObjectsWrite, [datetime]$DbWrite, [datetime]$PackWrite, [switch]$NoObjectFile)
@@ -57,11 +57,11 @@ function script:New-Repo {
         if ($Merge) { Merge-KitBranchInto -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Into 'main' -Message 'перше' -AllowUnrelated | Out-Null }
     }
     # Слід фікстури: worktree remove прибирає wt, а порожню build/sync лишає — щоб твердження
-    # «session-check не створює тек» перевіряло команду, а не фікстуру (P2 префлайту B3).
+    # «session-check не створює тек» перевіряло команду, а не фікстуру.
     Remove-Item -LiteralPath (Join-Path $repo 'build') -Recurse -Force -ErrorAction SilentlyContinue
     $repo
 }
-# Task 5/7: тонка обгортка над спільним Invoke-KitCommand (KitFixtures.psm1) — та сама форма
+# Тонка обгортка над спільним Invoke-KitCommand (KitFixtures.psm1) — та сама форма
 # виклику (session-check -RepoRoot $Repo @More), той самий Output/ExitCode, що й раніше.
 function script:Invoke-SessionCheck {
     param([string]$Repo, [string[]]$More = @())

@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync/verify — платформу для бази агента обирає раннер, перед платформою agent release (Unica 0.16, спека 2026-11-19 §3.6 п.1, п.4, §4.2 п.14, п.20)' {
+Describe 'kit sync/verify — платформу для бази агента обирає раннер, перед платформою agent release (Unica 0.16)' {
     # Обидві команди викликаються в цьому процесі, платформа й раннер мокаються за -ModuleName команди:
     # sync.psm1 / verify.psm1 кличуть Get-KitRunnerPath, Get-KitAgentPlatform, Invoke-KitAgentRelease прямо.
     # Нижче — платформний шар: Invoke-V8Designer мокається в StoragePlatform (UpdateCfg, дамп), звіт —
@@ -76,7 +76,7 @@ Describe 'kit sync/verify — платформу для бази агента о
         }
     }
 
-    It 'sync -Apply: звіт і кожен виклик платформи отримують платформу раннера, Get-V8Path не кликається (контроль §8)' {
+    It 'sync -Apply: звіт і кожен виклик платформи отримують платформу раннера, Get-V8Path не кликається' {
         $repo = New-MirroredPlatformRepo 'sync-apply'
         $text = & { $null = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
         # UpdateCfg + DumpConfigToFiles однієї версії; жодного виклику без платформи раннера.

@@ -1,7 +1,7 @@
 #Requires -Version 7
 # Модуль повністю в процесі: без підпроцесів, без git, без реальних *.Tests.ps1 із дерева —
 # синтетичні входи під $TestDrive. Має відпрацьовувати за десятки мілісекунд (не хвилини,
-# як наскрізні Check.Tests.ps1/Sync.Tests.ps1).
+# як наскрізні групи Check.*.Tests.ps1/Sync.*.Tests.ps1).
 BeforeAll {
     Import-Module "$PSScriptRoot/lib/TestRunner.psm1" -Force
 }

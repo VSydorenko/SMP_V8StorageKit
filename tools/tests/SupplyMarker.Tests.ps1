@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit supply-marker (§10 П5; колишній режим -MarkerOnly команди canon)' {
+Describe 'kit supply-marker (колишній режим -MarkerOnly команди canon)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -37,7 +37,7 @@ Describe 'kit supply-marker (§10 П5; колишній режим -MarkerOnly �
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*немає .cf*pull*force:true*'
     }
-    It 'брудне дерево — код 1, позначку не записано (запасна гілка §4.1)' {
+    It 'брудне дерево — код 1, позначку не записано (запасна гілка)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-dirty') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
         $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
         Remove-Item -LiteralPath $marker -Force
@@ -47,7 +47,7 @@ Describe 'kit supply-marker (§10 П5; колишній режим -MarkerOnly �
         $r.Output | Should -BeLike '*брудне*доповідь*'
         Test-Path -LiteralPath $marker | Should -BeFalse
     }
-    It 'стара позначка на місці (stale) — код 1, позначку не переписано (§10.1 П22: .cf цим pull не перевивантажувався)' {
+    It 'стара позначка на місці (stale) — код 1, позначку не переписано (.cf цим pull не перевивантажувався)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mo-stale') -Workspaces $script:StorageWs -WithSupply -WithGitignore -WithHooks
         $marker = Join-Path $repo 'Alpha_SMB/cf/src/Ext/ParentConfigurations/.kit-bin-sha1'
         [System.IO.File]::WriteAllText($marker, 'deadbeef')

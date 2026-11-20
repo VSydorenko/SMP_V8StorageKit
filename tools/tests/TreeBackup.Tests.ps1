@@ -67,7 +67,7 @@ Describe 'TreeBackup.psm1 — знімок незакоміченого пере
     }
 }
 
-Describe 'Get-KitInvisibleWork -WholeTreeDerived — прямий юніт-тест (фікс-раунд 1, Minor)' {
+Describe 'Get-KitInvisibleWork -WholeTreeDerived — прямий юніт-тест' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path -Force
@@ -94,8 +94,8 @@ Describe 'Get-KitInvisibleWork -WholeTreeDerived — прямий юніт-те�
     }
 }
 
-Describe 'Get-KitDirtyRecords і Get-KitInvisibleWork — межі набору й невидима робота (спека §10.2 П24)' {
-    # Перенесено з UnicaStep.Tests.ps1, де їх тримав критерій вирівнювання (його знято, спека 2026-11-19 §3.1):
+Describe 'Get-KitDirtyRecords і Get-KitInvisibleWork — межі набору й невидима робота' {
+    # Перенесено з UnicaStep.Tests.ps1, де їх тримав критерій вирівнювання (його знято):
     # самі функції досі стережуть canon, adopt і dump від втрати роботи агента.
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force

@@ -24,7 +24,7 @@ function Assert-SafeWorkPath {
         - нормалізований $Path не є ВЛАСНЕ підтекою $MustBeUnder (рівність з межею —
           саме той порожній-sourcePath випадок — теж відхиляється, не тільки вихід за неї);
         - будь-який наявний компонент від $MustBeUnder (не включно) до $Path (включно) є посиланням — reparse point
-          (П25: kit нічого не видаляє крізь посилання; ціль посилання у виняток не потрапляє). Перевірка йде від -RepoRoot (не включно),
+          (kit нічого не видаляє крізь посилання; ціль посилання у виняток не потрапляє). Перевірка йде від -RepoRoot (не включно),
           якщо шлях усередині репо, інакше від -MustBeUnder; посиланням може бути лише -OwnedRoot (див. нижче).
     .EXAMPLE
         Assert-SafeWorkPath -Path $sourceDir -MustBeUnder $productPath -Description "sourceDir продукту $Product"
@@ -98,7 +98,7 @@ function Get-KitDirectoryEntriesNoLinks {
     .SYNOPSIS
         Усі файли й теки під текою, не заходячи в посилання (junction/symlink) — перерахунок для зняття ReadOnly.
     .DESCRIPTION
-        Правило закріплене кодом, а не поведінкою .NET (П26, M-1): два виміри розійшлися, чи
+        Правило закріплене кодом, а не поведінкою .NET: два виміри розійшлися, чи
         EnumerateFileSystemEntries(AllDirectories) перелічує вміст цілі junction. EnumerationOptions:
         RecurseSubdirectories; AttributesToSkip — ЛИШЕ ReparsePoint (умовчання Hidden|System
         пропустило б приховані ReadOnly-файли, і повтор Directory.Delete знову падав би);
@@ -168,7 +168,7 @@ function Remove-KitDirectory {
 function Assert-KitBuildPath {
     <#
     .SYNOPSIS
-        Assert-SafeWorkPath з єдиним коренем власності build/ репозиторію (П25).
+        Assert-SafeWorkPath з єдиним коренем власності build/ репозиторію.
     .DESCRIPTION
         Межа -MustBeUnder — як в Assert-SafeWorkPath; -OwnedRoot завжди <RepoRoot>/build, тож посиланням
         дозволено бути лише самій теці build/. Семантику перевірки не змінює.

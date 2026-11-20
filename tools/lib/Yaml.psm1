@@ -1,7 +1,7 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
-# Єдине місце в kit, де відомо, ЯКИМ парсером читається YAML. Рішення (спека §2.4):
+# Єдине місце в kit, де відомо, ЯКИМ парсером читається YAML. Рішення:
 # модуль powershell-yaml із PSGallery — залежність категорії «Конвеєр». Регекс не витягне
 # flow-стиль маніфесту (`{ truth: vendor, dump: { from: devUNF } }`), а вендорити YamlDotNet.dll
 # у git-розповсюджуваний плагін означало б бінарник у репозиторії.

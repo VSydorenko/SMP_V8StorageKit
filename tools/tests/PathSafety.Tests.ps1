@@ -14,10 +14,10 @@ Describe 'Assert-SafeWorkPath' {
             Should -Not -Throw
     }
 
-    It 'кидає виняток на порожньому рядку — I2: саме цей випадок сьогодні мовчки стирає весь каталог продукту' {
+    It 'кидає виняток на порожньому рядку — саме цей випадок сьогодні мовчки стирає весь каталог продукту' {
         # Join-Path $Boundary '' повертає сам $Boundary — той-таки сценарій із
         # "sourcePath": "" у маніфесті, який реально видаляв весь каталог продукту
-        # разом із негітованим v8project.local.yaml (I2 у фінальному ревʼю).
+        # разом із негітованим v8project.local.yaml.
         $collapsedToBoundary = Join-Path $script:Boundary ''
         { Assert-SafeWorkPath -Path $collapsedToBoundary -MustBeUnder $script:Boundary -RepoRoot $script:Boundary -Description 'sourceDir' } |
             Should -Throw
@@ -124,7 +124,7 @@ Describe 'Запобіжник #34: жодного Remove-Item -Recurse у ко�
     }
 }
 
-Describe 'Assert-SafeWorkPath — kit нічого не видаляє крізь посилання (П25)' {
+Describe 'Assert-SafeWorkPath — kit нічого не видаляє крізь посилання' {
     BeforeAll {
         # Ціль посилання лежить поза межею; у ній файл, вміст якого має пережити будь-який виклик.
         function script:New-OutsideTarget { param([string]$Name)
@@ -164,7 +164,7 @@ Describe 'Assert-SafeWorkPath — kit нічого не видаляє кріз�
     }
 }
 
-Describe 'Assert-SafeWorkPath — корені власності: перевірка посилань іде від кореня репозиторію (П25)' {
+Describe 'Assert-SafeWorkPath — корені власності: перевірка посилань іде від кореня репозиторію' {
     BeforeAll {
         function script:New-PsRepo { param([string]$Name)
             $r = Join-Path $TestDrive $Name
@@ -236,7 +236,7 @@ Describe 'Assert-SafeWorkPath — корені власності: переві�
     }
 }
 
-Describe 'Assert-SafeWorkPath — fail-closed: помилка читання атрибута компонента не дорівнює «посилання немає» (П25)' {
+Describe 'Assert-SafeWorkPath — fail-closed: помилка читання атрибута компонента не дорівнює «посилання немає»' {
     It 'Get-KitComponentAttributes: ненаявний компонент — $null, а не виняток' {
         $r = & (Get-Module PathSafety) { Get-KitComponentAttributes -Path (Join-Path $args[0] 'нема') -Description 'тест' } $TestDrive
         $r | Should -BeNullOrEmpty
@@ -253,7 +253,7 @@ Describe 'Assert-SafeWorkPath — fail-closed: помилка читання а�
     }
 }
 
-Describe 'Remove-KitDirectory — знімається лише посилання, а не його ціль (П25, Minor)' {
+Describe 'Remove-KitDirectory — знімається лише посилання, а не його ціль' {
     # Безпеку тут тримає поведінка .NET (Directory.Delete не заходить у reparse point), не код kit: тест її фіксує.
     It 'вкладений junction усередині видаленої теки: посилання зникає, файли в цілі цілі' {
         $d = Join-Path $TestDrive 'rm-nested'
@@ -268,7 +268,7 @@ Describe 'Remove-KitDirectory — знімається лише посиланн
     }
 }
 
-Describe 'Get-KitDirectoryEntriesNoLinks — перерахунок для зняття ReadOnly не заходить у посилання (П26, M-1)' {
+Describe 'Get-KitDirectoryEntriesNoLinks — перерахунок для зняття ReadOnly не заходить у посилання' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force }
 
     It 'файл за junction не перелічено, саме посилання теж; звичайні вкладені файли — так' {

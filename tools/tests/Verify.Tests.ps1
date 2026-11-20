@@ -21,7 +21,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
     }
 
     It 'дзеркало є, але main його не зливав — зупинка «sync» до платформи' {
-        # Дискримінуюча перевірка (рев'ю B3 раунд 2, Important 2): проба на видаленому
+        # Дискримінуюча перевірка: проба на видаленому
         # commands/verify.psm1 показала, що '*sync*' збігається і з диспетчерською відмовою
         # «Невідома команда 'verify'. Доступні: check, sync.» — тест лишався зеленим навіть
         # коли команди в дереві не існувало взагалі. '*ніколи не зливав*storage/Alpha_SMB*' —
@@ -67,13 +67,13 @@ Describe 'kit verify — штатні зупинки до платформи' {
         Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
     }
 
-    It '-Version без числа — зупинка з поясненням, а не тиха звірка проти версії 1 (рев''ю B3 раунд 3, M6 → Step 5а)' {
+    It '-Version без числа — зупинка з поясненням, а не тиха звірка проти версії 1' {
         # CommandArgs = @('-Version', '-Ref', 'main'): наступний токен після '-Version' — інший
         # прапорець ('-Ref'), тож без захисту диспетчер підставив би $splat.Version = $true.
         # [Nullable[int]]$Version у verify.psm1 зв'язав би $true як 1 (bool->int), і
         # [ValidateRange(1, [int]::MaxValue)] пройшов би МОВЧКИ — це й був сценарій знахідки
-        # M6 ("kit verify -Version -Ref main", забули число, тихо звіряє проти версії 1).
-        # Правку зробили ЦЕНТРАЛЬНО в диспетчері (tools/kit.ps1, Step 5а), не в самому verify:
+        # ("kit verify -Version -Ref main", забули число, тихо звіряє проти версії 1).
+        # Правку зробили ЦЕНТРАЛЬНО в диспетчері (tools/kit.ps1), не в самому verify:
         # $true підставляється лише справжньому [switch]-параметру команди; Version —
         # [Nullable[int]], тож диспетчер сам зупиняє виклик, ще ДО Invoke-KitVerify.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-version') -WithHooks
@@ -83,18 +83,18 @@ Describe 'kit verify — штатні зупинки до платформи' {
     }
 }
 
-Describe 'kit verify — мок платформного шару: щасливий шлях без жодного binary-файла (рев''ю B3 раунд 2, Critical 1)' {
+Describe 'kit verify — мок платформного шару: щасливий шлях без жодного binary-файла' {
     # Жоден з чотирьох тестів вище не виконує жодного рядка Invoke-KitVerify ПІСЛЯ
     # Get-KitVerifyVersion — усі зупиняються до платформи. Саме в цій сліпій зоні сидів
-    # Critical 1: Compare-KitTrees приймав $BinaryPaths лише як Mandatory без
+    # дефект: Compare-KitTrees приймав $BinaryPaths лише як Mandatory без
     # AllowEmptyCollection, а Get-KitBinaryPaths штатно повертає порожній HashSet, коли
     # жоден файл дерева не позначений binary в .gitattributes — саме так виглядає
     # найтиповіше дерево 1С (лише XML/BSL). Мокається лише платформний шар —
     # Enter-/Exit-KitStorageBind, Invoke-KitStorageCheckout — усі викликаються ПРЯМО з
-    # verify.psm1, тому -ModuleName verify (урок Task 1: Mock -ModuleName діє лише в
+    # verify.psm1, тому -ModuleName verify (Mock -ModuleName діє лише в
     # приватному столі команд НАЗВАНОГО модуля). Export-KitTree, Get-KitBinaryPaths і
     # Compare-KitTrees лишаються СПРАВЖНІМИ — саме в них сидів дефект. verify тепер дампить
-    # у базі агента (Get-KitSourceInfobase, Task 4) — звідси -WithAgentBase нижче.
+    # у базі агента (Get-KitSourceInfobase) — звідси -WithAgentBase нижче.
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
@@ -140,7 +140,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $ctx = Invoke-KitPreflight -RepoRoot $repo
         # Ref = сама гілка дзеркала (SYNOPSIS Invoke-KitVerify: «storage/X — канонічність
         # самого дзеркала») — merge-base гілки із собою є вершина, без потреби зливати в
-        # main і без ризику add/add-конфлікту фейкового Configuration.xml фікстури (F9).
+        # main і без ризику add/add-конфлікту фейкового Configuration.xml фікстури.
         $result = Invoke-KitVerify -Context $ctx -Ref 'storage/Alpha_SMB'
 
         $result.ExitCode | Should -Be 0
@@ -204,7 +204,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $script:VerifyError | Should -BeLike '*Версію 1 основна платформа 8.3.27.1644 не вивантажує*'
         $script:VerifyError | Should -BeLike '*verify на ній неможливий*'
         $script:VerifyError | Should -BeLike '*ПЛАТФОРМА-ВІДПОВІДЬ*'
-        # Поради sync (§6.1.1) у verify недоречні: він нічого не переносить.
+        # Поради sync у verify недоречні: він нічого не переносить.
         $script:VerifyError | Should -Not -BeLike '*-DumpPlatform*'
         $script:VerifyError | Should -Not -BeLike '*-SkipVersion*'
         Should -Invoke -ModuleName verify Exit-KitStorageBind -Times 1 -Exactly
@@ -275,7 +275,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $r.Results[0].Verdict | Should -Be 'equal'
     }
 
-    Context 'крок вирівнювання пам''яті раннера (спека §4.1, §10 П4)' {
+    Context 'крок вирівнювання пам''яті раннера' {
         BeforeAll {
             # Спільна підготовка для тестів нижче: гілка дзеркала + (за потреби) злиття в main. Злиття в
             # тесті — під V8KIT_SYNC=1, як це робить kit (хук pre-merge-commit фікстури інакше відмовить).
@@ -318,7 +318,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
                 1 }
         }
 
-        It '§8: -Ref = HEAD — рівно один рядок push з sourceSet і force:true, без extension і без pull' {
+        It '-Ref = HEAD — рівно один рядок push з sourceSet і force:true, без extension і без pull' {
             $repo = New-AlignVerifyRepo -Name 'al-push' -Merge
             $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
             $script:R.Results[0].Verdict | Should -Be 'equal'
@@ -439,7 +439,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
             @($r.AlignSteps) | Should -HaveCount 0
         }
 
-        Context 'стан поставки не обчислено і виняток у пізнішому джерелі (спека 0174871)' {
+        Context 'стан поставки не обчислено і виняток у пізнішому джерелі' {
             It 'виняток Get-KitSupplyState — blocked і рядок «стан поставки не обчислено», не push' {
                 Mock -ModuleName UnicaStep Get-KitSupplyState { throw 'збій читання поставки' }
                 $repo = New-AlignVerifyRepo -Name 'as-exc' -Config -Merge
@@ -487,7 +487,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
         }
     }
 
-    Context 'регістр шляхів (спека 2026-10-04 §4.3)' {
+    Context 'регістр шляхів' {
         BeforeAll {
             function script:New-VerifyCaseRepo {
                 param([string]$Name, [System.Collections.IDictionary]$Files)
@@ -579,16 +579,16 @@ Describe 'kit verify — живе сховище: рівні → сховище 
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
         Copy-Item 'R:\github\SMP_BankExchange\AUTHORS' (Join-Path $script:Repo 'AUTHORS') -Force
-        # F9: прибрати фейковий Configuration.xml з main — інакше перше злиття дзеркала дасть add/add-конфлікт.
+        # Прибрати фейковий Configuration.xml з main — інакше перше злиття дзеркала дасть add/add-конфлікт.
         git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
         git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS; дерево джерела порожнє до першого sync'
 
-        # У житті розширення в базу агента вантажить push Уніки (§4.1); у тестах kit Уніки немає, тож передумову готує тест — тим самим шляхом, яким запасний шлях sync будує тимчасову ІБ (New-ExtensionInfobase зі стабом)
+        # У житті розширення в базу агента вантажить push Уніки; у тестах kit Уніки немає, тож передумову готує тест — тим самим шляхом, яким запасний шлях sync будує тимчасову ІБ (New-ExtensionInfobase зі стабом)
         # До створення: справжній provision на цій фікстурі зупиняється з рецептом «власника немає» й бази не створює.
         $stop = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'SMP_BankExchange_SMB', '-Apply')
         $stop.ExitCode | Should -Not -Be 0 -Because $stop.Output
         $stop.Output | Should -BeLike '*бракує власника*' -Because $stop.Output
-        # Ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1, тож guard П25 Assert-SafeWorkPath проходить як у житті.
+        # Ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1, тож guard Assert-SafeWorkPath проходить як у житті.
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
@@ -618,7 +618,7 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         $v = Run @('verify')
         $v.ExitCode | Should -Be 0 -Because $v.Output
         $v.Output | Should -BeLike '*Вердикт: equal*' -Because $v.Output
-        # 1.6.0 (спека §3.1): після verify крок завжди push з sourceSet і force:true, без pull
+        # 1.6.0: після verify крок завжди push з sourceSet і force:true, без pull
         $v.Output | Should -BeLike '*unica.run {"op":"push"*"sourceSet":"SMP_BankExchange_SMB"*"force":true*' -Because $v.Output
         $v.Output | Should -Not -BeLike '*"op":"pull"*' -Because $v.Output
         $v.Output | Should -Not -Match '\[-\]'      # -BeLike трактує [-] як клас символів; -Match — літерально

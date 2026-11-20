@@ -1,7 +1,7 @@
 #Requires -Version 7
-Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, шар 2)' {
+Describe 'Hooks.psm1 і templates/githooks — захист storage/*' {
     BeforeAll {
-        # Знахідка рев'ю Task 1 B5, підтверджена й полагоджена в Task 6 (Step 6б): цей файл —
+        # Цей файл —
         # єдиний, де асерт покладається на кирилицю у виводі ДОЧІРНЬОГО процесу (git merge через
         # pre-merge-commit, рядок 74 нижче). UTF-8 для читання цього виводу виставляє лише
         # Run-Tests.ps1 (рядки 25-26) — голий Invoke-Pester успадковує кодову сторінку консолі
@@ -131,7 +131,7 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
         It 'свіжий репозиторій без хуків — помилки про core.hooksPath і файли' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-none')
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
-            # Звужено до "*не вказує*" (правка H1): тепер "git config core.hooksPath" згадує
+            # Звужено до "*не вказує*": тепер "git config core.hooksPath" згадує
             # й повідомлення про відсутній файл хука (порада, куди його ввімкнути), тож
             # голий '*core.hooksPath*' ловив би вже три знахідки замість однієї — тест мав
             # на увазі саме "не налаштовано", а не будь-яку згадку рядка.
@@ -139,10 +139,9 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             @($f | Where-Object { $_.Level -eq 'error' -and $_.Message -like '*pre-commit*' }).Count | Should -BeGreaterOrEqual 1
         }
 
-        # H1 (фінальне рев'ю, живий онбординг з нуля) — повідомлення казало ЧОГО бракує, і
-        # не казало, ДЕ взяти файл. Тепер називає джерело (templates/githooks/ у теці
-        # плагіна), як його знайти (H3 — claude plugin list) і другий крок (core.hooksPath).
-        It 'H1: повідомлення про відсутній хук називає джерело, теку плагіна й git config core.hooksPath' {
+        # Повідомлення каже не лише ЧОГО бракує, а й ДЕ взяти файл: називає джерело
+        # (templates/githooks/ у теці плагіна), як його знайти (claude plugin list) і другий крок (core.hooksPath).
+        It 'Повідомлення про відсутній хук називає джерело, теку плагіна й git config core.hooksPath' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-hook-source')
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
             $missing = @($f | Where-Object { $_.Message -like '*pre-commit*немає*' })
@@ -151,13 +150,13 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             $missing[0].Message | Should -BeLike '*claude plugin list*'
             $missing[0].Message | Should -BeLike '*git config core.hooksPath*'
         }
-        # S2 (живий прогін задачі 11): Install-KitGitHooks сам по собі кладе файли на диск,
+        # Install-KitGitHooks сам по собі кладе файли на диск,
         # але НЕ чіпає індекс споживача (навмисно — див. коментар над Test-KitGitHooks).
-        # До задачі 11 це давало 0 знахідок — і саме так виглядав би репозиторій-споживач,
+        # Раніше це давало 0 знахідок — і саме так виглядав би репозиторій-споживач,
         # де хуки скопійовано, але не закомічено: наступний клон їх не отримає. Тепер це
         # `warn`, по одному на кожен файл — далі тест на «застейджено» і «закомічено»
         # доводить, що межа не поїхала в інший бік.
-        It 'S2: після Install-KitGitHooks без git add — попередження, що хуки не закомічені' {
+        It 'після Install-KitGitHooks без git add — попередження, що хуки не закомічені' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-untracked')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
             $f = @(Test-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates)
@@ -167,7 +166,7 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             ($warns.Message -join ' | ') | Should -BeLike '*pre-merge-commit*'
         }
         It 'змінений хук — попередження про розбіжність із шаблоном плагіна' {
-            # Закомічено (і з бітом виконання) — щоб S2 ("не закомічений") і перевірка біта
+            # Закомічено (і з бітом виконання) — щоб «не закомічений» і перевірка біта
             # тут мовчали, і єдиною знахідкою лишалась саме розбіжність із шаблоном.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-drift')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
@@ -221,10 +220,10 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             @($f | Where-Object { $_.Message -like '*біта виконання*' }).Count | Should -Be 0
         }
 
-        # Продовження S2: другий і третій стан з тих самих трьох (untracked — тест вище).
-        It 'S2: хук застейджений (git add), ще не закомічений — попередження про коміт немає' {
+        # Продовження «не закомічений»: другий і третій стан з тих самих трьох (untracked — тест вище).
+        It 'хук застейджений (git add), ще не закомічений — попередження про коміт немає' {
             # git ls-files -s бачить ІНДЕКС, тож застейджений хук уже дає непорожній рядок —
-            # це та межа, яку задача 11 просила явно перевірити тестом, не лише проговорити.
+            # це та межа, яку треба явно перевірити тестом, не лише проговорити.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-staged')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
             git -C $repo add .githooks
@@ -237,7 +236,7 @@ Describe 'Hooks.psm1 і templates/githooks — захист storage/* (§3.3, ш
             @($f | Where-Object { $_.Message -like '*не закомічений*' }).Count | Should -Be 0
         }
 
-        It 'S2: хук встановлений, застейджений і закомічений — знахідок нуль' {
+        It 'хук встановлений, застейджений і закомічений — знахідок нуль' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'audit-uncommitted-committed')
             Install-KitGitHooks -RepoRoot $repo -TemplatesDir $script:Templates | Out-Null
             git -C $repo add .githooks

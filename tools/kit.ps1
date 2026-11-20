@@ -3,7 +3,7 @@
 .SYNOPSIS
     Диспетчер команд kit: pwsh tools/kit.ps1 <команда> [-RepoRoot .] [-Workspace X] [-Source Y] [-Apply] [власні параметри команди]
 .DESCRIPTION
-    Спільний префлайт (спека §5) і виклик Invoke-Kit<Команда> з tools/commands/<команда>.psm1.
+    Спільний префлайт і виклик Invoke-Kit<Команда> з tools/commands/<команда>.psm1.
     Команди не імпортують lib-модулів самі — їх імпортує цей файл у порядку
     tools/lib/module-order.txt, і командний модуль бачить їх із глобальної області.
 
@@ -136,6 +136,6 @@ try {
 if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
     exit $result.ExitCode
 }
-# Успіх — явний код 0 (§5 п.3): без `exit` у `pwsh -Command "& kit.ps1 …"` $LASTEXITCODE лишається
+# Успіх — явний код 0: без `exit` у `pwsh -Command "& kit.ps1 …"` $LASTEXITCODE лишається
 # порожнім, і виклик не відрізнить успіх від «не виставлено».
 exit 0
