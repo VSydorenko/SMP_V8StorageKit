@@ -52,6 +52,7 @@
 | службовий користувач ІБ із розширення на БСП | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-з'єднання бази з зовнішнім сервером | `v8storagekit:1c-websocket-client` |
 | написати, виправити чи прогнати тест YaXUnit | `v8storagekit:1c-yaxunit` |
+| спроєктувати чи переробити звіт на СКД | `v8storagekit:1c-skd-reports` |
 
 Редагування (`unica.apply`), перевірка (`unica.check`), завантаження в базу агента й збірка
 (`unica.run`) — Unica 0.16; маршрутизація — `v8storagekit:storage-rules`.

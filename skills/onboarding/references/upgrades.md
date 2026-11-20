@@ -304,3 +304,10 @@
 2. **`## Тести YaXUnit`** — лише якщо в проєкті є тести YaXUnit: тестове розширення (source-set з
    `v8project.yaml`), розширення продукту, платформа. З цього розділу скіл бере середовище й
    людину не питає.
+
+## 1.6.5 → 1.6.6
+
+Новий скіл `v8storagekit:1c-skd-reports` (звіти на СКД). У звіт онбордингу — рядок наміру
+`1c-skd-reports` у таблиці «Наміри → скіли» `CLAUDE.md` проєкту з `templates/CLAUDE.md` плагіна.
+Користувацька копія `~/.claude/skills/designing-1c-skd-reports/`, якщо вона є, — рядок **remove**
+розділу `Skills outside the plugin`: її замінює `v8storagekit:1c-skd-reports`.
