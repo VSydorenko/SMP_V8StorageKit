@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'GitMerge.psm1 — злиття storage/X у головну гілку (§3.4, Q4)' {
+Describe 'GitMerge.psm1 — злиття storage/X у головну гілку' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/GitMerge.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -207,7 +207,7 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         $err.Exception.Message | Should -Not -BeLike '*незавершеному*'
     }
 
-    It 'перше злиття (unrelated) приносить об''єкт з новим регістром, у main закомічено старий — зупинка, main і копія ті самі (H1)' {
+    It 'перше злиття (unrelated) приносить об''єкт з новим регістром, у main закомічено старий — зупинка, main і копія ті самі' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-new') -WithHooks -WithGitattributes -WithGitignore
         $dir = Join-Path $repo 'Alpha_SMB/cfe/src/T'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -226,7 +226,7 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         @(git -C $repo status --porcelain) | Should -HaveCount 0
     }
 
-    It 'фантом несе сама вершина дзеркала (kit ≤ 1.3.1), ціль чиста — зупинка з порадою «наступний sync», без рецепту для цілі (H1)' {
+    It 'фантом несе сама вершина дзеркала (kit ≤ 1.3.1), ціль чиста — зупинка з порадою «наступний sync», без рецепту для цілі' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-mirror') -WithHooks -WithGitattributes -WithGitignore
         $pair = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
         $pair['Alpha_SMB/cfe/src/T/Образецанализ.xml'] = 'xml'
@@ -240,7 +240,7 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         (git -C $repo rev-parse main).Trim() | Should -Be $before
     }
 
-    It 'група регістру, що вже є в цільовій гілці й не змінюється, злиття не блокує (Via=ref) (H1)' {
+    It 'група регістру, що вже є в цільовій гілці й не змінюється, злиття не блокує (Via=ref)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-group-old') -WithHooks -WithGitattributes -WithGitignore
         $f = Join-Path $repo 'Alpha_SMB/cfe/src/T'
         New-Item -ItemType Directory -Path $f -Force | Out-Null

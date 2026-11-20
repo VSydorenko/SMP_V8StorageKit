@@ -32,18 +32,18 @@ Describe 'kit sync — реальне сховище (перший і повто
             '      SMP_BankExchange_SMB:', '        truth: storage', "        storage: { path: '$script:Storage' }") -join "`n"
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'live') -Workspaces $ws -ManifestText $manifest -WithHooks -WithGitattributes -WithGitignore
         Copy-Item -LiteralPath $script:Authors -Destination (Join-Path $script:Repo 'AUTHORS') -Force
-        # F9: фікстура кладе на main фейковий Configuration.xml за тим самим шляхом, куди дзеркало покладе
+        # Фікстура кладе на main фейковий Configuration.xml за тим самим шляхом, куди дзеркало покладе
         # справжній — перше злиття дало б add/add-конфлікт. У реальному онбордингу дерева на main ще немає.
         git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
         git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS з живого репо; дерево джерела порожнє до першого sync'
 
-        # У житті цю базу створює Уніка (спека §3 рішення 4: vendor-власник — дерево придатне або .dt); у тестах kit Уніки немає, тож передумову готує тест.
+        # У житті цю базу створює Уніка (vendor-власник — дерево придатне або .dt); у тестах kit Уніки немає, тож передумову готує тест.
         # До створення: справжній provision на цій фікстурі зупиняється з рецептом «власника немає» й бази не створює.
         $stop = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'SMP_BankExchange_SMB', '-Apply')
         $stop.ExitCode | Should -Not -Be 0 -Because $stop.Output
         $stop.Output | Should -BeLike '*бракує власника*' -Because $stop.Output
         # Виклик production-хелпера, яким provision створює порожню файлову базу (ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1,
-        # тож guard П25 Assert-SafeWorkPath проходить як у житті), без відтворення його логіки.
+        # тож guard Assert-SafeWorkPath проходить як у житті), без відтворення його логіки.
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
@@ -85,7 +85,7 @@ Describe 'kit sync — реальне сховище (перший і повто
         (git -C $script:Repo status --porcelain) | Should -BeNullOrEmpty
     }
 
-    It 'повторний реплей: ще одна версія, main не чіпається (звірочний коміт — verify, B3)' {
+    It 'повторний реплей: ще одна версія, main не чіпається (звірочний коміт — verify)' {
         $mainBefore = git -C $script:Repo rev-parse main
         $r = Invoke-Sync -Repo $script:Repo -More @('-Apply', '-MaxVersions', '1')
         $r.ExitCode | Should -Be 0 -Because $r.Output
@@ -104,7 +104,7 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
-        # Найменше живе сховище конфігурації — знайдене спайком Task 1 (progress.md, «Спайк раунд 1»):
+        # Найменше живе сховище конфігурації — знайдене спайком:
         # КормЦентр_DEV, 1cv8ddb.1CD = 1,27 МБ. Обхід змінною середовища — щоб підставити інше
         # сховище без правки тесту (рішення архітектора).
         $script:CfgStorage = if ($env:V8KIT_CFG_STORAGE) { $env:V8KIT_CFG_STORAGE } else { 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV' }

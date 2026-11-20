@@ -818,8 +818,8 @@ function Invoke-PrGateScratchRm {
     }
     $wt = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { Test-PgSamePath $_.Path $full } | Select-Object -First 1
     if ($wt -and $wt.Branch) { throw (New-KitUsageError "scratch rm: $full на гілці $($wt.Branch), не відокремлене: відмова") }
-    # П25: не видаляти крізь посилання і лише власне під <worktrees.root>/.scratch — до БУДЬ-ЯКОГО
-    # видалення, зокрема до `git worktree remove --force` (рев'ю-верифікація T3, M1).
+    # Не видаляти крізь посилання і лише власне під <worktrees.root>/.scratch — до БУДЬ-ЯКОГО
+    # видалення, зокрема до `git worktree remove --force`.
     Assert-SafeWorkPath -Path $full -MustBeUnder $place.Dir -RepoRoot $Ctx.MainRoot -OwnedRoot (Join-Path $Ctx.MainRoot $Ctx.WorktreesRoot) -Description 'тека scratch-дерева'
     $null = Move-PgOutOf -Path $full -To $Ctx.MainRoot
     if ($wt) { $null = Get-PgGit -GitArgs @('worktree', 'remove', '--force', $full) -Cwd $Ctx.MainRoot }

@@ -16,8 +16,8 @@ Set-StrictMode -Version Latest
 
     -NoSourceTrees: теки source-set'ів НЕ створюються і НЕ наповнюються, тож у першому коміті
     (і взагалі в HEAD) їх немає — git порожніх тек не зберігає. Це не примха, а ЖИВА форма, якої
-    типова фікстура не описувала й через це маскувала дефект (знахідка D рев'ю раунду 4 задачі
-    B6/3): команда, що створює дерево сама, не знаходить його в HEAD. Фікстура ж завжди клала
+    типова фікстура не описувала й через це маскувала дефект:
+    команда, що створює дерево сама, не знаходить його в HEAD. Фікстура ж завжди клала
     туди Configuration.xml і тим маскувала дефекти відкоту. Тести, які мусять бачити живу
     форму, беруть саме цей варіант.
 #>
@@ -27,9 +27,10 @@ function Invoke-KitFakeGit {
     .SYNOPSIS
         git для фікстури з перевіркою коду виходу.
     .DESCRIPTION
-        Global Constraints B1: нативні команди перевіряються через $LASTEXITCODE явно —
+        Нативні команди перевіряються через $LASTEXITCODE явно —
         на цій машині $PSNativeCommandUseErrorActionPreference = $false, тож git, що впав,
-        сам винятку не кине. Фікстура довгограюча (задачі 6 і 8 будують на ній коміти й
+        сам винятку не кине. 
+
         гілки storage/*), і мовчазний збій тут дав би провал далеко від причини.
 
         Навмисно проста функція — без [CmdletBinding()] і без param(): $args приймає усі
@@ -141,7 +142,7 @@ function New-KitFakeRepo {
                 @('infobases:', '  origin:', "    connection: '$($ws['Infobase'])'") -join "`n")
             if ($WithAgentBase) {
                 # Той самий ідіом, що Provision.Tests.ps1 (1Cv8.1CD — ознака
-                # наявної файлової бази для Resolve-KitAgentBase.Exists): sync (Task 3) тепер
+                # наявної файлової бази для Resolve-KitAgentBase.Exists): sync тепер
                 # резолвить базу агента з диска ще до звернення до платформи, і без цього файлу
                 # тести, що кличуть Invoke-KitSync у процесі, отримають зупинку з рецептом
                 # "kit provision" замість роботи мокованої платформи.
@@ -177,7 +178,7 @@ function New-KitFakeRepo {
                             [System.IO.File]::WriteAllBytes((Join-Path $setDir 'Ext/ParentConfigurations.bin'), [byte[]](1..32))
                         }
                     }
-                    # Сховище навмисно неіснуюче: тести B1 до сховищ не звертаються, а перший
+                    # Сховище навмисно неіснуюче: ці тести до сховищ не звертаються, а перший
                     # же запуск sync упаде на «Каталог сховища не знайдено», не діставшись платформи.
                     $storage = Join-Path (Split-Path -Parent $Root) "no-such-storage-$($set.Name)"
                     $manifest.Add("      $($set.Name):")
@@ -223,9 +224,9 @@ function New-KitFakeRepo {
     }
     if ($WithGitignore) {
         Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/gitignore') -Destination (Join-Path $Root '.gitignore')
-        # Task 6 (Step 2а): templates/gitignore більше не тримає загального **/cf/** — вендорські
-        # дерева ігноруються ЯВНИМИ рядками під фактичні шляхи, які дописує v8storagekit:onboarding
-        # (§3.4). Тести B1–B4 розраховують, що vendor-дерево гітігноровано (у цій фікстурі — кожен
+        # templates/gitignore не тримає загального **/cf/** — вендорські
+        # дерева ігноруються ЯВНИМИ рядками під фактичні шляхи, які дописує v8storagekit:onboarding.
+        # Тести розраховують, що vendor-дерево гітігноровано (у цій фікстурі — кожен
         # CONFIGURATION source-set, truth: vendor, див. switch у циклі побудови маніфесту вище) —
         # тут дописуємо той самий рядок, який дописав би onboarding, а не змінюємо сам шаблон.
         $vendorLines = [System.Collections.Generic.List[string]]::new()
@@ -248,9 +249,9 @@ function New-KitFakeRepo {
         if ($WithHooks) {
             # Фікстура зображає стан ПІСЛЯ онбордингу, а не зламану інсталяцію: у
             # справжньому репозиторії-споживачі біт виконання виставляє сама команда
-            # `kit install-hooks -Apply` (блок B5). На цій машині core.filemode false,
+            # `kit install-hooks -Apply`. На цій машині core.filemode false,
             # тож звичайний `git add -A` вище запише .githooks/* як 100644 незалежно
-            # від того, чи спрацював POSIX-chmod усередині Install-KitGitHooks (Task 6) —
+            # від того, чи спрацював POSIX-chmod усередині Install-KitGitHooks —
             # без цього рядка кожен тест із -WithHooks ловив би зайву warn від
             # Test-KitGitHooks про хук без біта виконання. update-index діє лише на вже
             # проіндексований файл, тож рядок стоїть після add -A і до commit.
@@ -281,7 +282,7 @@ function New-KitFakeRepo {
 function Add-KitFakeStorageCommit {
     <#
     .SYNOPSIS
-        Коміт на orphan-гілку storage/<X> тим самим механізмом, що й sync (B2): worktree,
+        Коміт на orphan-гілку storage/<X> тим самим механізмом, що й sync: worktree,
         V8KIT_SYNC=1 на час коміту, worktree прибирається. Робоча копія не рухається.
     #>
     [CmdletBinding()]
@@ -323,8 +324,8 @@ function Add-KitFakeStorageCommit {
 function New-KitClientWorkspaces {
     <#
     .SYNOPSIS
-        Клієнтський воркспейс (спека 2026-09-30 §1, §7): основна конфігурація + ДВА розширення,
-        усі під truth: storage. base навмисно ДРУГИМ — порядок sync (§5.4) мусить не залежати від
+        Клієнтський воркспейс: основна конфігурація + ДВА розширення,
+        усі під truth: storage. base навмисно ДРУГИМ — порядок sync мусить не залежати від
         порядку маніфесту. Друге розширення з кирилицею в імені — шляхи cfe/<Ім'я>/src.
     #>
     [ordered]@{
@@ -345,7 +346,7 @@ function Invoke-KitCommand {
         Спільний виклик kit.ps1 підпроцесом — та сама форма, що вже стояла в одинадцяти
         файлах тестів (Invoke-Check, Invoke-Sync, Invoke-Provision, ...).
     .DESCRIPTION
-        Task 5 ("Швидкість набору тестів"): один спільний виклик прибирає дублювання
+        Один спільний виклик прибирає дублювання
         локальних обгорток, але робить його ЄДИНОЮ точкою відмови всіх E2E-тестів набору —
         якби він тихо ковтав ненульовий код виходу, зелено-завжди стали б усі відразу. Тому
         функція має власний тест (KitFixtures.Tests.ps1), а не лише локальні обгортки, що
@@ -372,13 +373,13 @@ function Invoke-KitCommand {
     # значенням параметра.
     if ($Repo)    { $cmdArgs.Add('-RepoRoot'); $cmdArgs.Add($Repo) }
     foreach ($m in $More) { $cmdArgs.Add($m) }
-    # check і session-check читають реєстр плагінів машини (версія Уніки — вимога, спека §4.4 п. 4):
+    # check і session-check читають реєстр плагінів машини (версія Уніки — вимога):
     # без підстановки результат тесту залежав би від того, яка Уніка стоїть на машині. Тест, що
     # навмисно перевіряє реєстр машини, передає параметр сам.
     if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-InstalledPluginsPath')) {
         $cmdArgs.Add('-InstalledPluginsPath'); $cmdArgs.Add((New-KitFakeUnicaRegistry))
     }
-    # Те саме для раннера (спека 2026-11-19 §4.2 п.20): фальшивий реєстр раннера не несе, тож без явного
+    # Те саме для раннера: фальшивий реєстр раннера не несе, тож без явного
     # -RunnerPath кожен підпроцесний check дав би error runner-version — і саме тому kit не мусить мовчки йти
     # до справжньої Уніки машини. Підставляється фальшивий tools/tests/fixtures/runner/v8-runner.cmd; тест, що
     # перевіряє відсутність чи іншу версію раннера, передає -RunnerPath сам.
@@ -393,7 +394,7 @@ function New-KitFakeUnicaRegistry {
     <#
     .SYNOPSIS
         Фальшивий installed_plugins.json з Унікою заданої версії — для -InstalledPluginsPath kit check
-        і session-check (спека §10.1 П21). Тести не залежать від того, яка Уніка стоїть на машині.
+        і session-check. Тести не залежать від того, яка Уніка стоїть на машині.
     #>
     [CmdletBinding()]
     param([string]$Version = '0.16.0')
@@ -435,7 +436,7 @@ function Set-KitFakeBranchTree {
         Коміт на гілку з деревом рівно з -Files — без робочої копії, через тимчасовий GIT_INDEX_FILE.
     .DESCRIPTION
         Робоча копія на NTFS не може тримати два шляхи, що різняться лише регістром, і git не
-        переводить її через кириличне перейменування регістром (спека 2026-10-04 §2). Тестам злиття,
+        переводить її через кириличне перейменування регістром. Тестам злиття,
         adopt, verify і check потрібні саме такі дерева — тому плумбінг: hash-object → update-index
         --cacheinfo → write-tree → commit-tree → update-ref. -c core.ignorecase=false на update-index —
         щоб git не зіставляв варіанти регістру й записав обидва, незалежно від налаштування машини.
@@ -494,7 +495,7 @@ function Copy-KitTools {
     param([Parameter(Mandatory)][string]$Root)
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
-    # tools/assets: sync (Task 4) вантажить звідти стаб tools/assets/empty-extension у
+    # tools/assets: sync вантажить звідти стаб tools/assets/empty-extension у
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
@@ -507,14 +508,14 @@ function Copy-KitTools {
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
-    # Вхід команд процесу і їхні обгортки (блок «процес kit», Б0): тести кличуть команди процесу
+    # Вхід команд процесу і їхні обгортки: тести кличуть команди процесу
     # тим самим шляхом, що й агент, — bin/<команда> → tools/kit-process.ps1.
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit-process.ps1') -Destination (Join-Path $Root 'tools/kit-process.ps1') -Force
     New-Item -ItemType Directory -Path (Join-Path $Root 'bin') -Force | Out-Null
     Copy-Item -Path (Join-Path $kitRoot 'bin/*') -Destination (Join-Path $Root 'bin') -Force
-    # templates/settings.json — раніше НЕ копіювали (рев'ю B4 Task 4, Minor): тоді
+    # templates/settings.json — раніше НЕ копіювали: тоді
     # Install-KitSettings у тестах завжди викликали напряму з явним -TemplatesDir на
-    # справжній $kitRoot, і копія була мертва. B5 Task 1 (kit install-hooks) це зламало:
+    # справжній $kitRoot, і копія була мертва. kit install-hooks це зламало:
     # команда викликає Install-KitSettings БЕЗ -TemplatesDir (типове значення відносне
     # від $PSScriptRoot Hooks.psm1), а InstallHooks.Tests.ps1 запускає install-hooks
     # ПІДПРОЦЕСОМ проти саме цієї копії kit.ps1 — типове значення тоді резолвиться в

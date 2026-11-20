@@ -7,21 +7,20 @@
 # (так само StorageBranch бере з нього Get-KitCurrentBranch); TreeCompare — після
 # PathSafety (Assert-SafeWorkPath); StoragePlatform — після PathSafety і V8 (New-ExtensionInfobase,
 # New-V8FileInfobase, Invoke-V8Designer) І після AgentBase (Get-KitSourceInfobase бере
-# Resolve-KitAgentBase, C1 Task 1); StorageImprint — після StorageBranch (бере
-# Get-KitStorageActivity, B3 Task 8); AgentBase — після V8Project (бере Resolve-V8AgentInfobase і
+# Resolve-KitAgentBase); StorageImprint — після StorageBranch (бере
+# Get-KitStorageActivity); AgentBase — після V8Project (бере Resolve-V8AgentInfobase і
 # Resolve-KitAgentInfobasePath; сам V8Project.psm1 вкладено імпортує V8.psm1 заради
-# ConvertFrom-V8Connection — незалежно від того, де V8 стоїть у цьому списку, B4 Task 1, issue #9);
-# TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess;
-# C2 Task 1); GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess,
-# C2 Task 5); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
-# беруть з нього шлях поставки (спека 2026-09-30 §6.3.1); CaseGuard — після TreeCompare
+# ConvertFrom-V8Connection — незалежно від того, де V8 стоїть у цьому списку, issue #9);
+# TreeBackup — після PathSafety і TreeCompare (Assert-SafeWorkPath, Invoke-KitGitProcess);
+# GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
+# беруть з нього шлях поставки; CaseGuard — після TreeCompare
 # (Invoke-KitGitProcess, Get-KitRelativeFiles, Test-KitComparableRelativePath; StorageBranch
 # і GitMerge імпортують його вкладено, як AgentBase — V8); Environment — без залежностей; check бере
 # звідти Get-UnicaInstallation і Get-KitUnicaVersionVerdict; UnicaStep — після Supply
 # (Get-KitSupplyState, Get-KitSupplyRecipe), імпортує його вкладено без -Force, як AgentBase — V8; StoragePlatform імпортує UnicaStep вкладено (Format-KitUnicaRun) —
 # для тестів, що вантажать StoragePlatform окремо; Runner — після Environment (бере
 # Get-UnicaInstallation; імпортує його вкладено без -Force, як AgentBase — V8), інших залежностей
-# немає (Unica 0.16 Task 1). Рядки з # ігноруються.
+# немає. Рядки з # ігноруються.
 RepoRoot
 Environment
 PathSafety

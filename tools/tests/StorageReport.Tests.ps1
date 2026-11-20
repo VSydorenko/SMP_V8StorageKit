@@ -85,7 +85,7 @@ Describe 'Read-StorageReport (звіт без версій)' {
     BeforeAll { $script:EmptyFixture = Join-Path $PSScriptRoot 'fixtures/storage-report-empty.txt' }
 
     It 'повертає порожній масив, а не $null' {
-        # Set-StrictMode тут відтворює умову виклику з боку Task 5 (storage-sync.ps1),
+        # Set-StrictMode тут відтворює умову виклику з боку storage-sync.ps1,
         # який працює під Set-StrictMode -Version Latest: під ним $null.Count кидає
         # виняток, тоді як без strict mode PowerShell тихо повертає 0.
         Set-StrictMode -Version Latest
@@ -94,7 +94,7 @@ Describe 'Read-StorageReport (звіт без версій)' {
         $versions.Count | Should -Be 0
     }
 
-    It 'M1: обчислення максимальної версії (як у storage-sync.ps1) не падає на порожньому звіті' {
+    It 'обчислення максимальної версії (як у storage-sync.ps1) не падає на порожньому звіті' {
         # storage-sync.ps1 не імпортується як модуль (це скрипт-точка входу, а не
         # tools/lib/*.psm1) і не запускається у прогоні без реальної платформи чи
         # сховища, тому цей рядок перевіряється тут — на тому самому $all, який
@@ -128,7 +128,7 @@ Describe 'Read-StorageReport (звіт без версій)' {
 
 Describe 'Read-StorageReport (повна форма реального звіту: титул, мітка версії, розділи змінених об''єктів)' {
     # Фікстура відтворює форму, знайдену у справжніх звітах BankExchange_SMB/BankExchange_ACC
-    # під час діагностики I1 (обрізаних коментарів у версіях 31/42): титульний рядок
+    # під час діагностики (обрізаних коментарів у версіях 31/42): титульний рядок
     # табличного документа перед "Дата отчета:", пара "Метка:"/"Комментарий метки:" і три
     # розділи "Добавлены:"/"Изменены:"/"Удалены:" зі змінною кількістю об'єктів. Раніше все
     # це мовчки губилось (StorageReport.psm1:80-95 у версії до фіксу) — тепер розбирається
@@ -175,7 +175,7 @@ Describe 'Read-StorageReport (невідома форма комірки поз�
     }
 }
 
-Describe 'Get-StorageVersions (команда, побудована для платформи — I1: -IncludeCommentLinesWithDoubleSlash)' {
+Describe 'Get-StorageVersions (команда, побудована для платформи: -IncludeCommentLinesWithDoubleSlash)' {
     # Get-StorageVersions реально запускає 1cv8.exe (Invoke-V8Designer з V8.psm1) — тут
     # платформа не потрібна: мокається сам Invoke-V8Designer у приватній області модуля
     # StorageReport (де він з'являється як імпортована з V8.psm1 команда), щоб перевірити
@@ -195,7 +195,7 @@ Describe 'Get-StorageVersions (команда, побудована для пл�
         }
     }
 
-    It 'вимагає -IncludeCommentLinesWithDoubleSlash — без цього ключа платформа сама обрізає коментар на "//" ще до того, як звіт потрапляє в цей інструмент (I1, підтверджено на v20/v31 BankExchange_SMB і v42 BankExchange_ACC)' {
+    It 'вимагає -IncludeCommentLinesWithDoubleSlash — без цього ключа платформа сама обрізає коментар на "//" ще до того, як звіт потрапляє в цей інструмент (підтверджено на v20/v31 BankExchange_SMB і v42 BankExchange_ACC)' {
         $workDir = Join-Path $TestDrive 'get-storage-versions-workdir'
 
         $null = Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'X' `
@@ -233,7 +233,7 @@ Describe 'Get-StorageReportArguments — з розширенням і без' {
 }
 
 Describe 'Get-StorageVersions — відмова автентифікації сховища' {
-    # Той самий прийом мокування, що в Describe I1 вище: Invoke-V8Designer мокається в
+    # Той самий прийом мокування, що в Describe вище: Invoke-V8Designer мокається в
     # приватній області модуля StorageReport, без звернення до платформи. Тут звіт
     # НЕ копіюється (mock не пише reportPath) — саме так падає справжня автентифікація:
     # /ConfigurationRepositoryReport не будує файл, платформа лишає повідомлення в log.

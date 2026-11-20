@@ -21,7 +21,7 @@ function Invoke-KitSupplyMarker {
         pull дав інші байти, ніж очікував kit, і позначка засвідчила б стан, якого kit не перевіряв.
 
         Бази агента команда не потребує й платформи не кличе. Теки набору вона не стирає, тож перевірки
-        невидимої роботи (П24) тут не потрібно.
+        невидимої роботи тут не потрібно.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context, [string]$Workspace, [string]$Source, [bool]$Apply)

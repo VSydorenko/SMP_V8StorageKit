@@ -24,7 +24,7 @@ Describe 'kit install-hooks — хуки захисту й settings.json одн�
         Join-Path $repo '.claude/settings.json' | Should -Exist
         (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'hooks'
         (git -C $repo config --get core.hooksPath) | Should -Be '.githooks'
-        # F10: хуки застейджені з режимом 100755 — саме він дістанеться кожному клону (git ls-files -s питає індекс, не ФС).
+        # Хуки застейджені з режимом 100755 — саме він дістанеться кожному клону (git ls-files -s питає індекс, не ФС).
         # -c core.quotepath=false — той самий інваріант, що в production-коді (Hooks.psm1, check.psm1): git ls-files друкує
         # шляхи, і kit форсує цю конфігурацію за виклик завжди, без винятку для свідомо ASCII-шляхів (правило CLAUDE.md).
         foreach ($h in 'pre-commit', 'pre-merge-commit') { (git -c core.quotepath=false -C $repo ls-files -s -- ".githooks/$h") | Should -Match '^100755 ' }
@@ -40,13 +40,13 @@ Describe 'kit install-hooks — хуки захисту й settings.json одн�
         Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Value '{ "permissions": { "allow": ["Bash(echo:*)"] }, "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "pwsh -NoProfile -File .claude/hooks/session-start.ps1" } ] } ] } }' -Encoding UTF8
         $r = Invoke-InstallHooks -Repo $repo -More @('-Apply')
         (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw) | Should -BeLike '*Bash(echo:*)*'
-        # Рев'ю (фікс-раунд 1, I1): доказ, що команда справді відпрацювала, не лише що файл, який
+        # Доказ, що команда справді відпрацювала, не лише що файл, який
         # тест сам поклав рядком вище, лишився недоторканим — без цього асерту тест зелений і на
         # вилученому tools/commands/install-hooks.psm1 (диспетчер друкує «Невідома команда» й
         # виходить кодом 1, settings.json теж лишається незмінним). Git-хуки кладуться навіть тоді,
         # коли settings.json не чіпають — це і є незалежний доказ роботи команди.
         Join-Path $repo '.githooks/pre-commit' | Should -Exist
-        # Рев'ю (фікс-раунд 1, I2): warn (старий hooks.SessionStart у наявному settings.json) —
+        # warn (старий hooks.SessionStart у наявному settings.json) —
         # це не зупинка (install-hooks.psm1: ExitCode рахує лише error, прецедент check.psm1:407),
         # тож код виходу 0, а сам warn і далі видно людині текстом. Обидва факти — під тестом, щоб
         # наступна зміна формули впала тут, а не лишилась непоміченою.

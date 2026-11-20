@@ -2,14 +2,14 @@
 Describe 'kit check — інваріанти репозиторію-споживача' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
 
-    # S1 (живий прогін задачі 11): прибрали з маніфесту блок розширення, лишили base —
+    # Прибрали з маніфесту блок розширення, лишили base —
     # source-set 'Alpha_SMB' і далі оголошено в v8project.yaml, а check про це мовчав.
     # Тут — дзеркальний сценарій: source-set у v8project.yaml Є, а маніфест його НЕ знає.
-    It 'S1: source-set у v8project.yaml без ключа в маніфесті — warn undeclared-source, код 0' {
+    It 'source-set у v8project.yaml без ключа в маніфесті — warn undeclared-source, код 0' {
         $repo = New-GoodRepo 'undeclared-source'
         # Ані git add, ані commit тут не потрібні: Invoke-KitCheck читає v8project.yaml з
         # ДИСКА через Read-V8Project, а не з git, і жодної перевірки чистоти робочої копії
-        # в check.psm1 немає (рев'ю задачі 11 — стейджити тут нічого, а git add на щойно
+        # в check.psm1 немає (стейджити тут нічого, а git add на щойно
         # народженому LF-файлі фікстури лише додавав зайве попередження "LF will be
         # replaced by CRLF" без жодної користі для самого тесту).
         $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
@@ -24,12 +24,12 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike "*[!]*Extra*EXTERNAL_DATA_PROCESSORS*немає в маніфесті*"
     }
 
-    # S3 (живий прогін задачі 11): .gitignore реального репозиторію мав рядок
+    # .gitignore реального репозиторію мав рядок
     # v8project.local.yaml (Уніки), але не мав v8storagekit.local.yaml (kit) — накладка
     # показувалась як ?? і застейджилась би першим же git add -A.
-    It 'S3: v8storagekit.local.yaml не гітігноровано в корені — код 1, рівно ОДНА знахідка' {
+    It 'v8storagekit.local.yaml не гітігноровано в корені — код 1, рівно ОДНА знахідка' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'overlay-not-ignored') -WithHooks -WithGitattributes
-        # Власний .gitignore: покриває vendor (§2.6 мовчить), але БЕЗ рядка
+        # Власний .gitignore: покриває vendor, але БЕЗ рядка
         # v8storagekit.local.yaml — точно той стан, що застав тестувальник наживо.
         Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Encoding UTF8 -Value @(
             '**/cf/**'
@@ -47,7 +47,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $lines.Count | Should -Be 1
     }
 
-    # Правка 1 (фінальне рев'ю) — асиметрія, яку рев'ю знайшло наживо: check питав лише
+    # Асиметрія, яку рев'ю знайшло наживо: check питав лише
     # "чи є ПРАВИЛО в .gitignore", і мовчав, коли правило Є, а файл уже ЗАКОМІЧЕНО (git add
     # -f, або з часів до появи правила) — код 0, одне попередження, а рядки підключення й
     # користувачі сховищ уже в історії публічного репозиторію. Другий, незалежний, запит:
@@ -102,16 +102,16 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*v8storagekit.yaml*onboarding*'
-        # H3 — "з теки плагіна" саме собою не каже, де та тека.
+        # "З теки плагіна" саме собою не каже, де та тека.
         $r.Output | Should -BeLike '*claude plugin list*'
     }
 
-    # Правка 3 (фінальне рев'ю) — mainBranch друкувався (рядок info manifest), але не
+    # mainBranch друкувався (рядок info manifest), але не
     # перевірявся: репозиторій із маніфестом mainBranch: trunk, де є лише main, давав код 0
     # без жодного натяку — внутрішня суперечність, видима з будь-якої машини, і саме в цю
-    # гілку B2 зіллє storage/*. warn (не error): код усе одно 0, бо свіжий репозиторій до
+    # гілку sync зіллє storage/*. warn (не error): код усе одно 0, бо свіжий репозиторій до
     # першого коміту головної гілки — законний стан.
-    # Задача 6 (спека a7a5d45): це половина дворівневого розрізнювача Test-KitBranchUnborn —
+    # Це половина дворівневого розрізнювача Test-KitBranchUnborn —
     # HEAD тут стоїть на 'main' (яка Є в репозиторії), а маніфест називає 'trunk' (якої немає) —
     # HEAD "деінде", не на самій відсутній гілці, тож це warn, не info. Другу половину
     # (unborn: HEAD саме на відсутній гілці, свіжий репозиторій) перевіряє тест нижче.
@@ -141,10 +141,10 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 }
 
-Describe 'kit check і решта команд — застарілий конфіг Уніки зупиняє все (§10 П9)' {
+Describe 'kit check і решта команд — застарілий конфіг Уніки зупиняє все' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
 
-    It 'check: стара форма infobase: у v8project.yaml — код 1; підсумок рахує воркспейси й джерела маніфесту, а не 0 (дефект пілоту §5 п.2)' {
+    It 'check: стара форма infobase: у v8project.yaml — код 1; підсумок рахує воркспейси й джерела маніфесту, а не 0' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-cfg') -WithHooks -WithGitignore
         Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")
         $r = Invoke-Check -Repo $repo
@@ -156,7 +156,7 @@ Describe 'kit check і решта команд — застарілий конф
         $r.Output | Should -Not -BeLike '*джерел у перевірці 0*'
         $r.Output | Should -BeLike "*розв'язано 0*"
     }
-    It 'check: ключі, які відхиляє сам раннер (builder, execution_timeout, basePath, partialLoadThreshold), — не знахідки kit (§3.8 п.3)' {
+    It 'check: ключі, які відхиляє сам раннер (builder, execution_timeout, basePath, partialLoadThreshold), — не знахідки kit' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'runner-keys') -WithHooks -WithGitignore -WithGitattributes
         Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('builder: DESIGNER', 'execution_timeout: 600000', 'execution_timeout_seconds: 600', 'basePath: x', 'push:', '  partialLoadThreshold: 10')
         $r = Invoke-Check -Repo $repo
@@ -173,8 +173,8 @@ Describe 'kit check і решта команд — застарілий конф
         $r.Output | Should -BeLike "*стара форма 'infobase:'*"
         Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
     }
-    # Закріплення контракту з Унікою (спека §8, §7.1 «Побічне»), НЕ червоний-спершу тест: у check немає жодної
-    # перевірки ключа tools, тож до цієї задачі він уже був зеленим. Він стереже від майбутньої суворої
+    # Закріплення контракту з Унікою, НЕ червоний-спершу тест: у check немає жодної
+    # перевірки ключа tools, тож він зелений від початку. Він стереже від майбутньої суворої
     # перевірки невідомих ключів: Уніка дописує tools.platform.version у v8project.local.yaml сама.
     It 'контракт: tools.platform.version поруч з infobases.origin у v8project.local.yaml — не знахідка, база агента читається' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tools-platform') -WithHooks -WithGitignore -WithGitattributes
@@ -189,7 +189,7 @@ Describe 'kit check і решта команд — застарілий конф
     }
 }
 
-Describe 'kit check — версія Уніки й раннера (спека 2026-11-19 §4.2 п.4, п.19, п.20)' {
+Describe 'kit check — версія Уніки й раннера' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -227,7 +227,7 @@ Describe 'kit check — версія Уніки й раннера (спека 20
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*[[]-] Раннер Уніки недоступний: Раннер не знайдено*нема\v8-runner.exe*'
     }
-    It 'властивість §4.2 п.20: без -RunnerPath і з фальшивим реєстром без раннера — теж error (kit не йде до справжньої Уніки)' {
+    It 'властивість: без -RunnerPath і з фальшивим реєстром без раннера — теж error (kit не йде до справжньої Уніки)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'forgot-runner') -WithHooks -WithGitignore -WithGitattributes
         # Прямий запуск, без Invoke-KitCommand: фікстура сама підставила б фальшивий раннер.
         $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry -Version '0.16.0') 2>&1 | Out-String

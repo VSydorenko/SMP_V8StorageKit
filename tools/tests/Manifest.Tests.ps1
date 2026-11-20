@@ -13,7 +13,7 @@ Describe 'Manifest.psm1 — схема v8storagekit.yaml' {
         }
     }
 
-    Context 'приклади зі спеки' {
+    Context 'приклади' {
         It 'продуктовий: kind/label, три воркспейси, truth і типові значення' {
             $m = Read-KitManifest -Path (Join-Path $script:Fixtures 'manifest-product.yaml')
             $m.Kind | Should -Be 'product'
@@ -149,7 +149,7 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         }
     }
 
-    It 'читає приклад зі спеки: дві дев-бази, перевизначення сховища, шаблон бази агента' {
+    It 'читає приклад: дві дев-бази, перевизначення сховища, шаблон бази агента' {
         $o = Read-KitLocalOverlay -Path (Join-Path $script:Fixtures 'overlay-sample.yaml')
         $o.Infobases.Count | Should -Be 2
         $o.Infobases['devUNFru'].Connection | Should -Be 'Srvr=VSDEV;Ref=SMP_ruUNF_sydorenko;'
@@ -194,7 +194,7 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         $o.Storages['A'].Path | Should -BeNullOrEmpty
     }
 
-    It 'F1: agentBase.template воркспейсу з пробілів чи порожній — помилка конфігу з ключем; не «шаблону немає»' {
+    It 'agentBase.template воркспейсу з пробілів чи порожній — помилка конфігу з ключем; не «шаблону немає»' {
         foreach ($val in @("' '", "''")) {
             $p = Write-Yaml 'tpl-blank.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: $val")
             $m = try { Read-KitLocalOverlay -Path $p } catch { $_.Exception.Message }

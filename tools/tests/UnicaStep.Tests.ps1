@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'Format-KitUnicaRun (спека §10 П2)' {
+Describe 'Format-KitUnicaRun' {
     BeforeAll {
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
@@ -14,7 +14,7 @@ Describe 'Format-KitUnicaRun (спека §10 П2)' {
         Format-KitUnicaRun -Op 'infobase.create' -Arguments ([ordered]@{}) -DryRun $false |
             Should -BeExactly 'unica.run {"op":"infobase.create","args":{},"dryRun":false}'
     }
-    It 'кирилиця в імені набору — як є, без \u-екранування (Review Focus 1)' {
+    It 'кирилиця в імені набору — як є, без \u-екранування' {
         $s = Format-KitUnicaRun -Op 'pull' -Arguments ([ordered]@{ sourceSet = 'Доработки'; force = $true })
         $s | Should -BeLike '*"sourceSet":"Доработки"*'
         $s | Should -Not -Match '\\u04'
@@ -45,7 +45,7 @@ Describe 'Write-KitNextSteps' {
     }
 }
 
-Describe 'Get-KitCurrentBranch — поточна гілка на справжньому git (спека 2026-11-19 §4.2 п.9)' {
+Describe 'Get-KitCurrentBranch — поточна гілка на справжньому git' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
@@ -85,7 +85,7 @@ Describe 'Get-KitCurrentBranch — поточна гілка на справжн
     }
 }
 
-Describe 'Get-KitAlignStep — завжди push force, крім блокування поставки (спека 2026-11-19 §3.1, §4.2 п.7, п.9)' {
+Describe 'Get-KitAlignStep — завжди push force, крім блокування поставки' {
     BeforeAll {
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
@@ -132,7 +132,7 @@ Describe 'Get-KitAlignStep — завжди push force, крім блокува�
         @($s.Steps) | Should -HaveCount 0
         $s.Recipe | Should -BeLike '*"op":"pull"*"sourceSet":"base"*"force":true*kit supply-marker -Workspace Ws -Source base -Apply*'
         $s.Recipe | Should -Not -BeLike '*"op":"push"*'
-        # Після повного pull push force не потрібен (§4.2 п.18).
+        # Після повного pull push force не потрібен.
         $s.Recipe | Should -BeLike '*supply-marker*push force не потрібен*' -Because 'після позначки поставки рецепт прямо каже, що push force не потрібен'
     }
     It 'blocked, гілка задачі: «спершу поставка на головній гілці», без pull і supply-marker' {

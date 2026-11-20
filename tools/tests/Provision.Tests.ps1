@@ -3,7 +3,7 @@
 Describe 'kit provision — прев''ю і зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
-        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює — це перевіряє окремий тест.
         $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:Invoke-Provision { param([string]$Repo, [string[]]$More = @())
@@ -13,13 +13,13 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         function script:Add-KitOwnerTree {
             <#
             .SYNOPSIS
-                Задача 12: кладе стаб Configuration.xml у кожне CONFIGURATION-дерево репозиторію
+                Кладе стаб Configuration.xml у кожне CONFIGURATION-дерево репозиторію
                 — «власник є на диску».
             .DESCRIPTION
                 New-KitFakeRepo навмисно лишає CONFIGURATION source-set порожнім (коментар у
                 KitFixtures.psm1: «vendor — як у споживача без дампу») — і саме це тепер ловить
                 Test-KitConfigurationOwnerPresent (provision.psm1). Тести цього файлу, які
-                досліджують ІНШУ вісь (шаблон, -Force, межа шляху F5/F7 тощо), кличуть цей
+                досліджують ІНШУ вісь (шаблон, -Force, межа шляху тощо), кличуть цей
                 хелпер одразу після New-KitFakeRepo, щоб нова перевірка не зупиняла їх на
                 кроці, який вони не перевіряють, і не ховала справжню причину під іншим
                 повідомленням. -Workspaces — та сама мапа, що передавалась у New-KitFakeRepo
@@ -50,7 +50,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         $r = Invoke-Provision -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*Alpha_SMB*build*ib*порожн*-Apply*'
-        # F2/P4-регресія: '*-Apply*' саме по собі проходить і на зламаній конкатенації —
+        # Регресія: '*-Apply*' саме по собі проходить і на зламаній конкатенації —
         # `Write-Host 'x' + $(if...) -Fg y` друкує аргументи "x", "+", "." окремо через
         # пробіл ("x + ."), і підрядок "-Apply" усе одно там є. Цей патерн ловить лише
         # СКЛЕЄНий рядок: крапка одразу за -Apply, без пробілу й без "+" між ними.
@@ -63,8 +63,8 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         (Invoke-Provision -Repo $repo -More @('-Template', 'E:\other.dt')).Output | Should -BeLike '*E:\other.dt*'
     }
 
-    It 'F2/P2-регресія: шаблон одного воркспейсу з накладки НЕ протікає в наступний воркспейс того самого прогону' {
-        # До правки P2 локальна змінна циклу звалася $template — та сама змінна, що й
+    It 'Регресія: шаблон одного воркспейсу з накладки НЕ протікає в наступний воркспейс того самого прогону' {
+        # До правки локальна змінна циклу звалася $template — та сама змінна, що й
         # параметр -Template (PowerShell реєстронечутливий): шаблон, узятий із накладки
         # для Alpha_SMB, лишався б у $template і "просочувався" б у Beta_SMB, у якого
         # накладка шаблону не задає. Обидва воркспейси — файлові бази (File=build/ib), щоб
@@ -87,7 +87,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         }
         $overlay = "workspaces:`n  Alpha_SMB:`n    agentBase:`n      template: 'D:\dumps\alpha-only.dt'"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'leak') -Workspaces $workspaces -OverlayText $overlay -WithHooks
-        # Beta_SMB тут БЕЗ шаблону (саме так тест ловить P2) — без власника на диску Задача 12
+        # Beta_SMB тут БЕЗ шаблону — без власника на диску перевірка власника
         # зупинила б Beta_SMB раніше, ніж дійде до рядка прев'ю, який цей тест перевіряє.
         Add-KitOwnerTree -Repo $repo -Workspaces $workspaces
         $r = Invoke-Provision -Repo $repo
@@ -109,13 +109,13 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
     }
 
-    # Review Focus 3 (спека Unica 0.16 §3.4 п.3, §4.2 п.16): kit базу агента не видаляє ніколи. Тека за шляхом
+    # Kit базу агента не видаляє ніколи. Тека за шляхом
     # бази — зупинка, що називає ОБИДВІ теки для людини (база й пам'ять раннера); маркери в обох лишаються.
     foreach ($case in @(
         @{ Name = 'порожня'; WithCd = $false }
         @{ Name = 'з 1Cv8.1CD';   WithCd = $true }
     )) {
-        It "Review Focus 3: тека бази $($case.Name) — зупинка з двома теками, код 1, обидва маркери на місці" -TestCases @($case) {
+        It "тека бази $($case.Name) — зупинка з двома теками, код 1, обидва маркери на місці" -TestCases @($case) {
             param($Name, $WithCd)
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('exists-' + [guid]::NewGuid().ToString('N').Substring(0, 8))) -WithHooks
             Add-KitOwnerTree -Repo $repo
@@ -138,7 +138,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             if ($WithCd) { Join-Path $base '1Cv8.1CD' | Should -Exist }
         }
     }
-    It 'пілот §5 п.3: у pwsh -Command $LASTEXITCODE виставлено — 1 на зупинці, 0 на успіху (раніше порожній)' {
+    It 'У pwsh -Command $LASTEXITCODE виставлено — 1 на зупинці, 0 на успіху (раніше порожній)' {
         # Без явного `exit 0` у кінці kit.ps1 скрипт, що відпрацював, не встановлює $LASTEXITCODE: у
         # `pwsh -Command "& kit.ps1 …; $LASTEXITCODE"` змінна порожня. Тест міряє саме цю форму виклику, не -File.
         $stop = New-KitFakeRepo -Root (Join-Path $TestDrive 'exit-stop') -WithHooks
@@ -159,7 +159,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         $r.Output | Should -BeLike '*-Template*'
     }
 
-    It 'F6-регресія: -Remember без -Apply — прев''ю каже, що шаблон іще не записано' {
+    It 'Регресія: -Remember без -Apply — прев''ю каже, що шаблон іще не записано' {
         # -Remember сам по собі вимагає -Template (перша ж перевірка Invoke-KitProvision) —
         # тут він переданий явно, щоб дійти до гілки прев'ю, а не впасти на цій вимозі.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'remember-preview') -WithHooks
@@ -169,10 +169,10 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         Join-Path $repo 'v8storagekit.local.yaml' | Should -Not -Exist
     }
 
-    Context 'F5/F7 — межа видалення/створення бази агента (безпека принципу 3, другий незалежний запобіжник)' {
-        It 'F7: infobase.connection = File=cfe/src (сусідня тека всередині воркспейсу, поза workPath) — відмова, тека вихідників на місці' {
+    Context 'Межа видалення/створення бази агента (другий незалежний запобіжник)' {
+        It 'infobase.connection = File=cfe/src (сусідня тека всередині воркспейсу, поза workPath) — відмова, тека вихідників на місці' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sibling-dir') -WithHooks
-            # Власника кладемо, щоб перевіряти саме межу шляху (F7), а не Задачу 12 —
+            # Власника кладемо, щоб перевіряти саме межу шляху, а не відсутність власника —
             # інакше перша ж зупинка (власник) заступила б собою ту, що досліджує цей тест.
             Add-KitOwnerTree -Repo $repo
             Set-KitFakeAgentBase -Repo $repo -Connection 'File=cfe/src'
@@ -186,7 +186,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $cfg | Should -Exist
         }
 
-        It 'F5: infobase.connection = File=D:\ (за межами воркспейсу і репозиторію) — відмова, платформа не викликається' {
+        It 'infobase.connection = File=D:\ (за межами воркспейсу і репозиторію) — відмова, платформа не викликається' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'outside-drive') -WithHooks
             Add-KitOwnerTree -Repo $repo
             Set-KitFakeAgentBase -Repo $repo -Connection 'File=D:\'
@@ -195,7 +195,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml' | Should -Exist
         }
 
-        It 'F7: infobase.connection = File=build/ib (типовий, під workPath) — не відмовляє на межі' {
+        It 'infobase.connection = File=build/ib (типовий, під workPath) — не відмовляє на межі' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'normal-path') -WithHooks
             Add-KitOwnerTree -Repo $repo
             $r = Invoke-Provision -Repo $repo
@@ -203,7 +203,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r.Output | Should -Not -BeLike '*лежить поза робочою текою*'
         }
 
-        It 'F7: workPath: ''out'' + File=out/ib — конфігурований workPath проходить (не відмовляє на межі)' {
+        It 'workPath: ''out'' + File=out/ib — конфігурований workPath проходить (не відмовляє на межі)' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'workpath-out') -WithHooks
             Add-KitOwnerTree -Repo $repo
             $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
@@ -216,7 +216,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r.Output | Should -Not -BeLike '*лежить поза робочою текою*'
         }
 
-        It 'F7: workPath: ''.'' — відмова називає workPath, не базу (доводить, що спрацював саме запобіжник межі)' {
+        It 'workPath: ''.'' — відмова називає workPath, не базу (доводить, що спрацював саме запобіжник межі)' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'workpath-dot') -WithHooks
             Add-KitOwnerTree -Repo $repo
             $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'
@@ -228,14 +228,14 @@ Describe 'kit provision — прев''ю і зупинки без платфор
             $r.Output | Should -Not -BeLike '*База агента*'
         }
 
-        # П25 «Корені власності»: workPath не може бути коренем набору, лежати в ньому чи над ним (тека набору
+        # «Корені власності»: workPath не може бути коренем набору, лежати в ньому чи над ним (тека набору
         # коренем власності не стає ніколи). Відмова ДО видалення: файли набору цілі, текст — рецепт без значень поза репо.
         foreach ($case in @(
             @{ Name = 'дорівнює теці набору'; WorkPath = 'cfe/src' }
             @{ Name = 'лежить у теці набору';  WorkPath = 'cfe/src/work' }
             @{ Name = 'лежить над текою набору (містить її)'; WorkPath = 'cfe' }
         )) {
-            It "П25: workPath $($case.Name) — відмова з рецептом, нічого не видалено" -TestCases @($case) {
+            It "workPath $($case.Name) — відмова з рецептом, нічого не видалено" -TestCases @($case) {
                 param($Name, $WorkPath)
                 $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('workpath-set-' + [guid]::NewGuid().ToString('N').Substring(0, 8))) -WithHooks
                 Add-KitOwnerTree -Repo $repo
@@ -254,7 +254,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         }
     }
 
-    Context 'Задача 12 — власник конфігурації перевіряється до вибору типу бази' {
+    Context 'Власник конфігурації перевіряється до вибору типу бази' {
         It 'порожній cf/src, розширення без запозичених об''єктів (Adopted=0) — перевірка все одно спрацьовує, і в прев''ю, і з -Apply' {
             # Дефолтну фікстуру НЕ чіпаємо: KitFixtures навмисно лишає cf/src порожнім
             # (truth: vendor, як на щойно клонованій машині), а New-KitFakeConfigurationXml
@@ -296,7 +296,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
 
         It '-Template заданий — вісь власника пропускається навіть при порожньому cf/src (шаблон несе власника інакше)' {
             # Той самий фікс, що й у тесті «-Apply з неіснуючим .dt» вище — тут явно
-            # називаємо намір Задачі 12: якби перевірка не пропускала шаблонний шлях,
+            # називаємо намір перевірки власника: якби перевірка не пропускала шаблонний шлях,
             # повідомлення було б про власника, а не про відсутній файл .dt.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-owner-template') -WithHooks
             $r = Invoke-Provision -Repo $repo -More @('-Apply', '-Template', (Join-Path $TestDrive 'no-owner-template-missing.dt'))
@@ -324,7 +324,7 @@ Describe 'kit provision — прев''ю і зупинки без платфор
         }
 
         It 'основа truth: vendor, бази агента немає, без -Template — зупинка з рецептом (.dt чи серверна), базу не створено' {
-            # Спека 0.16 §4.2 п.23: ні kit, ні Уніка не вантажать основу vendor у базу. Зупинка стоїть до
+            # Ні kit, ні Уніка не вантажать основу vendor у базу. Зупинка стоїть до
             # будь-якого створення (New-V8FileInfobase не викликано) і навіть до осі власника.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'vendor-no-base') -WithHooks -DefaultConfigTruth vendor
             Add-KitOwnerTree -Repo $repo
@@ -386,10 +386,10 @@ Describe 'kit provision — прев''ю і зупинки без платфор
     }
 }
 
-Describe 'kit provision 1.5.0 — хто створює базу (спека §4.2, §10)' {
+Describe 'kit provision 1.5.0 — хто створює базу' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
-        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює — це перевіряє окремий тест.
         $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         function script:Invoke-Provision { param([string]$Repo, [string[]]$More = @())
@@ -509,7 +509,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
     It 'крок наступного kit: (i) називає крок вирівнювання push force:true; (ii) — дослівно Get-KitSupplyRecipe, без власної копії' {
         # Get-KitProvisionNextKitStep не експортується — кличемо в області модуля.
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
-        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює — це перевіряє окремий тест.
         $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
@@ -557,7 +557,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.ExitCode | Should -Be 0 -Because ($r.Output -replace 'SECRET', 'S*CRET')
         $r.Output | Should -Not -BeLike '*SECRET*'
     }
-    It 'П26 п. 1: дев-база записана з префіксом \\?\ (та сама тека) — відмова, дев-база ціла' {
+    It 'Дев-база записана з префіксом \\?\ (та сама тека) — відмова, дев-база ціла' {
         $repoPath = Join-Path $TestDrive 'ov-long'
         $overlay = "infobases:`n  dev:`n    connection: 'File=\\?\$repoPath\Alpha_SMB\build\ib'"
         $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
@@ -567,7 +567,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.Output | Should -BeLike '*дев-базою людини*dev*'
         Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
     }
-    It 'П26 п. 1: дев-база вкладена в теку агента — відмова, дев-база ціла' {
+    It 'Дев-база вкладена в теку агента — відмова, дев-база ціла' {
         $repoPath = Join-Path $TestDrive 'ov-nested'
         $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build\ib\dev'"
         $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
@@ -581,7 +581,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         (Get-Content -LiteralPath (Join-Path $dev '1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
         Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
     }
-    It 'П26 п. 1: дев-база є батьком теки агента — відмова, дев-база ціла' {
+    It 'Дев-база є батьком теки агента — відмова, дев-база ціла' {
         $repoPath = Join-Path $TestDrive 'ov-parent'
         $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build'"
         $repo = New-KitFakeRepo -Root $repoPath -WithHooks -WithAgentBase -OverlayText $overlay
@@ -593,7 +593,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         (Get-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/build/dev-data.txt') -Raw).Trim() | Should -Be 'людська база'
         Test-Path -LiteralPath (Join-Path $repo 'Alpha_SMB/build/ib/1Cv8.1CD') | Should -BeTrue
     }
-    It 'П26 п. 1: build — junction на теку з дев-базою — відмова, дев-база ціла' {
+    It 'Build — junction на теку з дев-базою — відмова, дев-база ціла' {
         $devDir = Join-Path $TestDrive 'ov-junction-dev'
         New-Item -ItemType Directory -Path (Join-Path $devDir 'ib') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $devDir 'ib/1Cv8.1CD') -Value 'людська база'
@@ -606,7 +606,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.Output | Should -BeLike '*дев-базою людини*dev*'
         (Get-Content -LiteralPath (Join-Path $devDir 'ib/1Cv8.1CD') -Raw).Trim() | Should -Be 'людська база'
     }
-    It 'П26 п. 1, контроль: дев-база build\ib2 поруч з build\ib — не перетин, provision іде далі' {
+    It 'Контроль: дев-база build\ib2 поруч з build\ib — не перетин, provision іде далі' {
         $repoPath = Join-Path $TestDrive 'ov-sibling'
         $overlay = "infobases:`n  dev:`n    connection: 'File=$repoPath\Alpha_SMB\build\ib2'"
         $repo = New-KitFakeRepo -Root $repoPath -WithHooks -OverlayText $overlay
@@ -614,7 +614,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r = Invoke-Provision -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
     }
-    It 'П26 п. 2а: connection = File=build/artifacts, у теці файл — інша зупинка без поради видаляти; тека й вміст цілі, код 1' {
+    It 'connection = File=build/artifacts, у теці файл — інша зупинка без поради видаляти; тека й вміст цілі, код 1' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'notbase-artifacts') -WithHooks
         Add-Owner -Repo $repo
         Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/artifacts'
@@ -642,7 +642,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.Output | Should -Not -BeLike '*непорожня*'
         $ib | Should -Exist
     }
-    It 'M2: база воркспейсу Beta через junction збігається з базою Alpha — відмова з назвою Alpha, без поради видаляти дві теки' {
+    It 'База воркспейсу Beta через junction збігається з базою Alpha — відмова з назвою Alpha, без поради видаляти дві теки' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }) }
             'Beta_SMB'  = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }) }
@@ -698,7 +698,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         Join-Path $repo 'Alpha_SMB/build/ib' | Should -Not -Exist
         Join-Path $betaIb 'marker.txt' | Should -Exist
     }
-    It 'П16: немає infobases.origin — код 1, рецепт v8storagekit:infobase-agent' {
+    It 'Немає infobases.origin — код 1, рецепт v8storagekit:infobase-agent' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-origin') -WithHooks -Workspaces ([ordered]@{
             'Alpha_SMB' = @{ Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } })
         Add-Owner -Repo $repo
@@ -707,7 +707,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
         $r.Output | Should -BeLike '*не налаштована*v8storagekit:infobase-agent*'
         $r.Output | Should -Not -BeLike '*у v8project.yaml немає infobase:*'
     }
-    It 'П16: лише зовнішні обробки — код 0, «бази тут не буває»' {
+    It 'Лише зовнішні обробки — код 0, «бази тут не буває»' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'epf') -WithHooks -Workspaces ([ordered]@{
             'Epf' = @{ Sets = @(@{ Name = 'external-processors'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) } })
         $r = Invoke-Provision -Repo $repo
@@ -719,7 +719,7 @@ Describe 'kit provision 1.5.0 — хто створює базу (спека §4
 Describe 'kit provision — CreatedBy у результаті (хто створив базу), у процесі' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
-        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює (спека 0.16 §4.2 п.23) — це перевіряє окремий тест.
+        # Основа за умовчанням НЕ vendor: для основи vendor provision бази не створює — це перевіряє окремий тест.
         $PSDefaultParameterValues['New-KitFakeRepo:DefaultConfigTruth'] = 'dump'
         $libDir = (Resolve-Path "$PSScriptRoot/../lib").Path
         $order = Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
@@ -810,7 +810,7 @@ Describe 'kit provision — платформа: порожня база й ба�
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
 
-        # Задача 12: власник має бути на диску, інакше -Apply без -Template тепер
+        # Власник має бути на диску, інакше -Apply без -Template тепер
         # зупиняється до платформи (Test-KitConfigurationOwnerPresent) — та сама функція,
         # що й у першому Describe цього файлу; окремий BeforeAll в Integration-блоці
         # свій, тож дублюємо, а не покладаємось на видимість між Describe.
@@ -841,7 +841,7 @@ Describe 'kit provision — платформа: порожня база й ба�
     It 'непридатне дерево (рецепт (i)): kit сам створює порожню базу під <ws>/build/ib' {
         # Придатне дерево базу не створює kit (її створює Уніка), тож «kit створив порожню
         # базу» перевіряється на truth: storage без дерева — єдиному випадку, де першим
-        # наповнює kit (спека §3 рішення 4).
+        # наповнює kit.
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'empty') -Workspaces $ws -NoSourceTrees -WithHooks

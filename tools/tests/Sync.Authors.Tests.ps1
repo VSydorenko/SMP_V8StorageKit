@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync — автор на конкретну версію сховища (спека 2026-09-30 §6.8, мок платформи)' {
+Describe 'kit sync — автор на конкретну версію сховища (мок платформи)' {
     # Invoke-KitSync викликається напряму, у цьому процесі (той самий прийом, що в Sync.Merge.Tests.ps1):
     # лише так Pester Mock -ModuleName підміняє Get-StorageVersions (-ModuleName sync) і платформу
     # (Invoke-V8Designer — -ModuleName StoragePlatform), не запускаючи 1cv8.exe.

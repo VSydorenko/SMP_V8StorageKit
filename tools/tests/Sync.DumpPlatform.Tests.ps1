@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync — версія, яку основна платформа не вивантажує: зупинка §4.1, -DumpPlatform/-ForVersion, -SkipVersion (спека 1.3.1, мок платформи)' {
+Describe 'kit sync — версія, яку основна платформа не вивантажує: зупинка, -DumpPlatform/-ForVersion, -SkipVersion (мок платформи)' {
     # Invoke-KitSync викликається в цьому процесі (як у Sync.Merge.Tests.ps1): Mock -ModuleName
     # діє лише в таблиці команд названого модуля. Платформний шар мокається цілком за
     # -ModuleName sync — sync.psm1 кличе Invoke-KitStorageCheckout, Invoke-KitStorageCheckoutViaPlatform,
@@ -101,7 +101,7 @@ Describe 'kit sync — версія, яку основна платформа н
         }
     }
 
-    It 'зупинка §4.1: основна платформа не вивантажила v34 — текст із платформою, переліком і двома виходами, дзеркало на v33, worktree прибрано' {
+    It 'зупинка: основна платформа не вивантажила v34 — текст із платформою, переліком і двома виходами, дзеркало на v33, worktree прибрано' {
         $repo = New-DumpRepo 'stop41'
         $script:FailVersion = 34
         $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true }
@@ -121,7 +121,7 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:Steps | Should -Not -Contain 'checkout:35'
     }
 
-    It 'зупинка §4.1 без інших платформ — замість команд -DumpPlatform пояснення; -SkipVersion лишається' {
+    It 'зупинка без інших платформ — замість команд -DumpPlatform пояснення; -SkipVersion лишається' {
         $repo = New-DumpRepo 'stop41-alone'
         $script:FailVersion = 34
         # Одна платформа — скаляр без обгортки-масиву (так і повертає Get-KitInstalledPlatforms).
@@ -132,7 +132,7 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:SyncError | Should -BeLike '*-SkipVersion 34*'
     }
 
-    It '§6.2: пропуск v34 активний, коміту ще не було, v35 падає — «не підтримується», дзеркало на v33, стандартних команд для v35 немає' {
+    It 'Пропуск v34 активний, коміту ще не було, v35 падає — «не підтримується», дзеркало на v33, стандартних команд для v35 немає' {
         $repo = New-DumpRepo 'skip-then-fail'
         $script:FailVersion = 35
         $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; SkipVersion = 34 }
@@ -147,7 +147,7 @@ Describe 'kit sync — версія, яку основна платформа н
         Get-Trailer -Repo $repo -Sha 'storage/base' -Key 'Storage-Version' | Should -Be '33'
     }
 
-    It '§6.2, суміжний випадок: -DumpPlatform … -ForVersion 34 закомітила v34, v35 падає — стандартні команди для v35' {
+    It 'Суміжний випадок: -DumpPlatform … -ForVersion 34 закомітила v34, v35 падає — стандартні команди для v35' {
         $repo = New-DumpRepo 'dump-then-fail'
         $script:FailVersion = 35
         $null = Invoke-DumpSync -Repo $repo -Params @{ Source = 'base'; Apply = $true; DumpPlatform = '8.3.25.1445'; ForVersion = 34 }
@@ -158,7 +158,7 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:SyncError | Should -Not -BeLike '*не підтримується*'
     }
 
-    It '§6.2: пропуск v34 уже ліг у коміт v35, v36 падає — стандартні команди для v36 (гілка лише «ще не закомічено»)' {
+    It 'Пропуск v34 уже ліг у коміт v35, v36 падає — стандартні команди для v36 (гілка лише «ще не закомічено»)' {
         $repo = New-DumpRepo 'skip-commit-then-fail'
         Mock -ModuleName sync Get-StorageVersions { , @((New-KitFakeStorageVersion -Version 34), (New-KitFakeStorageVersion -Version 35), (New-KitFakeStorageVersion -Version 36)) }
         $script:FailVersion = 36
@@ -168,7 +168,7 @@ Describe 'kit sync — версія, яку основна платформа н
         Get-Trailer -Repo $repo -Sha 'storage/base' -Key 'Storage-Skipped' | Should -Be '34'
     }
 
-    It 'зупинка §4.1, коли перелік платформ недоступний — відповідь платформи й вихід -SkipVersion все одно в тексті' {
+    It 'зупинка, коли перелік платформ недоступний — відповідь платформи й вихід -SkipVersion все одно в тексті' {
         $repo = New-DumpRepo 'stop41-nolist'
         $script:FailVersion = 34
         Mock -ModuleName sync Get-KitInstalledPlatforms { throw 'ПЕРЕЛІК-ЗЛАМАНО' }

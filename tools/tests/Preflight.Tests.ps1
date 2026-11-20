@@ -55,7 +55,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-manifest')
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*v8storagekit.yaml*onboarding*'
-        # H3 — "з теки плагіна" саме собою не каже, де та тека.
+        # "з теки плагіна" саме собою не каже, де та тека.
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*claude plugin list*'
 
         $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient

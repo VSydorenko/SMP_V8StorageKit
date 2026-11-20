@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'CaseGuard.psm1 — шляхи, що різняться лише регістром (спека 2026-10-04 §4.4)' {
+Describe 'CaseGuard.psm1 — шляхи, що різняться лише регістром' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/CaseGuard.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -65,7 +65,7 @@ Describe 'CaseGuard.psm1 — шляхи, що різняться лише рег
         $err.Exception.Message | Should -BeLike '*T/Образецанализ.xml*'
     }
 
-    It 'Assert-KitIndexMatchesDisk: файл, який git ігнорує, на диску рахується — виняток (спека §4.1, H2)' {
+    It 'Assert-KitIndexMatchesDisk: файл, який git ігнорує, на диску рахується — виняток' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'ignored')
         Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Value '*.bak' -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/local.bak') -Value 'b'

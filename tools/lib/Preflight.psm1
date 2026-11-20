@@ -28,7 +28,7 @@ function New-KitFinding {
 function Invoke-KitPreflight {
     <#
     .SYNOPSIS
-        Спільний префлайт усіх команд kit (спека §5): маніфест, накладка, воркспейси,
+        Спільний префлайт усіх команд kit: маніфест, накладка, воркспейси,
         відповідність ключів джерел source-set-ам. Мілісекунди, без платформи й git-логу.
     .PARAMETER Lenient
         Не кидати, а збирати знахідки в Findings і виставити Ok=$false. Режим check.
@@ -110,7 +110,7 @@ function Invoke-KitPreflight {
         }
         $projectPath = Join-Path $wsFull 'v8project.yaml'
         if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
-            & $fail 'workspace' "У воркспейсі '$($ws.Path)' немає v8project.yaml — структуру джерел описує саме він (спека §2.1)."
+            & $fail 'workspace' "У воркспейсі '$($ws.Path)' немає v8project.yaml — структуру джерел описує саме він."
             continue
         }
         $cfgProblems = @()
@@ -176,7 +176,7 @@ function Invoke-KitPreflight {
 function Select-KitSources {
     <#
     .SYNOPSIS
-        Джерела за спільними параметрами -Workspace / -Source / -Truth (спека §5).
+        Джерела за спільними параметрами -Workspace / -Source / -Truth.
     .DESCRIPTION
         -Source без -Workspace дозволений лише коли ключ унікальний у маніфесті;
         інакше зупинка з переліком воркспейсів. Повертає масив (може бути порожнім) —

@@ -2,7 +2,7 @@
 Describe 'kit check — інваріанти репозиторію-споживача' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
 
-    It '§2.2: <Name> у Configuration.xml не збігається з ключем джерела — код 1, названо обидва' {
+    It '<Name> у Configuration.xml не збігається з ключем джерела — код 1, названо обидва' {
         $repo = New-GoodRepo 'name-mismatch'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Configuration.xml') -Encoding UTF8 -NoNewline `
             -Value (New-KitFakeConfigurationXml -Name 'Alpha_OLD')
@@ -12,7 +12,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*Alpha_OLD*Alpha_SMB*Configuration.xml*'
     }
 
-    It '§2.5: infobase.connection у v8project.local.yaml збігається з дев-базою з накладки — код 1' {
+    It 'infobase.connection у v8project.local.yaml збігається з дев-базою з накладки — код 1' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'`n    user: 'Адмін'"
         $repo = New-GoodRepo 'local-audit' @{ OverlayText = $overlay }
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=SMP_UNF;'
@@ -21,7 +21,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
-    It '§2.5: той самий конекшн, інакше записаний (регістр, пробіл, без ";") — усе одно код 1' {
+    It 'той самий конекшн, інакше записаний (регістр, пробіл, без ";") — усе одно код 1' {
         # Тест на саму нормалізацію (check.psm1: $norm), не на порівняння рядків: тут
         # накладка й v8project.local.yaml НЕ побайтово однакові — інший регістр, зайвий
         # пробіл після ";" і без завершальної ";". Якби $norm замінили на тотожність
@@ -35,8 +35,8 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
-    It '§2.5/F1: infobase.connection у v8project.local.yaml нерозбірне (Srvr= без Ref=) — error, а не тиша' {
-        # F1 (рев'ю B4 Task 1): fail-closed. Test-KitInfobasesOverlap кидає на нерозбірному
+    It 'infobase.connection у v8project.local.yaml нерозбірне (Srvr= без Ref=) — error, а не тиша' {
+        # Fail-closed. Test-KitInfobasesOverlap кидає на нерозбірному
         # підключенні (тут — навіть раніше, на Resolve-KitAgentInfobasePath: ConvertFrom-V8Connection
         # вимагає Ref= для Srvr=), а check МАЄ перетворити цей throw на знахідку error, не
         # впасти й не мовчати — суперечливий репозиторій має бути видимий у звіті check.
@@ -48,7 +48,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*'
     }
 
-    It '§2.5: серверна база АГЕНТА у v8project.local.yaml, якої немає в накладці, — не помилка' {
+    It 'серверна база АГЕНТА у v8project.local.yaml, якої немає в накладці, — не помилка' {
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'"
         $repo = New-GoodRepo 'local-agent' @{ OverlayText = $overlay }
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
@@ -63,7 +63,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*нерозбірне*'
     }
 
-    It '§4.3 п. 4: infobase.connection = Srvr="SRV";Ref="BASE"; (парні лапки) — знахідки про нерозбірне підключення немає' {
+    It 'infobase.connection = Srvr="SRV";Ref="BASE"; (парні лапки) — знахідки про нерозбірне підключення немає' {
         $repo = New-GoodRepo 'quotes-agent'
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr="SRV";Ref="BASE";'
         $r = Invoke-Check -Repo $repo
@@ -71,7 +71,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*лапк*'
     }
 
-    It '§4.3 п. 4: infobase.connection = Srvr="SRV;Ref=BASE; (непарна лапка) — знахідка error з текстом про непарні лапки, не падіння check' {
+    It 'infobase.connection = Srvr="SRV;Ref=BASE; (непарна лапка) — знахідка error з текстом про непарні лапки, не падіння check' {
         $repo = New-GoodRepo 'quotes-unpaired-agent'
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr="SRV;Ref=BASE;'
         $r = Invoke-Check -Repo $repo
@@ -106,14 +106,14 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*v8project.local.yaml*dev*'
     }
 
-    It 'задача 3 (issue #9): дев-база з накладки з непарною лапкою без бази агента для звірки — warn overlay-connection, код не error-овий' {
-        # До задачі 3 ConvertFrom-V8Connection на дев-базі з infobases: викликала лише
+    It 'issue #9: дев-база з накладки з непарною лапкою без бази агента для звірки — warn overlay-connection, код не error-овий' {
+        # Раніше ConvertFrom-V8Connection на дев-базі з infobases: викликала лише
         # звірка з базою агента (Resolve-KitAgentBase, труба truth: storage) або local-audit
         # (v8project.local.yaml). Тут немає ні того, ні того — жодне джерело не truth:
         # storage (Resolve-KitAgentBase не викликається взагалі, той самий прийом ізоляції,
         # що й у тесті вище), і v8project.local.yaml у воркспейсі немає (Infobase у $ws не
         # задано) — жоден інший аудит на цій дев-базі спрацювати не може. Нерозбірне підключення
-        # (непарна лапка тощо) до задачі 3 проходило б check кодом 0 без жодного рядка.
+        # (непарна лапка тощо) без цієї перевірки проходило б check кодом 0 без жодного рядка.
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
@@ -131,7 +131,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*[!]*Дев-база ''dev''*непарні лапки*'
     }
 
-    It '§4.3 п. 4: дев-база з накладки в парних лапках — знахідки overlay-connection немає' {
+    It 'дев-база з накладки в парних лапках — знахідки overlay-connection немає' {
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
@@ -149,7 +149,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*Дев-база*'
     }
 
-    It 'задача 3 (issue #9): та сама дев-база без лапок — знахідки overlay-connection немає' {
+    It 'issue #9: та сама дев-база без лапок — знахідки overlay-connection немає' {
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
             @{ Name = 'base';      Type = 'CONFIGURATION'; Path = 'cf/src' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION';     Path = 'cfe/src' }) } }
@@ -167,7 +167,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Not -BeLike '*Дев-база*'
     }
 
-    It 'задача 3 (issue #9): дев-база з непарною лапкою без бази агента для звірки — kit session-check не виходить кодом 1' {
+    It 'issue #9: дев-база з непарною лапкою без бази агента для звірки — kit session-check не виходить кодом 1' {
         # session-check спершу кличе Invoke-KitCheck -Quiet (session-check.psm1): лише
         # error-знахідки піднімають його до коду 1 ("Сигнали не обчислювались"). Ця дев-база
         # дає щойно додану WARN 'overlay-connection' — код 1 тут означав би, що новий
@@ -190,7 +190,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It 'devInfobase: (стара конвенція) не мовчить — warn із порадою про infobases:' {
-        # Знахідка живого прогону B4 на SMP_BankExchange: у живих репозиторіях цей файл несе
+        # Знахідка живого прогону на SMP_BankExchange: у живих репозиторіях цей файл несе
         # devInfobase:, а не infobase:. Read-V8ProjectLocalInfobase на ньому повертає $null,
         # тож ГІЛКА АУДИТУ ВИЩЕ ПРОПУСКАЄТЬСЯ БЕЗ ЖОДНОГО РЯДКА — саме це й треба зловити.
         # Вирізати elseif із check.psm1 → вивід більше не містить 'devInfobase' і тест червоніє.
@@ -209,7 +209,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     It 'штатний infobase: цієї знахідки НЕ дає — правило не спрацьовує там, де все правильно' {
         # Другий бік того самого правила. Без цього тесту знахідка могла б з'являтись на
         # кожному правильному репозиторії, і ніхто б не помітив: перший тест від цього
-        # лишається зеленим. Той самий урок, що двічі коштував блоку Critical — перевіряти
+        # лишається зеленим. Той самий урок, що двічі коштував блоку — перевіряти
         # треба не лише те, що правило забороняє, а й те, що воно мусить пропускати.
         $repo = New-GoodRepo 'modern-infobase' @{}
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'

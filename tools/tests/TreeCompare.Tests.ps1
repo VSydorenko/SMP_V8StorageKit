@@ -6,7 +6,7 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
     }
 
     It 'байти дорівнюють блобу навіть під * text eol=crlf і core.autocrlf=true; кириличні шляхи й вкладені теки цілі' {
-        # ПОРЯДОК ВАЖЛИВИЙ (рев'ю B3, доведено пробою): явний атрибут `text` нормалізує блоб у LF на вході
+        # ПОРЯДОК ВАЖЛИВИЙ (доведено пробою): явний атрибут `text` нормалізує блоб у LF на вході
         # незалежно від core.autocrlf, тож .gitattributes кладеться ПІСЛЯ коміту змішаного файла. Переставляти
         # кроки можна; послаблювати твердження нижче — ні: вони і є гарантія, заради якої існує Export-KitTree.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'raw')
@@ -33,7 +33,7 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
         (git -C $repo hash-object --no-filters $exported).Trim() | Should -Be $rawId
     }
 
-    It 'великий блоб (≥200 КБ, повторні часткові читання Stream.Read) — байти й хеш збігаються (рев''ю B3, Important 2)' {
+    It 'великий блоб (≥200 КБ, повторні часткові читання Stream.Read) — байти й хеш збігаються' {
         # Копіювання циклом Copy-KitStreamBytes на малих файлах (12 байт, кілька сотень) жоден тест не
         # охороняє від вирізання циклу на єдиний Stream.Read: на такому розмірі Read завжди повертає
         # все за один виклик. Рев'ю виміряв на блобі 1 МБ: один Read(buf, 0, 65536) повернув 16384
@@ -78,8 +78,8 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
         (Get-Item -LiteralPath $exported).Length | Should -Be 0
     }
 
-    It 'кириличні шляхи цілі незалежно від амбієнтного [Console]::OutputEncoding дочірнього процесу (рев''ю B3, Important 3)' {
-        # Дефект (рев'ю B3): ls-tree йшов голим нативним викликом git, а PowerShell декодує вивід
+    It 'кириличні шляхи цілі незалежно від амбієнтного [Console]::OutputEncoding дочірнього процесу' {
+        # Дефект: ls-tree йшов голим нативним викликом git, а PowerShell декодує вивід
         # такого виклику за амбієнтним [Console]::OutputEncoding процесу — на cp866 кириличний шлях
         # перетворювався на сміття (рев'ю виміряв: 5 символів на 10 сміттєвих, Test-Path -> False).
         # Run-Tests.ps1 сам виставляє UTF-8 на весь прогін, тож без ОКРЕМОГО дочірнього процесу з
@@ -120,7 +120,7 @@ Describe 'TreeCompare.psm1 — дерево з git як сирі блоби' {
     }
 }
 
-Describe 'TreeCompare.psm1 — класифікація розбіжностей (§3.5)' {
+Describe 'TreeCompare.psm1 — класифікація розбіжностей' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path -Force
         $script:Dump = Join-Path $TestDrive 'dump'
@@ -194,7 +194,7 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
     }
 
     It 'Get-KitBinaryPaths не зависає на обсязі реального дампу (800 кириличних шляхів)' {
-        # Проба рев'ю B3: наївний «увесь stdin, потім ReadToEnd()» зависав назавжди від ~800 записів (буфер stdout).
+        # Проба: наївний «увесь stdin, потім ReadToEnd()» зависав назавжди від ~800 записів (буфер stdout).
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bulk') -WithGitattributes
         $paths = @(1..800 | ForEach-Object { "Catalogs/ДовгеІмʼяОбʼєкта_$_.xml" }) + @('Ext/pic.png')
@@ -212,7 +212,7 @@ Describe 'TreeCompare.psm1 — класифікація розбіжностей
         $set.Contains('Forms/Форма.xml') | Should -BeFalse
     }
 
-    It 'BinaryPaths — порожній HashSet не падає на прив''язці параметра (рев''ю B3 раунд 2, Critical 1)' {
+    It 'BinaryPaths — порожній HashSet не падає на прив''язці параметра' {
         # Get-KitBinaryPaths штатно повертає порожній набір, коли жоден файл дерева не
         # позначений binary в .gitattributes — саме так виглядає типове дерево 1С (лише
         # XML/BSL, жодного .png/.bin/.zip). $BinaryPaths був Mandatory БЕЗ
@@ -235,7 +235,7 @@ Describe 'Get-KitRelativeFiles — тека поставки вендора' {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/TreeCompare.psm1").Path -Force
     }
 
-    It 'Get-KitRelativeFiles пропускає теку поставки, .bin лишає (спека 2026-09-30 §6.3.3)' {
+    It 'Get-KitRelativeFiles пропускає теку поставки, .bin лишає' {
         $root = Join-Path $TestDrive 'rel-supply'
         New-Item -ItemType Directory -Path (Join-Path $root 'Ext/ParentConfigurations') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $root 'Configuration.xml') -Value 'x' -Encoding UTF8

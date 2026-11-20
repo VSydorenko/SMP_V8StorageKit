@@ -1,8 +1,8 @@
 #Requires -Version 7
-Describe 'kit session-check — сигнал без платформи (§5)' {
+Describe 'kit session-check — сигнал без платформи' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1') }
 
-    # Task 8 — відбиток (StorageImprint.psm1): точна відповідь замість вічної здогадки, коли диск
+    # Відбиток (StorageImprint.psm1): точна відповідь замість вічної здогадки, коли диск
     # сховища не змінювався з моменту, коли sync його читав. New-Repo фіксує коміт дзеркала на
     # Storage-Version: 1 — відбиток пишемо тут напряму (Write-KitStorageImprint), без реального
     # kit sync, щоб перевірити гілку session-check ізольовано від платформи.

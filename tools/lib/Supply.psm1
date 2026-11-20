@@ -3,15 +3,15 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 
-# Поставка вендора основної конфігурації на підтримці (§5.2, §6.3.1). ЄДИНЕ
+# Поставка вендора основної конфігурації на підтримці. ЄДИНЕ
 # оголошення шляху: sync, verify, adopt, supply-marker, check і provision беруть його звідси. Шлях —
 # відносно кореня дерева CONFIGURATION. У теці лежить <Ім'я>.cf поставки (0,5–1,1 ГБ — за межею
-# 100 МБ на файл GitHub, тому поза git) і позначка .kit-bin-sha1 (стан машини, §5.1).
+# 100 МБ на файл GitHub, тому поза git) і позначка .kit-bin-sha1 (стан машини).
 # Ext/ParentConfigurations.bin — ознаки підтримки (замки об'єктів) — ЛИШАЄТЬСЯ в git.
 $script:SupplyRelativePath = 'Ext/ParentConfigurations'
 $script:SupplyBinRelativePath = 'Ext/ParentConfigurations.bin'
 $script:SupplyMarkerName = '.kit-bin-sha1'
-# «.bin описує поставку» = файл більший за 16 байт (§6.3.2): у знятих з підтримки конфігураціях
+# «.bin описує поставку» = файл більший за 16 байт: у знятих з підтримки конфігураціях
 # файл рівно 16 байт — {6,0,0,0,1,0} з BOM. Ім'я .cf усередині .bin не розбираємо: формат не наш.
 $script:SupplyEmptyBinBytes = 16
 
@@ -42,11 +42,11 @@ function Get-KitSupplyBinSha1 {
 function Get-KitSupplyState {
     <#
     .SYNOPSIS
-        Стан поставки на цій машині (спека §5.2): none — .bin поставки не описує, правило не
+        Стан поставки на цій машині: none — .bin поставки не описує, правило не
         діє; current — позначка = SHA-1 поточного .bin; stale — позначка ≠ SHA-1; missing — .bin
         описує поставку, а .cf чи позначки немає.
     .DESCRIPTION
-        Хибна тривога stale можлива й прийнята свідомо (§5.2): .bin змінюється й тоді, коли
+        Хибна тривога stale можлива й прийнята свідомо: .bin змінюється й тоді, коли
         людина лише перевела об'єкт у редаговані. Перевідновити дешевше, ніж пропустити пару
         «новий .bin + старий .cf», яку платформа завантажить без відмови.
     #>
@@ -85,9 +85,8 @@ function Remove-KitSupplyDir {
 function Clear-KitTreeExceptSupply {
     <#
     .SYNOPSIS
-        Стирає вміст дерева джерела, крім теки поставки (adopt, спека §5.2): у дзеркалі .cf
-        немає, і повне стирання лишило б .bin без .cf — наступне повне завантаження впало б
-        (спайк §4.2, варіант B).
+        Стирає вміст дерева джерела, крім теки поставки (adopt): у дзеркалі .cf
+        немає, і повне стирання лишило б .bin без .cf — наступне повне завантаження впало б.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$TreeRoot, [Parameter(Mandatory)][string]$MustBeUnder, [Parameter(Mandatory)][string]$RepoRoot, [string]$OwnedRoot)
@@ -119,7 +118,7 @@ function Get-KitSupplyRecipe {
     .DESCRIPTION
         Два виміри різняться. Purpose: check лише попереджає й веде до kit verify, а зупинка після
         sync/verify вже має базу агента зі версією сховища, тож веде до видалення теки поставки, повного pull Уніки і
-        позначки kit supply-marker (спека 2026-11-19 §4.2 п.9, п.18). OnMainBranch: поставку
+        позначки kit supply-marker. OnMainBranch: поставку
         відновлюють лише на головній гілці; на гілці задачі (і на від'єднаному HEAD) рецепт каже
         «спершу поставка на головній гілці» й не несе кроку pull. Після повного pull база, дерево й
         пам'ять Уніки узгоджені, тож push force після позначки не потрібен.

@@ -43,7 +43,7 @@ Describe 'Yaml.psm1 — читання YAML через powershell-yaml' {
         { Read-KitYaml -Path $f } | Should -Throw '*broken.yaml*'
     }
 
-    It 'F3: обгортка лишається потрібною й з вимкненим автозавантаженням модулів — Save-KitOverlayAgentBase усе одно працює' {
+    It 'обгортка лишається потрібною й з вимкненим автозавантаженням модулів — Save-KitOverlayAgentBase усе одно працює' {
         # У звичайному процесі автозавантаження
         # з PSModulePath УВІМКНЕНЕ — регресія "Manifest.psm1 знову кличе
         # голий ConvertTo-Yaml замість ConvertTo-KitYaml" лишилась би зеленою і там, бо

@@ -60,8 +60,8 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-S
 pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest] -Apply
 ```
 
-**Після `sync` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт
-(спека 2026-09-17 §4). Пам'ять раннера Уніки після цього розходиться з базою, тому `sync` для
+**Після `sync` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт.
+Пам'ять раннера Уніки після цього розходиться з базою, тому `sync` для
 кожного зрушеного набору друкує один крок — `push` з `"force":true`
 (`unica.run {"op":"push","args":{"sourceSet":"<набір>","force":true},"dryRun":true}`). Виконати його
 дослівно, у воркспейсі з виводу (`v8storagekit:storage-rules`, «Крок, надрукований командою kit»):

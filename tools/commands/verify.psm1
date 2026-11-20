@@ -12,7 +12,7 @@ function Write-KitDiffList {
 function Invoke-KitVerify {
     <#
     .SYNOPSIS
-        Інваріант «<ref> ≡ сховище» (спека §3.5): дерево <ref> за шляхом джерела проти
+        Інваріант «<ref> ≡ сховище»: дерево <ref> за шляхом джерела проти
         канонічного дампу зі сховища на версії з merge-base. Без -Apply нічого не змінює.
     .PARAMETER Ref
         Що звіряти. Типово — головна гілка маніфесту. storage/X — канонічність самого дзеркала.
@@ -30,7 +30,7 @@ function Invoke-KitVerify {
         # ($true → 1) — це закрито в диспетчері kit.ps1: $true підставляється лише справжньому [switch].
         [ValidateRange(1, [int]::MaxValue)][Nullable[int]]$Version,
         # Шлях до раннера Уніки; порожній — із реєстру плагінів (Get-KitRunnerPath). Явний параметр, не
-        # змінна оточення (§4.2 п.20).
+        # змінна оточення.
         [string]$RunnerPath
     )
 
@@ -86,7 +86,7 @@ function Invoke-KitVerify {
         [pscustomobject]@{ Source = $src; Info = $vv; Agent = $agent; Version = $(if ($null -ne $Version) { [int]$Version } else { $vv.Version }) }
     })
 
-    # Раннер і платформа (§3.6 п.4, §4.2 п.14, п.20): усі перевірки git вище вже пройдено,
+    # Раннер і платформа: усі перевірки git вище вже пройдено,
     # тож відсутній раннер зупиняє тут — до першого звернення до платформи. Платформу визначаємо один
     # раз на воркспейс і передаємо явним -V8Path.
     # Шлях раннера резолвиться ліниво — у циклі, після Get-KitSourceInfobase (він уже виконаний у плані вище).
@@ -116,7 +116,7 @@ function Invoke-KitVerify {
             }
             $v8Path = $platformByWs[$agent.Workspace]
             Write-Host "  Платформа:  $(Get-KitPlatformVersionFromPath -Path $v8Path) (обрав раннер)"
-            # agent release — перед кожною пакетною операцією в базі агента (§3.6 п.1); released:false — норма.
+            # agent release — перед кожною пакетною операцією в базі агента; released:false — норма.
             $null = Invoke-KitAgentRelease -Project $agent.Project -RunnerPath $runner
             Write-Host "  База агента ($ib), версія зі сховища, дамп..."
             $alignStep = $null
@@ -134,7 +134,7 @@ function Invoke-KitVerify {
                     $shifted = $true
                     $dumpCount = Invoke-KitStorageCheckout -IbSwitch $ib -Source $src -Version $ver -Target (Join-Path $workDir 'dump') -MustBeUnder $workDir -RepoRoot $root -V8Path $v8Path -User $agent.User -Password $agent.Password
                 } catch {
-                    # §6.1.1: власний текст verify на тому самому розпізнаваному винятку, що й
+                    # Власний текст verify на тому самому розпізнаваному винятку, що й
                     # sync, але БЕЗ порад sync (-DumpPlatform/-SkipVersion): verify нічого не переносить,
                     # а звірка на версії, яку основна платформа не вивантажує, неможлива.
                     if (Test-KitDumpFailure -ErrorRecord $_) {
@@ -151,7 +151,7 @@ function Invoke-KitVerify {
                 $treeDir = Join-Path $workDir 'tree'
                 $treeCount = Export-KitTree -RepoRoot $root -Ref $refSha -RepoPath $src.RepoPath -Destination $treeDir
                 Write-Host "  Файлів: у дампі $dumpCount, у дереві '$ref' $treeCount"
-                # Групи регістру — з ПЕРЕЛІКУ git, не з диска (§4.3): на NTFS члени групи вже
+                # Групи регістру — з ПЕРЕЛІКУ git, не з диска: на NTFS члени групи вже
                 # злились в один файл при експорті. Запобіжник лічильника: інша розбіжність між переліком і
                 # текою дерева — файлова система з'їла шляхи з невідомої причини, і вердикт був би неправдою.
                 $prefix = ($src.RepoPath -replace '\\', '/').TrimEnd('/')
@@ -237,8 +237,8 @@ function Invoke-KitVerify {
 
         } finally {
             # Крок для зсунутого набору — і тоді, коли пізніша стадія (дамп, лічильник дерева, звірочний коміт)
-            # кинула виняток: база агента вже тримає версію сховища, а git — іншу, і без кроку це тиха суміш
-            # (§3.1). Крок не залежить від порівняння. Виняток летить далі
+            # кинула виняток: база агента вже тримає версію сховища, а git — іншу, і без кроку це тиха суміш.
+            # Крок не залежить від порівняння. Виняток летить далі
             # незмінним; крок — до фінального finally з рядками ЗУПИНКА. OnMainBranch — за ПОТОЧНОЮ гілкою, не за -Ref.
             if ($shifted) {
                 try {

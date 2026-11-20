@@ -7,7 +7,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         $script:Epf = [pscustomobject]@{ Key = 'tools'; Type = 'EXTERNAL_DATA_PROCESSORS'; StoragePath = ''; StorageUser = ''; StoragePassword = '' }
     }
 
-    It 'три аргументи підключення до сховища; користувач і пароль — із джерела (пароль лише з накладки, B2 Task 2a)' {
+    It 'три аргументи підключення до сховища; користувач і пароль — із джерела (пароль лише з накладки)' {
         $a = Get-KitRepositoryArguments -Source $script:Cfg
         $a | Should -Be @('/ConfigurationRepositoryF "R:\S\C"', '/ConfigurationRepositoryN "Alpen"', '/ConfigurationRepositoryP "secret"')
         (Get-KitRepositoryArguments -Source $script:Ext)[2] | Should -Be '/ConfigurationRepositoryP ""'
@@ -138,7 +138,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         }
     }
 
-    Context '«розширення не знайдено» — переклад у рецепт push Уніки (Task 3, Step 6)' {
+    Context '«розширення не знайдено» — переклад у рецепт push Уніки' {
         # UpdateCfg падає до Target/MustBeUnder — шлях сюди не доходить, тож тека $TestDrive
         # нижче ніколи не читається й не пишеться, лише формально задовольняє Mandatory-параметри.
         It 'EXTENSION, платформа каже «расширение … не найдено» — виняток називає push Уніки з force' {
@@ -177,7 +177,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         }
     }
 
-    Context 'збій вивантаження після успішного UpdateCfg — розпізнаваний виняток (спека 1.3.1 §6.1.1)' {
+    Context 'збій вивантаження після успішного UpdateCfg — розпізнаваний виняток' {
         It 'UpdateCfg 0, DumpConfigToFiles 1 — виняток із Data: версія, платформа, вивід; Test-KitDumpFailure = $true' {
             Mock -ModuleName StoragePlatform Invoke-V8Designer {
                 param($IbSwitch, $Arguments, $User, $Password, $V8Path)
@@ -215,7 +215,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
         }
     }
 
-    Context 'Invoke-KitStorageCheckoutViaPlatform — вивантаження обраною платформою (спека 1.3.1 §4.3)' {
+    Context 'Invoke-KitStorageCheckoutViaPlatform — вивантаження обраною платформою' {
         It 'послідовність: основна UpdateCfg і DumpCfg у базі агента → обрана CREATEINFOBASE, LoadCfg, DumpConfigToFiles у тимчасовій ІБ' {
             $script:Calls = [System.Collections.Generic.List[string]]::new()
             Mock -ModuleName StoragePlatform New-V8FileInfobase {
@@ -232,7 +232,7 @@ Describe 'StoragePlatform.psm1 — аргументи платформи для 
                 [pscustomobject]@{ ExitCode = 0; Output = '' }
             }
             $work = Join-Path $TestDrive 'via'; New-Item -ItemType Directory -Path $work -Force | Out-Null
-            # Залишок попередньої версії в Target: дамп іде в спорожнену теку (спека §4.5).
+            # Залишок попередньої версії в Target: дамп іде в спорожнену теку.
             $tree = Join-Path $work 'tree'; New-Item -ItemType Directory -Path $tree -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $tree 'stale.xml') -Value 'old' -Encoding ascii
             $null = Invoke-KitStorageCheckoutViaPlatform -IbSwitch '/S "srv\agent"' -Source $script:Cfg -Version 34 `

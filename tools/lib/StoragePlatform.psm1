@@ -11,8 +11,8 @@ Import-Module "$PSScriptRoot/AgentBase.psm1"
 # потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
 Import-Module "$PSScriptRoot/UnicaStep.psm1"
 
-# Чи потребує UpdateCfg для ОСНОВНОЇ конфігурації прив'язки ІБ до сховища (виміряно спайком,
-# §14). $true — kit робить ConfigurationRepositoryBindCfg під користувачем сховища на час роботи
+# Чи потребує UpdateCfg для ОСНОВНОЇ конфігурації прив'язки ІБ до сховища (виміряно спайком).
+# $true — kit робить ConfigurationRepositoryBindCfg під користувачем сховища на час роботи
 # й знімає її UnbindCfg -force у finally: єдиний запис у сховище, який kit виконує.
 $script:ConfigurationStorageNeedsBind = $false
 $script:DefaultStubPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../assets/empty-extension'))
@@ -42,7 +42,7 @@ function Test-KitExtensionNotFound {
     .SYNOPSIS
         Відповідь платформи «розширення з таким іменем не знайдено» (рос./укр.) — ЄДИНЕ місце
         розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу push Уніки») і запасний шлях
-        sync (спека 2026-09-30 §6.9). Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
+        sync. Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Output)
@@ -56,8 +56,8 @@ function New-KitStorageInfobase {
         джерела (без нього сховище розширень відповідає «расширение … не найдено»);
         конфігурація — порожня ІБ.
     .DESCRIPTION
-        Кличе лише запасний шлях sync для розширення, якого ще немає в базі агента (спека
-        2026-09-30 §6.9). Штатний шлях — Get-KitSourceInfobase.
+        Кличе лише запасний шлях sync для розширення, якого ще немає в базі агента.
+        Штатний шлях — Get-KitSourceInfobase.
     #>
     [CmdletBinding()]
     param(
@@ -80,8 +80,8 @@ function Get-KitSourceInfobase {
     <#
     .SYNOPSIS
         База, в якій виконуються всі платформні операції джерела: база агента воркспейсу
-        (спека 2026-09-17, §2, §3). Штатний шлях замість тимчасової ІБ зі стабом
-        (New-KitStorageInfobase), яка лишилась лише запасним шляхом sync (спека 2026-09-30 §6.9).
+        Штатний шлях замість тимчасової ІБ зі стабом
+        (New-KitStorageInfobase), яка лишилась лише запасним шляхом sync.
     .DESCRIPTION
         Серіалізація розширення залежить від того, чи є в базі конфігурація-власник: дамп у
         ІБ зі стабом дає GUID у DesignTimeRef і явні дефолти форм, дамп у базі з власником —
@@ -90,9 +90,9 @@ function Get-KitSourceInfobase {
 
         Фолбеку на порожню ІБ ТУТ немає навмисно: бази немає — зупинка з рецептом. Єдиний
         виняток — розширення, якого ще немає в самій базі агента: це рішення приймає sync за
-        відповіддю платформи (спека 2026-09-30 §6.9), а не ця функція.
+        відповіддю платформи, а не ця функція.
 
-        Запобіжник «це не дев-база людини» лежить у Resolve-KitAgentBase (принцип 3) і
+        Запобіжник «це не дев-база людини» лежить у Resolve-KitAgentBase і
         спрацьовує саме тут: після цієї зміни викликач робить ConfigurationRepositoryUpdateCfg,
         який ЗАМІНЮЄ конфігурацію в базі, — помилкове потрапляння в базу людини коштувало б
         її роботи.
@@ -161,7 +161,7 @@ function Invoke-KitStorageUpdate {
         # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
         # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
         if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
-            # force:true — набору ще немає в пам'яті раннера, звичайний push відповів би no_memory (спека §2.2).
+            # force:true — набору ще немає в пам'яті раннера, звичайний push відповів би no_memory.
             $push = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $Source.Key; force = $true })
             $ws = if ($Source.PSObject.Properties['Workspace']) { " (воркспейс '$($Source.Workspace)')" } else { '' }
             throw ("У базі агента немає розширення '$($Source.Key)' — дерево розширення ще не завантажене в базу. " +
@@ -188,7 +188,7 @@ function Invoke-KitStorageCheckout {
         Версія сховища → порожня тека: UpdateCfg -v N [-Extension], DumpConfigToFiles, без службових файлів платформи.
         Повертає кількість файлів у дампі.
     .DESCRIPTION
-        ПАСТКА ПЛАТФОРМИ (спайк B2, 8.3.27.1644): /ConfigurationRepositoryUpdateCfg -v НЕ валідує аргумент —
+        ПАСТКА ПЛАТФОРМИ (спайк, 8.3.27.1644): /ConfigurationRepositoryUpdateCfg -v НЕ валідує аргумент —
         `-v 1 2 3 … 65` (список замість числа) платформа приймає, повертає 0 і «успешно завершено». Тому
         -Version тут типізований [int] (скаляр, масив у нього не пролізе), а викликачі передають рівно
         $v.Version з циклу. Інваріант «одна версія — один коміт» тримає verify, не sync.
@@ -216,7 +216,7 @@ function Invoke-KitStorageCheckout {
     $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
-        # §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний виняток; текст
+        # Збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний виняток; текст
         # для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion, verify — без них).
         $ex = [System.InvalidOperationException]::new("Вивантаження версії $Version не вдалося: $($dump.Output)")
         $ex.Data['KitDumpFailure'] = $true
@@ -248,7 +248,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
         Службові файли платформи (PlatformJunk) прибираються тут; поставку прибирає далі
         Write-KitStorageVersion — тут це не дублюється. Лише CONFIGURATION: для розширення
-        кидає виняток (спека 1.3.1 §4.3; захист другого рівня, перший — у sync).
+        кидає виняток (захист другого рівня, перший — у sync).
     #>
     [CmdletBinding()]
     param(

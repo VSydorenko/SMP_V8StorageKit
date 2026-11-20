@@ -219,7 +219,7 @@ function Get-KitRelativeFiles {
     # Без коми: усі викликачі загортають результат у @(…).
     if (-not (Test-Path -LiteralPath $Root)) { return @() }
     $full = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
-    # Поставка вендора — стан машини, не зміст дерева (§6.3.3); .bin порівнюється,
+    # Поставка вендора — стан машини, не зміст дерева; .bin порівнюється,
     # як решта. Відносний шлях обчислюється до фільтра, тож фільтр — після ForEach-Object;
     # фільтр — Test-KitComparableRelativePath.
     $files = @(Get-ChildItem -LiteralPath $full -Recurse -File |
@@ -262,7 +262,7 @@ function Get-KitBinaryPaths {
 function Compare-KitTrees {
     <#
     .SYNOPSIS
-        Класифікація розбіжностей дамп ↔ дерево (спека §3.5): рівні / лише CR / змістовна /
+        Класифікація розбіжностей дамп ↔ дерево: рівні / лише CR / змістовна /
         тільки в дампі / тільки в дереві. binary — лише побайтово.
     #>
     [CmdletBinding()]
@@ -275,7 +275,7 @@ function Compare-KitTrees {
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]]$BinaryPaths,
         # Групи шляхів, що різняться лише регістром (Get-KitCaseCollisions, CaseGuard.psm1), — відносні
         # до TreeDir. На NTFS члени групи вже злились в один файл при експорті, тож порівнювати їх як
-        # звичайні шляхи безглуздо: вони звітуються окремим класом (§4.3).
+        # звичайні шляхи безглуздо: вони звітуються окремим класом.
         [AllowEmptyCollection()][object[]]$CaseCollisions = @(),
         # Клас «лише регістр шляху» — лише на явний запит verify. adopt кличе без нього: пара мусить
         # лишатись в OnlyInDump/OnlyInTree, інакше прев'ю adopt сказало б «вже збігається».

@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync — крок вирівнювання пам''яті раннера (спека 2026-11-19 §3.1, §4.2 п.7)' {
+Describe 'kit sync — крок вирівнювання пам''яті раннера' {
     # У процесі, з моком платформи — той самий прийом, що Sync.Merge.Tests.ps1 (див. шапку там):
     # Invoke-V8Designer — за -ModuleName StoragePlatform, Get-StorageVersions — за -ModuleName sync.
     # Мок /DumpConfigToFiles пише Configuration.xml, як фікстура. Крок після sync — завжди push force
@@ -22,7 +22,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         function script:New-AlignRepo { param([string]$Name)
             # -WithGitignore обов'язковий: без нього невідстежувані v8storagekit.local.yaml і build/
             # роблять копію брудною, злиття в main відмовляє, і тест «pull» червоніє за будь-якої
-            # реалізації (аудит Tasks 7–11).
+            # реалізації.
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithAgentBase -WithGitignore
             $storageDir = Join-Path $TestDrive "$Name-storage"; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
@@ -41,7 +41,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7) }
     }
 
-    It '§8: два зрушені набори (CONFIGURATION без поставки + EXTENSION) — рівно два рядки push, по одному на набір, з force:true, без extension і без pull' {
+    It 'Два зрушені набори (CONFIGURATION без поставки + EXTENSION) — рівно два рядки push, по одному на набір, з force:true, без extension і без pull' {
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
             @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
@@ -144,7 +144,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $text | Should -Not -BeLike '*Готово.*'
     }
 
-    Context 'зупинка поставки: рецепт залежить від гілки (спека 2026-11-19 §4.2 п.9, п.18)' {
+    Context 'зупинка поставки: рецепт залежить від гілки' {
         BeforeAll {
             function script:New-SupplyMissingRepo { param([string]$Name)
                 $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'
@@ -195,7 +195,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         }
     }
 
-    Context 'стан поставки не обчислено і виняток у пізнішому джерелі (спека 0174871)' {
+    Context 'стан поставки не обчислено і виняток у пізнішому джерелі' {
         It 'виняток Get-KitSupplyState після злиття — blocked і рядок «стан поставки не обчислено», не push' {
             $script:MockContent = New-KitFakeConfigurationXml -Name 'base'
             $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'

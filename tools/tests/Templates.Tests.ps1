@@ -68,10 +68,10 @@ Describe 'templates/settings.json — дозволи споживача' {
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
         $s.PSObject.Properties.Name | Should -Not -Contain 'hooks'
     }
-    It 'дозволи Уніки 0.16: у allow рівно читальні інструменти й run; apply — явно в ask (спека 2026-11-19 §3.13 п.1, §4.2 п.14)' {
+    It 'дозволи Уніки 0.16: у allow рівно читальні інструменти й run; apply — явно в ask' {
         # run — в allow: перезапис бази агента Уніка однаково питає людину своїм питанням, а дозвіл
-        # Claude Code перед ним лише дублює запит (§3.13). Інструментів задач (unica_task_*) у живому
-        # tools/list Уніки 0.16 немає (§7.1 Б3) — у переліку їх бути не може.
+        # Claude Code перед ним лише дублює запит. Інструментів задач (unica_task_*) у живому
+        # tools/list Уніки 0.16 немає — у переліку їх бути не може.
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
         # Усі записи allow, що стосуються Уніки чи будь-якого MCP, — з урахуванням регістру і без фільтра за
         # префіксом інструмента: маска сервера (`mcp__plugin_unica_unica` чи `…__*`) мовчки дозволила б
@@ -144,7 +144,7 @@ Describe 'templates/v8storagekit*.example — зразки проходять в
     }
 
 
-    It 'шаблон gitignore ігнорує поставку вендора, але не .bin ознак підтримки (спека 2026-09-30 §5.2)' {
+    It 'шаблон gitignore ігнорує поставку вендора, але не .bin ознак підтримки' {
         $lines = @(Get-Content -LiteralPath (Join-Path $script:Templates 'gitignore') -Encoding UTF8 | ForEach-Object { $_.Trim() })
         $lines | Should -Contain '**/Ext/ParentConfigurations/'
         # Форма «тека» (скісна риска в кінці) — контракт: правило без '/' ловило б і файл з тим

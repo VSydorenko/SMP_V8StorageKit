@@ -110,7 +110,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Configuration.xml' | Should -Exist
     }
 
-    It 'Clear-KitTreeExceptSupply: junction-діти (верхній рівень і всередині Ext) — знімаються самі посилання, файли в цілі цілі (П25)' {
+    It 'Clear-KitTreeExceptSupply: junction-діти (верхній рівень і всередині Ext) — знімаються самі посилання, файли в цілі цілі' {
         $t = New-SupplyTree -Name 'clear-links'
         $target = Join-Path $TestDrive 'clear-links-target'
         New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -124,7 +124,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 
-    It 'Clear-KitTreeExceptSupply: Ext — junction на зовнішню теку: виняток, файли в цілі цілі (останній рубіж П25)' {
+    It 'Clear-KitTreeExceptSupply: Ext — junction на зовнішню теку: виняток, файли в цілі цілі (останній рубіж)' {
         $t = Join-Path $TestDrive 'clear-ext-link'
         New-Item -ItemType Directory -Path $t -Force | Out-Null
         $outside = Join-Path $TestDrive 'clear-ext-outside'
@@ -148,7 +148,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
         $r | Should -BeLike '*Відновлення поставки вендора: на гілці main*kit verify -Source base*зупинку поставки*'
         $r | Should -Not -BeLike '*"op":"pull"*'
         $r | Should -Not -BeLike '*supply-marker*'
-        $r | Should -Not -BeLike '*-MarkerOnly*' -Because 'режим -MarkerOnly canon замінює kit supply-marker (спека 2026-11-19 §4.2 п.22)'
+        $r | Should -Not -BeLike '*-MarkerOnly*' -Because 'режим -MarkerOnly canon замінює kit supply-marker'
     }
     It 'stop на головній гілці: повний pull цього набору й supply-marker, без push force' {
         $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose stop -OnMainBranch $true

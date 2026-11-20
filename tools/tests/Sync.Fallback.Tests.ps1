@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit sync — запасний шлях для розширення без бази агента (спека 2026-09-30 §6.9, мок платформи)' {
+Describe 'kit sync — запасний шлях для розширення без бази агента (мок платформи)' {
     # Інваріанти: перемикання на тимчасову ІБ із заглушкою — лише для EXTENSION і лише на відповіді
     # «розширення не знайдено»; весь прогін джерела (звіт і кожна версія) іде в тимчасовій ІБ;
     # база агента не чіпається. Запасний шлях — ознака ДЖЕРЕЛА (Synced[].Fallback), не прогону.
@@ -81,7 +81,7 @@ Describe 'kit sync — запасний шлях для розширення б�
         # Користувач тимчасової ІБ — порожній (у ній користувачів немає), не користувач бази агента.
         @($script:ReportUsers | Where-Object { $_ }).Count | Should -Be 0
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It
-        # Тимчасова ІБ розширення теж іде на платформі раннера (спека 2026-11-19 §4.2 п.14), а не на Get-V8Path.
+        # Тимчасова ІБ розширення теж іде на платформі раннера, а не на Get-V8Path.
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It -ParameterFilter { $V8Path -eq 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
     }
 
@@ -120,7 +120,7 @@ Describe 'kit sync — запасний шлях для розширення б�
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0 -Scope It
     }
 
-    It 'запасний шлях — кроку вирівнювання немає: база агента не зрушена, нічого вирівнювати (§4.1)' {
+    It 'запасний шлях — кроку вирівнювання немає: база агента не зрушена, нічого вирівнювати' {
         $repo = New-FallbackRepo 'fb-noalign'
         $h = @{}
         $text = & { $h.R = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true } 6>&1 | Out-String

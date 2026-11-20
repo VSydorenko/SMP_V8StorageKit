@@ -398,7 +398,7 @@ function Invoke-KitCodexAudit {
         else { Get-CodexAuditVerdict -Run $r -Events $events -Report $report -Repo (-not $a.Named['NoRepo']) -Cwd $run.Cwd }
         & $finish $v
     } finally {
-        # Рекурсивне видалення — лише Remove-KitDirectory (#34) і лише всередині теки запуску (П25).
+        # Рекурсивне видалення — лише Remove-KitDirectory (#34) і лише всередині теки запуску.
         if ($run.Frozen -and (Test-Path -LiteralPath $tree)) {
             Assert-SafeWorkPath -Path $tree -MustBeUnder $runDir -RepoRoot $profile.MainRoot -OwnedRoot $runDir -Description 'заморожене дерево аудиту'
             Remove-KitDirectory -Path $tree

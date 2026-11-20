@@ -1,6 +1,6 @@
 #Requires -Version 7
 Describe 'kit sync — злиття в головну гілку: гейт -Apply і провал злиття (мок платформи)' {
-    # Рев'ю Task 4, Important #1 і #4: гілка "немає нових версій" (sync.psm1 ~140-146) і гілка
+    # Гілка "немає нових версій" (sync.psm1 ~140-146) і гілка
     # ExitCode=2 (провал Invoke-KitMainMerge) не мали жодного тесту — саме тому дефект підказки
     # ("Повторити злиття: kit sync -Source <key> -MergeMain" без -Apply, хоча без -Apply злиття
     # не спрацює: umovoju `$MergeMain -and $Apply -and $null -ne $last`) не спіймався. Тут
@@ -11,14 +11,13 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
     # Invoke-KitMainMerge, обидві -ModuleName sync), не запускаючи 1cv8.exe. Той самий прийом,
     # що StorageReport.Tests.ps1 уже застосовує для Invoke-V8Designer (Mock -ModuleName StorageReport).
     #
-    # B3 Task 1: New-KitStorageInfobase (кличе New-ExtensionInfobase) і Invoke-KitStorageCheckout
+    # New-KitStorageInfobase (кличе New-ExtensionInfobase) і Invoke-KitStorageCheckout
     # (кличе Invoke-V8Designer) переїхали в StoragePlatform.psm1 — Mock -ModuleName діє лише в
     # приватному столі команд НАЗВАНОГО модуля, тож ці два виклики тепер мокаються за
     # -ModuleName StoragePlatform, не sync (мок -ModuleName sync на них нічого більше не
-    # перехопить — sync.psm1 їх узагалі не кличе, рев'ю Task 1 round 3 прибрало такі мокі як
-    # мертві). -ModuleName sync лишається для Get-StorageVersions/Invoke-KitMainMerge/
+    # перехопить — sync.psm1 їх узагалі не кличе, тож такі мокі мертві). -ModuleName sync лишається для Get-StorageVersions/Invoke-KitMainMerge/
     # Merge-KitBranchInto — вони й далі кличуться прямо з sync.psm1. Без правильного шару мока
-    # тест і далі "зелений", але мовчки викликає 1cv8.exe (це й сталось на живому прогоні Task 1
+    # тест і далі "зелений", але мовчки викликає 1cv8.exe (це й сталось на живому прогоні
     # — знайдено лише за аномально довгим часом виконання) — тому нижче ще й
     # Should -Invoke -ModuleName StoragePlatform як доказ перехоплення, а не здогад із таймінгу.
     BeforeAll {
@@ -63,14 +62,14 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        # Task 3: sync тепер дампить у базі агента (Get-KitSourceInfobase), не в тимчасовій ІБ
+        # Sync тепер дампить у базі агента (Get-KitSourceInfobase), не в тимчасовій ІБ
         # зі стабом — New-ExtensionInfobase більше не кличеться. Мок Invoke-V8Designer лишається
         # ПАСТКОЮ на цьому шляху: дзеркало вже синхронне (pending.Count=0), і платформа тут
         # узагалі не потрібна — випадковий похід у реальний 1cv8.exe спіймається, а не пройде.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Кома навмисно: Get-StorageVersions (StorageReport.psm1:195) сама повертає
         # comma-wrapped масив, а не голий @(...) — мок мусить давати ту саму форму, щоб не
-        # проходити випадково лише тому, що в наборі один елемент (F7).
+        # проходити випадково лише тому, що в наборі один елемент.
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
 
@@ -93,10 +92,10 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        # Task 3: те саме, що в попередньому тесті — дзеркало вже синхронне, платформа на цьому
+        # Те саме, що в попередньому тесті — дзеркало вже синхронне, платформа на цьому
         # шляху не потрібна взагалі; мок Invoke-V8Designer лишається пасткою на регресію.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
-        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає.
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
 
@@ -198,9 +197,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає.
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7 -Comment 'перша версія') }
-        # B3 Task 1: реальний виклик /ConfigurationRepositoryUpdateCfg і /DumpConfigToFiles тепер
+        # Реальний виклик /ConfigurationRepositoryUpdateCfg і /DumpConfigToFiles тепер
         # робить Invoke-KitStorageCheckout у StoragePlatform.psm1, не sync — Mock -ModuleName
         # діє лише в приватному столі команд названого модуля, тож саме тут.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
@@ -217,12 +216,12 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
 
-    # Task 8 (task-8-brief.md) — відбиток сховища (StorageImprint.psm1). Найважливіший тест
-    # задачі: місце запису — ОДРАЗУ після Get-StorageVersions/$maxVersion, ДО розгалуження
+    # Відбиток сховища (StorageImprint.psm1). Найважливіший тест
+    # цієї групи: місце запису — ОДРАЗУ після Get-StorageVersions/$maxVersion, ДО розгалуження
     # "Нових версій немає". Якщо запис стоїть ПІСЛЯ цього розгалуження, фіча не працює рівно в
     # тому випадку, заради якого зроблена — неактивне (запаковане) сховище ніколи не отримає
     # відбитка, і session-check лишається з вічним "не визначається".
-    It 'відбиток пишеться в гілці "Нових версій немає" — саме для неактивного сховища (Task 8)' {
+    It 'відбиток пишеться в гілці "Нових версій немає" — саме для неактивного сховища' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'imprint-no-pending') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'imprint-no-pending-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
@@ -233,10 +232,10 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
 
         $ctx = New-KitTestContext -Repo $repo
-        # Task 3: платформа на цьому шляху не потрібна взагалі (дзеркало вже синхронне) —
+        # Платформа на цьому шляху не потрібна взагалі (дзеркало вже синхронне) —
         # мок лишається пасткою на регресію, не доказом нормального виклику.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
-        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає (F7).
+        # Кома навмисно — та сама форма, що реальна Get-StorageVersions повертає.
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
 
         $result = Invoke-KitSync -Context $ctx
@@ -259,7 +258,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
             @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
 
         $ctx = New-KitTestContext -Repo $repo
-        # Task 3: платформа на цьому шляху не потрібна взагалі — мок лишається пасткою на регресію.
+        # Платформа на цьому шляху не потрібна взагалі — мок лишається пасткою на регресію.
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Дві версії з розривом (3, 9) — максимум 9, кількість 2: version у відбитку МАЄ бути 9.
         Mock -ModuleName sync Get-StorageVersions {

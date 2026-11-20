@@ -7,7 +7,7 @@ Describe 'kit.ps1 — диспетчер команд' {
         # Тестова команда: друкує, що отримала. Живе лише в копії — у справжньому tools/commands її немає.
         # Write-Host, не return: контракт команди суворий — success stream несе лише $null
         # або {ExitCode; …}, людське йде через Write-Host. probe зображає справжню команду
-        # (check у задачі 8 друкує саме так), тож і тут повернене значення диспетчер не показує.
+        # (check друкує саме так), тож і тут повернене значення диспетчер не показує.
         Set-Content -LiteralPath (Join-Path (Split-Path $script:Kit) 'commands/probe.psm1') -Encoding UTF8 -Value @'
 function Invoke-KitProbe {
     [CmdletBinding()]
@@ -34,8 +34,8 @@ Export-ModuleMember -Function Invoke-KitProbe
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo')
     }
 
-    # Правка 6б (живий прогін задачі 11): раніше — сирий throw і стек PowerShell; тепер —
-    # Write-Host червоним і exit 1 (рев'ю B3 раунд 3, Step 5а: був код 2, конфліктував зі
+    # Раніше — сирий throw і стек PowerShell; тепер —
+    # Write-Host червоним і exit 1 (був код 2, конфліктував зі
     # штатним частковим успіхом sync — sync теж повертає 2, коли дзеркало оновлено, а
     # злиття не виконано, і один код означав три різні речі). Таблиця кодів тепер: 0 —
     # виконано; 1 — зупинка (throw будь-де: невідома команда, префлайт, розбір аргументів,
@@ -65,7 +65,7 @@ Export-ModuleMember -Function Invoke-KitProbe
     }
 
     It '-Force без значення (кінець аргументів) — справжній [switch], диспетчер підставляє $true' {
-        # Регресійний доказ на саму механіку Step 5а: -Force — останній токен, наступного
+        # Регресійний доказ на саму механіку: -Force — останній токен, наступного
         # значення немає, і диспетчер має розпізнати, що параметр — [switch], а не вимагати
         # значення (як він тепер вимагає для будь-якого іншого типу — тест нижче).
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Force')
@@ -77,7 +77,7 @@ Export-ModuleMember -Function Invoke-KitProbe
         # Ref — [string], не [switch]: -Ref останнім токеном (значення немає) мав би раніше
         # мовчки зв'язатися як $true (перетворений на рядок 'True') — тепер диспетчер сам
         # зупиняє виклик, ще до Invoke-KitProbe. Той самий механізм, що захищає -Version у
-        # verify (рев'ю B3 раунд 3, Step 5а) — тут перевірений на нейтральній probe-команді.
+        # verify — тут перевірений на нейтральній probe-команді.
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Ref')
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*-Ref*'

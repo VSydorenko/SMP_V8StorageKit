@@ -8,7 +8,7 @@ function Invoke-KitAdopt {
     <#
     .SYNOPSIS
         Гілка задачі приймає версію сховища ЗАМІНОЮ ВМІСТУ піддерева джерела, не content-мерджем
-        (§5) — але ЗІ ЗЛИТТЯМ ПОРОЖНЬОГО РЕЗУЛЬТАТУ (git merge -s ours) заради ancestry.
+        — але ЗІ ЗЛИТТЯМ ПОРОЖНЬОГО РЕЗУЛЬТАТУ (git merge -s ours) заради ancestry.
     .DESCRIPTION
         Сховище — істина в останній інстанції, і працює з ним лише людина: вона бере артефакт
         агента, перевіряє його в Конфігураторі, можливо бере ЧАСТИНУ механізмів і кладе у сховище
@@ -104,14 +104,14 @@ function Invoke-KitAdopt {
         # трейлер Storage-Version на вершині дзеркала.
         $version = Get-KitStorageBranchLastVersion -RepoRoot $root -Branch $mirror
 
-        # -text на шляху джерела (§4.1). Без нього git застосує core.autocrlf/safecrlf машини: з
+        # -text на шляху джерела. Без нього git застосує core.autocrlf/safecrlf машини: з
         # safecrlf=true add відмовить уже ПІСЛЯ стирання дерева, з warn — мовчки нормалізує кінці рядків.
         if (-not (Test-GitTextPolicy -RepoRoot $root -Path $src.RepoPath)) {
             throw ("Дерево '$($src.RepoPath)' не виведено з-під конверсії кінців рядків — adopt зупиняється до стирання дерева. " +
                    "Додайте в .gitattributes рядок '$($src.RepoPath)/** -text' окремим комітом (docs/text-policy.md) і повторіть adopt.")
         }
 
-        # Поставка вендора (§5.2) не має відстежуватись git: `add -A` застейджив би .cf, і коміт
+        # Поставка вендора не має відстежуватись git: `add -A` застейджив би .cf, і коміт
         # забрав би його в історію. ls-files заодно перевіряє, що git читає індекс. Проби
         # check-ignore свідомо немає: на зламаних ігнор-правилах вона коду >1 не дає, а після
         # `add -A -f` нижче ігнор на відмову не впливає.
@@ -144,10 +144,10 @@ function Invoke-KitAdopt {
             throw (Format-KitInvisibleWorkStop -Command 'adopt' -Records $invisible -Backup 'adopt-backup' -Untouched 'Теку набору не чіпано, злиття не почато.')
         }
 
-        # Незакомічене ПОЗА шляхом джерела — зупинка (§5 «Чотири умови», п.1). Коміт нижче йде БЕЗ
+        # Незакомічене ПОЗА шляхом джерела — зупинка. Коміт нижче йде БЕЗ
         # pathspec і фіксує ВЕСЬ індекс: під час merge партійний коміт git забороняє ("cannot do a
         # partial commit during a merge"), а без merge `--only` воскрешає фантом перейменування
-        # регістром (§4.1). Чужа зміна поза шляхом поїхала б у наш коміт непомітно. Зміни ВСЕРЕДИНІ
+        # регістром. Чужа зміна поза шляхом поїхала б у наш коміт непомітно. Зміни ВСЕРЕДИНІ
         # $src.RepoPath нормальні: підуть у резервну копію й однаково замінюються дзеркалом.
         # @() навколо ВСЬОГО конвеєра: один запис інакше дає скаляр без .Count (StrictMode).
         $srcPrefix = (($src.RepoPath -replace '\\', '/').TrimEnd('/')) + '/'
@@ -158,13 +158,13 @@ function Invoke-KitAdopt {
         if ($outside.Count -gt 0) {
             $paths = (($outside | ForEach-Object { $_.Path } | Select-Object -Unique) -join "`n")
             throw ("У робочій копії є незакомічені зміни ПОЗА шляхом джерела '$($src.RepoPath)' — adopt зупиняється, " +
-                   "не діставшись Remove-Item. Коміт заміни нижче йде через git merge (ancestry, спека §5), а " +
+                   "не діставшись Remove-Item. Коміт заміни нижче йде через git merge (ancestry), а " +
                    "партійний коміт під час злиття git забороняє — плаский коміт забрав би ці шляхи непомітно. " +
                    "Закомітьте їх або приберіть (НЕ git checkout --/restore/stash/clean — спільна робоча копія, " +
                    "CLAUDE.md) і повторіть adopt. Шляхи:`n$paths")
         }
 
-        # Страховка перед знищенням (§5): копія лягає у гітігноровану build/-теку воркспейсу.
+        # Страховка перед знищенням: копія лягає у гітігноровану build/-теку воркспейсу.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
         $backupDir = $null
         if ($dirty.Count -gt 0) {
@@ -199,8 +199,8 @@ function Invoke-KitAdopt {
         try {
             # Межа перед стиранням дерева людини — воркспейс, не весь репозиторій (як у dump).
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($src.Key)"
-            # Поставка вендора (§5.2): у дзеркалі .cf немає — повне стирання
-            # лишило б .bin без .cf, і наступне повне завантаження впало б (спайк §4.2, варіант B).
+            # Поставка вендора: у дзеркалі .cf немає — повне стирання
+            # лишило б .bin без .cf, і наступне повне завантаження впало б.
             Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root
             # Пофайлово, не Copy-Item <mirror>\* -Recurse: тека Ext тепер може вже існувати (у ній
             # поставка), а рекурсивна копія теки в наявну теку кладе її ВСЕРЕДИНУ (Ext/Ext/…).
@@ -215,7 +215,7 @@ function Invoke-KitAdopt {
                 Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
             }
 
-            # Індекс піддерева — наново з дерева дзеркала (§4.1): rm --cached, тоді add. Без цього
+            # Індекс піддерева — наново з дерева дзеркала: rm --cached, тоді add. Без цього
             # `add -A` при core.ignorecase=true лишає запис старого регістру (lstat старого шляху на
             # NTFS успішний).
             # add -A на ШЛЯХУ джерела фіксує і нові файли, і видалення; pathspec тримає точковість.
@@ -237,7 +237,7 @@ function Invoke-KitAdopt {
             $message = "adopt: $($src.Key) ← $mirror (версія $version)"
             # Обидві гілки комітять індекс як є. Під час злиття партійний коміт (--only) git забороняє
             # взагалі; а без злиття `commit --only -- <шлях>` накладає записи HEAD під pathspec і
-            # перечитує їх із диска: старий регістр на NTFS «існує», тож фантом воскресає (§4.1).
+            # перечитує їх із диска: старий регістр на NTFS «існує», тож фантом воскресає.
             # Межу «точковий коміт» тримає guard «немає незакомічених змін поза шляхом джерела» вище.
             $commit = Invoke-KitGitProcess -RepoRoot $root -Arguments @('commit', '-m', $message)
             if ($commit.ExitCode -ne 0) { throw "Коміт заміни не вдався (код $($commit.ExitCode)): $($commit.Stderr)" }

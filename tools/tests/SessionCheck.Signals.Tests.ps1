@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit session-check — сигнал без платформи (§5)' {
+Describe 'kit session-check — сигнал без платформи' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1') }
 
     It '(б) коміти на storage/X, не злиті в main → сигнал із кількістю і підказкою verify' {

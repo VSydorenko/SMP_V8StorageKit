@@ -47,7 +47,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             }
             $repo
         }
-        # Зупинка П24 мусить настати ДО першого руйнівного кроку (git reset / merge -s ours): злиття не
+        # Зупинка мусить настати ДО першого руйнівного кроку (git reset / merge -s ours): злиття не
         # почато (немає MERGE_HEAD), HEAD не зрушив, код виходу ненульовий.
         function script:Assert-AdoptStopsEarly {
             param([string]$Repo, [string]$Pattern)
@@ -66,7 +66,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
             (git -C $Repo diff --cached | Out-String) | Should -Be $cachedBefore
             Join-Path $Repo 'Alpha_SMB/cfe/src/OnlyInBranch.xml' | Should -Exist
         }
-        # П25: переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
+        # Переносить частину дерева за межі репозиторію й ставить на її місце junction. Mode e2 — junction на
         # компоненті ВИЩЕ кореня набору (Alpha_SMB/<Parent>), e1 — сам корінь набору (Alpha_SMB/<Parent>/<Leaf>).
         # Повертає ціль (поза репо) з контрольним файлом keep.txt.
         function script:Set-SetBehindLink { param([string]$Repo, [string]$Mode, [string]$Parent, [string]$Leaf, [string]$Tag)
@@ -128,7 +128,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
     }
 
     It 'файл різниться лише CR — прев''ю називає окремо, -Apply замінює і не каже «вже збігається»' {
-        # Регресія рев'ю фікс-раунду 1: CrOnly ігнорувався і в перевірці no-op, і в прев'ю —
+        # Регресія: CrOnly ігнорувався і в перевірці no-op, і в прев'ю —
         # дерево, що різниться з дзеркалом лише кінцями рядків, виглядало як «вже збігається»,
         # хоча CRLF/LF-розбіжність — підпис зламаної політики тексту (docs/text-policy.md), а
         # не шум, і verify.psm1 на тому самому дереві доповів би протилежне.
@@ -158,7 +158,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
     }
 
     It '-Apply рухає ancestry: дзеркало стає предком гілки задачі через один злиттєвий коміт' {
-        # Фінальне рев'ю C2, Critical: verify визначає версію сховища через git merge-base
+        # verify визначає версію сховища через git merge-base
         # (Get-KitVerifyVersion, StorageBranch.psm1:556), а заміна піддерева сама по собі
         # merge-base не рухає. Властивість, на якій тримається verify, — рівно ці дві: дзеркало
         # мусить стати ПРЕДКОМ гілки задачі, і коміт заміни мусить бути ЗЛИТТЄВИМ (двобатьківським).
@@ -173,7 +173,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
     }
 
     It 'guard спрацьовує ДО Remove-Item: чужа незакомічена зміна поза шляхом джерела зупиняє -Apply' {
-        # Фінальне рев'ю C2, Critical, «Чотири умови» п.1: коміт заміни йде через git merge, а
+        # Коміт заміни йде через git merge, а
         # партійний коміт (--only) git під час злиття забороняє — тож коміт після merge
         # неминуче йде БЕЗ pathspec і фіксує ВЕСЬ індекс. Без guard'а чужа незакомічена робота
         # поза шляхом джерела поїхала б у цей коміт непомітно. Доказ, що зупинка стається ДО
@@ -260,7 +260,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         ($tree -ccontains 'Alpha_SMB/cfe/src/New.xml') | Should -BeTrue -Because "у переліку: $($tree -join ', ')"
     }
 
-    It 'exclude машини (.git/info/exclude: *.bin) не знімає відстежуваний .bin, який дзеркало несе — файл у HEAD (H2)' {
+    It 'exclude машини (.git/info/exclude: *.bin) не знімає відстежуваний .bin, який дзеркало несе — файл у HEAD' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-machine-exclude') -WithHooks -WithGitignore -WithGitattributes
         $bin = 'Alpha_SMB/cfe/src/Ext/Template.bin'
         New-Item -ItemType Directory -Path (Join-Path $repo 'Alpha_SMB/cfe/src/Ext') -Force | Out-Null
@@ -296,14 +296,14 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (git -C $repo rev-parse 'HEAD:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $mirrorBlob
     }
 
-    It 'П24: файл під .git/info/exclude — зупинка до злиття, MERGE_HEAD немає, HEAD на місці, тека ціла' {
+    It 'Файл під .git/info/exclude — зупинка до злиття, MERGE_HEAD немає, HEAD на місці, тека ціла' {
         $repo = New-AdoptRepo -Name 'adopt-inv-ignored'
         Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value 'Alpha_SMB/cfe/src/mine.txt' -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt') -Value 'робота' -Encoding UTF8
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*adopt -Apply зупинено*невидима робота під набором*ignored*mine.txt*'
         Join-Path $repo 'Alpha_SMB/cfe/src/mine.txt' | Should -Exist
     }
-    It 'П24: <Flag> на зміненому файлі — зупинка до злиття' -ForEach @(
+    It '<Flag> на зміненому файлі — зупинка до злиття' -ForEach @(
         @{ Flag = 'assume-unchanged' }
         @{ Flag = 'skip-worktree' }
     ) {
@@ -314,13 +314,13 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*flagged*Shared.xml*'
         (Get-Content -LiteralPath $f -Raw) | Should -BeLike '*правка агента*'
     }
-    It 'П24: gitlink під набором — зупинка до злиття' {
+    It 'Gitlink під набором — зупинка до злиття' {
         $repo = New-AdoptRepo -Name 'adopt-inv-gitlink'
         $sha = (git -C $repo rev-parse HEAD).Trim()
         git -C $repo update-index --add --cacheinfo "160000,$sha,Alpha_SMB/cfe/src/sub"
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*gitlink*sub*'
     }
-    It 'П24: вкладений git-репозиторій — зупинка до злиття, історія ціла' {
+    It 'Вкладений git-репозиторій — зупинка до злиття, історія ціла' {
         $repo = New-AdoptRepo -Name 'adopt-inv-nested'
         $nest = Join-Path $repo 'Alpha_SMB/cfe/src/nest'
         New-Item -ItemType Directory -Path $nest -Force | Out-Null
@@ -329,7 +329,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*nested-repo*Alpha_SMB/cfe/src/nest*'
         Join-Path $nest 'history.txt' | Should -Exist
     }
-    It 'П24: junction під набором — зупинка до злиття, ціль посилання ціла' {
+    It 'Junction під набором — зупинка до злиття, ціль посилання ціла' {
         $repo = New-AdoptRepo -Name 'adopt-inv-junction'
         $target = Join-Path $TestDrive 'adopt-inv-junction-target'
         New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -338,7 +338,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Assert-AdoptStopsEarly -Repo $repo -Pattern '*невидима робота під набором*link*Alpha_SMB/cfe/src/lnk*прибрати посилання з набору*'
         Join-Path $target 'keep.txt' | Should -Exist
     }
-    It 'П25 <Mode>: набір за junction назовні — зупинка (link) до злиття, MERGE_HEAD немає, HEAD на місці, вміст цілі цілий' -ForEach @(
+    It '<Mode>: набір за junction назовні — зупинка (link) до злиття, MERGE_HEAD немає, HEAD на місці, вміст цілі цілий' -ForEach @(
         @{ Mode = 'e2' }
         @{ Mode = 'e1' }
     ) {
@@ -355,7 +355,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         Get-LinkTargetState $target | Should -Be $before
         $before | Should -BeLike '*keep.txt=чужа ціль*'
     }
-    It 'П25: junction у робочій теці build/adopt — виняток guard Assert-SafeWorkPath, ціль не стерта' {
+    It 'Junction у робочій теці build/adopt — виняток guard Assert-SafeWorkPath, ціль не стерта' {
         $repo = New-AdoptRepo -Name 'adopt-p25-build'
         $target = Join-Path $TestDrive 'adopt-p25-build-target'
         New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -367,7 +367,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $r.Output   | Should -BeLike '*є посиланням*kit нічого не видаляє крізь посилання*'
         (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
     }
-    It 'П25 контроль: repo\build — junction назовні (корінь власності) → adopt -Apply проходить, чужі файли в цілі цілі' {
+    It 'Контроль: repo\build — junction назовні (корінь власності) → adopt -Apply проходить, чужі файли в цілі цілі' {
         $repo = New-AdoptRepo -Name 'adopt-p25-buildlink'
         $target = Join-Path $TestDrive 'adopt-p25-buildlink-target'
         New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -379,7 +379,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (Get-Content -LiteralPath (Join-Path $target 'other.txt') -Raw).Trim() | Should -Be 'чужий файл'
         Join-Path $target 'adopt' | Should -Exist -Because 'робоча тека kit лежить у цілі кореня власності'
     }
-    It 'П25: repo\build\adopt — junction (build справжній) → adopt зупиняється до злиття, ціль ціла' {
+    It 'repo\build\adopt — junction (build справжній) → adopt зупиняється до злиття, ціль ціла' {
         $repo = New-AdoptRepo -Name 'adopt-p25-adoptlink'
         $target = Join-Path $TestDrive 'adopt-p25-adoptlink-target'
         New-Item -ItemType Directory -Path (Join-Path $target 'Alpha_SMB') -Force | Out-Null
@@ -394,7 +394,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (git -C $repo rev-parse HEAD).Trim() | Should -Be $head
         (Get-Content -LiteralPath (Join-Path $target 'Alpha_SMB/keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
     }
-    It 'П24 контроль: похідне (ConfigDumpInfo.xml) під набором — зупинки немає, заміна проходить' {
+    It 'Контроль: похідне (ConfigDumpInfo.xml) під набором — зупинки немає, заміна проходить' {
         $repo = New-AdoptRepo -Name 'adopt-inv-derived'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml') -Value '<x/>' -Encoding UTF8
         git -C $repo check-ignore -q 'Alpha_SMB/cfe/src/ConfigDumpInfo.xml'; $LASTEXITCODE | Should -Be 0 -Because 'контроль має спиратись на справді ігнорований файл'
@@ -404,7 +404,7 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
     }
 }
 
-Describe 'kit adopt — основна конфігурація з поставкою вендора (спека 2026-09-30 §5.2)' {
+Describe 'kit adopt — основна конфігурація з поставкою вендора' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -412,7 +412,7 @@ Describe 'kit adopt — основна конфігурація з постав�
             param([string]$Name, [switch]$NoSupplyIgnoreLine, [switch]$NegatedIgnore, [switch]$TrackSupply, [switch]$CrlfIgnore, [switch]$MirrorIsAncestor, [switch]$OldMirrorWithCf)
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -Workspaces (New-KitClientWorkspaces) -WithHooks -WithGitignore -WithSupply -WithGitattributes
             if ($NoSupplyIgnoreLine) {
-                # Репозиторій до 1.3.0 (Review Focus 1): рядка ігнору поставки ще немає.
+                # Репозиторій до 1.3.0: рядка ігнору поставки ще немає.
                 $gi = Join-Path $repo '.gitignore'
                 (Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' }) | Set-Content -LiteralPath $gi -Encoding UTF8
                 git -C $repo commit -qam 'gitignore без рядка поставки' 2>&1 | Out-Null
@@ -423,13 +423,13 @@ Describe 'kit adopt — основна конфігурація з постав�
                 git -C $repo commit -qam 'gitignore CRLF без рядка поставки' 2>&1 | Out-Null
             }
             if ($NegatedIgnore) {
-                # Правило з негацією: тека НЕ ігнорується цілком, .cf — «неігнорований» (рев'ю Task 4, Important 1).
+                # Правило з негацією: тека НЕ ігнорується цілком, .cf — «неігнорований».
                 $gi = Join-Path $repo '.gitignore'
                 $keep = @(Get-Content -LiteralPath $gi -Encoding UTF8 | Where-Object { $_.Trim() -ne '**/Ext/ParentConfigurations/' })
                 Set-Content -LiteralPath $gi -Encoding UTF8 -Value ($keep + '**/Ext/ParentConfigurations/*' + '!**/Ext/ParentConfigurations/*.cf')
                 git -C $repo commit -qam 'gitignore з негацією .cf' 2>&1 | Out-Null
             }
-            # Дзеркало: той самий Configuration.xml, НОВИЙ .bin, без .cf (як пише sync після Task 2).
+            # Дзеркало: той самий Configuration.xml, НОВИЙ .bin, без .cf (як пише sync).
             $env:V8KIT_SYNC = '1'
             try {
                 git -C $repo checkout -q -b 'storage/base' 2>&1 | Out-Null

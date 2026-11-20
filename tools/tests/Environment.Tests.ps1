@@ -171,7 +171,7 @@ Describe 'Test-KitGitVersionSupported (злиття через merge-tree пот
     }
 }
 
-Describe 'check-environment.ps1: Уніка й раннер — обов''язкова частина конвеєра (спека 2026-11-19 §4.2 п.4, п.19)' {
+Describe 'check-environment.ps1: Уніка й раннер — обов''язкова частина конвеєра' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:FakeRunner = (Resolve-Path "$PSScriptRoot/fixtures/runner/v8-runner.cmd").Path
@@ -225,7 +225,7 @@ Describe 'check-environment.ps1: Уніка й раннер — обов''язк
     }
 }
 
-Describe 'Get-KitUnicaVersionVerdict (спека 2026-11-19 §4.2 п.4)' {
+Describe 'Get-KitUnicaVersionVerdict' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force }
     It '<V> → <Level>' -ForEach @(
         @{ V = '0.15.2'; Level = 'error' }

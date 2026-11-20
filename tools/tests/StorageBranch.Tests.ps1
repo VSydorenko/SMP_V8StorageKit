@@ -4,10 +4,10 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
 
-        # Гілку storage/X будуємо тим самим механізмом, що й майбутній sync (B2): orphan через
+        # Гілку storage/X будуємо тим самим механізмом, що й sync: orphan через
         # worktree, коміт у ньому, worktree прибирається. Хуки в цій фікстурі не встановлені —
         # тут перевіряються інваріанти, не захист. Сам хелпер тепер живе у фікстурі
-        # (Add-KitFakeStorageCommit, KitFixtures.psm1) — задача 8 переносить його звідси.
+        # (Add-KitFakeStorageCommit, KitFixtures.psm1).
     }
 
     It 'гілки немає — LastVersion = $null, інваріантів немає що порушувати' {
@@ -30,7 +30,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         $commits[1].Parents.Count | Should -Be 1
         $commits[2].Trailers['Storage-Version'] | Should -Be '21'
         @(Test-KitStorageBranchInvariants -RepoRoot $repo -Branch 'storage/Alpha_SMB' -SourceKey 'Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src').Count | Should -Be 0
-        # Робоча копія й HEAD основного дерева не рухались (§3.3, шар 1)
+        # Робоча копія й HEAD основного дерева не рухались
         git -C $repo branch --show-current | Should -Be 'main'
         git -C $repo status --porcelain | Should -BeNullOrEmpty
     }
@@ -59,7 +59,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     It 'merge-коміт на storage/X — помилка (два батьки), кореневий без батьків — ні' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge')
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
-        # Злиття main у гілку сховища — саме те, що забороняє §3.2. Робимо в тимчасовому worktree,
+        # Злиття main у гілку сховища — саме те, що забороняє контур. Робимо в тимчасовому worktree,
         # щоб не чіпати робочу копію, і без хуків (їх у цій фікстурі немає).
         $wt = Join-Path $repo 'build/sync/merge-wt'
         git -C $repo worktree add -q $wt 'storage/Alpha_SMB'
@@ -114,7 +114,7 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
     }
 }
 
-Describe 'Get-KitStorageActivity — mtime сховища без платформи (§5)' {
+Describe 'Get-KitStorageActivity — mtime сховища без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
 
@@ -148,7 +148,7 @@ Describe 'Get-KitStorageActivity — mtime сховища без платфор�
         }
     }
 
-    # Рев'ю раунд 2, C1 — саме цей стан (data/objects Є, але в ній жодного файла) падав:
+    # Саме цей стан (data/objects Є, але в ній жодного файла) падав:
     # Measure-Object -Maximum на справді порожньому вводі не дає Count=0, а не дає НІЧОГО, і
     # .Maximum на $null під StrictMode кидає "The property 'Count' cannot be found on this
     # object" замість дружнього Reason. Той самий зразок, що StorageReport.Tests.ps1:121.
@@ -219,9 +219,9 @@ Describe 'Get-KitStorageActivity — mtime сховища без платфор�
         @($r.PackFiles).Count | Should -Be 0
     }
 
-    # Задача 8 (task-8-brief.md): пакування — норма, не аномалія. Живий прогін B3 знайшов справжнє
+    # Пакування — норма, не аномалія. Живий прогін знайшов справжнє
     # сховище з 16 версіями, чия data/objects порожня — уся історія в data/pack (4 файли, 2,2 МБ).
-    Context 'Пакування (data/pack) — спека 9f6ad5e §5' {
+    Context 'Пакування (data/pack)' {
         It 'порожня objects, непорожня pack — IsStorage=$true, LatestPackWrite заповнений, LatestObjectWrite=$null, Reason порожній' {
             $s = Join-Path $TestDrive 'packed-only'
             $stamp = [datetime]'2026-02-01T00:00:00'
@@ -310,11 +310,11 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
         It '-MaxVersions обрізає з голови' {
             (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -MaxVersions 2).Version | Should -Be @(2, 23)
         }
-        # Task 2 (task-2-brief.md, §9.4) — закріпити явно: -MaxVersions без -From* бере
+        # Закріпити явно: -MaxVersions без -From* бере
         # найРАНІШУ версію. Це наявна, ПРАВИЛЬНА поведінка для дозаливки — саме її сплутали
         # зі "лише поточна", і саме тому з'явились -FromVersion/-FromLatest нижче. Тест
         # існує, щоб цю поведінку випадково не "полагодили" під час цієї ж задачі.
-        It '-MaxVersions 1 БЕЗ -From* — найРАНІША версія (закріплення наявної поведінки, Task 2)' {
+        It '-MaxVersions 1 БЕЗ -From* — найРАНІША версія (закріплення наявної поведінки)' {
             (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -MaxVersions 1).Version | Should -Be @(2)
         }
         It 'дзеркало попереду сховища — зупинка' {
@@ -332,7 +332,7 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
         }
     }
 
-    Context 'Get-KitPendingVersions — -FromVersion/-FromLatest (Task 2, §9.4: глибина ЗВІДКИ, не скільки)' {
+    Context 'Get-KitPendingVersions — -FromVersion/-FromLatest (глибина ЗВІДКИ, не скільки)' {
         # $script:All = 2, 23, 24, 47 (BeforeAll вище).
         It '-FromVersion 23 — версії від 23 ВКЛЮЧНО (не лише "більше за")' {
             (Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 23).Version | Should -Be @(23, 24, 47)
@@ -355,7 +355,7 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
             { Get-KitPendingVersions -AllVersions $script:All -LastVersion $null -FromVersion 999 } |
                 Should -Throw '*999*2, 23, 24, 47*'
         }
-        # Рев'ю Task 2, п. 9: на СОТНЯХ версій (мотив усієї задачі) повний перелік — рядок на
+        # На СОТНЯХ версій (мотив усієї задачі) повний перелік — рядок на
         # кілька тисяч символів у консолі. Понад поріг — лише мінімум/максимум і кількість.
         It '-FromVersion за межами звіту з БАГАТЬМА версіями — стисле повідомлення (мін/макс, не повний перелік)' {
             $many = @(1..700 | ForEach-Object { [pscustomobject]@{ Version = $_ } })
@@ -370,7 +370,7 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
             $thrown.Length | Should -BeLessThan 200
         }
 
-        # Рев'ю Task 2, п. 5: порожній звіт (сховище зовсім без версій) при порожній гілці —
+        # Порожній звіт (сховище зовсім без версій) при порожній гілці —
         # легальний стан САМ ПО СОБІ, але з -FromVersion/-FromLatest мовчазне "pending порожній"
         # видало б sync.psm1 текст "Нових версій немає — дзеркало синхронне зі сховищем", хоча
         # людина просила версію, якої в сховищі взагалі не існує.
@@ -439,7 +439,7 @@ Describe 'StorageBranch.psm1 — план реплею й повідомленн
     }
 }
 
-Describe 'StorageBranch.psm1 — worktree гілки дзеркала й коміт версії (§3.3, шар 1)' {
+Describe 'StorageBranch.psm1 — worktree гілки дзеркала й коміт версії' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -517,7 +517,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $rawId
     }
 
-    It 'Write-KitStorageVersion: .bin іде в дзеркало, тека поставки (.cf, позначка) — ні (спека 2026-09-30 §5.2)' {
+    It 'Write-KitStorageVersion: .bin іде в дзеркало, тека поставки (.cf, позначка) — ні' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mirror-supply') -Workspaces (New-KitClientWorkspaces)
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/base' -Path (Join-Path $repo 'build/sync/base/wt')
         $src = Join-Path $wt.Path 'Client_UNF/cf/src'
@@ -548,7 +548,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
     }
 
     It 'виняток із finally (Remove-KitStorageWorktree) не витісняє первинний виняток, навіть якщо тека заблокована' {
-        # Рев'ю B2 (Blocker 1): Remove-KitStorageWorktree навмисно без throw, щоб не заступити
+        # Remove-KitStorageWorktree навмисно без throw, щоб не заступити
         # собою виняток, який уже летить із finally навколо реплею sync. Живим прогоном це не
         # доведено — тут заблокований на видалення файл (Windows-хендл, FileShare.None) змушує
         # git worktree remove і Remove-Item усередині впасти, і перевіряємо, що назовні йде
@@ -601,7 +601,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $paths | Should -BeExactly @("Alpha_SMB/cfe/src/T/$New.xml", "Alpha_SMB/cfe/src/T/$New/Ext/T.bin")
     }
 
-    It 'exclude машини (.git/info/exclude: *.bin) не знімає з відстеження .bin, який нова версія вивантажує знову (H2)' {
+    It 'exclude машини (.git/info/exclude: *.bin) не знімає з відстеження .bin, який нова версія вивантажує знову' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mirror-machine-exclude') -WithHooks
         $bin = 'Alpha_SMB/cfe/src/Ext/Template.bin'
         Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" -Files ([ordered]@{
@@ -656,7 +656,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
     }
 }
 
-Describe 'StorageBranch.psm1 — версія для verify з merge-base (§3.5, Q8)' {
+Describe 'StorageBranch.psm1 — версія для verify з merge-base' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/GitMerge.psm1").Path -Force
@@ -668,7 +668,7 @@ Describe 'StorageBranch.psm1 — версія для verify з merge-base (§3.5
     }
 
     It 'main ще не зливав дзеркало — зупинка «спершу sync»' {
-        # '*ніколи не зливав*', не '*sync*' (рев'ю B3 раунд 2, Important 2): обидві зупинки
+        # '*ніколи не зливав*', не '*sync*': обидві зупинки
         # Get-KitVerifyVersion («гілки немає» і «ніколи не зливав») згадують sync у тексті —
         # '*sync*' не розрізнив би регресію, що плутає ці два стани, а «ніколи не зливав»
         # унікальне саме для стану «гілка є, спільного предка з ref немає».
