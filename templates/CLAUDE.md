@@ -47,6 +47,10 @@
 | звірити git зі сховищем | `v8storagekit:verify` |
 | додати воркспейс/джерело | `v8storagekit:onboarding` |
 | Уніка не бачить потрібної теки | `v8storagekit:unica-folders` |
+| карта інструментів Уніки, пастки платформи | `v8storagekit:unica-1c` |
+| тексти для людини в багатомовній конфігурації | `v8storagekit:1c-localization` |
+| службовий користувач ІБ із розширення на БСП | `v8storagekit:1c-bsp-service-user` |
+| WebSocket-з'єднання бази з зовнішнім сервером | `v8storagekit:1c-websocket-client` |
 
 Редагування (`unica.apply`), перевірка (`unica.check`), завантаження в базу агента й збірка
 (`unica.run`) — Unica 0.16; маршрутизація — `v8storagekit:using-v8storagekit`.

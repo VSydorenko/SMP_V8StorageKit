@@ -1,0 +1,25 @@
+{
+  "pr": {
+    "base": "main",
+    "mergeMethod": "merge"
+  },
+  "workspace": {
+    "mode": "worktree"
+  },
+  "docs": {
+    "specs": "docs/superpowers/specs",
+    "plans": "docs/superpowers/plans",
+    "docs": "docs"
+  },
+  "research": {
+    "corpus": [
+      "CLAUDE.md",
+      "README.md",
+      "CHANGELOG.md",
+      "docs/**/*.md",
+      ".claude/skills/*/SKILL.md",
+      "skills/**/*.md",
+      "agents/*.md"
+    ]
+  }
+}

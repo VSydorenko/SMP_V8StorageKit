@@ -375,3 +375,14 @@ origin/<гілка>` для поточної гілки. Інакше — сві
 `v8storagekit:kit-onboard`: той запускає `kit-scan` і `kit-setup` і веде за чеклістом журналу
 змін плагіна (запис 1.6.1). Версію процесу проєкт тримає в `.agents/kit.profile.json`
 (`kit.version`), а не в маніфесті.
+
+## 1.6.1 → 1.6.2
+
+Контур сховища не змінився. Запишіть `kitVersion: 1.6.2` у `v8storagekit.yaml`.
+
+Новинка версії — предметні скіли 1С у плагіні (`v8storagekit:unica-1c`, `v8storagekit:1c-localization`,
+`v8storagekit:1c-bsp-service-user`, `v8storagekit:1c-websocket-client`) і `v8storagekit:codex-companion`.
+Якщо машина тримала їх копії в `~/.claude/skills/` чи проєкт — у `.claude/skills/`, `kit-scan` покаже
+їх у розділі `Skills outside the plugin` рядками `same-name`: звірте вміст і приберіть копію.
+Проєкт, що запускав у CI `check-localization.py`, переходить на `check-localization.ps1` зі скіла
+`v8storagekit:1c-localization`.

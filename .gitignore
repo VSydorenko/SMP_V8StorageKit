@@ -15,3 +15,5 @@ build/
 .agents/private/
 .agents/briefs/
 .agents/kit.profile.local.json
+# v8storagekit: процес
+.worktrees/
