@@ -21,7 +21,7 @@ Architect: сесія `<ім'я>`. Series rules: <шлях>-common.md.
 - Незлита робота, від якої залежить план: <X — познач якорі «після X»>.
 - Перш ніж почати: звір якорі плану з кодом (`doc anchors <файл>`; код — Уніка:
   `unica.search`, `unica.resolve`); дельти → задача 0 (правка спеки разом із планом).
-- Аудит за ризиком за скілом `v8storagekit:plan`; Codex (`codex-companion`) — лише за його тригером і якщо є на машині.
+- Аудит за ризиком за скілом `v8storagekit:plan`; Codex (`v8storagekit:codex-audit`) — лише за його тригером і якщо на машині налаштовано Codex CLI.
 
 ## Subagent models
 Аудитори й розвідка: sonnet; лінза безпеки: opus. Явний `model` у кожному виклику Agent.

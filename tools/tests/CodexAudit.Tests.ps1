@@ -50,6 +50,12 @@ $cmd = $env:FAKE_CODEX_COMMAND
         $r.Out | Should -Match '0 finding\(s\).*1 file\(s\) read' -Because $r.Out
     }
 
+    It 'review без жодної команди читання (пісочниця все заблокувала) — код 3, не зелений' {
+        $r = Invoke-Audit -Command '"C:\Program Files\PowerShell\7\pwsh.exe" -Command ''Write-Output hello''' -Mode @('review', '-Base', 'main')
+        $r.Code | Should -Be 3 -Because $r.Out
+        $r.Out | Should -Match 'Codex did not read the repository' -Because $r.Out
+    }
+
     It 'review -Base: turn.completed і звіт із [P1] — код 0 і підсумок коментарів' {
         $r = Invoke-Audit -Command 'git diff main' -Mode @('review', '-Base', 'main')
         $r.Code | Should -Be 0 -Because $r.Out

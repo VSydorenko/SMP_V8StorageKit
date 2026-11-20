@@ -186,9 +186,15 @@ function Get-CodexAuditVerdict {
 }
 
 function Get-CodexReviewVerdict {
-    param($Run, [object[]]$Events, [AllowEmptyString()][string]$Report)
+    param($Run, [object[]]$Events, [AllowEmptyString()][string]$Report, [string]$Cwd)
     $bad = Get-CodexEventsVerdict -Run $Run -Events $Events
     if ($bad) { return $bad }
+    # Той самий доказ читання, що й в аудиті: рев'ю, якому пісочниця заблокувала кожну команду, теж
+    # доходить до turn.completed і пише «no [P] comments».
+    $reads = @($Events | Where-Object {
+            $_['type'] -eq 'item.completed' -and $_['item'] -is [System.Collections.IDictionary] -and $_['item']['type'] -eq 'command_execution' -and
+            $_['item']['exit_code'] -eq 0 -and (Test-CodexCommandReadsTree -Command ([string]$_['item']['command']) -Cwd $Cwd) })
+    if (-not $reads.Count) { return New-CodexFail "no completed command_execution with exit code 0 that reads a path under ${Cwd}: Codex did not read the repository (sandbox?)" }
     if (-not $Report.Trim()) { return New-CodexFail 'review report is missing or empty' }
     $tags = @([regex]::Matches($Report, '\[(P\d)\]') | ForEach-Object { $_.Groups[1].Value })
     $by = (@($tags | Group-Object | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
@@ -388,7 +394,7 @@ function Invoke-KitCodexAudit {
         $events = @(foreach ($line in ([System.IO.File]::ReadAllText($run.Events) -split "\r?\n")) {
                 if ($line.Trim()) { try { $line | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { } } })
         $report = if (Test-Path -LiteralPath $run.Report) { [System.IO.File]::ReadAllText($run.Report) } else { '' }
-        $v = if ($mode -eq 'review') { Get-CodexReviewVerdict -Run $r -Events $events -Report $report }
+        $v = if ($mode -eq 'review') { Get-CodexReviewVerdict -Run $r -Events $events -Report $report -Cwd $run.Cwd }
         else { Get-CodexAuditVerdict -Run $r -Events $events -Report $report -Repo (-not $a.Named['NoRepo']) -Cwd $run.Cwd }
         & $finish $v
     } finally {
