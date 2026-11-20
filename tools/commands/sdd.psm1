@@ -170,7 +170,15 @@ function Get-SddCurrentPlan {
     $found = @(Get-SddBoundPlans -Checkout $checkout)
     if (-not $found.Count -and $script:AfterClose -contains $Command) { $found = @(Get-SddBoundPlans -Checkout $checkout -Closed) }
     if ($found.Count -eq 1) { return $found[0].Plan }
-    if (-not $found.Count) { throw (New-KitUsageError "немає відкритого журналу, прив'язаного до ${checkout}: вкажи шлях плану або виконай sdd init <plan.md>") }
+    if (-not $found.Count) {
+        # Закритий журнал — не «план не прив'язано»: повторний init його не відкриває, і підказка «виконай init» вводила б в оману.
+        $closed = @(Get-SddBoundPlans -Checkout $checkout -Closed)
+        if ($closed.Count) {
+            $list = @($closed | ForEach-Object { "$([System.IO.Path]::GetRelativePath($checkout, $_.Plan) -replace '\\', '/') (# closed $($_.Parsed.Closed))" }) -join ', '
+            throw (New-KitUsageError "журнал плану закрито: $list; після close працюють лише $($script:AfterClose -join ', '); sdd init журнал не відкриває наново")
+        }
+        throw (New-KitUsageError "немає відкритого журналу, прив'язаного до ${checkout}: вкажи шлях плану або виконай sdd init <plan.md>")
+    }
     $list = @($found | ForEach-Object { [System.IO.Path]::GetRelativePath($checkout, $_.Plan) -replace '\\', '/' }) -join ', '
     throw (New-KitUsageError "відкритих журналів, прив'язаних до ${checkout}: $($found.Count); вкажи шлях плану: $list")
 }
@@ -343,8 +351,9 @@ function Invoke-SddInit {
     $p = Read-SddLedgerFile $l
     if ($l.Created) { Out-Sdd "створено $($l.Dir)" }
     else { Out-Sdd "відновлено $($l.Dir): задач у журналі: $($p.Rows.Count)$(if ($p.Closed) { ", закрито $($p.Closed)" })" }
+    if ($p.Closed) { Out-Sdd "журнал закрито $($p.Closed): init його не відкриває наново; працюють лише $($script:AfterClose -join ', ')" }
     Out-Sdd "прив'язано до $($info.Checkout): аргумент плану тут необов'язковий"
-    Write-KitNext (Get-SddNextCommand (New-SddContext -PlanArg $PlanArg -Command 'init' -RepoRoot $RepoRoot) $p.Rows)
+    if (-not $p.Closed) { Write-KitNext (Get-SddNextCommand (New-SddContext -PlanArg $PlanArg -Command 'init' -RepoRoot $RepoRoot) $p.Rows) }
 }
 
 function Invoke-SddBrief {
@@ -595,9 +604,9 @@ function Invoke-SddReview {
     if (Test-KitSddDone $r) { throw (New-KitRefusal "задача $N вже $($r.State)") }
     if (-not $r.Base -and -not @($r.Windows).Count) { throw (New-KitRefusal "у задачі $N немає BASE у журналі (почато до sdd dispatch): виконай review-pack <BASE> вручну") }
     # Вікно закриває review (watch цього не робить): контролер комітить задачу між watch і review.
-    $head = Close-SddWindow $C $l $N 'review'
-    $p = Read-SddLedgerFile $l
-    $r = $p.Rows[$N]
+    # Але запис закриття — після всіх відмов (немає комітів, збій пакета): відмова не змінює журнал.
+    # Діапазони тут рахуються за ще відкритим вікном: кінець незакритого вікна — HEAD, як і після закриття.
+    $head = Get-SddHead $C.Checkout
     if (@($r.Windows).Count) {
         # Раунд виправлень рецензується лише своїм диффом — вікнами після попередньої рецензії.
         if ($r.Rounds -gt 0 -and $null -eq $r.ReviewLine) { Out-Sdd "warn: для задачі $N не записано рецензії; пакет охоплює всі її вікна" }
@@ -634,6 +643,7 @@ function Invoke-SddReview {
         $packSize = (Get-SddUtf8).GetByteCount($text)
         Out-Sdd "$pack  $(Format-SddKb $packSize)  ~$([int][Math]::Round($text.Length / 4)) токенів  вікна $(Format-SddRangeText $ranges $C.Checkout)"
     }
+    $null = Close-SddWindow $C $l $N 'review'
     Add-SddRow $l (Format-KitSddRow -N $N -State review -Commits (Format-KitSddRanges $ranges) -Round $(if ($r.Rounds) { [string]$r.Rounds } else { '' }))
     Out-Sdd "пакет: $pack"
     Write-KitNext "$(Get-SddCmd $C "done $N -Review clean")   (blocker чи major: $(Get-SddCmd $C "fix $N"))"
@@ -682,13 +692,14 @@ function Invoke-SddDone {
     if (-not $r) { throw (New-KitRefusal "у задачі $N немає рядка в журналі") }
     if (Test-KitSddDone $r) { throw (New-KitRefusal "задача $N вже $($r.State)") }
     if (-not $r.Base -and -not @($r.Windows).Count) { throw (New-KitRefusal "у задачі $N немає BASE у журналі (почато до sdd dispatch): $(Get-SddCmd $C "log $N complete -Commits <BASE>..<HEAD>")") }
-    $head = Close-SddWindow $C $l $N 'done'
-    $p = Read-SddLedgerFile $l
-    $ranges = @(Get-SddRanges $p $N $head)
+    # Закриття вікна пишемо після перевірки предка: відмова не змінює журнал (діапазон за відкритим вікном — той самий, що й за закритим).
+    $head = Get-SddHead $C.Checkout
+    $ranges = @(Get-SddRanges $st.P $N $head)
     foreach ($x in $ranges) {
         $anc = Invoke-KitGit -Root $C.Checkout -Arguments @('merge-base', '--is-ancestor', $x.From, $x.To) -AllowFail
         if ($anc.ExitCode -ne 0) { throw (New-KitRefusal "початок вікна $(Get-SddShort $x.From) задачі $N не предок $(Get-SddShort $x.To) (rebase?); запиши діапазон вручну") }
     }
+    $null = Close-SddWindow $C $l $N 'done'
     $count = 0
     foreach ($x in $ranges) { $count += [int](Invoke-KitGit -Root $C.Checkout -Arguments @('rev-list', '--count', "$($x.From)..$($x.To)")).Out.Trim() }
     # Без -Review: була рецензія — clean; не було — дифф читав контролер.

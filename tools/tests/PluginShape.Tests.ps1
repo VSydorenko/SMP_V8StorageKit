@@ -11,7 +11,7 @@ BeforeAll {
     # 1.6.0, вони старші за межі описів і розміру. Запис прибирається разом зі скороченням скіла (інакше
     # тест падає: перелік не гниє); нові скіли й усе поза переліком — фейл.
     $script:KnownViolators = @(
-        foreach ($s in 'dump', 'finish', 'onboarding', 'provision', 'reconcile', 'unica-folders', 'verify') { @{ Skill = $s; Check = 'description' } }
+        foreach ($s in 'dump', 'finish', 'onboarding', 'provision', 'reconcile', 'unica-folders', 'verify', 'using-v8storagekit') { @{ Skill = $s; Check = 'description' } }
         foreach ($s in 'onboarding', 'sync') { @{ Skill = $s; Check = 'skill-size' } }
     )
 

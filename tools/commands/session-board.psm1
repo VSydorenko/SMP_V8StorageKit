@@ -225,7 +225,8 @@ function Invoke-KitSessionBoard {
     catch [KitGhError] { $ghProblem = "gh failed: $($_.Exception.Message)" }
 
     $headers = @('session', 'role', 'branch', 'HEAD', 'age', 'tree', "vs $base", 'PR', 'next') + $(if ($mode -eq 'worktree') { 'path' })
-    $out = foreach ($r in $rows) {
+    # @(): один рядок інакше розгортається у плоский масив клітинок, і $c[$_] бере символ рядка.
+    $out = @(foreach ($r in $rows) {
         $s = $sessionOf[$r.Branch]
         $p = if ($prs -and $r.Branch -and $prs.ContainsKey($r.Branch)) { $prs[$r.Branch] } else { $null }
         $row = [pscustomobject]@{ Path = $r.Path; Prunable = $r.Prunable; Behind = $r.Behind; Pr = $null; Merged = $null; Unpushed = $false }
@@ -251,7 +252,7 @@ function Invoke-KitSessionBoard {
         )
         if ($mode -eq 'worktree') { $cells += $(if ($r.Path) { $r.Path } else { '' }) }
         , $cells
-    }
+    })
 
     # Без файлу сесій колонки session/role порожні — не займати ними екран.
     $keep = if ($sessions.Count) { 0..($headers.Count - 1) } else { 2..($headers.Count - 1) }

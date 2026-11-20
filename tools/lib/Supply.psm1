@@ -118,7 +118,7 @@ function Get-KitSupplyRecipe {
         -Purpose check), і Get-KitAlignStep (Recipe зупинки blocked, -Purpose stop).
     .DESCRIPTION
         Два виміри різняться. Purpose: check лише попереджає й веде до kit verify, а зупинка після
-        sync/verify вже має базу агента зі версією сховища, тож веде одразу до повного pull Уніки і
+        sync/verify вже має базу агента зі версією сховища, тож веде до видалення теки поставки, повного pull Уніки і
         позначки kit supply-marker (спека 2026-11-19 §4.2 п.9, п.18). OnMainBranch: поставку
         відновлюють лише на головній гілці; на гілці задачі (і на від'єднаному HEAD) рецепт каже
         «спершу поставка на головній гілці» й не несе кроку pull. Після повного pull база, дерево й
@@ -151,7 +151,7 @@ function Get-KitSupplyRecipe {
             "kit verify -Source $SourceKey (очікувано equal; verify наповнить базу версією зі сховища — merge-base) → виконати його зупинку поставки." + $onboarding
     }
     $pull = 'unica.run ' + ([ordered]@{ op = 'pull'; args = [ordered]@{ sourceSet = $SourceKey; force = $true }; dryRun = $true } | ConvertTo-Json -Compress -Depth 5)
-    $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте) одразу повний pull цього набору: $pull (спершу так, потім той самий виклик з `"dryRun`":false; " +
+    $head + "на гілці ${MainBranch} (HEAD = ${MainBranch}, дерево чисте) спершу видаліть теку <шлях набору $SourceKey>/Ext/ParentConfigurations/ цілою (вона вся поза git; kit нічого не видаляє — видаляє людина чи агент), далі повний pull цього набору: $pull (спершу так, потім той самий виклик з `"dryRun`":false; " +
         "Уніка спитає людину про перезапис бази origin — це очікувано) → kit supply-marker -Workspace $Workspace -Source $SourceKey -Apply. " +
         "Після повного pull база, дерево й пам'ять Уніки узгоджені — push force не потрібен. Після pull git status --porcelain -- <шлях набору $SourceKey> мусить бути порожнім; " +
         'непорожній — зупинка й доповідь людині. Без обходу.'

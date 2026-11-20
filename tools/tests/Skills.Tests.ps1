@@ -48,6 +48,15 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             [regex]::Matches($d.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($d.Rel) токен вжито не як частину шляху"
         }
     }
+    It '${CLAUDE_PLUGIN_ROOT} не вживається у skills/*/references/** — там токен НЕ підставляється, агент отримав би непридатну команду' {
+        # Підстановка діє лише в тілі SKILL.md (пілот 1.6.0, 2026-11-20: сім вживань у references/ дали
+        # агентові буквальний рядок із токеном). Контроль, що перевірка бачить references/: набір не порожній.
+        $refs = @($script:SkillDocs | Where-Object { $_.Rel -match '[\\/]references[\\/]' })
+        $refs.Count | Should -BeGreaterThan 0 -Because 'контроль: references/ мусить потрапляти в набір'
+        foreach ($d in $refs) {
+            $d.Text | Should -Not -Match '\$\{CLAUDE_PLUGIN_ROOT\}' -Because "у $($d.Rel) токен не підставляється"
+        }
+    }
     It 'перехресні посилання не ведуть на вилучені скіли' {
         # Що посилання v8storagekit:ІМ'Я веде на наявний скіл чи агента, перевіряє It нижче (диск).
         foreach ($s in $script:Skills) {
