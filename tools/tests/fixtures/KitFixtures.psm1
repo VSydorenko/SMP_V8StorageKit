@@ -549,6 +549,9 @@ function Copy-KitTools {
     # і знахідка 'kit-version' у check ніколи не з'являється в тестах, що йдуть через Copy-KitTools.
     New-Item -ItemType Directory -Path (Join-Path $Root '.claude-plugin') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $kitRoot '.claude-plugin/plugin.json') -Destination (Join-Path $Root '.claude-plugin/plugin.json') -Force
+    # CHANGELOG.md: журнал змін плагіна читають хук старту сесії (рядок оновлення), kit-setup і
+    # kit-scan (KitVersion.psm1) — від кореня копії, як і plugin.json вище.
+    Copy-Item -LiteralPath (Join-Path $kitRoot 'CHANGELOG.md') -Destination (Join-Path $Root 'CHANGELOG.md') -Force
     Join-Path $Root 'tools/kit.ps1'
 }
 
