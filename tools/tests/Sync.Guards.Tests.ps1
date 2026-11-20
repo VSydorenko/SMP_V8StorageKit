@@ -85,8 +85,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         New-Item -ItemType Directory -Force -Path (Join-Path (Split-Path -Parent $repo) 'no-such-storage-Alpha_SMB') | Out-Null
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*kit provision*'
-        $r.Output   | Should -BeLike '*operation=build*'
+        $r.Output   | Should -BeLike '*v8storagekit:provision*'
         (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }
@@ -104,7 +103,7 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r.Output   | Should -BeLike '*дев-базою людини*'
     }
 
-    It 'у v8project.yaml немає infobase: — зупинка з іменем воркспейсу' {
+    It 'П16: немає infobases.origin — зупинка з іменем воркспейсу і рецептом provision' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{
                 Sets = @(
@@ -118,6 +117,6 @@ Describe 'kit sync — штатні зупинки до звернення до 
         $r = Invoke-Sync -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Not -Be 0
         $r.Output   | Should -BeLike '*Alpha_SMB*'
-        $r.Output   | Should -BeLike '*infobase*'
+        $r.Output   | Should -BeLike '*Alpha_SMB*не налаштована*v8storagekit:provision*'
     }
 }

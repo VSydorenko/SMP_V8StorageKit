@@ -26,8 +26,12 @@ Describe 'ConvertTo-V8IbSwitch' {
         { ConvertTo-V8IbSwitch -Connection '' } | Should -Throw
     }
 
-    It 'кидає виняток на формі в лапках (Уніка на ній не підключається до серверної бази, issue #9)' {
-        { ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } | Should -Throw '*лапк*'
+    It 'парні лапки знімаються: перемикач той самий, що без лапок' {
+        ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' | Should -Be '/S "SRV01\DEMO_BASE"'
+    }
+
+    It 'кидає виняток на непарній лапці' {
+        { ConvertTo-V8IbSwitch -Connection 'Srvr="SRV01;Ref=DEMO_BASE;' } | Should -Throw '*непарні лапки*'
     }
 }
 
@@ -76,16 +80,29 @@ Describe 'ConvertFrom-V8Connection — єдиний розбір рядка пі
         { ConvertFrom-V8Connection -Connection '' } | Should -Throw
     }
 
-    It 'кидає на значенні в лапках і показує виправлену форму без лапок' {
-        $err = $null
-        try { ConvertFrom-V8Connection -Connection 'Srvr="SRV01";Ref="DEMO_BASE";' } catch { $err = $_.Exception.Message }
-        $err | Should -Not -BeNullOrEmpty
-        $err | Should -BeLike '*лапк*'
-        $err | Should -BeLike '*Srvr=SRV01;Ref=DEMO_BASE;*'
+    It 'парні лапки навколо значень знімаються: <C>' -ForEach @(
+        @{ C = 'Srvr="VSDEV";Ref="SMP_UNF";'; Kind = 'server'; S = 'VSDEV'; R = 'SMP_UNF'; F = $null }
+        @{ C = 'File="D:\Bases\X"';          Kind = 'file';   S = $null;   R = $null;     F = 'D:\Bases\X' }
+        @{ C = 'Srvr=VSDEV;Ref="SMP_UNF"';    Kind = 'server'; S = 'VSDEV'; R = 'SMP_UNF'; F = $null }
+    ) {
+        $p = ConvertFrom-V8Connection -Connection $C
+        $p.Kind | Should -Be $Kind; $p.Server | Should -Be $S; $p.Ref | Should -Be $R; $p.File | Should -Be $F
     }
 
-    It 'кидає на лапках і в File= теж' {
-        { ConvertFrom-V8Connection -Connection 'File="C:\bases\demo"' } | Should -Throw '*лапк*'
+    It 'непарна лапка — виняток з ключем: <C>' -ForEach @(
+        @{ C = 'Srvr="VSDEV;Ref=SMP_UNF' }
+        @{ C = 'Srvr=VS"DEV;Ref=SMP_UNF' }
+        @{ C = 'File="D:\a;b"' }
+    ) {
+        { ConvertFrom-V8Connection -Connection $C } | Should -Throw '*непарні лапки*'
+    }
+
+    It 'лапки в імені ключа — виняток' {
+        { ConvertFrom-V8Connection -Connection '"Srvr"=VSDEV;Ref=X' } | Should -Throw '*імені ключа*'
+    }
+
+    It 'порожнє значення в лапках (Ref="") — порожнє значення, не база з порожнім Ref' {
+        { ConvertFrom-V8Connection -Connection 'Srvr=VSDEV;Ref="";' } | Should -Throw '*порожнє значення*'
     }
 
     It 'кидає на Srvr= без Ref=' {
@@ -156,14 +173,14 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
         $boundary = Join-Path $TestDrive 'work-dir'
         New-Item -ItemType Directory -Path $boundary -Force | Out-Null
 
-        { New-V8FileInfobase -Path $outside -MustBeUnder $boundary } | Should -Throw '*не є підтекою*'
+        { New-V8FileInfobase -Path $outside -MustBeUnder $boundary -RepoRoot $boundary } | Should -Throw '*не є підтекою*'
     }
 
     It 'кидає виняток на порожньому Path' {
         $boundary = Join-Path $TestDrive 'work-dir-2'
         New-Item -ItemType Directory -Path $boundary -Force | Out-Null
 
-        { New-V8FileInfobase -Path '' -MustBeUnder $boundary } | Should -Throw
+        { New-V8FileInfobase -Path '' -MustBeUnder $boundary -RepoRoot $boundary } | Should -Throw
     }
 
     It 'кидає виняток на неіснуючому -TemplatePath — до Get-V8Path, незалежно від того, чи встановлена платформа' {
@@ -171,17 +188,64 @@ Describe 'New-V8FileInfobase (запобіжник шляху, без зверн
         New-Item -ItemType Directory -Path $boundary -Force | Out-Null
         $missing = Join-Path $TestDrive 'no-such.dt'
 
-        { New-V8FileInfobase -Path (Join-Path $boundary 'ib') -MustBeUnder $boundary -TemplatePath $missing } |
+        { New-V8FileInfobase -Path (Join-Path $boundary 'ib') -MustBeUnder $boundary -RepoRoot $boundary -TemplatePath $missing } |
             Should -Throw "*$missing*"
     }
 }
 
+Describe 'New-V8FileInfobase -NoReplace: kit не стирає наявне (спека Unica 0.16 §4.2 п.21)' {
+    It 'наявна тека (з файлом-маркером і порожня) — виняток; маркер цілий; Remove-KitDirectory не викликано; платформа не запускалась' {
+        $boundary = Join-Path $TestDrive 'noreplace-work'
+        $withMarker = Join-Path $boundary 'ib-marker'
+        $empty = Join-Path $boundary 'ib-empty'
+        New-Item -ItemType Directory -Path $withMarker, $empty -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $withMarker 'marker.txt') -Value 'x'
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'платформа не мала запускатись' }
+        Mock -ModuleName V8 Get-V8Path { throw 'платформу не мали шукати' }
+        foreach ($dir in $withMarker, $empty) {
+            { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' -NoReplace } |
+                Should -Throw '*уже існує*'
+        }
+        Join-Path $withMarker 'marker.txt' | Should -Exist
+        $empty | Should -Exist
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 0
+        Should -Invoke -ModuleName V8 Start-Process -Times 0
+        Should -Invoke -ModuleName V8 Get-V8Path -Times 0
+    }
+    It 'вікно між перевіркою й створенням: Test-Path каже «немає», а тека вже є — New-Item відхиляє, платформа не запускалась, маркер цілий' {
+        $boundary = Join-Path $TestDrive 'noreplace-race'
+        $dir = Join-Path $boundary 'ib'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'marker.txt') -Value 'x'
+        Mock -ModuleName V8 Test-Path { $false }
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'платформа не мала запускатись' }
+        $msg = $null
+        try { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' -NoReplace }
+        catch { $msg = $_.Exception.Message }
+        $msg | Should -Not -BeNullOrEmpty
+        $msg | Should -Not -BeLike '*платформа не мала запускатись*' -Because 'відмова мусить прийти від New-Item, а не від запуску платформи'
+        Should -Invoke -ModuleName V8 Start-Process -Times 0
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 0
+        Join-Path $dir 'marker.txt' | Should -Exist
+    }
+    It 'контроль: без -NoReplace той самий шлях стирається (Remove-KitDirectory викликано) — тест вище здатен упасти' {
+        $boundary = Join-Path $TestDrive 'noreplace-control'
+        $dir = Join-Path $boundary 'ib'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Mock -ModuleName V8 Remove-KitDirectory { }
+        Mock -ModuleName V8 Start-Process { throw 'стоп після стирання' }
+        { New-V8FileInfobase -Path $dir -MustBeUnder $boundary -RepoRoot $boundary -V8Path 'C:\fake\1cv8.exe' } | Should -Throw '*стоп після стирання*'
+        Should -Invoke -ModuleName V8 Remove-KitDirectory -Times 1
+    }
+}
 Describe 'New-ExtensionInfobase' -Tag 'Integration' {
     It 'створює базу з розширенням, адресованим під заданим іменем' {
         $ib = Join-Path $TestDrive 'ext-ib'
         $stub = Join-Path $PSScriptRoot '../assets/empty-extension'
 
-        $ibSwitch = New-ExtensionInfobase -Path $ib -ExtensionName 'PROBE_EXT' -StubPath $stub -MustBeUnder $TestDrive
+        $ibSwitch = New-ExtensionInfobase -Path $ib -ExtensionName 'PROBE_EXT' -StubPath $stub -MustBeUnder $TestDrive -RepoRoot $TestDrive -V8Path (Get-V8Path)
         $ibSwitch | Should -Be ('/F "{0}"' -f $ib)
 
         $dump = Join-Path $TestDrive 'ext-dump'
@@ -203,13 +267,13 @@ Describe 'New-V8FileInfobase -TemplatePath: розгортання з .dt' -Tag 
     It 'створює базу з реального .dt (CREATEINFOBASE /UseTemplate) — і рахунок доходить до /UseTemplate у аргументах' {
         # .dt робимо самі: порожня ІБ -> /DumpIB. Тест не залежить від чужих файлів (той
         # самий прийом, що в Provision.Tests.ps1 Integration BeforeAll).
-        $srcIb = New-V8FileInfobase -Path (Join-Path $TestDrive 'dt-src/ib') -MustBeUnder (Join-Path $TestDrive 'dt-src')
+        $srcIb = New-V8FileInfobase -Path (Join-Path $TestDrive 'dt-src/ib') -MustBeUnder (Join-Path $TestDrive 'dt-src') -RepoRoot (Join-Path $TestDrive 'dt-src')
         $dt = Join-Path $TestDrive 'template.dt'
         (Invoke-V8Designer -IbSwitch ('/F "{0}"' -f $srcIb) -Arguments @('/DumpIB "{0}"' -f $dt)).ExitCode | Should -Be 0
         Test-Path -LiteralPath $dt -PathType Leaf | Should -BeTrue
 
         $target = Join-Path $TestDrive 'from-template/ib'
-        $result = New-V8FileInfobase -Path $target -MustBeUnder (Join-Path $TestDrive 'from-template') -TemplatePath $dt
+        $result = New-V8FileInfobase -Path $target -MustBeUnder (Join-Path $TestDrive 'from-template') -RepoRoot (Join-Path $TestDrive 'from-template') -TemplatePath $dt
         $result | Should -Be $target
         Join-Path $target '1Cv8.1CD' | Should -Exist
     }
@@ -298,5 +362,129 @@ Describe 'Get-KitInstalledPlatforms — платформи оточення (с�
 
     It 'Get-V8Path з явною відсутньою версією — зупинка з переліком наявних' {
         { Get-V8Path -Version '8.3.22.1' -Roots $script:Roots } | Should -Throw '*8.3.25.1445*'
+    }
+}
+
+Describe 'Invoke-V8Designer — пароль (#26, Review Focus 2)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+    It 'пароль із подвійною лапкою — відмова до запуску платформи, пароль у тексті не з''являється' {
+        $err = $null
+        try { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/DumpCfg "C:\y.cf"') -Password 'ab"c-секрет' -V8Path 'C:\no-such\1cv8.exe' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*подвійну лапку*'
+        $err | Should -Not -BeLike '*секрет*'
+    }
+    It 'пароль у Write-Verbose замасковано, але платформа його отримує' {
+        Mock -ModuleName V8 Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+        $old = $global:VerbosePreference; $global:VerbosePreference = 'Continue'
+        try { $out = & { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/DumpCfg "C:\y.cf"') -User 'agent' -Password 'S3cr3t-Пароль' -V8Path 'C:\fake\1cv8.exe' } 4>&1 | Out-String }
+        finally { $global:VerbosePreference = $old }
+        $out | Should -Not -BeLike '*S3cr3t*'
+        $out | Should -BeLike '*/P "[*][*][*]"*'
+        Should -Invoke -ModuleName V8 Start-Process -Times 1 -ParameterFilter { $ArgumentList -like '*/P "S3cr3t-Пароль"*' }
+    }
+}
+
+Describe 'ConvertFrom-V8Connection — текст винятку без вхідного рядка (§10.2 П23)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        function script:Get-ConnError { param([string]$C)
+            try { ConvertFrom-V8Connection -Connection $C | Out-Null } catch { return $_.Exception.Message }
+            return $null
+        }
+    }
+
+    # Маркер СЕКРЕТ-Ж7SECRETZ7 стоїть у значенні й у тілі рядка кожної гілки. Гілка «не описує базу»
+    # недосяжна через вхід (будь-який елемент з '=' або дає дозволений ключ, або кидає раніше) —
+    # її текст перевіряє читання коду, а не цей перелік.
+    It 'гілка «<Name>»: виняток є, вхідного рядка й маркера в тексті немає' -TestCases @(
+        @{ Name = 'голий шлях';             C = 'D:\СЕКРЕТ-Ж7SECRETZ7\base' }
+        @{ Name = 'елемент без =';          C = 'File=C:\x;СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'лапки в імені ключа';    C = '"СЕКРЕТ-Ж7SECRETZ7"=VSDEV;Ref=X' }
+        @{ Name = 'непарні лапки';          C = 'Srvr="СЕКРЕТ-Ж7SECRETZ7;Ref=BASE' }
+        @{ Name = 'порожнє значення';       C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Ref="";' }
+        @{ Name = 'невідомий ключ';         C = 'File=СЕКРЕТ-Ж7SECRETZ7;Foo=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'дубль ключа';            C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Srvr=B;Ref=C' }
+        @{ Name = 'Srvr разом з File';      C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7;Ref=B;File=C:\СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'серверна без Ref';       C = 'Srvr=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = 'серверна без Srvr';      C = 'Ref=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ Name = '= у значенні';           C = 'File=C:СЕКРЕТ-Ж7SECRETZ7,Pwd=СЕКРЕТ-Ж7SECRETZ7' }
+    ) {
+        $err = Get-ConnError $C
+        $err | Should -Not -BeNullOrEmpty
+        $err | Should -Not -BeLike '*СЕКРЕТ-Ж7*'
+        $err | Should -Not -BeLike '*SECRETZ7*'
+        $err | Should -Not -BeLike "*$C*"
+    }
+
+    It 'порожній рядок — окреме повідомлення без значення' {
+        Get-ConnError '   ' | Should -BeLike '*порожній*'
+    }
+
+    It 'голий шлях: рецепт File= без шляху' {
+        $err = Get-ConnError 'D:\СЕКРЕТ-Ж7SECRETZ7\base'
+        $err | Should -BeLike '*File=<шлях>*'
+    }
+
+    It 'Usr/Pwd у будь-якому регістрі — окреме повідомлення без значень; рецепт дописує викликач за походженням' -TestCases @(
+        @{ C = 'File=build/ib;Usr=логін-Ж7;Pwd=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ C = 'File=build/ib;usr=логін-Ж7' }
+        @{ C = 'File=build/ib;pwd=СЕКРЕТ-Ж7SECRETZ7' }
+        @{ C = 'Srvr=S;Ref=R;PWD=СЕКРЕТ-Ж7SECRETZ7;' }
+        @{ C = 'Usr=логін-Ж7;File=build/ib' }
+    ) {
+        $err = Get-ConnError $C
+        $err | Should -BeLike '*не задаються в рядку підключення*'
+        $err | Should -Not -BeLike '*infobases*'   # рецепт залежить від походження — його тут немає
+        $err | Should -Not -BeLike '*Ж7*'
+        $err | Should -Not -BeLike '*Z7*'
+        $err | Should -Not -BeLike '*невідомий ключ*'
+    }
+}
+
+Describe 'Get-V8CredentialsRecipe — рецепт за походженням рядка' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        function script:Get-CredEx { try { ConvertFrom-V8Connection -Connection 'File=x;Pwd=СЕКРЕТ-Ж7SECRETZ7' } catch { $_.Exception } }
+    }
+    It 'база агента: user і password в infobases.origin' {
+        $r = Get-V8CredentialsRecipe -Exception (Get-CredEx) -Kind agent
+        $r | Should -BeLike '*user і password в infobases.origin у v8project.local.yaml*'
+    }
+    It 'дев-база накладки: user в infobases: накладки, пароль не підтримується — і жодного infobases.origin' {
+        $r = Get-V8CredentialsRecipe -Exception (Get-CredEx) -Kind overlay
+        $r | Should -BeLike '*v8storagekit.local.yaml*пароль дев-бази kit не підтримує*'
+        $r | Should -Not -BeLike '*infobases.origin*'
+    }
+    It 'виняток з іншої причини — порожній рецепт' {
+        $ex = try { ConvertFrom-V8Connection -Connection 'Srvr=A' } catch { $_.Exception }
+        Get-V8CredentialsRecipe -Exception $ex -Kind agent | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Assert-V8SecretQuoteFree — одна перевірка " для обох паролів (§10.2 П23)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force }
+
+    It 'пароль із " — виняток із Origin, значення в тексті немає' {
+        $err = $null
+        try { Assert-V8SecretQuoteFree -Value 'ab"ХВІСТ-Ж7' -Origin 'накладка v8storagekit.local.yaml, storages.Alpha.password' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*накладка v8storagekit.local.yaml, storages.Alpha.password*'
+        $err | Should -BeLike '*подвійну лапку*'
+        $err | Should -Not -BeLike '*ХВІСТ*'
+        $err | Should -Not -BeLike '*ab"*'
+    }
+
+    It 'пароль без " і порожній пароль — тиша' {
+        { Assert-V8SecretQuoteFree -Value 'abc-Ж7' -Origin 'x' } | Should -Not -Throw
+        { Assert-V8SecretQuoteFree -Value '' -Origin 'x' } | Should -Not -Throw
+    }
+
+    It 'Invoke-V8Designer відмовляє через ту саму перевірку — з Origin «пароль бази агента»' {
+        $err = $null
+        try { Invoke-V8Designer -IbSwitch '/F "C:\x"' -Arguments @('/X') -Password 'ab"c-Ж7' -V8Path 'C:\no-such\1cv8.exe' }
+        catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*пароль бази агента*'
+        $err | Should -Not -BeLike '*c-Ж7*'
     }
 }

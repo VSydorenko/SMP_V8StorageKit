@@ -86,11 +86,15 @@ Describe 'Manifest.psm1 — схема v8storagekit.yaml' {
         }
         It 'невідомий кореневий ключ' {
             $p = Write-Yaml 'unknown-root.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'products: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
-            { Read-KitManifest -Path $p } | Should -Throw "*'products'*version, kitVersion, product, client, mainBranch, workspaces*"
+            $m = try { Read-KitManifest -Path $p } catch { $_.Exception.Message }
+            $m | Should -BeLike "*невідомий ключ (ім'я не друкується)*version, kitVersion, product, client, mainBranch, workspaces*"
+            $m | Should -Not -BeLike '*products*'
         }
         It 'невідомий ключ усередині джерела (структуру описує v8project.yaml, не маніфест)' {
             $p = Write-Yaml 'unknown-source-key.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'workspaces:', '  - path: A', '    sources:', "      a: { truth: git, path: 'cfe/src' }")
-            { Read-KitManifest -Path $p } | Should -Throw "*'path'*truth, storage, dump*"
+            $m = try { Read-KitManifest -Path $p } catch { $_.Exception.Message }
+            $m | Should -BeLike "*невідомий ключ (ім'я не друкується)*truth, storage, dump*"
+            $m | Should -Not -BeLike "*'path'*"
         }
         It 'product і client разом — зупинка' {
             $p = Write-Yaml 'both.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: X', 'client: Y', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
@@ -184,7 +188,9 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         $o.Storages['B'].Path | Should -Be 'D:\mirror\B';  $o.Storages['B'].User | Should -Be 'Сидоренко'; $o.Storages['B'].Password | Should -Be 'secret'
         $o.Storages['C'].Path | Should -BeNullOrEmpty;     $o.Storages['C'].User | Should -Be 'gitbot'
         $bad = Write-Yaml 'storages-bad.yaml' @('storages:', '  A: { path: x, pwd: y }')
-        { Read-KitLocalOverlay -Path $bad } | Should -Throw "*'pwd'*path, user, password*"
+        $m = try { Read-KitLocalOverlay -Path $bad } catch { $_.Exception.Message }
+        $m | Should -BeLike "*невідомий ключ (ім'я не друкується)*path, user, password*"
+        $m | Should -Not -BeLike '*pwd*'
     }
 
     It 'storages.<ключ>: порожня мапа {} — зупинка, а не тихий порожній запис' {
@@ -204,6 +210,19 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
         $o.Storages['A'].Path | Should -BeNullOrEmpty
     }
 
+    It 'F1: agentBase.template воркспейсу з пробілів чи порожній — помилка конфігу з ключем; не «шаблону немає»' {
+        foreach ($val in @("' '", "''")) {
+            $p = Write-Yaml 'tpl-blank.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: $val")
+            $m = try { Read-KitLocalOverlay -Path $p } catch { $_.Exception.Message }
+            $m | Should -BeLike '*workspaces.Beta_SMB.agentBase.template порожній*'
+            $m | Should -BeLike '*вкажіть правильний шлях до .dt; рішення прибрати шаблон — за людиною*'
+            $m | Should -Not -BeLike '*приберіть ключ*'
+        }
+        # контроль, що може впасти: непорожній шаблон читається
+        $ok = Write-Yaml 'tpl-ok.yaml' @('workspaces:', '  Beta_SMB:', '    agentBase:', "      template: 'D:\x.dt'")
+        (Read-KitLocalOverlay -Path $ok).Workspaces['Beta_SMB'].AgentBaseTemplate | Should -Be 'D:\x.dt'
+    }
+
     It 'порожня накладка — порожні таблиці, не помилка' {
         $p = Write-Yaml 'empty-overlay.yaml' @('# ще нічого')
         $o = Read-KitLocalOverlay -Path $p
@@ -213,7 +232,9 @@ Describe 'Manifest.psm1 — накладка v8storagekit.local.yaml' {
 
     It 'невідомий кореневий ключ (наприклад, devInfobase зі старої конвенції) — зупинка' {
         $p = Write-Yaml 'old-overlay.yaml' @('devInfobase:', "  connection: 'File=x'")
-        { Read-KitLocalOverlay -Path $p } | Should -Throw "*'devInfobase'*infobases, storages, workspaces*"
+        $m = try { Read-KitLocalOverlay -Path $p } catch { $_.Exception.Message }
+        $m | Should -BeLike "*невідомий ключ (ім'я не друкується)*infobases, storages, workspaces*"
+        $m | Should -Not -BeLike '*devInfobase*'
     }
 
     It 'дев-база без connection — зупинка' {

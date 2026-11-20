@@ -31,7 +31,7 @@
 # v8project.yaml. Без нього check зупиниться на gitattributes, а git сконвертує кінці рядків
 # у дереві платформи — саме той дефект, від якого весь docs/text-policy.md.
 #
-# ОЧІКУВАНО: unica.project.status видасть error git.text_resource_marked_binary на
+# ОЧІКУВАНО: `unica.check {}` видасть git.text_resource_marked_binary [гіп, пункт пілоту 6] на
 # кожному файлі вихідників і порадить замінити -text на "text eol=lf". Цю пораду
 # виконувати НЕ МОЖНА — вона повертає проблему "~900 змінених файлів на порожньому
 # місці". Порівняння всіх трьох варіантів — docs/text-policy.md.

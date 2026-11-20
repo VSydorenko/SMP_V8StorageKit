@@ -13,10 +13,10 @@ function Get-KitDirtyRecords {
         один запис — одна логічна зміна (M/D/??/R/C тощо), а не один NUL-токен.
     .DESCRIPTION
         Приватна (не експортована) — спільна для двох застосувань усередині викликача:
-        (1) лічильник Changed ПІСЛЯ дампу платформи (рев'ю B4, P6/C3) і (2) знімок
+        (1) лічильник змін ПІСЛЯ дампу платформи (рев'ю B4, P6/C3) і (2) знімок
         незакомічених/невідстежуваних файлів дерева ДО Remove-Item (рев'ю B4, C4 —
         страховка від безслідного знищення роботи, яку агент ще не закомітив: дерево на
-        момент canon штатно брудне, Unica щойно в нього писала, коміт іде ПІСЛЯ canon).
+        момент adopt штатно брудне, коміт іде ПІСЛЯ нього).
 
         -uall (--untracked-files=all): без нього нова піддерева (нова форма, новий
         макет — типовий об'єкт метаданих) згортаються в ОДИН запис "?? Тека/" замість
@@ -71,34 +71,34 @@ function Get-KitDirtyRecords {
         $records.Add([pscustomobject]@{ Status = $status; Path = $path; OldPath = $oldPath })
     }
     # Без коми-обгортки — та сама конвенція, що й Select-KitSources (Preflight.psm1): кожен із
-    # двох викликачів (canon.psm1, adopt.psm1) сам загортає результат у @(...).
+    # викликачів (adopt.psm1, dump.psm1) сам загортає результат у @(...).
     $records.ToArray()
 }
 
 function Backup-KitDirtyFiles {
     <#
     .SYNOPSIS
-        Страховка перед Remove-Item (спека §3.6, рев'ю B4 C4; викликачі — canon і adopt): копіює
+        Страховка перед Remove-Item (спека §3.6, рев'ю B4 C4; єдиний викликач — adopt): копіює
         те, що виклик ось-ось знищить безслідно, якщо воно ще не закомічене.
     .DESCRIPTION
         Заборону "не мутувати на брудному дереві" архітектор відкинув свідомо: дерево на момент
-        виклику ЗАВЖДИ потенційно брудне за задумом циклу (Unica щойно писала в нього для canon,
-        людина щойно комітила в сховище для adopt — в обох випадках коміт іде ПІСЛЯ, не до) —
+        виклику ЗАВЖДИ потенційно брудне за задумом циклу (людина щойно комітила в сховище для adopt,
+        коміт іде ПІСЛЯ, не до) —
         гард, що спрацьовує на кожному штатному прогоні, вимикають першим. Лікуємо не перезапис
         (це робота самого викликача), а безслідність: той самий патерн, що вже є в kit — migrate
         перед переписуванням історії не забороняє нічого, він робить git bundle.
 
         Копіюються ЛИШЕ перелічені git-ом шляхи (не все дерево — типово кілька файлів
         проти тисяч), зі збереженням структури відносно кореня джерела, у теку `BackupRoot`, яку
-        задає викликач (`canon` — `<workPath>/canon-backup/<ключ>-<yyyyMMdd-HHmmss>/`, `adopt` —
-        `<workPath>/adopt-backup/<ключ>-<yyyyMMdd-HHmmss>/`). Тека під workPath гітігнорована
+        задає викликач (`adopt` — `<workPath>/adopt-backup/<ключ>-<yyyyMMdd-HHmmss>/`; колишня тека
+        `canon-backup/` зникла разом з командою `canon`). Тека під workPath гітігнорована
         (те саме дерево, що вже несе build/ib бази агента) — робочу копію не забруднює. Порожній
         перелік $Records — $null без жодного звернення до диска (штатний випадок: дерево вже
         канонічне/прийняте з попереднього прогону).
 
         Для запису R/C (Get-KitDirtyRecords) копіюється КОЖЕН із двох шляхів, який
         існує на диску просто зараз: після звичайного `git mv` існує лише новий (старий
-        Remove-Item уже прибрав з диска сам git mv, до canon), але код цього не
+        Remove-Item уже прибрав з диска сам git mv), але код цього не
         припускає — перевіряє Test-Path для обох незалежно.
 
         Копія з диска не бачить вміст, якого на диску немає: людина застейджила правку
@@ -108,14 +108,12 @@ function Backup-KitDirtyFiles {
         РОБОЧОЇ КОПІЇ з індексом; на диску в цей момент лежить HEAD-версія, а застейджена
         правка живе лише в індексі. Копія з диска зберігає HEAD-версію — НЕ ту.
 
-        Обидва викликачі мають цю дірку, але з різним вікном: у `adopt` втрата
+        У `adopt` втрата
         ДЕТЕРМІНОВАНА — команда сама комітить, тож застейджений запис гарантовано
         перезаписується (раніше — безумовним `git add -A` після заміни дерева, зараз —
         раніше й явно, через `git reset -- <шлях джерела>` перед `merge -s ours`, спека
-        §5); у `canon` втрата УМОВНА — він індексу не чіпає й сам не комітить, застейджена
-        правка доживає в індексі, доки людина не зробить `git add -A` сама, тож вікно
-        вужче, але не нульове. Тому копія з індексу — тут, у спільній функції обох
-        викликачів, а не в одному з них.
+        §5). Копія з індексу — тут, у спільній функції, а не в
+        викликачі.
 
         Відбір записів для копії з індексу: ПЕРША літера статусу не пробіл і не `?` —
         тобто в індексі щось є. Друга літера (робоча копія проти індексу) тут не
@@ -145,12 +143,13 @@ function Backup-KitDirtyFiles {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Records,
         [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][string]$MustBeUnder
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [string]$OwnedRoot
     )
 
     if ($Records.Count -eq 0) { return $null }
 
-    Assert-SafeWorkPath -Path $BackupRoot -MustBeUnder $MustBeUnder -Description 'резервна копія перед видаленням'
+    Assert-SafeWorkPath -Path $BackupRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'резервна копія перед видаленням'
     New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
 
     $prefix = ($RepoPath -replace '\\', '/').TrimEnd('/')
@@ -177,17 +176,13 @@ function Backup-KitDirtyFiles {
             Where-Object { $_.StartsWith("$prefix/", [System.StringComparison]::Ordinal) }
     )
     if ($indexPaths.Count -gt 0) {
-        # checkout-index --prefix дописує ПОВНИЙ шлях від кореня репозиторію (тут —
-        # "Alpha_SMB/cfe/src/Configuration.xml", а не "Configuration.xml") — він не
-        # обрізає його до RepoPath, як робить цикл диска вище (перевірено живим git:
-        # без проміжної теки нижче копія лягла б у "index/Alpha_SMB/cfe/src/..." замість
-        # "index/..." — інша структура, ніж у копії з диска поруч, усупереч задуму).
-        # Тому checkout — у проміжну (тимчасову) теку з повним шляхом, а тоді кожен файл
-        # переноситься у $indexRoot тим самим відносним шляхом $rel, що й копія з диска.
+        # checkout-index --prefix дописує ПОВНИЙ шлях від кореня репозиторію, не обрізаючи до
+        # RepoPath. Тому checkout — у проміжну теку, а тоді кожен файл переноситься в $indexRoot
+        # тим самим відносним шляхом $rel, що й копія з диска.
         $indexRoot = Join-Path $BackupRoot 'index'
         $rawRoot = Join-Path $BackupRoot '.index-raw'
         # Коса риска в кінці --prefix обов'язкова, інакше git трактує останній сегмент
-        # шляху як частину імені файла, а не теки (перевірено живим git).
+        # шляху як частину імені файла, а не теки.
         $prefixArg = ($rawRoot -replace '\\', '/').TrimEnd('/') + '/'
         $co = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments (@('checkout-index', "--prefix=$prefixArg", '--') + $indexPaths)
         if ($co.ExitCode -ne 0) {
@@ -205,10 +200,149 @@ function Backup-KitDirtyFiles {
             New-Item -ItemType Directory -Path (Split-Path -Parent $dstFile) -Force | Out-Null
             Move-Item -LiteralPath $rawFile -Destination $dstFile -Force
         }
-        if (Test-Path -LiteralPath $rawRoot) { Remove-Item -LiteralPath $rawRoot -Recurse -Force }
+        Assert-SafeWorkPath -Path $rawRoot -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $OwnedRoot -Description 'проміжна тека копії застейджених версій'
+        Remove-KitDirectory -Path $rawRoot
     }
 
     $BackupRoot
 }
 
-Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles
+# Похідні артефакти платформи й kit під набором — гітігноровані законно, і втрата їх не є втратою
+# роботи агента (відновлюються вивантаженням: dump чи pull Уніки). Одне джерело: рядки ConfigDumpInfo.xml,
+# DumpFilesIndex.txt і **/Ext/ParentConfigurations/ у templates/gitignore. Змінюючи тут — змінити там.
+$script:KitDerivedIgnoredPattern = '(^|/)(ConfigDumpInfo\.xml|DumpFilesIndex\.txt)$|(^|/)Ext/ParentConfigurations/'
+
+function Get-KitInvisibleWork {
+    <#
+    .SYNOPSIS
+        Робота під шляхом набору, якої не бачить git status --porcelain, а `adopt -Apply`, `dump -Apply` чи pull --force Уніки
+        знищує безслідно (спека §10.2 П24): гітігноровані файли, файли з прапорцем, підмодулі та вкладені репозиторії.
+    .DESCRIPTION
+        Записи { Path; Kind }:
+        - nested-repo — сам .git (тека чи файл) під шляхом набору, що не є gitlink; Path — тека вкладеного
+          репозиторію. Пошук обходом ФС, від статусу в git не залежить (нижче, після git-видів);
+        - ignored — ls-files --others --ignored --exclude-standard, мінус похідне
+          ($script:KitDerivedIgnoredPattern); з -WholeTreeDerived не обчислюється зовсім;
+        - flagged — ls-files -v: тег з малої літери (assume-unchanged, будь-яка) або S (skip-worktree).
+          Тег M (unmerged) — не прапорець, конфлікт видно в status як UU;
+        - link — junction чи symlink (атрибут ReparsePoint, тека або файл) під шляхом набору: не підтримується;
+          Path — саме посилання, всередину обхід не заходить. Хмарні файли-заглушки (OneDrive) теж мають ReparsePoint
+          і дають зупинку — безпечний бік, не лікується. Посиланням є й будь-який компонент шляху від кореня
+          репозиторію (не включно) до кореня набору (включно) — П25; тоді Path — цей компонент, інших записів немає, git не
+          викликається. Корінь репозиторію і все вище — поза правилом;
+        - gitlink — режим 160000 (ls-files -s): підмодуль під набором. --ignore-submodules не
+          використовується: відмова проста й не залежить від налаштувань.
+        Похідне — одне поняття з двома обсягами, обидва тут: службові файли платформи й kit ($script:KitDerivedIgnoredPattern,
+        типово) або ВСЕ дерево набору (-WholeTreeDerived: дерево, яке вивантаження відтворює повністю й яке .gitignore
+        ігнорує цілком, — vendor-дамп). Рішення, який обсяг діє, приймає викликач; тут маніфесту немає.
+        Збій будь-якого git-виклику — виняток, не «чисто» (через Invoke-KitGitProcess, як
+        Get-KitDirtyRecords). Єдина функція на kit; Get-KitDirtyRecords і формат копії
+        не змінюються.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$RepoPath,
+        [switch]$WholeTreeDerived
+    )
+
+    $run = {
+        param($gitArgs)
+        $r = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments (@('-c', 'core.quotepath=false') + $gitArgs + @('--', $RepoPath))
+        if ($r.ExitCode -ne 0) { throw "git $($gitArgs -join ' ') для '$RepoPath' завершився з кодом $($r.ExitCode): $($r.Stderr)" }
+        @($r.Stdout -split "`0" | Where-Object { $_ -ne '' })
+    }
+    $records = [System.Collections.Generic.List[object]]::new()
+
+    # Посилання: компоненти шляху від кореня репозиторію (не включно) до кореня набору (включно), що є посиланням.
+    # Видалення теки набору пішло б крізь них (у ціль, можливо поза репозиторієм), а pull --force раннера теж.
+    # Корінь репозиторію і все вище — поза правилом. Знайшли — повертаємо саме це й далі не йдемо: ні git-викликів
+    # крізь посилання, ні входу всередину.
+    $walk = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+    $relParts = [System.Collections.Generic.List[string]]::new()
+    foreach ($seg in ($RepoPath -split '[\\/]+' | Where-Object { $_ })) {
+        $walk = Join-Path $walk $seg
+        $relParts.Add($seg)
+        $it = Get-Item -LiteralPath $walk -Force -ErrorAction SilentlyContinue
+        if ($null -eq $it) { break }
+        if ($it.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+            $records.Add([pscustomobject]@{ Path = ($relParts -join '/'); Kind = 'link' })
+            return $records.ToArray()
+        }
+    }
+
+    # -WholeTreeDerived: вид ignored не обчислюється зовсім (дорогий ls-files --others --ignored не запускається).
+    if (-not $WholeTreeDerived) {
+        foreach ($p in (& $run @('ls-files', '-z', '--others', '--ignored', '--exclude-standard'))) {
+            if ($p -notmatch $script:KitDerivedIgnoredPattern) { $records.Add([pscustomobject]@{ Path = $p; Kind = 'ignored' }) }
+        }
+    }
+    foreach ($e in (& $run @('ls-files', '-z', '-v'))) {
+        if ($e.Length -gt 2 -and ($e[0] -cmatch '[a-z]' -or $e[0] -ceq 'S')) {
+            $records.Add([pscustomobject]@{ Path = $e.Substring(2); Kind = 'flagged' })
+        }
+    }
+    foreach ($e in (& $run @('ls-files', '-z', '-s'))) {
+        if ($e -match '^160000 [0-9a-f]+ \d\t(?<p>.+)$') { $records.Add([pscustomobject]@{ Path = $Matches.p; Kind = 'gitlink' }) }
+    }
+    # nested-repo: сам .git (тека чи файл) під шляхом набору, який не є gitlink. Ознака — файлова система,
+    # а не вигляд виводу git: ігнорований вкладений репозиторій у ls-files --others не з'являється.
+    # Backup-KitDirtyFiles теки пропускає, тож стирання знищило б його разом з історією. Всередину знайденого
+    # .git не заходимо; reparse-point теки не слідуємо (цикли й вихід за межі набору).
+    $gitlinks = @($records | Where-Object Kind -eq 'gitlink' | ForEach-Object { $_.Path.TrimEnd('/') })
+    $rootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $RepoPath))
+    if (Test-Path -LiteralPath $rootFull -PathType Container) {
+        $repoFull = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
+        $stack = [System.Collections.Generic.Stack[string]]::new()
+        $stack.Push($rootFull)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            $hasGit = $false
+            foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
+                if ($item.Name -ceq '.git') { $hasGit = $true; continue }
+                if ($item.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint)) {
+                    # link: junction/symlink (тека чи файл) під набором не підтримуються. Усередину не
+                    # заходимо і ціль не міряємо: стирання теки набору могло б зачепити ціль посилання, і межу тримає зупинка.
+                    $linkRel = ($item.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
+                    $records.Add([pscustomobject]@{ Path = $linkRel; Kind = 'link' })
+                }
+                elseif ($item.PSIsContainer) { $stack.Push($item.FullName) }
+            }
+            if ($hasGit) {
+                $rel = ($dir.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/'
+                if ($rel -notin $gitlinks) { $records.Add([pscustomobject]@{ Path = $rel; Kind = 'nested-repo' }) }
+            }
+        }
+    }
+    $records.ToArray()
+}
+
+function Format-KitInvisibleWorkStop {
+    <#
+    .SYNOPSIS
+        Текст зупинки команди, що стирає теку набору, на невидимій для git status роботі (спека §10.2 П24):
+        перелік «[вид] шлях (набір ключ)» і рецепт для кожного виду. Одна фраза на kit — dump і adopt
+        друкують її звідси, а не кожен свою.
+    .PARAMETER Records
+        Записи { Key; Kind; Path } — Key це ключ набору, Kind і Path з Get-KitInvisibleWork.
+    .PARAMETER Backup
+        Ім'я теки копії, яка невидимої роботи не покриває (adopt-backup); у dump копії немає — порожньо.
+    .PARAMETER Untouched
+        Що лишилось цілим до зупинки (для кожної команди своє: платформу не запущено / злиття не почато).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter(Mandatory)][object[]]$Records,
+        [string]$Backup = '',
+        [Parameter(Mandatory)][string]$Untouched
+    )
+    $list = ($Records | ForEach-Object { "  [$($_.Kind)] $($_.Path)  (набір $($_.Key))" }) -join "`n"
+    $copy = if ($Backup) { ", і копія $Backup її не покриває" } else { '' }
+    ("$Command -Apply зупинено: невидима робота під набором — git status її не бачить, а $Command стер би теку набору разом з нею$copy`:`n$list`n$Untouched Для кожного шляху: " +
+     'закомітити (ignored — зняти з ігнору й закомітити); зняти прапорець — git update-index --no-assume-unchanged / --no-skip-worktree <шлях>; ' +
+     'підмодуль (gitlink) або вкладений репозиторій (nested-repo) — винести за межі набору; посилання (link, junction чи symlink) — прибрати посилання з набору; ' +
+     "або перенести файл за межі набору. Потім повторіть $Command.")
+}
+
+Export-ModuleMember -Function Get-KitDirtyRecords, Backup-KitDirtyFiles, Get-KitInvisibleWork, Format-KitInvisibleWorkStop

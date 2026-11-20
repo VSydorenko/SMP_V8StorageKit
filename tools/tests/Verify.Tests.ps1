@@ -15,6 +15,8 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*storage/Alpha_SMB*sync*'
+        # Зупинка про дзеркало не стосується -Ref — префікса з ім'ям -Ref і sha не має бути.
+        $r.Output | Should -Not -Match "-Ref 'main' \(коміт"
         Join-Path $repo 'build/verify' | Should -Not -Exist
     }
 
@@ -29,6 +31,8 @@ Describe 'kit verify — штатні зупинки до платформи' {
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*ніколи не зливав*storage/Alpha_SMB*'
+        # Зупинка називає і ім'я -Ref (як його дала людина чи типове), і sha, з яким працювала команда.
+        $r.Output | Should -Match "-Ref 'main' \(коміт [0-9a-f]{40}\)" -Because 'діагностика мусить показати ім''я -Ref, не лише sha'
         Join-Path $repo 'build/verify' | Should -Not -Exist
     }
 
@@ -59,7 +63,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         git -C $repo branch 'storage/Alpha_SMB' 2>&1 | Out-Null
         $r = Invoke-Verify -Repo $repo
         $r.ExitCode | Should -Not -Be 0
-        $r.Output   | Should -BeLike '*kit provision*'
+        $r.Output   | Should -BeLike '*v8storagekit:provision*'
         Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
     }
 
@@ -98,6 +102,11 @@ Describe 'kit verify — мок платформного шару: щаслив�
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/verify.psm1").Path -Force
+        # Раннер Уніки — не справжній: платформу воркспейсу і agent release командою sync/verify беруть із цих моків
+        # (Get-KitRunnerPath шукав би Уніку на машині, Get-KitAgentPlatform/Invoke-KitAgentRelease запускали б справжній v8-runner).
+        Mock -ModuleName verify Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName verify Get-KitAgentPlatform { 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
+        Mock -ModuleName verify Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
     }
 
     It 'жоден файл не позначений binary — verify не падає на прив''язці параметра, доходить до вердикту equal' {
@@ -145,6 +154,28 @@ Describe 'kit verify — мок платформного шару: щаслив�
         # Позитивний доказ самої зміни: тимчасова ІБ більше не створюється — verify.psm1
         # дампить у базі агента (build/ib воркспейсу, не build/verify/<ключ>/ib).
         Join-Path $repo 'build/verify/Alpha_SMB/ib' | Should -Not -Exist
+    }
+
+    It '#26: verify передає пароль бази агента в Invoke-KitStorageCheckout' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'mock-pwd') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'V3rify-pw'
+        $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
+        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+            -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+        $storageDir = Join-Path $TestDrive 'mock-pwd-storage'
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+        Mock -ModuleName verify Enter-KitStorageBind { $false }
+        Mock -ModuleName verify Exit-KitStorageBind { }
+        Mock -ModuleName verify Invoke-KitStorageCheckout {
+            param($IbSwitch, $Source, $Version, $Target, $MustBeUnder, $User, $Password)
+            New-Item -ItemType Directory -Path $Target -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+            1
+        }
+        $null = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB' 6>$null
+        Should -Invoke -ModuleName verify Invoke-KitStorageCheckout -Times 1 -Exactly -ParameterFilter { $Password -eq 'V3rify-pw' -and $User -eq 'agent' }
     }
 
     It 'основна платформа не вивантажує версію (розпізнаваний виняток) — власний текст verify, без порад sync' {
@@ -244,6 +275,218 @@ Describe 'kit verify — мок платформного шару: щаслив�
         $r.Results[0].Verdict | Should -Be 'equal'
     }
 
+    Context 'крок вирівнювання пам''яті раннера (спека §4.1, §10 П4)' {
+        BeforeAll {
+            # Спільна підготовка для тестів нижче: гілка дзеркала + (за потреби) злиття в main. Злиття в
+            # тесті — під V8KIT_SYNC=1, як це робить kit (хук pre-merge-commit фікстури інакше відмовить).
+            function script:New-AlignVerifyRepo {
+                param([string]$Name, [switch]$Config, [switch]$Merge)
+                $params = @{ Root = (Join-Path $TestDrive $Name); WithHooks = $true; WithGitattributes = $true; WithGitignore = $true; WithAgentBase = $true }
+                $setName = 'Alpha_SMB'; $repoPath = 'Alpha_SMB/cfe/src'
+                if ($Config) {
+                    $params.Workspaces = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'
+                        Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }) } }
+                    $setName = 'base'; $repoPath = 'Alpha_SMB/cf/src'
+                }
+                $repo = New-KitFakeRepo @params
+                $script:MockContent = New-KitFakeConfigurationXml -Name $setName
+                Add-KitFakeStorageCommit -Repo $repo -Branch "storage/$setName" -RepoPath $repoPath `
+                    -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @("Storage-Source: $setName", 'Storage-Version: 1')
+                if ($Merge) {
+                    $env:V8KIT_SYNC = '1'
+                    try { git -C $repo merge -q --no-edit --allow-unrelated-histories "storage/$setName" } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+                }
+                $storageDir = Join-Path $TestDrive "$Name-storage"; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  ${setName}: '$storageDir'") -join "`n")
+                $repo
+            }
+            function script:New-AlignJunction { param([string]$Repo, [string]$Name)
+                $link = Join-Path $TestDrive $Name
+                New-Item -ItemType Junction -Path $link -Target $Repo | Out-Null
+                $link }
+            function script:Remove-AlignJunction { param([string]$Link)
+                # Лише сам перехід — вміст репозиторію не чіпаємо.
+                if (Test-Path -LiteralPath $Link) { [System.IO.Directory]::Delete($Link) } }
+        }
+        BeforeEach {
+            Mock -ModuleName verify Enter-KitStorageBind { $false }
+            Mock -ModuleName verify Exit-KitStorageBind { }
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path $Target -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+                1 }
+        }
+
+        It '§8: -Ref = HEAD — рівно один рядок push з sourceSet і force:true, без extension і без pull' {
+            $repo = New-AlignVerifyRepo -Name 'al-push' -Merge
+            $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+            $script:R.Results[0].Verdict | Should -Be 'equal'
+            $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' })
+            $lines | Should -HaveCount 1
+            $lines[0] | Should -BeLike '*"sourceSet":"Alpha_SMB"*'
+            $lines[0] | Should -BeLike '*"force":true*'
+            $lines[0] | Should -Not -BeLike '*"extension"*' -Because 'push Уніки приймає лише sourceSet/full/force/noApply'
+            $text | Should -Not -BeLike '*"op":"pull"*'
+            # Той самий крок — і в елементі Results (споживачі читають його звідти).
+            $script:R.Results[0].AlignStep | Should -Be $script:R.AlignSteps[0]
+        }
+        It 'лічильник дерева кидає виняток ПІСЛЯ checkout — крок push усе одно надруковано, виняток летить далі' {
+            $repo = New-AlignVerifyRepo -Name 'al-throw' -Merge
+            Mock -ModuleName verify Get-KitRelativeFiles { @() }
+            $h = @{}
+            $text = & {
+                try { Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' | Out-Null }
+                catch { $h.Err = $_.Exception.Message }
+            } 6>&1 | Out-String
+            $h.Err | Should -BeLike '*втратила шляхи*' -Because 'оригінальний виняток не проковтнуто'
+            @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' }) | Should -HaveCount 1
+        }
+        It 'крок не залежить від -Ref і вердикту: -Ref = дзеркало (не HEAD) — теж push force' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'al-ref') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+            $script:MockContent = New-KitFakeConfigurationXml -Name 'Alpha_SMB'
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+            $storageDir = Join-Path $TestDrive 'al-ref-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'коміт у main після фіксації sha, до експорту дерева — дерево береться зі старого коміту (equal), крок push' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-x' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Дамп із бази агента (мок) — останній крок перед Export-KitTree: тут лягає чужий коміт зі зміною набору.
+            Mock -ModuleName verify Invoke-KitStorageCheckout {
+                param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                New-Item -ItemType Directory -Path $Target -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+                $script:RaceDone = $true
+                Add-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Configuration.xml') -Value '<!-- чужий коміт -->'
+                git -C $script:RaceRepo commit -qam 'чужий коміт перед експортом'
+                1 }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            # За іменем Export-KitTree прочитав би новий коміт і вердикт став би ref-ahead.
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'коміт у main між експортом дерева і переліком шляхів — перелік з того ж коміту, без хибної зупинки лічильника' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-p' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            Mock -ModuleName verify Export-KitTree {
+                $n = & (Get-Module TreeCompare) { param($a, $b, $c, $d) Export-KitTree -RepoRoot $a -Ref $b -RepoPath $c -Destination $d } $RepoRoot $Ref $RepoPath $Destination
+                $script:RaceDone = $true
+                Set-Content -LiteralPath (Join-Path $script:RaceRepo 'Alpha_SMB/cfe/src/Нова.xml') -Value 'x' -Encoding UTF8
+                git -C $script:RaceRepo add -- 'Alpha_SMB/cfe/src/Нова.xml'
+                git -C $script:RaceRepo commit -qm 'чужий коміт: новий файл набору'
+                $n }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            $r.Results[0].Verdict | Should -Be 'equal'
+            $r.AlignSteps[0].Op | Should -Be 'push'
+        }
+        It 'нова версія сховища зливається в main після фіксації sha — версія й merge-base зі старого коміту' {
+            $repo = New-AlignVerifyRepo -Name 'al-pin-v' -Merge
+            $script:RaceRepo = $repo; $script:RaceDone = $false
+            # Select-KitSources іде після фіксації sha і до Get-KitVerifyVersion.
+            Mock -ModuleName verify Select-KitSources {
+                $s = & (Get-Module Preflight) { param($c, $w, $so, $tr) Select-KitSources -Context $c -Workspace $w -Source $so -Truth $tr } $Context $Workspace $Source $Truth
+                if (-not $script:RaceDone) {
+                    $script:RaceDone = $true
+                    Add-KitFakeStorageCommit -Repo $script:RaceRepo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                        -FileName 'Configuration.xml' -Content ($script:MockContent + '<!-- v2 -->') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
+                    $env:V8KIT_SYNC = '1'
+                    try { git -C $script:RaceRepo merge -q --no-edit storage/Alpha_SMB } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+                }
+                $s }
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main'
+            $script:RaceDone | Should -BeTrue
+            # За іменем main merge-base був би новою версією 2 і вердикт — equal; за sha — версія 1, сховище попереду.
+            $r.Results[0].Version | Should -Be 1
+            $r.Results[0].Verdict | Should -Be 'storage-ahead'
+        }
+        It 'поставка missing на головній гілці — blocked, рецепт: повний pull і supply-marker, без push; на від''єднаному HEAD — «спершу поставка на головній гілці», без pull' {
+            Mock -ModuleName UnicaStep Get-KitSupplyState { 'missing' }
+            $repo = New-AlignVerifyRepo -Name 'al-supply' -Config -Merge
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' 6>$null
+            $r.AlignSteps[0].Op | Should -Be 'blocked'
+            @($r.AlignSteps[0].Steps) | Should -HaveCount 0
+            $r.AlignSteps[0].Recipe | Should -BeLike '*"op":"pull"*"force":true*supply-marker -Workspace Alpha_SMB -Source base -Apply*'
+            $r.AlignSteps[0].Recipe | Should -Not -BeLike '*"op":"push"*'
+            git -C $repo checkout -q --detach
+            $r2 = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' 6>$null
+            $r2.AlignSteps[0].Op | Should -Be 'blocked'
+            $r2.AlignSteps[0].Recipe | Should -BeLike '*спершу поставка на головній гілці*'
+            $r2.AlignSteps[0].Recipe | Should -Not -BeLike '*"op":"pull"*' -Because 'на не-головній гілці pull не пропонується'
+        }
+        It 'OnMainBranch за поточною гілкою, а не за -Ref: -Ref = дзеркало на головній гілці — рецепт головної' {
+            Mock -ModuleName UnicaStep Get-KitSupplyState { 'stale' }
+            $repo = New-AlignVerifyRepo -Name 'al-supply-ref' -Config -Merge
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/base' 6>$null
+            $r.AlignSteps[0].Op | Should -Be 'blocked'
+            $r.AlignSteps[0].Recipe | Should -BeLike '*"op":"pull"*supply-marker*'
+        }
+        It 'вивід: крок і контракт стану бази, без слова operation=' {
+            $repo = New-AlignVerifyRepo -Name 'al-text' -Merge
+            $text = & { $null = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+            $text | Should -BeLike "*вирівняти пам'ять раннера для 'Alpha_SMB'*"
+            $text | Should -BeLike '*це контракт verify, не збій*'
+            $text | Should -Not -BeLike '*operation=*'
+        }
+        It 'немає джерел — AlignSteps порожній' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'al-nosrc') -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+            $r = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Workspace 'Alpha_SMB' -Source 'base' 6>$null
+            @($r.AlignSteps) | Should -HaveCount 0
+        }
+
+        Context 'стан поставки не обчислено і виняток у пізнішому джерелі (спека 0174871)' {
+            It 'виняток Get-KitSupplyState — blocked і рядок «стан поставки не обчислено», не push' {
+                Mock -ModuleName UnicaStep Get-KitSupplyState { throw 'збій читання поставки' }
+                $repo = New-AlignVerifyRepo -Name 'as-exc' -Config -Merge
+                $h = @{}
+                $text = & { $h.R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+                $text | Should -BeLike '*стан поставки не обчислено: збій читання поставки*'
+                $h.R.AlignSteps[0].Op | Should -Be 'blocked'
+                $text | Should -Not -BeLike '*"op":"push"*'
+                @($text -split "`r?`n" | Where-Object { $_.Trim() })[-1] | Should -BeLike 'ЗУПИНКА:*'
+            }
+            It 'виняток у другому джерелі не губить ЗУПИНКА першого — друк у finally, виняток летить далі' {
+                $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+                    @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+                    @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+                $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'as-two') -Workspaces $ws -WithHooks -WithGitattributes -WithGitignore -WithAgentBase
+                Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/base' -RepoPath 'Alpha_SMB/cf/src' -FileName 'Configuration.xml' `
+                    -Content (New-KitFakeConfigurationXml -Name 'base') -Trailers @('Storage-Source: base', 'Storage-Version: 1')
+                Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'Configuration.xml' `
+                    -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
+                $env:V8KIT_SYNC = '1'
+                try {
+                    git -C $repo merge -q --no-edit --allow-unrelated-histories storage/base
+                    git -C $repo merge -q --no-edit --allow-unrelated-histories storage/Alpha_SMB
+                } finally { Remove-Item Env:\V8KIT_SYNC -ErrorAction SilentlyContinue }
+                $d1 = Join-Path $TestDrive 'as-two-s1'; $d2 = Join-Path $TestDrive 'as-two-s2'
+                New-Item -ItemType Directory -Path $d1, $d2 -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$d1'", "  Alpha_SMB: '$d2'") -join "`n")
+                $script:MockContent = New-KitFakeConfigurationXml -Name 'base'
+                Mock -ModuleName verify Invoke-KitStorageCheckout {
+                    param($IbSwitch, $Source, $Version, $Target, $MustBeUnder)
+                    if ($Source.Key -eq 'Alpha_SMB') { throw 'збій дампу другого джерела' }
+                    New-Item -ItemType Directory -Path $Target -Force | Out-Null
+                    Set-Content -LiteralPath (Join-Path $Target 'Configuration.xml') -Value $script:MockContent -Encoding UTF8 -NoNewline
+                    1 }
+                Mock -ModuleName verify Get-KitAlignStep { [pscustomobject]@{ SourceSet = 'base'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cf/src'
+                    Op = 'blocked'; Supply = 'missing'; Steps = @(); Recipe = 'рецепт першого' } }
+                $h = @{}
+                $text = & {
+                    try { Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' | Out-Null }
+                    catch { $h.Err = $_.Exception.Message }
+                } 6>&1 | Out-String
+                $h.Err | Should -BeLike '*збій дампу другого джерела*'
+                $text | Should -BeLike '*ЗУПИНКА: рецепт першого*'
+            }
+        }
+    }
+
     Context 'регістр шляхів (спека 2026-10-04 §4.3)' {
         BeforeAll {
             function script:New-VerifyCaseRepo {
@@ -339,6 +582,19 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         # F9: прибрати фейковий Configuration.xml з main — інакше перше злиття дзеркала дасть add/add-конфлікт.
         git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
         git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS; дерево джерела порожнє до першого sync'
+
+        # У житті розширення в базу агента вантажить push Уніки (§4.1); у тестах kit Уніки немає, тож передумову готує тест — тим самим шляхом, яким запасний шлях sync будує тимчасову ІБ (New-ExtensionInfobase зі стабом)
+        # До створення: справжній provision на цій фікстурі зупиняється з рецептом «власника немає» й бази не створює.
+        $stop = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'SMP_BankExchange_SMB', '-Apply')
+        $stop.ExitCode | Should -Not -Be 0 -Because $stop.Output
+        $stop.Output | Should -BeLike '*бракує власника*' -Because $stop.Output
+        # Ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1, тож guard П25 Assert-SafeWorkPath проходить як у житті.
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
+        $null = New-ExtensionInfobase -Path (Join-Path $agentWork 'ib') -ExtensionName 'SMP_BankExchange_SMB' `
+            -StubPath (Resolve-Path "$PSScriptRoot/../assets/empty-extension").Path -MustBeUnder $agentWork -RepoRoot $script:Repo -OwnedRoot $agentWork -V8Path (Get-V8Path)
+        Join-Path $agentWork 'ib/1Cv8.1CD' | Should -Exist
         function script:Run { param([string[]]$Arguments) $out = & pwsh -NoProfile -File $script:Kit @Arguments -RepoRoot $script:Repo 2>&1 | Out-String; [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out } }
         function script:Complete-Authors {
             param([string]$Output)
@@ -355,9 +611,16 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         $s = Run @('sync', '-Apply', '-MaxVersions', '1')
         if (Complete-Authors -Output $s.Output) { $s = Run @('sync', '-Apply', '-MaxVersions', '1') }
         $s.ExitCode | Should -Be 0 -Because $s.Output
+        # Звичайний шлях sync: розширення є в базі агента, тож запасного шляху (тимчасова ІБ) немає, і версію перенесено в базу.
+        $s.Output | Should -Not -BeLike '*запасний шлях*' -Because $s.Output
+        $s.Output | Should -Not -BeLike '*База агента не змінювалась*' -Because $s.Output
+        $s.Output | Should -BeLike '*тепер містить версію*' -Because $s.Output
         $v = Run @('verify')
         $v.ExitCode | Should -Be 0 -Because $v.Output
-        $v.Output | Should -BeLike '*equal*'
+        $v.Output | Should -BeLike '*Вердикт: equal*' -Because $v.Output
+        # 1.6.0 (спека §3.1): після verify крок завжди push з sourceSet і force:true, без pull
+        $v.Output | Should -BeLike '*unica.run {"op":"push"*"sourceSet":"SMP_BankExchange_SMB"*"force":true*' -Because $v.Output
+        $v.Output | Should -Not -BeLike '*"op":"pull"*' -Because $v.Output
         $v.Output | Should -Not -Match '\[-\]'      # -BeLike трактує [-] як клас символів; -Match — літерально
     }
 

@@ -1,13 +1,9 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
-# Без -Force: якщо V8.psm1 уже завантажено в глобальній області (саме так робить
-# storage-sync.ps1 — імпортує V8, тоді StorageReport), вкладений Import-Module тут
-# не повинен перезавантажувати його. З -Force вкладений виклик вивантажує наявний
-# глобальний екземпляр V8 і підвантажує його заново в приватну область StorageReport,
-# і виклики на кшталт New-ExtensionInfobase перестають бути видимі з глобальної
-# області — саме так storage-sync.ps1 і падав. Перевірено регресійним тестом
-# tools/tests/ModuleImportOrder.Tests.ps1.
+# Без -Force: з -Force вкладений Import-Module вивантажує вже наявний глобальний екземпляр V8 і
+# підвантажує його в приватну область StorageReport — і функції V8 зникають з глобальної області.
+# Тримає tools/tests/ModuleImportOrder.Tests.ps1.
 Import-Module "$PSScriptRoot/V8.psm1"
 
 $script:LabelMap = @{
@@ -81,15 +77,8 @@ function Get-MxlStringCells {
     }
 
     if ($null -ne $buffer) {
-        # Комірку відкрив рядок {"#","..., але жоден наступний рядок так і не закрив її
-        # очікуваним патерном "}. Раніше залишок мовчки губився в кінці файлу — цей же клас
-        # утрати спершу підозрювався причиною обрізаних коментарів у версіях 31/42, але
-        # виявився ні до чого не причетним: справжня причина — платформа сама трактує "//"
-        # у тексті коментаря як межу рядкового коментаря в /ConfigurationRepositoryReport
-        # без -IncludeCommentLinesWithDoubleSlash (див. Get-StorageVersions і
-        # docs/storage-and-git.md, розділ "Обрізання коментарів на //"). Сам
-        # дефект незакритої комірки лишався непокритим незалежно від цього — тепер це
-        # виняток з початком уже накопиченого тексту комірки, а не тихе зникнення.
+        # Комірку відкрито, але не закрито до кінця файлу — виняток з початком тексту комірки,
+        # а не тихе зникнення: інструмент пише незамінну історію в git.
         $preview = $buffer
         if ($preview.Length -gt 200) { $preview = $preview.Substring(0, 200) + '…' }
         throw "MXL-звіт обірвався всередині незакритої комірки: '$preview'"
@@ -178,16 +167,8 @@ function Read-StorageReport {
             continue
         }
 
-        # Жоден із відомих заголовків і жодне активне поле не претендує на цю комірку.
-        # Раніше вона мовчки губилась тут — цей же клас утрати спершу підозрювався причиною
-        # обрізаних коментарів у версіях 31/42, але це не підтвердилось: втрата виявилась
-        # вище, всередині самого /ConfigurationRepositoryReport (він трактує "//" у
-        # коментарі як межу рядкового коментаря без -IncludeCommentLinesWithDoubleSlash —
-        # діагностика й спосіб уникнути в Get-StorageVersions і
-        # docs/storage-and-git.md, розділ "Обрізання коментарів на //"). Але
-        # сам дефект — тихе зникнення комірки в інструменті, що пише незамінну історію в
-        # git, — лишається дефектом незалежно від цього конкретного випадку: тепер
-        # невпізнана форма зупиняє розбір, а не мовчки минає його.
+        # Жоден заголовок і жодне активне поле не претендує на цю комірку — невпізнана форма
+        # зупиняє розбір, а не губить комірку мовчки (історія в git незамінна).
         throw "Неочікувана комірка звіту сховища (немає активного поля для неї): '$cell'"
     }
     if ($current) { $result.Add($current) }
@@ -196,14 +177,9 @@ function Read-StorageReport {
         ForEach-Object {
             $stamp = [datetime]::MinValue
             if ($_.Date -and $_.Time) {
-                # Платформа не доповнює нулем жодну односимвольну складову дати чи часу
-                # ("Время создания:" може бути "1:27:39", "Дата создания:" — теоретично так само
-                # "3.5.2022"). Подвоєні специфікатори (dd/MM/HH/mm/ss) вимагають рівно дві цифри
-                # й падають на першій-ліпшій односимвольній складовій — саме так падало на годині.
-                # Одинарні специфікатори (d/M/H/m/s) приймають і одну, і дві цифри, лишаючись при
-                # цьому строго прив'язаними до позиції в форматному рядку: "d" завжди читається
-                # як день, "M" — як місяць, незалежно від кількості цифр у значенні, тому порядок
-                # "день-місяць" не стає неоднозначним.
+                # Платформа не доповнює нулем односимвольні складові ("1:27:39"), а подвоєні
+                # специфікатори (dd/HH…) вимагають рівно дві цифри. Одинарні (d/M/H/m/s) приймають
+                # одну чи дві й лишаються прив'язаними до позиції — порядок не стає неоднозначним.
                 $stamp = [datetime]::ParseExact(
                     "$($_.Date) $($_.Time)", 'd.M.yyyy H:m:s',
                     [cultureinfo]::InvariantCulture)
@@ -241,20 +217,13 @@ function Get-StorageReportArguments {
         [string]$StoragePassword = '',
         [string]$ExtensionName = ''
     )
-    # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport
-    # сам трактує "//" у тексті коментаря як межу рядкового коментаря — усе від "//" до
-    # кінця рядка зникає з MXL ще до того, як звіт узагалі потрапляє в цей інструмент (не
-    # дефект парсера тут — підтверджено побайтово на "живих" звітах, докладно в
-    # docs/storage-and-git.md, розділ "Обрізання коментарів на //"). Ключ
-    # знайдено не експериментом з прапорцями, а читанням джерела oscript-library/gitsync
-    # (через залежність oscript-library/v8storage,
-    # МенеджерХранилищаКонфигурации.os:596) — той самий інструмент, який відтворив повний
-    # текст коментаря версії 20 BankExchange_SMB у коміті 0ccd83c ще до появи цього
-    # тулсету. Платформа підтримує ключ з 8.3.17 (gitsync вмикає його умовно за версією);
-    # тут це не потрібно — Get-V8Path працює лише з гілкою 8.3.27.x.
+    # -IncludeCommentLinesWithDoubleSlash: без цього ключа /ConfigurationRepositoryReport сам
+    # трактує "//" у коментарі версії як межу рядкового коментаря — хвіст зникає з MXL ще до
+    # розбору (docs/storage-and-git.md, «Обрізання коментарів на //»). Ключ є з 8.3.17; kit
+    # працює лише з 8.3.27.x, тож умова за версією не потрібна.
     $report = '/ConfigurationRepositoryReport "{0}" -NBegin 1 -IncludeCommentLinesWithDoubleSlash' -f $ReportPath
     if ($ExtensionName) { $report += " -Extension $ExtensionName" }
-    # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…) — див. F7.
+    # Кома навмисно: викликачі беруть результат присвоєнням або (…), НЕ @(…).
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $StorageUser
@@ -272,7 +241,10 @@ function Get-StorageVersions {
         [Parameter(Mandatory)][string]$StorageUser,
         [string]$StoragePassword = '',
         [Parameter(Mandatory)][string]$WorkDir,
-        [string]$User = ''
+        # Платформа, яку визначив раннер для воркспейсу (Get-KitAgentPlatform); запасного Get-V8Path немає.
+        [Parameter(Mandatory)][string]$V8Path,
+        [string]$User = '',
+        [string]$Password = ''
     )
 
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
@@ -281,7 +253,7 @@ function Get-StorageVersions {
 
     # -IncludeCommentLinesWithDoubleSlash: обґрунтування ключа — в Get-StorageReportArguments,
     # яка його й формує.
-    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments (Get-StorageReportArguments `
+    $result = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments (Get-StorageReportArguments `
         -ReportPath $reportPath -StoragePath $StoragePath -StorageUser $StorageUser `
         -StoragePassword $StoragePassword -ExtensionName $ExtensionName)
 

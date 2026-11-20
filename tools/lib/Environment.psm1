@@ -38,14 +38,14 @@ function New-EnvironmentCheck {
         Один рядок звіту про середовище.
     .DESCRIPTION
         Category — не косметика: вона каже, що саме перестає працювати без цієї
-        складової. 'Конвеєр' — скрипти не запустяться взагалі; 'Розробка kit' — не
-        прогнати тести цього репозиторію; 'Вихідники' — конвеєр працюватиме, але
-        працювати з тим, що він синхронізував, буде нічим.
+        складової. 'Конвеєр' — скрипти не запустяться взагалі (з 1.6.0 сюди ж Уніка й її
+        раннер: sync, verify і provision без них не працюють); 'Розробка kit' — не
+        прогнати тести цього репозиторію.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][ValidateSet('Конвеєр', 'Розробка kit', 'Вихідники')][string]$Category,
+        [Parameter(Mandatory)][ValidateSet('Конвеєр', 'Розробка kit')][string]$Category,
         [Parameter(Mandatory)][bool]$Ok,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Detail
     )
@@ -234,4 +234,45 @@ function Get-PesterAvailability {
     return $result
 }
 
-Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability
+# Перевірена мінорна версія Уніки (§4.2 п.4): будь-який патч 0.16.x — норма.
+$script:UnicaTestedMinor = [version]'0.16'
+
+function Get-KitUnicaVersionVerdict {
+    <#
+    .SYNOPSIS
+        Висновок про версію встановленої Уніки: ok | warn (новіша чи нерозбірна) | error (немає чи < 0.16).
+    .DESCRIPTION
+        Kit 1.6.0 говорить лише мовою Уніки 0.16 (спека 2026-11-19 §4.2 п.4): на старішій скіли й шаблони
+        посилаються на інструменти й форми операцій, яких там немає, а Уніка, новіша за перевірену, могла
+        знову змінити контракт — тоді спершу процедура звірки docs/unica-contract.md.
+
+        Без Уніки sync, verify і provision не працюють: раннер, яким вони запускають платформу, береться
+        з її встановлення (§3.6 п.2, §4.2 п.5). Тому відсутня Уніка — error, а не info, як було в 1.5.0.
+        kit dump без неї працює (бере платформу напряму, Get-V8Path), але це виняток, а не правило.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Installation)
+
+    if (-not $Installation.Installed -or -not $Installation.PathExists) {
+        return [pscustomobject]@{ Level = 'error'; Message = ("Плагін unica не знайдено ($($Installation.Reason)): sync, verify і provision беруть раннер із його встановлення " +
+            'й без нього не працюють (kit dump працює й без Уніки — він бере платформу напряму). ' +
+            'Встановіть: claude plugin marketplace add IngvarConsulting/unica-marketplace; claude plugin install unica@unica.') }
+    }
+    $raw = [string]$Installation.Version
+    if ($raw -notmatch '^(?<maj>\d+)\.(?<min>\d+)(\.\d+)?') {
+        return [pscustomobject]@{ Level = 'warn'; Message = "Версію плагіна unica '$raw' не розібрано — kit перевірено на Уніці 0.16.x." }
+    }
+    $minor = [version]('{0}.{1}' -f $Matches['maj'], $Matches['min'])
+    if ($minor -lt $script:UnicaTestedMinor) {
+        return [pscustomobject]@{ Level = 'error'; Message = ("Плагін unica $raw старіший за 0.16: kit говорить лише мовою Уніки 0.16 (v8-runner 0.18), " +
+            'старого словника в скілах і шаблонах більше немає. Оновіть Уніку — claude plugin marketplace update unica; ' +
+            'claude plugin update unica@unica — і почніть нову сесію (оновлення перемикає всі репозиторії машини).') }
+    }
+    if ($minor -gt $script:UnicaTestedMinor) {
+        return [pscustomobject]@{ Level = 'warn'; Message = ("Плагін unica $raw новіший за перевірену 0.16.x: перед роботою звірте контракт " +
+            'за процедурою docs/unica-contract.md (у репозиторії плагіна v8storagekit).') }
+    }
+    [pscustomobject]@{ Level = 'ok'; Message = "Плагін unica $raw." }
+}
+
+Export-ModuleMember -Function Test-EnvHasProperty, New-EnvironmentCheck, Get-UnicaInstallation, Get-KitUnicaVersionVerdict, Test-KitGitVersionSupported, Get-GitAvailability, Get-PesterAvailability

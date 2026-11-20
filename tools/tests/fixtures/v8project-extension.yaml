@@ -1,9 +1,9 @@
 format: DESIGNER
-builder: DESIGNER
 workPath: 'build'
-execution_timeout: 600000
-infobase:
-  connection: 'File=build/ib'
+providers:
+  push: designer
+  pull: designer
+  download: designer
 source-set:
   - name: base
     type: CONFIGURATION

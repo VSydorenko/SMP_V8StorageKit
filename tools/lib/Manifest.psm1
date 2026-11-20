@@ -30,8 +30,42 @@ function Assert-KitMapKeys {
     }
     foreach ($k in @($Map.Keys)) {
         if ($Allowed -notcontains [string]$k) {
-            throw "$Where — невідомий ключ '$k'. Дозволені: $($Allowed -join ', ')."
+            # Ім'я невідомого ключа не друкується ніколи — у flow-мапі запис без ':' стає ключем цілком, і секрет
+            # опиняється в ньому (password=X, password X, X). Друкуємо шлях до мапи, дозволені ключі й підказку.
+            throw "$Where — містить невідомий ключ (ім'я не друкується). Дозволені: $($Allowed -join ', '). Перевірте пробіл після ':' і форму 'ключ: значення'."
         }
+    }
+}
+
+function Assert-KitEntryHasValue {
+    <#
+    .SYNOPSIS
+        Запис мапи накладки має значення; запис без значення (null) називається номером, а не іменем.
+    .DESCRIPTION
+        Ознака структурна, не текстова: у flow-мапі `{ dev: {…}, Secret123 }`, у `password=X` і в рядку `X:` блочної
+        форми YAML робить ключем текст, який ключем не був, а значення в запису немає. Такий запис імені не
+        друкує; запис зі значенням друкується іменем.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()]$Value, [Parameter(Mandatory)][int]$Index, [Parameter(Mandatory)][string]$Where)
+    if ($null -eq $Value) {
+        throw "$Where — запис №$Index без значення (ім'я не друкується). Перевірте пробіл після ':' і форму 'ключ: значення'."
+    }
+}
+
+function Assert-KitStoragePathForm {
+    <#
+    .SYNOPSIS
+        Шлях сховища має форму шляху сховища: X:\…, \…, tcp://…, http://…, https://….
+    .DESCRIPTION
+        Правило-властивість, а не пошук «поганого» тексту: пароль, що потрапив у поле шляху через
+        друкарську помилку (password :X, password=X, password X, X), формі шляху не відповідає і
+        відхиляється без друку значення. Відносний шлях сховища не приймається.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path, [Parameter(Mandatory)][string]$Where)
+    if ($Path -notmatch '^(?i:[A-Z]:\\|\\\\|tcp://|http://|https://)') {
+        throw "$Where — шлях сховища має форму абсолютного шляху з диском (X:\…), UNC (\\сервер\…) або адреси tcp://…, http://…, https://… (значення не друкується). Перевірте пробіл після ':' і форму 'ключ: значення'."
     }
 }
 
@@ -57,9 +91,9 @@ function Read-KitManifest {
     }
 
     # version: — версія СХЕМИ цього файлу; kitVersion: — до якої версії плагіна доведено
-    # СТРУКТУРУ репозиторію (спека 2026-09-17 §8). Різні величини: схема змінюється рідко,
-    # структура — з кожним оновленням, яке щось вимагає від споживача. Фолбеку на відсутнє поле
-    # немає навмисно (рішення власника 2026-09-17): наявні репозиторії власник позначає сам.
+    # СТРУКТУРУ репозиторію (§8). Різні величини: схема змінюється рідко, структура — з кожним
+    # оновленням, яке щось вимагає від споживача. Фолбеку на відсутнє поле немає навмисно:
+    # наявні репозиторії власник позначає сам.
     $kitVersion = [string]$m['kitVersion']
     if ($kitVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw ("$where — kitVersion: '$kitVersion' не схожий на X.Y.Z. Це версія плагіна, до якої доведено " +
@@ -123,6 +157,7 @@ function Read-KitManifest {
                     Assert-KitMapKeys -Map $src['storage'] -Allowed @('path', 'user') -Required @('path') -Where "$swhere, storage"
                     $storagePath = [string]$src['storage']['path']
                     if ([string]::IsNullOrWhiteSpace($storagePath)) { throw "$swhere — storage.path порожній." }
+                    Assert-KitStoragePathForm -Path $storagePath -Where "$swhere, storage.path"
                     $storageUser = $script:DefaultStorageUser
                     if ($src['storage'].Contains('user') -and -not [string]::IsNullOrWhiteSpace([string]$src['storage']['user'])) {
                         $storageUser = [string]$src['storage']['user']
@@ -187,11 +222,14 @@ function Read-KitLocalOverlay {
 
     if ($o.Contains('infobases')) {
         if ($o['infobases'] -isnot [System.Collections.IDictionary]) { throw "$where — infobases: має бути мапою «ім'я → { connection, user }»." }
+        $idx = 0
         foreach ($name in @($o['infobases'].Keys)) {
+            $idx++; $label = [string]$name
             $ib = $o['infobases'][$name]
-            Assert-KitMapKeys -Map $ib -Allowed @('connection', 'user') -Required @('connection') -Where "$where, infobases.$name"
+            Assert-KitEntryHasValue -Value $ib -Index $idx -Where "$where, infobases"
+            Assert-KitMapKeys -Map $ib -Allowed @('connection', 'user') -Required @('connection') -Where "$where, infobases.$label"
             $conn = [string]$ib['connection']
-            if ([string]::IsNullOrWhiteSpace($conn)) { throw "$where — infobases.$name.connection порожній." }
+            if ([string]::IsNullOrWhiteSpace($conn)) { throw "$where — infobases.$label.connection порожній." }
             $user = ''
             if ($ib.Contains('user')) { $user = [string]$ib['user'] }
             $result.Infobases[[string]$name] = [pscustomobject]@{ Name = [string]$name; Connection = $conn; User = $user }
@@ -200,18 +238,25 @@ function Read-KitLocalOverlay {
 
     if ($o.Contains('storages')) {
         if ($o['storages'] -isnot [System.Collections.IDictionary]) { throw "$where — storages: має бути мапою «ключ джерела → шлях або { path, user, password }»." }
+        $idx = 0
         foreach ($key in @($o['storages'].Keys)) {
+            $idx++; $label = [string]$key
             $v = $o['storages'][$key]
+            Assert-KitEntryHasValue -Value $v -Index $idx -Where "$where, storages"
             $entry = [pscustomobject]@{ Path = $null; User = $null; Password = $null }
             if ($v -is [System.Collections.IDictionary]) {
-                Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$key"
-                if ($v.Count -eq 0) { throw "$where — storages.$key порожній: вкажіть path, user або password." }
+                Assert-KitMapKeys -Map $v -Allowed @('path', 'user', 'password') -Where "$where, storages.$label"
+                if ($v.Count -eq 0) { throw "$where — storages.$label порожній: вкажіть path, user або password." }
                 foreach ($k in 'path', 'user', 'password') {
+                    if ($k -eq 'path' -and $v.Contains($k) -and -not [string]::IsNullOrWhiteSpace([string]$v[$k])) {
+                        Assert-KitStoragePathForm -Path ([string]$v[$k]) -Where "$where, storages.$label.path"
+                    }
                     if ($v.Contains($k) -and -not [string]::IsNullOrWhiteSpace([string]$v[$k])) { $entry.($k.Substring(0,1).ToUpper() + $k.Substring(1)) = [string]$v[$k] }
                 }
             } else {
                 $p = [string]$v
-                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$key порожній." }
+                if ([string]::IsNullOrWhiteSpace($p)) { throw "$where — storages.$label порожній." }
+                Assert-KitStoragePathForm -Path $p -Where "$where, storages.$label"
                 $entry.Path = $p
             }
             $result.Storages[[string]$key] = $entry
@@ -220,13 +265,21 @@ function Read-KitLocalOverlay {
 
     if ($o.Contains('workspaces')) {
         if ($o['workspaces'] -isnot [System.Collections.IDictionary]) { throw "$where — workspaces: має бути мапою «тека воркспейсу → { agentBase }»." }
+        $idx = 0
         foreach ($wsPath in @($o['workspaces'].Keys)) {
+            $idx++; $label = [string]$wsPath
             $ws = $o['workspaces'][$wsPath]
-            Assert-KitMapKeys -Map $ws -Allowed @('agentBase') -Where "$where, workspaces.$wsPath"
+            Assert-KitEntryHasValue -Value $ws -Index $idx -Where "$where, workspaces"
+            Assert-KitMapKeys -Map $ws -Allowed @('agentBase') -Where "$where, workspaces.$label"
             $template = $null
             if ($ws.Contains('agentBase')) {
-                Assert-KitMapKeys -Map $ws['agentBase'] -Allowed @('template') -Where "$where, workspaces.$wsPath.agentBase"
-                if ($ws['agentBase'].Contains('template')) { $template = [string]$ws['agentBase']['template'] }
+                Assert-KitMapKeys -Map $ws['agentBase'] -Allowed @('template') -Where "$where, workspaces.$label.agentBase"
+                if ($ws['agentBase'].Contains('template')) {
+                    $template = [string]$ws['agentBase']['template']
+                    # Порожній шаблон — помилка конфігу, а не «шаблону немає»: тихе читання як відсутнього створило б
+                    # порожню базу замість відновлення з .dt. Значення в текст не потрапляє.
+                    if ([string]::IsNullOrWhiteSpace($template)) { throw "$where — workspaces.$label.agentBase.template порожній: вкажіть правильний шлях до .dt; рішення прибрати шаблон — за людиною." }
+                }
             }
             $result.Workspaces[[string]$wsPath] = [pscustomobject]@{ Path = [string]$wsPath; AgentBaseTemplate = $template }
         }

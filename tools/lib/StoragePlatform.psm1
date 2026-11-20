@@ -7,11 +7,13 @@ Import-Module "$PSScriptRoot/V8.psm1"
 # стоїть раніше за StoragePlatform, тож у kit.ps1 функція вже є глобально; явний імпорт тут
 # потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
 Import-Module "$PSScriptRoot/AgentBase.psm1"
+# UnicaStep (Format-KitUnicaRun) — так само без -Force: у kit.ps1 він уже є глобально, явний імпорт
+# потрібен для тестів, які вантажать цей модуль окремо від диспетчера.
+Import-Module "$PSScriptRoot/UnicaStep.psm1"
 
-# Результат спайку B2 (спека §14, «Результат спайку»): чи потребує UpdateCfg для ОСНОВНОЇ
-# конфігурації прив'язки ІБ до сховища. $true — kit робить ConfigurationRepositoryBindCfg під
-# користувачем сховища на час роботи й знімає її UnbindCfg -force у finally: єдиний запис у
-# сховище, який kit виконує. Значення перенесено з tools/commands/sync.psm1 (B2).
+# Чи потребує UpdateCfg для ОСНОВНОЇ конфігурації прив'язки ІБ до сховища (виміряно спайком,
+# §14). $true — kit робить ConfigurationRepositoryBindCfg під користувачем сховища на час роботи
+# й знімає її UnbindCfg -force у finally: єдиний запис у сховище, який kit виконує.
 $script:ConfigurationStorageNeedsBind = $false
 $script:DefaultStubPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../assets/empty-extension'))
 $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
@@ -19,11 +21,11 @@ $script:PlatformJunk = @('ConfigDumpInfo.xml', 'DumpFilesIndex.txt')
 function Get-KitRepositoryArguments {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Source)
-    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…) — див. F7.
+    # Кома навмисно: викликачі роблять (Get-KitRepositoryArguments …) + @(…), НЕ @(…).
     , @(
         '/ConfigurationRepositoryF "{0}"' -f $Source.StoragePath
         '/ConfigurationRepositoryN "{0}"' -f $Source.StorageUser
-        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword   # пароль лише з накладки (B2 Task 2a); ніколи не друкувати
+        '/ConfigurationRepositoryP "{0}"' -f $Source.StoragePassword   # пароль лише з накладки; ніколи не друкувати
     )
 }
 
@@ -39,7 +41,7 @@ function Test-KitExtensionNotFound {
     <#
     .SYNOPSIS
         Відповідь платформи «розширення з таким іменем не знайдено» (рос./укр.) — ЄДИНЕ місце
-        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу operation=build») і запасний шлях
+        розпізнавання: Invoke-KitStorageCheckout (рецепт «спершу push Уніки») і запасний шлях
         sync (спека 2026-09-30 §6.9). Друга копія регулярки розійшлась би з першою тихо (kit-dev, case 5).
     #>
     [CmdletBinding()]
@@ -61,12 +63,15 @@ function New-KitStorageInfobase {
     param(
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][string]$WorkDir,
-        [string]$StubPath = $script:DefaultStubPath
+        [string]$StubPath = $script:DefaultStubPath,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        # Платформа, яку визначив раннер (Get-KitAgentPlatform); запасного Get-V8Path у цій функції немає.
+        [Parameter(Mandatory)][string]$V8Path
     )
     $ibPath = Join-Path $WorkDir 'ib'
     switch ($Source.Type) {
-        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir) }
-        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir)) }
+        'EXTENSION'     { return (New-ExtensionInfobase -Path $ibPath -ExtensionName $Source.Key -StubPath $StubPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $V8Path) }
+        'CONFIGURATION' { return ('/F "{0}"' -f (New-V8FileInfobase -Path $ibPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $V8Path)) }
         default         { throw "Джерело '$($Source.Key)' має тип $($Source.Type) — сховища конфігурацій для нього не буває; truth: storage лише для CONFIGURATION і EXTENSION." }
     }
 }
@@ -80,7 +85,7 @@ function Get-KitSourceInfobase {
     .DESCRIPTION
         Серіалізація розширення залежить від того, чи є в базі конфігурація-власник: дамп у
         ІБ зі стабом дає GUID у DesignTimeRef і явні дефолти форм, дамп у базі з власником —
-        імена й опущені дефолти. Доки sync/verify дампили зі стаба, а canon — з бази агента,
+        імена й опущені дефолти. Доки sync/verify дампили зі стаба, а канон — з бази агента,
         verify показував формат як зміст (ішузи #3 і #6).
 
         Фолбеку на порожню ІБ ТУТ немає навмисно: бази немає — зупинка з рецептом. Єдиний
@@ -104,20 +109,20 @@ function Get-KitSourceInfobase {
     }
 
     $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws
-    $recipe = ("Джерело '$($Source.Key)' (truth: storage) вивантажується в контексті базової конфігурації — " +
-               "потрібна база агента воркспейсу '$($ws.Path)'. Спершу: kit provision -Workspace $($ws.Path) -Apply, " +
-               'потім operation=build Уніки, тоді повторіть команду.')
-    if ($null -eq $ab) { throw "У v8project.yaml воркспейсу '$($ws.Path)' немає infobase:. $recipe" }
-    if ($ab.Kind -eq 'file' -and -not $ab.Exists) { throw "Бази агента ще немає на диску. $recipe" }
-
-    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Workspace = $ws.Path }
+    if ($null -eq $ab) { throw (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path) }
+    if ($ab.Kind -eq 'file' -and -not $ab.Exists) {
+        throw ("Бази агента воркспейсу '$($ws.Path)' ще немає на диску ($($ab.Path)), а джерело '$($Source.Key)' (truth: storage) " +
+               'вивантажується в контексті базової конфігурації. Спершу v8storagekit:provision (kit provision -Workspace ' +
+               "$($ws.Path) -Apply і надрукований ним крок), тоді повторіть команду.")
+    }
+    [pscustomobject]@{ IbSwitch = $ab.IbSwitch; User = $ab.User; Password = $ab.Password; Kind = $ab.Kind; Workspace = $ws.Path; Project = $ws.Project }
 }
 
 function Enter-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [string]$User = '')
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][string]$V8Path, [string]$User = '')
     if ($Source.Type -ne 'CONFIGURATION' -or -not $script:ConfigurationStorageNeedsBind) { return $false }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @('/ConfigurationRepositoryBindCfg -forceBindAlreadyBindedUser -forceReplaceCfg'))
     if ($r.ExitCode -ne 0) { throw "Прив'язка тимчасової ІБ до сховища конфігурації не вдалася: $($r.Output)" }
     $true
@@ -125,9 +130,9 @@ function Enter-KitStorageBind {
 
 function Exit-KitStorageBind {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound, [string]$User = '')
+    param([Parameter(Mandatory)][string]$IbSwitch, [Parameter(Mandatory)]$Source, [Parameter(Mandatory)][bool]$Bound, [Parameter(Mandatory)][string]$V8Path, [string]$User = '')
     if (-not $Bound) { return }
-    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
+    $r = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) + @('/ConfigurationRepositoryUnbindCfg -force'))
     if ($r.ExitCode -ne 0) { Write-Host "УВАГА: не вдалося зняти прив'язку тимчасової ІБ до сховища ($($Source.StoragePath)): $($r.Output)" -ForegroundColor Red }
 }
 
@@ -143,19 +148,24 @@ function Invoke-KitStorageUpdate {
         [Parameter(Mandatory)][string]$IbSwitch,
         [Parameter(Mandatory)]$Source,
         [Parameter(Mandatory)][int]$Version,
-        [string]$User = ''
+        [Parameter(Mandatory)][string]$V8Path,
+        [string]$User = '',
+        [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments ((Get-KitRepositoryArguments -Source $Source) +
+    $upd = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments ((Get-KitRepositoryArguments -Source $Source) +
         @(('/ConfigurationRepositoryUpdateCfg -v {0}{1} -force' -f $Version, $ext)))
     if ($upd.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $upd.Output -Infobase 'агента'
-        # База агента є, але порожня: operation=build у неї ще не вантажив розширення, і сховище
+        # База агента є, але порожня: push Уніки у неї ще не вантажив розширення, і сховище
         # відповідає «расширение … не найдено». Сирий текст платформи тут читається як проблема
         # сховища, хоча проблема в базі — той самий прийом перекладу, що в Assert-V8InfobaseNotBusy.
         if ($Source.Type -eq 'EXTENSION' -and (Test-KitExtensionNotFound -Output $upd.Output)) {
-            throw ("У базі немає розширення '$($Source.Key)' — вона ще не наповнена з дерева. " +
-                   "Спершу operation=build Уніки (cwd — воркспейс), тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
+            # force:true — набору ще немає в пам'яті раннера, звичайний push відповів би no_memory (спека §2.2).
+            $push = Format-KitUnicaRun -Op 'push' -Arguments ([ordered]@{ sourceSet = $Source.Key; force = $true })
+            $ws = if ($Source.PSObject.Properties['Workspace']) { " (воркспейс '$($Source.Workspace)')" } else { '' }
+            throw ("У базі агента немає розширення '$($Source.Key)' — дерево розширення ще не завантажене в базу. " +
+                   "Спершу$ws`: $push, потім той самий виклик з `"dryRun`":false; тоді повторіть.`nПлатформа відповіла: $($upd.Output)")
         }
         throw "Оновлення до версії $Version не вдалося: $($upd.Output)"
     }
@@ -190,26 +200,28 @@ function Invoke-KitStorageCheckout {
         [Parameter(Mandatory)][int]$Version,
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
-        [string]$User = ''
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$V8Path,
+        [string]$User = '',
+        [string]$Password = ''
     )
     $ext = Get-KitExtensionArgument -Source $Source
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -V8Path $V8Path -User $User -Password $Password
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
-    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
+    Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
-    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
+    $dump = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpConfigToFiles "{0}"{1}' -f $Target, $ext))
     if ($dump.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dump.Output -Infobase 'агента'
-        # Спека 1.3.1 §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний
-        # виняток; текст для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion,
-        # verify — без них). Повідомлення лишається тим самим, що й до 1.3.1.
+        # §4.1, §6.1.1: збій вивантаження ПІСЛЯ успішного UpdateCfg — розпізнаваний виняток; текст
+        # для людини будує викликач (sync — з командами -DumpPlatform/-SkipVersion, verify — без них).
         $ex = [System.InvalidOperationException]::new("Вивантаження версії $Version не вдалося: $($dump.Output)")
         $ex.Data['KitDumpFailure'] = $true
         $ex.Data['Version'] = $Version
-        $ex.Data['PlatformPath'] = (Get-V8Path)
+        $ex.Data['PlatformPath'] = $V8Path
         $ex.Data['Output'] = $dump.Output
         throw $ex
     }
@@ -218,13 +230,7 @@ function Invoke-KitStorageCheckout {
         $j = Join-Path $Target $junk
         if (Test-Path -LiteralPath $j) { Remove-Item -LiteralPath $j -Force }
     }
-    # @(...) навмисно: на нулі файлів (порожній дамп — саме такий дає мокована платформа в
-    # тестах sync) Get-ChildItem повертає $null, а не порожній масив, і .Count на $null під
-    # Set-StrictMode -Version Latest падає "The property 'Count' cannot be found on this
-    # object" — той самий клас дефекту, від якого в цьому репозиторії скрізь загортають у
-    # @(...) (StorageBranch.psm1, Read-StorageReport тощо). Виявлено лише зараз (B3 Task 1,
-    # раунд правок Sync.Tests.ps1): доти виконання не доходило сюди — падало раніше на
-    # немокованому виклику платформи.
+    # @(...) навмисно: на порожньому дампі Get-ChildItem повертає $null, і .Count під StrictMode падає.
     @(Get-ChildItem -LiteralPath $Target -Recurse -File).Count
 }
 
@@ -252,23 +258,27 @@ function Invoke-KitStorageCheckoutViaPlatform {
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$MustBeUnder,
         [Parameter(Mandatory)][string]$WorkDir,
+        # Основна платформа (визначена раннером): UpdateCfg і /DumpCfg у базі агента.
+        [Parameter(Mandatory)][string]$V8Path,
         [Parameter(Mandatory)][string]$AltV8Path,
-        [string]$User = ''
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$User = '',
+        [string]$Password = ''
     )
     if ($Source.Type -eq 'EXTENSION') {
         throw "Вивантаження іншою платформою для EXTENSION не підтримується в 1.3.1 (джерело '$($Source.Key)')."
     }
 
     # Крок 1: основна платформа, той самий UpdateCfg.
-    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -User $User
+    Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -V8Path $V8Path -User $User -Password $Password
 
     # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
     $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
-    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -Description "файл .cf версії $Version"
+    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "файл .cf версії $Version"
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
     if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
-    $mainPath = Get-V8Path
-    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Arguments @(('/DumpCfg "{0}"' -f $cf))
+    $mainPath = $V8Path
+    $dumpCf = Invoke-V8Designer -IbSwitch $IbSwitch -User $User -Password $Password -V8Path $V8Path -Arguments @(('/DumpCfg "{0}"' -f $cf))
     if ($dumpCf.ExitCode -ne 0) {
         Assert-V8InfobaseNotBusy -Output $dumpCf.Output -Infobase 'агента'
         throw "Крок DumpCfg основної платформи ($mainPath) для версії $Version не вдався: $($dumpCf.Output)"
@@ -279,8 +289,8 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
     # Крок 3: обрана платформа створює тимчасову ІБ.
     $altIbPath = Join-Path $WorkDir 'alt-ib'
-    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -Description 'тимчасова ІБ обраної платформи'
-    $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -V8Path $AltV8Path
+    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тимчасова ІБ обраної платформи'
+    $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $AltV8Path
     $altSwitch = '/F "{0}"' -f $altIbPath
 
     # Крок 4: обрана платформа, без користувача: LoadCfg, потім DumpConfigToFiles у спорожнену теку.
@@ -289,8 +299,8 @@ function Invoke-KitStorageCheckoutViaPlatform {
         throw "Крок LoadCfg платформи $AltV8Path для версії $Version не вдався: $($load.Output)"
     }
 
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -Description "тека дампу версії $Version"
-    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
+    Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
     $dump = Invoke-V8Designer -IbSwitch $altSwitch -Arguments @(('/DumpConfigToFiles "{0}"' -f $Target)) -V8Path $AltV8Path
@@ -305,13 +315,14 @@ function Invoke-KitStorageCheckoutViaPlatform {
     }
 
     # Крок 6: проміжні .cf і тимчасова ІБ своє відслужили. .cf живої конфігурації — порядку
-    # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону (пілот 1.3.1).
+    # гігабайта, і без цього кроку він лишався б під build/ після останнього прогону.
     # На збої вище не прибираємо: лишаються для діагностики, наступний прогін їх перезапише.
     # Прибирання непринципове: файл, який ще тримає процес платформи, не має зірвати коміт
     # успішно вивантаженої версії — лише попередження.
     foreach ($leftover in @($cf, $altIbPath)) {
         try {
-            if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Recurse -Force -ErrorAction Stop }
+            if (Test-Path -LiteralPath $leftover -PathType Leaf) { Remove-Item -LiteralPath $leftover -Force -ErrorAction Stop }
+            Remove-KitDirectory -Path $leftover
         } catch {
             Write-Warning "Не вдалося прибрати $leftover після вивантаження версії $Version (прибере наступний прогін): $($_.Exception.Message)"
         }

@@ -457,13 +457,13 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $wt.Created | Should -BeTrue
         (git -C $wt.Path symbolic-ref -q HEAD) | Should -Be 'refs/heads/storage/Alpha_SMB'
 
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
         $target | Should -Exist
         Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
         Set-Content -LiteralPath (Join-Path $target 'ConfigDumpInfo.xml') -Value '<junk/>' -NoNewline
         Set-Content -LiteralPath (Join-Path $target 'DumpFilesIndex.txt') -Value 'junk' -NoNewline
 
-        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' `
+        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo `
             -Message "v17`n`nStorage-Source: Alpha_SMB`nStorage-Version: 17`nStorage-User: Абдулов" `
             -AuthorName 'PrudnikovV' -AuthorEmail 'p@example.invalid' -Timestamp $script:Stamp
         $r.Empty | Should -BeFalse
@@ -488,10 +488,10 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         $wt.Created | Should -BeFalse
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
         @(Get-ChildItem $target).Count | Should -Be 0
         Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
-        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' `
+        $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo `
             -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2`nStorage-User: gitbot" `
             -AuthorName 'Test Bot' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp
         $r.Empty | Should -BeTrue
@@ -503,12 +503,12 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bytes') -WithHooks
         git -C $repo config core.autocrlf true
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
         # Змішані кінці рядків в одному файлі — саме так пише платформа (docs/text-policy.md)
         $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
         [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
         $rawId = (git -C $repo hash-object --no-filters (Join-Path $target 'Form.xml')).Trim()
-        Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
+        Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
             -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
         Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path
         (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src/Form.xml').Trim() | Should -Be $rawId
@@ -524,7 +524,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Set-Content -LiteralPath (Join-Path $src 'Ext/ParentConfigurations/Vendor.cf') -Value 'cf' -Encoding ascii
         Set-Content -LiteralPath (Join-Path $src 'Ext/ParentConfigurations/.kit-bin-sha1') -Value 'abc' -Encoding ascii
         try {
-            $null = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Client_UNF/cf/src' `
+            $null = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Client_UNF/cf/src' -RepoRoot $repo `
                 -Message "v1`n`nStorage-Source: base`nStorage-Version: 1" -AuthorName 'Test Bot' `
                 -AuthorEmail 'test@example.invalid' -Timestamp ([datetime]'2026-01-01T09:00:00')
         } finally {
@@ -587,11 +587,11 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         }) | Out-Null
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         try {
-            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
             New-Item -ItemType Directory -Path (Join-Path $target "T/$New/Ext") -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $target "T/$New.xml") -Value 'xml' -NoNewline
             Set-Content -LiteralPath (Join-Path $target "T/$New/Ext/T.bin") -Value 'bin' -NoNewline
-            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
+            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
                 -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
         } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
         $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
@@ -608,10 +608,10 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value '*.bin' -Encoding ascii
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         try {
-            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
             New-Item -ItemType Directory -Path (Join-Path $target 'Ext') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $target 'Ext/Template.bin') -Value 'new' -NoNewline
-            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
+            Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
                 -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
         } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
         $paths = @(git -c core.quotepath=false -C $repo ls-tree -r --name-only storage/Alpha_SMB)
@@ -630,11 +630,11 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         try {
             $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
             try {
-                $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src'
+                $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
                 $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
                 [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
                 $rawId = (git -C $repo hash-object --no-filters (Join-Path $target 'Form.xml')).Trim()
-                Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
+                Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo -Message "v1`n`nStorage-Source: Alpha_SMB`nStorage-Version: 1" `
                     -AuthorName 'T' -AuthorEmail 't@example.invalid' -Timestamp $script:Stamp | Out-Null
             } finally { Remove-KitStorageWorktree -RepoRoot $repo -Path $wt.Path }
         } finally { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }

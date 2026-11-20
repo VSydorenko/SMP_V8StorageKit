@@ -33,8 +33,43 @@ function Invoke-KitDump {
     $overlayPath = if ($Context.OverlayPath) { $Context.OverlayPath } else { Join-Path $root 'v8storagekit.local.yaml' }
     $plan = @(foreach ($src in $sources) {
         $ib = Resolve-KitInfobase -Overlay $Context.Overlay -Name $src.DumpFrom -OverlayPath $overlayPath
-        [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = (ConvertTo-V8IbSwitch -Connection $ib.Connection) }
+        # Текст винятку розбору не містить рядка підключення (там може бути пароль) — де він лежить, кажемо тут.
+        $ibSwitch = $null
+        try { $ibSwitch = ConvertTo-V8IbSwitch -Connection $ib.Connection }
+        catch {
+            $recipe = Get-V8CredentialsRecipe -Exception $_.Exception -Kind overlay
+            throw ("Дев-база '$($ib.Name)' у ${overlayPath}: $($_.Exception.Message)" + $(if ($recipe) { " $recipe" }))
+        }
+        [pscustomobject]@{ Source = $src; Infobase = $ib; IbSwitch = $ibSwitch }
     })
+
+    if ($Apply) {
+        # dump -Apply стирає теку набору цілком, а копії незакоміченого не робить узагалі. Тому до першого
+        # Remove-KitDirectory і до платформи — для ВСІХ джерел одразу: зупинка на невидимій для git status роботі
+        # і на будь-якому записі status. Збій git — виняток (не «чисто»); теки лишаються цілими.
+        $invisible = @(foreach ($item in $plan) {
+            # truth: vendor — дерево гітігноровано ЦІЛКОМ за задумом (onboarding дописує <ws>/<шлях>/** у .gitignore)
+            # і є кешем дампу бази людини, який dump саме й переписує: «ігнорований» там — норма, а не робота агента.
+            # Рішення приймаємо тут, одним виразом; решта видів (прапорець, gitlink, вкладений репозиторій, посилання)
+            # зупиняє й для vendor.
+            foreach ($w in @(Get-KitInvisibleWork -RepoRoot $root -RepoPath $item.Source.RepoPath -WholeTreeDerived:($item.Source.Truth -eq 'vendor'))) {
+                [pscustomobject]@{ Key = $item.Source.Key; Kind = $w.Kind; Path = $w.Path }
+            }
+        })
+        if ($invisible.Count -gt 0) {
+            throw (Format-KitInvisibleWorkStop -Command 'dump' -Records $invisible -Untouched 'Теки наборів не чіпано, платформу не запущено; копії незакоміченого dump не робить.')
+        }
+        $dirtyAll = @(foreach ($item in $plan) {
+            foreach ($d in @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $item.Source.RepoPath)) {
+                [pscustomobject]@{ Key = $item.Source.Key; Status = $d.Status; Path = $d.Path }
+            }
+        })
+        if ($dirtyAll.Count -gt 0) {
+            $list = ($dirtyAll | ForEach-Object { "  [$($_.Status)] $($_.Path)  (набір $($_.Key))" }) -join "`n"
+            throw ("dump -Apply зупинено: у наборі є незакомічені зміни — dump стер би теку набору разом з ними, а копії незакоміченого не робить:`n$list`n" +
+                   'Теки наборів не чіпано, платформу не запущено. Для кожного шляху: закомітити, або перенести за межі набору. Потім повторіть dump.')
+        }
+    }
 
     $dumped = [System.Collections.Generic.List[object]]::new()
     foreach ($item in $plan) {
@@ -51,8 +86,8 @@ function Invoke-KitDump {
             continue
         }
 
-        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $wsFull -Description "ціль дампу джерела $($src.Key)"
-        if (Test-Path -LiteralPath $src.FullPath) { Remove-Item -LiteralPath $src.FullPath -Recurse -Force }
+        Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $wsFull -RepoRoot $root -Description "ціль дампу джерела $($src.Key)"
+        Remove-KitDirectory -Path $src.FullPath
         New-Item -ItemType Directory -Path $src.FullPath -Force | Out-Null
 
         $ext = if ($src.Type -eq 'EXTENSION') { " -Extension $($src.Key)" } else { '' }
@@ -61,12 +96,8 @@ function Invoke-KitDump {
             Assert-V8InfobaseNotBusy -Output $r.Output -Infobase $item.Infobase.Name
             throw "Вивантаження $($src.Key) не вдалося: $($r.Output)"
         }
-        # @(...) навколо Get-ChildItem обов'язковий (той самий дефект уже ловили в Task 1,
-        # Invoke-KitStorageCheckout): гола дужка без @() падає під Set-StrictMode -Version
-        # Latest не лише на порожній теці (Get-ChildItem повертає $null), а й на теці РІВНО
-        # з одним файлом (Get-ChildItem повертає скалярний FileInfo, а не масив) — в обох
-        # випадках .Count кидає "The property 'Count' cannot be found on this object"
-        # замість чесних "Файлів: 0"/"Файлів: 1". @(...) перед .Count завжди дає масив.
+        # @(...) обов'язковий: на порожній теці ($null) і на теці з одним файлом (скаляр) .Count
+        # під StrictMode кидає.
         $count = @(Get-ChildItem -LiteralPath $src.FullPath -Recurse -File).Count
         Write-Host "  Готово. Файлів: $count" -ForegroundColor Green
         $dumped.Add([pscustomobject]@{ Key = $src.Key; Target = $src.FullPath; Files = $count })

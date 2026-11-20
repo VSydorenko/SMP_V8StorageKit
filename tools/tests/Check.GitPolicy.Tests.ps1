@@ -60,11 +60,12 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike '*[!]*артефакти збірки*Foo.epf*'
         $r.Output | Should -BeLike '*git rm --cached*'
+        $r.Output | Should -BeLike '*тека Alpha_SMB/build/ воркспейсу*'
     }
 
     # Другий тест не декоративний (брифа задачі): він відрізняє інваріант «артефакт НЕ В GIT» від
     # «файла з таким розширенням НІДЕ немає» — це різні речі. Файл тут ТАКОЖ закомічений (git
-    # ls-files його бачить), просто лежить під workPath/artifacts, куди пише kit build.
+    # ls-files його бачить), просто лежить під <воркспейс>/workPath/ (аудит приймає всю цю теку), куди пише make Уніки.
     It 'Task 1: той самий файл, закомічений УСЕРЕДИНІ build/artifacts/ — check мовчить про build-artifacts' {
         $repo = New-GoodRepo 'build-artifacts-in-place'
         New-Item -ItemType Directory -Force -Path (Join-Path $repo 'Alpha_SMB/build/artifacts') | Out-Null
@@ -104,18 +105,19 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*core.hooksPath*'
     }
 
-    It 'хук старту сесії: без шима — [i] із session-start.ps1, код 0; зі зміненим шимом — [!] із session-start.ps1' {
+    It 'старий проєктний хук старту сесії (1.6.0 переніс хук у плагін): без нього check мовчить; із ним — [!] із обома шляхами, код 0' {
         $repo = New-GoodRepo 'session-hook'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -BeLike '*[i]*session-start.ps1*'
+        $r.Output | Should -Not -BeLike '*session-start.ps1*'    # контроль: без старого хука знахідки немає
 
-        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force
-        Install-KitSessionHook -RepoRoot $repo -TemplatesDir (Resolve-Path "$PSScriptRoot/../../templates").Path | Out-Null
-        Add-Content -LiteralPath (Join-Path $repo '.claude/hooks/session-start.ps1') -Value '# локальна правка'
+        New-Item -ItemType Directory -Path (Join-Path $repo '.claude/hooks') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.claude/hooks/session-start.ps1') -Value '# старий шим'
+        Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Encoding UTF8 `
+            -Value '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "pwsh -NoProfile -File .claude/hooks/session-start.ps1" } ] } ] } }'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -BeLike '*[!]*session-start.ps1*'
+        $r.Output | Should -BeLike '*[!]*хук старту сесії: .claude/settings.json (hooks.SessionStart*); .claude/hooks/session-start.ps1. Тепер*'
     }
 
     It '§2.3: той самий ключ truth: storage у двох воркспейсах — код 1' {

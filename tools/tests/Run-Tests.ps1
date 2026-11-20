@@ -116,8 +116,9 @@ $buildRoot   = Join-Path $repoRoot 'build'
 $testRunRoot = Join-Path $buildRoot 'test-run'
 
 # Робоча тека перестворюється щоразу — build/ у .gitignore, спільне дерево не бруднимо.
-Assert-SafeWorkPath -Path $testRunRoot -MustBeUnder $buildRoot -Description 'робоча тека паралельного прогону tools/tests'
-if (Test-Path -LiteralPath $testRunRoot) { Remove-Item -LiteralPath $testRunRoot -Recurse -Force }
+# build/ — корінь власності (П25): його можна винести за посилання, а test-run під ним — ні.
+Assert-SafeWorkPath -Path $testRunRoot -MustBeUnder $buildRoot -RepoRoot $repoRoot -OwnedRoot $buildRoot -Description 'робоча тека паралельного прогону tools/tests'
+Remove-KitDirectory -Path $testRunRoot
 New-Item -ItemType Directory -Path $testRunRoot -Force | Out-Null
 
 $workerCount = if ($Workers -gt 0) { $Workers } else { [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount - 4)) }

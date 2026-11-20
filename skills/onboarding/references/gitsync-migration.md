@@ -10,7 +10,11 @@
 Це вивантаження сховища старим інструментом (gitsync/OneScript, більше не встановлені). Дерево
 **не конвертується**, а **заміщується реплеєм зі сховища**; EDT-історія зберігається
 перейменуванням файлів у Designer-шляхи. Процедура — §9.2; основа й деталі розвідки — довідка
-`${CLAUDE_PLUGIN_ROOT}/docs/migration/legacy-gitsync-repo.md` (колишній скіл `repo-migration`).
+`<корінь плагіна>/docs/migration/legacy-gitsync-repo.md` (колишній скіл `repo-migration`).
+
+`<корінь плагіна>` у цьому файлі — каталог плагіна `v8storagekit`: той самий шлях, що стоїть перед
+`/tools/kit.ps1` у командах `SKILL.md` скіла `v8storagekit:onboarding` (там його підставлено; у цьому
+файлі підстановки немає).
 
 **Скажіть людині це до того, як вона спитає, бо вона спитає.** `rename-edt` і `sync` роблять
 **різні** речі, і жоден не заміняє другого:
@@ -112,7 +116,7 @@ git як gitsync-коміти — але в **EDT-форматі**. Реплей
 3. **Коміт перейменування:**
 
    ```
-   pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" rename-edt -RepoRoot . -SourceRelPath <корінь EDT-дерева> -TargetRoot <ціль з v8project.yaml> [-Apply]
+   pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" rename-edt -RepoRoot . -SourceRelPath <корінь EDT-дерева> -TargetRoot <ціль з v8project.yaml> [-Apply]
    ```
 
    Кожен файл ВСЕРЕДИНІ `-SourceRelPath` → його точний Designer-шлях за таблицею відповідності
@@ -267,7 +271,7 @@ git як gitsync-коміти — але в **EDT-форматі**. Реплей
    з кроку 4, виконана в правильний момент:
 
    ```
-   pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . -Source <ключ> -Apply -MergeMain
+   pwsh -NoProfile -File "<корінь плагіна>/tools/kit.ps1" sync -RepoRoot . -Source <ключ> -Apply -MergeMain
    ```
 
    Онбординг на гілці з PR — додати `-MergeInto <гілка онбордингу>` (див. крок 4). Обходити

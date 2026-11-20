@@ -15,17 +15,21 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
             'Resolve-Author', 'Get-UnknownAuthors', 'Get-KitUnattributedVersions', 'Invoke-V8Designer', 'New-ExtensionInfobase', 'Get-StorageVersions',
             'Merge-KitBranchInto', 'New-KitStorageWorktree', 'Write-KitStorageVersion', 'Get-KitPendingVersions', 'Test-KitExtensionNotFound',
             'New-KitStorageInfobase', 'Invoke-KitStorageCheckout', 'Enter-KitStorageBind', 'Exit-KitStorageBind',
-            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths',
+            'Export-KitTree', 'Compare-KitTrees', 'Get-KitBinaryPaths', 'Get-KitCurrentBranch', 'Test-KitOnMainBranch',
             'Get-KitTreePaths', 'Get-KitCaseCollisions', 'Assert-KitIndexMatchesDisk', 'Test-KitComparableRelativePath',
             'Get-KitVerifyVersion', 'Get-KitStorageActivity', 'Test-KitBranchUnborn',
             'Test-V8InfobaseBusy', 'Assert-V8InfobaseNotBusy', 'Get-KitRelativeFiles',
             'ConvertTo-V8IbSwitch', 'Get-KitVersionGapNote', 'New-KitStorageCommitMessage',
-            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitSameInfobase',
-            'Convert-KitEdtPath', 'Get-KitEdtRenamePlan', 'Get-KitDirtyRecords', 'Backup-KitDirtyFiles',
-            'Get-KitOriginGap', 'Get-KitPluginVersion',
+            'Remove-KitStorageWorktree', 'Resolve-KitAgentInfobasePath', 'Resolve-KitAgentBase', 'Test-KitInfobasesOverlap', 'Test-KitPathsOverlap', 'Get-KitDirectoryEntriesNoLinks',
+            'Convert-KitEdtPath', 'Get-KitEdtRenamePlan', 'Get-KitDirtyRecords', 'Backup-KitDirtyFiles', 'Get-KitInvisibleWork', 'Format-KitInvisibleWorkStop',
+            'Get-KitOriginGap', 'Get-KitPluginVersion', 'Get-UnicaInstallation', 'Get-KitUnicaVersionVerdict',
             'Get-KitSupplyRelativePath', 'Test-KitSupplyRelativePath', 'Test-KitSupplyDescribed', 'Get-KitSupplyState',
             'Write-KitSupplyMarker', 'Remove-KitSupplyDir', 'Clear-KitTreeExceptSupply', 'Get-KitSupplyRecipe',
-            'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform'
+            'Get-KitInstalledPlatforms', 'Get-KitPlatformVersionFromPath', 'Test-KitDumpFailure', 'Invoke-KitStorageCheckoutViaPlatform',
+            'Format-KitUnicaRun', 'Write-KitNextSteps', 'Get-KitAlignStep', 'Write-KitSupplyStateNotComputed', 'Write-KitAlignStep', 'Write-KitAlignStops', 'Remove-KitDirectory', 'Test-KitWorkspaceNeedsAgentBase',
+            'New-KitAgentBaseMissingMessage', 'Get-V8ProjectConfigProblems',
+            'Get-KitProtectedPaths', 'Find-KitProtectedCollisions', 'Find-KitAgentBaseCollisions',
+            'Get-KitRunnerPath', 'Get-KitRunnerVersion', 'Get-KitRunnerVerdict', 'Get-KitRunnerMemoryPath', 'Invoke-KitRunner', 'Get-KitAgentPlatform', 'Invoke-KitAgentRelease'
         )
         $output = & pwsh -NoProfile -File $script:ProbeFile -LibDir $script:LibDir `
             -CommandsCsv ($script:RequiredCommands -join ',') -ModulesCsv ($script:Modules -join ',') 2>&1 | Out-String
@@ -37,8 +41,8 @@ Describe 'Порядок імпорту модулів у kit.ps1 (module-order.
         }
     }
 
-    It 'module-order.txt містить кожен lib/*.psm1, крім Environment' {
-        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName | Where-Object { $_ -ne 'Environment' })
+    It 'module-order.txt містить кожен lib/*.psm1' {
+        $onDisk = @(Get-ChildItem -LiteralPath $script:LibDir -Filter '*.psm1' | ForEach-Object BaseName)
         foreach ($m in $onDisk) { $script:Modules | Should -Contain $m -Because "модуль $m є в lib/, але не в module-order.txt" }
     }
 

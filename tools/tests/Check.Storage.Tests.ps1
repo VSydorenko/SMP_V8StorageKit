@@ -74,26 +74,24 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     # I3 (рев'ю B4 Task 4, Important) — той самий зразок, що вище для git-хуків, тепер для
-    # Test-KitSessionHook: попереднє обґрунтування «не викликає зовнішніх команд, тож
-    # try/catch не потрібен» було хибним — Get-Content усередині кидає на БУДЬ-ЯКІЙ
-    # IO-помилці, не лише на збої зовнішньої команди. Блокуємо файл шима на читання з ЦЬОГО
-    # процесу (FileShare.None) — дочірній `pwsh check`, як окремий процес, зіткнеться з тим
-    # самим збоєм, що й гонка з `claude plugin update`, яка перезаписує кеш плагіна
-    # під час прогону.
-    It 'I3: заблокований шим (IO-збій усередині аудиту хука сесії) не губить решти зібраних знахідок' {
+    # Test-KitLegacySessionHook: Get-Content усередині кидає на БУДЬ-ЯКІЙ IO-помилці. Блокуємо
+    # settings.json на читання з ЦЬОГО процесу (FileShare.None) — дочірній `pwsh check`, як
+    # окремий процес, зіткнеться з тим самим збоєм, що й гонка з записом чужого процесу.
+    # Збій читання аудит перетворює на warn «не читається» (kit не може перевірити, чи немає в
+    # файлі старого хука), а решта знахідок — на місці.
+    It 'I3: заблокований settings.json (IO-збій усередині аудиту старого хука сесії) не губить решти зібраних знахідок' {
         $repo = New-GoodRepo 'session-hook-locked'
-        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force
-        Install-KitSessionHook -RepoRoot $repo -TemplatesDir (Resolve-Path "$PSScriptRoot/../../templates").Path | Out-Null
-        $shimPath = Join-Path $repo '.claude/hooks/session-start.ps1'
-        $fs = [System.IO.File]::Open($shimPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
+        $settingsPath = Join-Path $repo '.claude/settings.json'
+        Set-Content -LiteralPath $settingsPath -Value '{ "permissions": { "allow": [] } }' -Encoding UTF8
+        $fs = [System.IO.File]::Open($settingsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
         try {
             $r = Invoke-Check -Repo $repo
-            $r.ExitCode | Should -Be 1
+            $r.ExitCode | Should -Be 0    # warn, не error: чужий файл не зупиняє session-check по сховищах
             $r.Output | Should -BeLike '*Маніфест:*'
-            $r.Output | Should -BeLike '*Аудит хука старту сесії впав*'
+            $r.Output | Should -BeLike '*settings.json не читається як JSON*'
         } finally { $fs.Close() }
     }
-
     # Той самий зразок, що вище для хуків, — тепер для другого захищеного виклику
     # (check.psm1: try/catch навколо Test-KitStorageBranchInvariants). Дешевий, детермінований
     # спосіб зламати саме git-виклики StorageBranch.psm1 (не крихке пошкодження бази об'єктів):

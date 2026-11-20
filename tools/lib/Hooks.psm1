@@ -10,9 +10,8 @@ $script:DefaultTemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScript
 function Get-KitHookNames {
     [CmdletBinding()]
     param()
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap: усі виклики загортають результат у @(...), а @() поверх коми бачить один
+    # елемент — вкладений масив.
     $script:HookNames
 }
 
@@ -50,9 +49,7 @@ function Install-KitGitHooks {
     }
     $out = git -C $RepoRoot config core.hooksPath $script:HooksDirName 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git config core.hooksPath завершився з кодом ${LASTEXITCODE}: $out" }
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap — як у Get-KitHookNames.
     $installed.ToArray()
 }
 
@@ -80,11 +77,7 @@ function Test-KitGitHooks {
     foreach ($name in $script:HookNames) {
         $installedPath = Join-Path $RepoRoot $script:HooksDirName $name
         if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
-            # Правка H1 (фінальне рев'ю, живий онбординг з нуля) — старе повідомлення казало
-            # ЧОГО бракує, і не казало, ДЕ взяти файл: контраст із сусідніми повідомленнями
-            # check (маніфест — templates/v8storagekit.yaml.example, .gitignore —
-            # templates/gitignore) різкий, і саме на це вперся живий прогін. Джерело — і
-            # другий крок (core.hooksPath) — тепер названо явно.
+            # Повідомлення каже не лише ЧОГО бракує, а й ДЕ взяти файл і другий крок (core.hooksPath).
             $findings.Add((New-KitFinding -Level error -Check 'hooks' -Message (
                 "Хука $script:HooksDirName/$name немає — гілки storage/* не захищені від ручного коміту. " +
                 "Скопіюйте його з templates/githooks/ у теці плагіна (знайти теку: claude plugin list, або " +
@@ -107,10 +100,7 @@ function Test-KitGitHooks {
         # коміт у storage/* на такому клоні пройде повз захист. Питаємо саме git, а не
         # файлову систему: на Windows core.filemode = false, і те, що бачить ФС, не має
         # стосунку до режиму, який git запише в дерево майбутнього клону.
-        # -c core.quotepath=false — уніфіковано з усіма git-викликами, що читають чи
-        # друкують шляхи. Цей шлях ASCII за побудовою (.githooks/pre-commit тощо), але
-        # правило — kit форсує конфігурацію git за виклик завжди, щоб ніхто надалі не
-        # мусив розбиратись по кожному виклику окремо, чи шлях бува не non-ASCII.
+        # -c core.quotepath=false — правило kit на кожен git-виклик зі шляхами, навіть ASCII.
         $tracked = git -c core.quotepath=false -C $RepoRoot ls-files -s -- "$script:HooksDirName/$name" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "git ls-files -s $script:HooksDirName/$name завершився з кодом ${LASTEXITCODE}: $tracked" }
         $trackedLine = (@($tracked) -join "`n").Trim()
@@ -121,7 +111,7 @@ function Test-KitGitHooks {
                     "у клоні на Linux/macOS git тихо проігнорує хук, і storage/* лишиться незахищеним. " +
                     "Полагодити: git update-index --chmod=+x $script:HooksDirName/$name і закомітити.")))
             }
-            # #16: git commit --only <шляхи> НЕ бере індекс — перечитує файл із диска, і на Windows
+            # git commit --only <шляхи> НЕ бере індекс — перечитує файл із диска, і на Windows
             # (core.filemode=false) пише 100644, хоч в індексі лишається 100755. Індекс тоді бреше
             # про те, що отримає клон, — питаємо сам коміт.
             if ($Matches.mode -eq '100755') {
@@ -134,13 +124,9 @@ function Test-KitGitHooks {
                 }
             }
         } else {
-            # S2 (живий прогін задачі 11) — порожній вивід git ls-files -s означає, що файл
-            # не бачить ні ІНДЕКС, ні дерево: хук скопійовано на диск (Install-KitGitHooks
-            # свідомо не чіпає індекс споживача), але ще не застейджено і не закомічено.
-            # Наступний клон його не отримає, і storage/* лишиться без захисту — check про
-            # це мовчав. «Застейджено, але не закомічено» сюди НЕ потрапляє: git ls-files -s
-            # бачить індекс, і застейджений хук уже дає непорожній рядок вище (тест-доказ —
-            # Hooks.Tests.ps1, три стани хука).
+            # Порожній вивід git ls-files -s: хук є на диску, але не застейджений і не закомічений —
+            # наступний клон його не отримає. «Застейджено, але не закомічено» сюди НЕ потрапляє:
+            # ls-files -s бачить індекс (три стани хука тримає Hooks.Tests.ps1).
             $findings.Add((New-KitFinding -Level warn -Check 'hooks' -Message (
                 "Хук $script:HooksDirName/$name лежить на диску, але не закомічений у git — " +
                 'наступний клон його не отримає, і гілки storage/* лишаться без захисту. ' +
@@ -149,102 +135,73 @@ function Test-KitGitHooks {
         }
     }
 
-    # Без coma-wrap (`, $x`): усі виклики цієї функції загортають результат у @(...),
-    # а @() поверх coma-wrap бачить один елемент — вкладений масив, не його вміст.
-    # Пор. StorageReport.psm1:98, де кома доречна: там результат присвоюють без @().
+    # Без coma-wrap — як у Get-KitHookNames.
     $findings.ToArray()
 }
 
 $script:SessionHookRel = '.claude/hooks/session-start.ps1'
 $script:SettingsRel    = '.claude/settings.json'
 
-function Install-KitSessionHook {
+function Install-KitSettings {
     <#
     .SYNOPSIS
-        Кладе шим і, якщо settings.json немає, — шаблон settings.json (з хуком). Наявний settings.json не чіпає.
+        Кладе шаблон .claude/settings.json (дозволи), якщо файла ще немає. Наявний не чіпає.
     .DESCRIPTION
-        На відміну від Install-KitGitHooks (git-хуки, core.hooksPath), це хук Claude Code
-        (спека §7): живе в .claude/settings.json репозиторію-споживача, а не в плагіні —
-        hooks/hooks.json плагін навмисно не оголошує (інакше шим спрацьовував би в кожній
-        сесії, де встановлено плагін, — і в не-1С проєктах теж).
+        Хука старту сесії тут немає: його поставляє сам плагін (hooks/hooks.json),
+        а споживач не несе ні шима, ні розділу hooks у settings.json.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
-    $shimDst = Join-Path $RepoRoot $script:SessionHookRel
-    New-Item -ItemType Directory -Path (Split-Path -Parent $shimDst) -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'hooks/session-start.ps1') -Destination $shimDst -Force
-    $installed = @($shimDst)
     $settingsDst = Join-Path $RepoRoot $script:SettingsRel
-    if (-not (Test-Path -LiteralPath $settingsDst -PathType Leaf)) {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
-        $installed += $settingsDst
-    }
-    # Без коми: викликачі (install-hooks) загортають у @(…) — див. F7.
-    $installed
+    if (Test-Path -LiteralPath $settingsDst -PathType Leaf) { return @() }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
+    # Без коми: викликачі (install-hooks) загортають у @(…).
+    $settingsDst
 }
 
-function Test-KitSessionHook {
+function Test-KitLegacySessionHook {
     <#
     .SYNOPSIS
-        Аудит для check (спека §7): шим на місці й = шаблон плагіна; settings.json оголошує hooks.SessionStart.
+        Аудит для check: старий проєктний хук старту сесії (до 1.6.0) — розділ hooks.SessionStart
+        з командою на session-start.ps1 у .claude/settings.json і/або файл-шим
+        .claude/hooks/session-start.ps1 — знаходить і радить прибрати.
     .DESCRIPTION
-        Порядок навмисний (рев'ю B4 Task 4, Critical C2): спершу читаємо settings.json і
-        обчислюємо $hasHook, ПОТІМ перевіряємо сам шим — відсутність шима коштує по-різному
-        залежно від того, чи хук уже оголошено. Якщо оголошено (hooks.SessionStart кличе
-        .claude/hooks/session-start.ps1), а файла немає — це не «онбординг ще не дійшов сюди»
-        (info), а зламаний репозиторій: pwsh -NoProfile -File на неіснуючий шлях завершується
-        кодом 64 з банером usage на КОЖНОМУ старті сесії (перевірено запуском) — error. Якщо
-        хук не оголошений — шима теж немає сенсу мати, і відсутність лишається info, як і було.
+        Хук тепер у плагіні (hooks/hooks.json). Старий проєктний хук лишався б другим
+        екземпляром: «Стан сховищ» двічі. Одна знахідка warn називає все знайдене —
+        і settings.json, і файл-шим, — з рецептом прибрати обидва. Нічого не знайдено — тиша.
 
-        Битий settings.json (I4) — warn, не error: це помилка конфігурації Claude Code, а не
-        суперечність репозиторію в сенсі §5, і error тут зупиняв би session-check ПО СХОВИЩАХ
-        (код 1, «Сигнали не обчислювались») через випадкову зайву кому в чужому файлі. Друга
-        знахідка «немає hooks.SessionStart» на той самий факт (парсинг не вдався) навмисно не
-        додається — інакше один битий файл давав би дві знахідки про одну причину.
+        Битий settings.json — окрема warn: перевірити, чи є в ньому старий хук, неможливо, і
+        мовчання читалося б як «старого хука немає». error тут зупиняв би session-check по
+        сховищах через випадкову кому в чужому файлі, тому рівень warn.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
+    param([Parameter(Mandatory)][string]$RepoRoot)
     $findings = [System.Collections.Generic.List[object]]::new()
 
+    $found = [System.Collections.Generic.List[string]]::new()
     $settings = Join-Path $RepoRoot $script:SettingsRel
-    $hasHook = $false
     if (Test-Path -LiteralPath $settings -PathType Leaf) {
-        $parseFailed = $false
         try {
             $json = Get-Content -LiteralPath $settings -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($json.PSObject.Properties.Name -contains 'hooks' -and $json.hooks.PSObject.Properties.Name -contains 'SessionStart') {
-                $hasHook = [bool](@($json.hooks.SessionStart | ForEach-Object { $_.hooks } | Where-Object { $_.command -like '*session-start.ps1*' }).Count)
+                $legacy = @($json.hooks.SessionStart | ForEach-Object { $_.hooks } | Where-Object { $_.command -like '*session-start.ps1*' })
+                if ($legacy.Count) { $found.Add("$script:SettingsRel (hooks.SessionStart з командою на session-start.ps1)") }
             }
         } catch {
-            $parseFailed = $true
-            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message) — виправте файл, щоб дозволи й хук старту сесії знову діяли."))
-        }
-        if (-not $hasHook -and -not $parseFailed) {
-            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "У $script:SettingsRel немає hooks.SessionStart з командою .claude/hooks/session-start.ps1 — шим не запускатиметься (зразок: templates/settings.json)."))
+            $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "$script:SettingsRel не читається як JSON: $($_.Exception.Message) — виправте файл; доки він битий, kit не може перевірити, чи немає в ньому старого хука старту сесії."))
         }
     }
+    if (Test-Path -LiteralPath (Join-Path $RepoRoot $script:SessionHookRel) -PathType Leaf) { $found.Add($script:SessionHookRel) }
 
-    $shim = Join-Path $RepoRoot $script:SessionHookRel
-    $template = Join-Path $TemplatesDir 'hooks/session-start.ps1'
-    if (-not (Test-Path -LiteralPath $shim -PathType Leaf)) {
-        if ($hasHook) {
-            $findings.Add((New-KitFinding -Level error -Check 'hook-shim' -Message (
-                "$script:SettingsRel оголошує hooks.SessionStart на $script:SessionHookRel, а файла немає — " +
-                'кожен старт сесії в цьому репозиторії падає на pwsh -File неіснуючого шляху (код 64). ' +
-                "Покладіть шим із templates/hooks/session-start.ps1 плагіна в $script:SessionHookRel. " +
-                'Або одним кроком: kit install-hooks -RepoRoot . -Apply.')))
-        } else {
-            $findings.Add((New-KitFinding -Level info -Check 'hook-shim' -Message ("Хук старту сесії не встановлено ($script:SessionHookRel) — сесія не отримає стан сховищ; onboarding кладе його з templates/hooks/, або одним кроком: kit install-hooks -RepoRoot . -Apply.")))
-        }
-    } elseif (Test-Path -LiteralPath $template -PathType Leaf) {
-        $a = (Get-Content -LiteralPath $shim -Raw) -replace "`r`n", "`n"
-        $b = (Get-Content -LiteralPath $template -Raw) -replace "`r`n", "`n"
-        if ($a -ne $b) { $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message "Шим $script:SessionHookRel відрізняється від шаблону плагіна (templates/hooks/session-start.ps1) — оновіть копію.")) }
+    if ($found.Count) {
+        $findings.Add((New-KitFinding -Level warn -Check 'hook-shim' -Message (
+            "Старий проєктний хук старту сесії: $($found -join '; '). Тепер цей хук поставляє сам плагін — «Стан сховищ» з'явиться двічі. " +
+            "Прибрати обидва: розділ hooks.SessionStart з командою на session-start.ps1 у $script:SettingsRel і файл $script:SessionHookRel (git rm).")))
     }
 
-    # Без коми: check і тести загортають у @(…) — див. F7.
+    # Без коми: check і тести загортають у @(…).
     $findings.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSessionHook, Test-KitSessionHook
+Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSettings, Test-KitLegacySessionHook

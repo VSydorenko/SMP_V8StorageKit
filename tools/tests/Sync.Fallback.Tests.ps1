@@ -12,6 +12,11 @@ Describe 'kit sync — запасний шлях для розширення б�
             ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
         foreach ($name in $order) { Import-Module (Join-Path $libDir "$name.psm1") -Force }
         Import-Module (Resolve-Path "$PSScriptRoot/../commands/sync.psm1").Path -Force
+        # Раннер Уніки — не справжній: платформу воркспейсу і agent release командою sync/verify беруть із цих моків
+        # (Get-KitRunnerPath шукав би Уніку на машині, Get-KitAgentPlatform/Invoke-KitAgentRelease запускали б справжній v8-runner).
+        Mock -ModuleName sync Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName sync Get-KitAgentPlatform { 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
+        Mock -ModuleName sync Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
 
         function script:New-KitTestContext {
             param([Parameter(Mandatory)][string]$Repo)
@@ -76,6 +81,8 @@ Describe 'kit sync — запасний шлях для розширення б�
         # Користувач тимчасової ІБ — порожній (у ній користувачів немає), не користувач бази агента.
         @($script:ReportUsers | Where-Object { $_ }).Count | Should -Be 0
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It
+        # Тимчасова ІБ розширення теж іде на платформі раннера (спека 2026-11-19 §4.2 п.14), а не на Get-V8Path.
+        Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 1 -Exactly -Scope It -ParameterFilter { $V8Path -eq 'C:\fake\8.3.27.9999\bin\1cv8.exe' }
     }
 
     It 'Fallback — поле запису джерела: одне розширення запасним шляхом, інше штатно в тому самому прогоні' {
@@ -113,10 +120,46 @@ Describe 'kit sync — запасний шлях для розширення б�
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0 -Scope It
     }
 
+    It 'запасний шлях — кроку вирівнювання немає: база агента не зрушена, нічого вирівнювати (§4.1)' {
+        $repo = New-FallbackRepo 'fb-noalign'
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true } 6>&1 | Out-String
+        $r = $h.R
+        $r.Synced[0].Fallback | Should -BeTrue
+        @($r.AlignSteps) | Should -HaveCount 0
+        $r.Synced[0].AlignStep | Should -BeNullOrEmpty
+        $text | Should -Not -BeLike '*"op":"pull"*'
+        $text | Should -Not -BeLike '*"op":"push"*'
+    }
+
     It 'розширення, яке Є в базі агента — запасний шлях не вмикається' {
         $repo = New-FallbackRepo 'fb-present'
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 1) }
         $null = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) 6>$null
         Should -Invoke -ModuleName sync New-KitStorageInfobase -Times 0 -Scope It
+    }
+
+    It '#26: запасний шлях — тимчасова ІБ не отримує пароль бази агента (звіт і checkout)' {
+        $repo = New-FallbackRepo 'fb-pwd'
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib' -User 'agent' -Password 'Fb-agent-pw'
+        $script:Pw = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName sync Get-StorageVersions {
+            param($IbSwitch, $StoragePath, $ExtensionName, $StorageUser, $StoragePassword, $WorkDir, $User, $Password)
+            $script:Pw.Add("report:$IbSwitch|$Password")
+            if ($IbSwitch -ne $script:TmpIb) { throw $script:NotFound }
+            , @((New-KitFakeStorageVersion -Version 1))
+        }
+        Mock -ModuleName StoragePlatform Invoke-V8Designer {
+            param($IbSwitch, $Arguments, $User, $Password)
+            $script:Pw.Add("designer:$IbSwitch|$Password")
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+        }
+        $null = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true 6>$null
+        # Контроль: до перемикання звіт по базі агента справді ніс її пароль.
+        @($script:Pw | Where-Object { $_ -like 'report:*build*Fb-agent-pw' }).Count | Should -Be 1
+        # Після перемикання — і звіт, і платформні виклики в тимчасовій ІБ без пароля.
+        $tmp = @($script:Pw | Where-Object { $_ -like "*:$($script:TmpIb)|*" })
+        $tmp.Count | Should -BeGreaterThan 1
+        @($tmp | Where-Object { $_ -notlike '*|' }).Count | Should -Be 0
     }
 }

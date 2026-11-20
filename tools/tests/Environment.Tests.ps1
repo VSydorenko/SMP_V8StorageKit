@@ -171,42 +171,87 @@ Describe 'Test-KitGitVersionSupported (злиття через merge-tree пот
     }
 }
 
-Describe 'check-environment.ps1: unica не впливає на код виходу' {
-    It 'дає той самий код виходу з плагіном unica і без нього' {
-        # Це і є контракт, заради якого заведені категорії: unica лежить у категорії
-        # «Вихідники», тож її відсутність — попередження, а не блокер. Порівняння двох
-        # прогонів між собою робить перевірку незалежною від того, чи встановлена на
-        # цій машині платформа 1С: якщо її немає, обидва прогони дадуть 1, і рівність
-        # усе одно доведе, що різницю зробила не unica.
-        $dir = Join-Path $TestDrive 'present'
-        New-Item -ItemType Directory -Path $dir | Out-Null
-
-        $withUnica = Join-Path $TestDrive 'with-unica.json'
-        script:New-Registry -Path $withUnica -Plugins @{
-            'unica@unica' = @( @{ installPath = $dir; version = '0.12.3' } )
+Describe 'check-environment.ps1: Уніка й раннер — обов''язкова частина конвеєра (спека 2026-11-19 §4.2 п.4, п.19)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:FakeRunner = (Resolve-Path "$PSScriptRoot/fixtures/runner/v8-runner.cmd").Path
+        function script:Invoke-EnvCheck {
+            param([string]$Registry, [string]$Runner)
+            $a = @('-NoProfile', '-File', $script:CheckScript, '-InstalledPluginsPath', $Registry)
+            if ($Runner) { $a += @('-RunnerPath', $Runner) }
+            # Кодування виводу дочірнього процесу — властивість консолі воркера, а не тесту (його виставляють сусідні файли
+            # в тому ж воркері): без явного UTF-8 кирилиця могла прийти OEM-кодуванням, і -BeLike на ній мовчки не збігався.
+            $prevEnc = [Console]::OutputEncoding
+            try {
+                [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                $out = & pwsh @a 2>&1 | Out-String
+                $code = $LASTEXITCODE
+            } finally { [Console]::OutputEncoding = $prevEnc }
+            [pscustomobject]@{ ExitCode = $code; Output = $out }
         }
-
-        $withoutUnica = Join-Path $TestDrive 'without-unica.json'
-        script:New-Registry -Path $withoutUnica -Plugins @{}
-
-        $outWith = & pwsh -NoProfile -File $script:CheckScript -InstalledPluginsPath $withUnica 2>&1 | Out-String
-        $codeWith = $LASTEXITCODE
-
-        $outWithout = & pwsh -NoProfile -File $script:CheckScript -InstalledPluginsPath $withoutUnica 2>&1 | Out-String
-        $codeWithout = $LASTEXITCODE
-
-        $codeWithout | Should -Be $codeWith
-        $outWith     | Should -Match 'Плагін unica'
-        $outWithout  | Should -Match 'Плагін unica'
     }
 
-    It 'без unica друкує попередження про вихідники, а не про зламаний конвеєр' {
-        $withoutUnica = Join-Path $TestDrive 'warn.json'
-        script:New-Registry -Path $withoutUnica -Plugins @{}
+    It 'Уніки немає — блокер: код 1, у категорії «Конвеєр», рецепт встановлення, kit dump згадано винятком' {
+        $reg = Join-Path $TestDrive 'none.json'
+        script:New-Registry -Path $reg -Plugins @{}
+        $r = Invoke-EnvCheck -Registry $reg -Runner $script:FakeRunner
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*[[]-] Плагін unica 0.16*'
+        $r.Output | Should -BeLike '*claude plugin install unica@unica*'
+        $r.Output | Should -BeLike '*kit dump працює й без Уніки*'
+        $r.Output | Should -Not -BeLike '*Попередження (коду виходу не змінюють)*Плагін unica*'
+    }
 
-        $out = & pwsh -NoProfile -File $script:CheckScript -InstalledPluginsPath $withoutUnica 2>&1 | Out-String
+    It 'Уніка 0.15.2 стоїть — блокер, радить оновити, а не встановлювати' {
+        $reg = New-KitFakeUnicaRegistry -Version '0.15.2'
+        $r = Invoke-EnvCheck -Registry $reg -Runner $script:FakeRunner
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*claude plugin update unica@unica*'
+        $r.Output | Should -Not -BeLike '*claude plugin install unica@unica*'
+    }
 
-        $out | Should -Match 'Попередження'
-        $out | Should -Match 'вихідники'
+    It 'Уніка 0.16.0 і фальшивий раннер 0.18.1 — обидва рядки [+]; Уніка 0.17.0 лишається не блокером (warn)' {
+        $r = Invoke-EnvCheck -Registry (New-KitFakeUnicaRegistry -Version '0.16.0') -Runner $script:FakeRunner
+        $r.Output | Should -BeLike '*[[]+] Плагін unica 0.16*'
+        $r.Output | Should -BeLike '*[[]+] Раннер v8-runner 0.18 — Раннер v8-runner 0.18.1.*'
+        $r2 = Invoke-EnvCheck -Registry (New-KitFakeUnicaRegistry -Version '0.17.0') -Runner $script:FakeRunner
+        $r2.Output | Should -BeLike '*[[]+] Плагін unica 0.16*0.17.0*новіший*'
+    }
+
+    It 'раннера немає (-RunnerPath на неіснуючий файл) — блокер [-] Раннер' {
+        $r = Invoke-EnvCheck -Registry (New-KitFakeUnicaRegistry -Version '0.16.0') -Runner (Join-Path $TestDrive 'немає-раннера.exe')
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*[[]-] Раннер v8-runner 0.18*Раннер не знайдено*'
+    }
+}
+
+Describe 'Get-KitUnicaVersionVerdict (спека 2026-11-19 §4.2 п.4)' {
+    BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force }
+    It '<V> → <Level>' -ForEach @(
+        @{ V = '0.15.2'; Level = 'error' }
+        @{ V = '0.13.0'; Level = 'error' }
+        @{ V = '0.16.0'; Level = 'ok' }
+        @{ V = '0.16.9'; Level = 'ok' }
+        @{ V = '0.17.0'; Level = 'warn' }
+        @{ V = '1.0.0';  Level = 'warn' }
+        @{ V = 'dev';    Level = 'warn' }
+    ) {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = $V; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Level | Should -Be $Level
+    }
+    It 'error називає рецепт оновлення' {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = '0.15.2'; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Message | Should -BeLike '*0.15.2*claude plugin update unica@unica*нову сесію*'
+    }
+    It 'warn називає процедуру звірки контракту' {
+        $i = [pscustomobject]@{ Installed = $true; PathExists = $true; Version = '0.17.0'; InstallPath = 'C:\u'; Reason = '' }
+        (Get-KitUnicaVersionVerdict -Installation $i).Message | Should -BeLike '*процедур*unica-contract.md*'
+    }
+    It 'Уніки немає — error: sync, verify і provision без неї не працюють, але kit dump працює' {
+        $i = [pscustomobject]@{ Installed = $false; PathExists = $false; Version = ''; InstallPath = ''; Reason = 'немає в реєстрі' }
+        $v = Get-KitUnicaVersionVerdict -Installation $i
+        $v.Level | Should -Be 'error'
+        $v.Message | Should -BeLike '*немає в реєстрі*'
+        $v.Message | Should -BeLike '*sync, verify і provision*kit dump працює й без Уніки*'
     }
 }

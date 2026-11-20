@@ -89,7 +89,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
 
     It 'Remove-KitSupplyDir прибирає теку поставки, .bin лишає' {
         $t = New-SupplyTree -Name 'remove'
-        Remove-KitSupplyDir -TreeRoot $t -MustBeUnder $TestDrive
+        Remove-KitSupplyDir -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
         Join-Path $t 'Ext/ParentConfigurations' | Should -Not -Exist
         Join-Path $t 'Ext/ParentConfigurations.bin' | Should -Exist
     }
@@ -97,7 +97,7 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
     It 'Clear-KitTreeExceptSupply стирає все, крім теки поставки' {
         $t = New-SupplyTree -Name 'clear'
         Set-Content -LiteralPath (Join-Path $t 'Ext/Other.xml') -Value 'x' -Encoding UTF8
-        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive
+        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
         Join-Path $t 'Configuration.xml' | Should -Not -Exist
         Join-Path $t 'Ext/Other.xml' | Should -Not -Exist
         Join-Path $t 'Ext/ParentConfigurations.bin' | Should -Not -Exist
@@ -106,26 +106,80 @@ Describe 'Supply.psm1 — поставка вендора основної ко�
 
     It 'Clear-KitTreeExceptSupply поза межею — зупинка' {
         $t = New-SupplyTree -Name 'outside'
-        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw
+        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') -RepoRoot $TestDrive } | Should -Throw
         Join-Path $t 'Configuration.xml' | Should -Exist
+    }
+
+    It 'Clear-KitTreeExceptSupply: junction-діти (верхній рівень і всередині Ext) — знімаються самі посилання, файли в цілі цілі (П25)' {
+        $t = New-SupplyTree -Name 'clear-links'
+        $target = Join-Path $TestDrive 'clear-links-target'
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'keep.txt') -Value 'чужа ціль' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $t 'lnk-top') -Target $target | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $t 'Ext/lnk-inner') -Target $target | Out-Null
+        Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive
+        Join-Path $t 'lnk-top' | Should -Not -Exist
+        Join-Path $t 'Ext/lnk-inner' | Should -Not -Exist
+        (Get-Content -LiteralPath (Join-Path $target 'keep.txt') -Raw).Trim() | Should -Be 'чужа ціль'
+        Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
+    }
+
+    It 'Clear-KitTreeExceptSupply: Ext — junction на зовнішню теку: виняток, файли в цілі цілі (останній рубіж П25)' {
+        $t = Join-Path $TestDrive 'clear-ext-link'
+        New-Item -ItemType Directory -Path $t -Force | Out-Null
+        $outside = Join-Path $TestDrive 'clear-ext-outside'
+        New-Item -ItemType Directory -Path (Join-Path $outside 'inner') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside 'a.txt') -Value 'чужий a' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $outside 'inner/b.txt') -Value 'чужий b' -Encoding UTF8
+        New-Item -ItemType Junction -Path (Join-Path $t 'Ext') -Target $outside | Out-Null
+        { Clear-KitTreeExceptSupply -TreeRoot $t -MustBeUnder $TestDrive -RepoRoot $TestDrive } | Should -Throw '*Ext*є посиланням*'
+        (Get-Content -LiteralPath (Join-Path $outside 'a.txt') -Raw).Trim() | Should -Be 'чужий a'
+        (Get-Content -LiteralPath (Join-Path $outside 'inner/b.txt') -Raw).Trim() | Should -Be 'чужий b'
     }
 
     It 'Remove-KitSupplyDir поза межею — зупинка, тека поставки лишається' {
         $t = New-SupplyTree -Name 'remove-outside'
-        { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') } | Should -Throw
+        { Remove-KitSupplyDir -TreeRoot $t -MustBeUnder (Join-Path $TestDrive 'elsewhere') -RepoRoot $TestDrive } | Should -Throw
         Join-Path $t 'Ext/ParentConfigurations/Vendor.cf' | Should -Exist
     }
 
-    It 'рецепт (ii)/(iii) називає головну гілку, verify, canon і operation=build' {
-        $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'stale'
-        $r | Should -BeLike '*main*'
-        $r | Should -BeLike '*kit verify -Source base*'
-        $r | Should -BeLike '*kit canon -Source base -Apply*'
-        $r | Should -BeLike '*operation=build*'
+    It 'check на головній гілці: verify наповнить базу, далі його зупинка поставки; без pull і supply-marker у самому check' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose check -OnMainBranch $true
+        $r | Should -BeLike '*Відновлення поставки вендора: на гілці main*kit verify -Source base*зупинку поставки*'
+        $r | Should -Not -BeLike '*"op":"pull"*'
+        $r | Should -Not -BeLike '*supply-marker*'
+        $r | Should -Not -BeLike '*-MarkerOnly*' -Because 'режим -MarkerOnly canon замінює kit supply-marker (спека 2026-11-19 §4.2 п.22)'
     }
-
-    It 'рецепт застерігає, що в (i) canon іде на гілці онбордингу без verify' {
-        $r = Get-KitSupplyRecipe -SourceKey 'base' -MainBranch 'main' -State 'missing'
-        $r | Should -BeLike '*У рецепті (i)*canon -Source base виконується на гілці онбордингу до PR*verify там не потрібен*'
+    It 'stop на головній гілці: повний pull цього набору й supply-marker, без push force' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose stop -OnMainBranch $true
+        $r | Should -BeLike '*Відновлення поставки вендора: на гілці main*"op":"pull"*kit supply-marker -Workspace Ws -Source base -Apply*'
+        $r | Should -Not -BeLike '*"op":"push"*'
+        $r | Should -Not -BeLike '*kit canon*'
+        $r | Should -BeLike '*git status --porcelain --*порожнім*'
+    }
+    It 'stop, stale: рецепт починається з видалення теки Ext/ParentConfigurations/ і не згадує .bin у цьому кроці' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose stop -OnMainBranch $true
+        $m = [regex]::Match($r, 'дерево чисте\) спершу видаліть теку <шлях набору base>/Ext/ParentConfigurations/ цілою(?<step>[^.]*?), далі повний pull')
+        $m.Success | Should -BeTrue -Because $r
+        $m.Groups['step'].Value | Should -Not -BeLike '*.bin*'
+        $r.IndexOf('видаліть теку') | Should -BeLessThan $r.IndexOf('"op":"pull"')
+    }
+    It '<Purpose> не на головній гілці: «спершу поставка на головній гілці», без pull і supply-marker' -ForEach @(
+        @{ Purpose = 'check' }
+        @{ Purpose = 'stop' }
+    ) {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'stale' -Purpose $Purpose -OnMainBranch $false
+        $r | Should -BeLike '*Відновлення поставки вендора: спершу поставка на головній гілці main*'
+        $r | Should -Not -BeLike '*"op":"pull"*'
+        $r | Should -Not -BeLike '*supply-marker*'
+    }
+    It 'стан unknown (лише stop): причина названа, трактується як відсутнє' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'unknown' -Purpose stop -OnMainBranch $true
+        $r | Should -BeLike '*стан поставки вендора не обчислено*'
+        $r | Should -BeLike '*supply-marker*'
+    }
+    It 'рецепт (i): той самий крок друкує kit sync' {
+        $r = Get-KitSupplyRecipe -SourceKey 'base' -Workspace 'Ws' -MainBranch 'main' -State 'missing' -Purpose check -OnMainBranch $true
+        $r | Should -BeLike '*У рецепті (i)*kit sync -Source base*'
     }
 }

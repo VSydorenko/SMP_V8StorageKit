@@ -66,12 +66,14 @@ function New-KitFakeConfigurationXml {
     ) -join "`r`n"
 }
 
+$script:KitFakeDefaultConfigTruth = 'vendor'
+
 function Get-KitFakeSetTruth {
     # Внутрішній хелпер фікстури (не експортується): truth source-set'а. Ключ Truth перекриває
     # умовчання; без нього CONFIGURATION — vendor (як було), EXTENSION — storage.
     param([Parameter(Mandatory)]$Set)
     if ($Set.Contains('Truth')) { return [string]$Set.Truth }
-    if ($Set.Type -eq 'CONFIGURATION') { 'vendor' } else { 'storage' }
+    if ($Set.Type -eq 'CONFIGURATION') { $script:KitFakeDefaultConfigTruth } else { 'storage' }
 }
 
 function New-KitFakeRepo {
@@ -84,12 +86,15 @@ function New-KitFakeRepo {
         [switch]$WithGitattributes,
         [switch]$WithGitignore,
         [switch]$WithHooks,
-        [switch]$WithSessionHook,
         [switch]$NoSourceTrees,
         [switch]$NoCommit,
         [switch]$WithAgentBase,
-        [switch]$WithSupply
+        [switch]$WithSupply,
+        # Truth CONFIGURATION-набору, коли в Sets його не задано. Умовчання vendor — як було; тести, яким
+        # потрібна основа, що НЕ vendor (provision не створює базу для основи vendor), передають dump.
+        [ValidateSet('vendor', 'dump', 'storage', 'git')][string]$DefaultConfigTruth = 'vendor'
     )
+    $script:KitFakeDefaultConfigTruth = $DefaultConfigTruth
 
     $kitRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
     New-Item -ItemType Directory -Path $Root -Force | Out-Null
@@ -102,6 +107,9 @@ function New-KitFakeRepo {
     # LF" щоразу, коли autocrlf глобально ввімкнено, — вивід тестів мав би залежати від
     # налаштувань чужого середовища.
     Invoke-KitFakeGit -C $Root config core.autocrlf false | Out-Null
+    # Файл Уніки гітігнорований у кожного споживача; без цього `git add -A` фікстури закомітив би його,
+    # а злиття в main відмовило б на брудній копії.
+    Add-Content -LiteralPath (Join-Path $Root '.git/info/exclude') -Value 'v8project.local.yaml' -Encoding UTF8
     # Головна гілка — main незалежно від init.defaultBranch цієї машини.
     Invoke-KitFakeGit -C $Root symbolic-ref HEAD refs/heads/main | Out-Null
 
@@ -155,11 +163,13 @@ function New-KitFakeRepo {
         New-Item -ItemType Directory -Path $wsDir -Force | Out-Null
 
         $proj = [System.Collections.Generic.List[string]]::new()
-        $proj.Add('format: DESIGNER'); $proj.Add('builder: DESIGNER'); $proj.Add("workPath: 'build'")
+        $proj.Add('format: DESIGNER'); $proj.Add("workPath: 'build'")
+        $proj.Add('providers:'); $proj.Add('  push: designer'); $proj.Add('  pull: designer'); $proj.Add('  download: designer')
         if ($ws.Contains('Infobase') -and $ws['Infobase']) {
-            $proj.Add('infobase:'); $proj.Add("  connection: '$($ws['Infobase'])'")
+            Set-Content -LiteralPath (Join-Path $wsDir 'v8project.local.yaml') -Encoding UTF8 -Value (
+                @('infobases:', '  origin:', "    connection: '$($ws['Infobase'])'") -join "`n")
             if ($WithAgentBase) {
-                # Той самий ідіом, що Canon.Tests.ps1/Provision.Tests.ps1 (1Cv8.1CD — ознака
+                # Той самий ідіом, що Provision.Tests.ps1 (1Cv8.1CD — ознака
                 # наявної файлової бази для Resolve-KitAgentBase.Exists): sync (Task 3) тепер
                 # резолвить базу агента з диска ще до звернення до платформи, і без цього файлу
                 # тести, що кличуть Invoke-KitSync у процесі, отримають зупинку з рецептом
@@ -179,12 +189,13 @@ function New-KitFakeRepo {
             if (-not $NoSourceTrees) { New-Item -ItemType Directory -Path $setDir -Force | Out-Null }
             $truth = Get-KitFakeSetTruth -Set $set
             switch ($set.Type) {
-                { $_ -eq 'CONFIGURATION' -and $truth -eq 'vendor' } {
+                { $_ -eq 'CONFIGURATION' -and $truth -in 'vendor', 'dump' } {
                     # vendor: дерево лишається порожнім і в git не потрапляє — як у споживача без дампу.
-                    $manifest.Add("      $($set.Name): { truth: vendor, dump: { from: dev } }")
+                    # dump: те саме порожнє дерево, але не гітігноровано (основа, що НЕ vendor).
+                    $manifest.Add("      $($set.Name): { truth: $truth, dump: { from: dev } }")
                 }
-                # switch без break виконує ВСІ підходящі гілки — тому vendor тут виключено явно.
-                { $_ -in 'CONFIGURATION', 'EXTENSION' -and $truth -ne 'vendor' } {
+                # switch без break виконує ВСІ підходящі гілки — тому vendor/dump тут виключено явно.
+                { $_ -in 'CONFIGURATION', 'EXTENSION' -and -not ($_ -eq 'CONFIGURATION' -and $truth -in 'vendor', 'dump') } {
                     if (-not $NoSourceTrees) {
                         Set-Content -LiteralPath (Join-Path $setDir 'Configuration.xml') -Encoding UTF8 -NoNewline `
                             -Value (New-KitFakeConfigurationXml -Name $set.Name)
@@ -259,10 +270,6 @@ function New-KitFakeRepo {
     if ($WithHooks) {
         Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
         Install-KitGitHooks -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates/githooks') | Out-Null
-    }
-    if ($WithSessionHook) {
-        Import-Module (Join-Path $kitRoot 'tools/lib/Hooks.psm1')
-        Install-KitSessionHook -RepoRoot $Root -TemplatesDir (Join-Path $kitRoot 'templates') | Out-Null
     }
 
     if (-not $NoCommit) {
@@ -394,8 +401,61 @@ function Invoke-KitCommand {
     # значенням параметра.
     if ($Repo)    { $cmdArgs.Add('-RepoRoot'); $cmdArgs.Add($Repo) }
     foreach ($m in $More) { $cmdArgs.Add($m) }
+    # check і session-check читають реєстр плагінів машини (версія Уніки — вимога, спека §4.4 п. 4):
+    # без підстановки результат тесту залежав би від того, яка Уніка стоїть на машині. Тест, що
+    # навмисно перевіряє реєстр машини, передає параметр сам.
+    if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-InstalledPluginsPath')) {
+        $cmdArgs.Add('-InstalledPluginsPath'); $cmdArgs.Add((New-KitFakeUnicaRegistry))
+    }
+    # Те саме для раннера (спека 2026-11-19 §4.2 п.20): фальшивий реєстр раннера не несе, тож без явного
+    # -RunnerPath кожен підпроцесний check дав би error runner-version — і саме тому kit не мусить мовчки йти
+    # до справжньої Уніки машини. Підставляється фальшивий tools/tests/fixtures/runner/v8-runner.cmd; тест, що
+    # перевіряє відсутність чи іншу версію раннера, передає -RunnerPath сам.
+    if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-RunnerPath')) {
+        $cmdArgs.Add('-RunnerPath'); $cmdArgs.Add((Join-Path $PSScriptRoot 'runner/v8-runner.cmd'))
+    }
     $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+}
+
+function New-KitFakeUnicaRegistry {
+    <#
+    .SYNOPSIS
+        Фальшивий installed_plugins.json з Унікою заданої версії — для -InstalledPluginsPath kit check
+        і session-check (спека §10.1 П21). Тести не залежать від того, яка Уніка стоїть на машині.
+    #>
+    [CmdletBinding()]
+    param([string]$Version = '0.16.0')
+    $dir = Join-Path $TestDrive "fake-unica-$Version-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $path = Join-Path $dir 'installed_plugins.json'
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value (
+        @{ plugins = @{ 'unica@unica' = @(@{ version = $Version; installPath = $dir }) } } | ConvertTo-Json -Depth 5)
+    $path
+}
+function Set-KitFakeAgentBase {
+    <#
+    .SYNOPSIS
+        Пише <Workspace>/v8project.local.yaml у формі 0.13 (infobases.origin) — замість ручного Set-Content у тестах.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [string]$Workspace = 'Alpha_SMB',
+        [Parameter(Mandatory)][string]$Connection,
+        [string]$User,
+        [string]$Password,
+        [System.Collections.IDictionary]$Dbms
+    )
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('infobases:'); $lines.Add('  origin:'); $lines.Add("    connection: '$Connection'")
+    if ($User)     { $lines.Add("    user: '$User'") }
+    if ($Password) { $lines.Add("    password: '$Password'") }
+    if ($Dbms) {
+        $lines.Add('    dbms:')
+        foreach ($k in @($Dbms.Keys)) { $lines.Add("      ${k}: '$($Dbms[$k])'") }
+    }
+    Set-Content -LiteralPath (Join-Path (Join-Path $Repo $Workspace) 'v8project.local.yaml') -Encoding UTF8 -Value ($lines -join "`n")
 }
 
 function Set-KitFakeBranchTree {
@@ -467,20 +527,19 @@ function Copy-KitTools {
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
-    # templates/hooks, templates/settings.json, skills/using-v8storagekit: хук старту сесії
-    # (B4 Task 4) — Test-KitSessionHook у скопійованому Hooks.psm1 звіряє встановлений шим саме
-    # з templates/hooks/session-start.ps1 ЦІЄЇ копії (TemplatesDir типово відносний від
-    # $PSScriptRoot), а сам шим шукає skills/using-v8storagekit/SKILL.md у корені плагіна.
-    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'templates/hooks', 'skills/using-v8storagekit') {
+    # hooks, skills/using-v8storagekit: хук старту сесії живе в самому плагіні (1.6.0,
+    # hooks/session-start.ps1), бере корінь плагіна зі свого $PSScriptRoot і шукає
+    # skills/using-v8storagekit/SKILL.md у ньому — тож копія плагіна несе обидва.
+    foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'hooks', 'skills/using-v8storagekit') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
     # templates/settings.json — раніше НЕ копіювали (рев'ю B4 Task 4, Minor): тоді
-    # Install-KitSessionHook у тестах завжди викликали напряму з явним -TemplatesDir на
+    # Install-KitSettings у тестах завжди викликали напряму з явним -TemplatesDir на
     # справжній $kitRoot, і копія була мертва. B5 Task 1 (kit install-hooks) це зламало:
-    # команда викликає Install-KitSessionHook БЕЗ -TemplatesDir (типове значення відносне
+    # команда викликає Install-KitSettings БЕЗ -TemplatesDir (типове значення відносне
     # від $PSScriptRoot Hooks.psm1), а InstallHooks.Tests.ps1 запускає install-hooks
     # ПІДПРОЦЕСОМ проти саме цієї копії kit.ps1 — типове значення тоді резолвиться в
     # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі
@@ -495,4 +554,4 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
+Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces

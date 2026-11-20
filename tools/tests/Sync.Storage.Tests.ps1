@@ -36,6 +36,19 @@ Describe 'kit sync — реальне сховище (перший і повто
         # справжній — перше злиття дало б add/add-конфлікт. У реальному онбордингу дерева на main ще немає.
         git -C $script:Repo rm -rq -- SMP_BankExchange_SMB/cfe/src
         git -C $script:Repo add -A; git -C $script:Repo commit -q -m 'AUTHORS з живого репо; дерево джерела порожнє до першого sync'
+
+        # У житті цю базу створює Уніка (спека §3 рішення 4: vendor-власник — дерево придатне або .dt); у тестах kit Уніки немає, тож передумову готує тест.
+        # До створення: справжній provision на цій фікстурі зупиняється з рецептом «власника немає» й бази не створює.
+        $stop = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'SMP_BankExchange_SMB', '-Apply')
+        $stop.ExitCode | Should -Not -Be 0 -Because $stop.Output
+        $stop.Output | Should -BeLike '*бракує власника*' -Because $stop.Output
+        # Виклик production-хелпера, яким provision створює порожню файлову базу (ті самі -MustBeUnder/-RepoRoot/-OwnedRoot, що в provision.psm1,
+        # тож guard П25 Assert-SafeWorkPath проходить як у житті), без відтворення його логіки.
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/PathSafety.psm1").Path -Force
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/V8.psm1").Path -Force
+        $agentWork = Join-Path $script:Repo 'SMP_BankExchange_SMB/build'
+        $null = New-V8FileInfobase -Path (Join-Path $agentWork 'ib') -MustBeUnder $agentWork -RepoRoot $script:Repo -OwnedRoot $agentWork
+        Join-Path $agentWork 'ib/1Cv8.1CD' | Should -Exist
     }
 
     It 'сховище доступне (передумова)' {
@@ -81,7 +94,7 @@ Describe 'kit sync — реальне сховище (перший і повто
     }
 
     It 'kit check після реплею — без помилок' {
-        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $script:Repo 2>&1 | Out-String
+        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $out
     }
 }
@@ -112,6 +125,12 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
             @('build/', '.build/', 'v8storagekit.local.yaml', 'v8project.local.yaml') -join "`n")
         git -C $script:Repo add -A
         git -C $script:Repo commit -q -m 'мінімальний .gitignore без **/cf/** — cf/src тут truth: storage'
+
+        # База агента — справжнім kit provision: truth: storage + порожнє дерево = рецепт (i), порожню файлову базу створює сам kit.
+        $prov = Invoke-KitCommand -Kit $script:Kit -Command 'provision' -Repo $script:Repo -More @('-Workspace', 'Client_UNF', '-Apply')
+        $prov.ExitCode | Should -Be 0 -Because $prov.Output
+        Join-Path $script:Repo 'Client_UNF/build/ib/1Cv8.1CD' | Should -Exist -Because $prov.Output
+        $prov.Output | Should -Not -BeLike '*infobase.create*' -Because $prov.Output
     }
 
     It 'перша версія конфігурації лягає в storage/base з Config-Version і деревом під Client_UNF/cf/src' {

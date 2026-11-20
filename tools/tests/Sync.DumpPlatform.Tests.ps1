@@ -69,9 +69,15 @@ Describe 'kit sync — версія, яку основна платформа н
         $script:AltPaths = [System.Collections.Generic.List[string]]::new()
         $script:FailVersion = $null
         Mock -ModuleName sync Get-KitInstalledPlatforms { $script:Platforms }
+        # Основну платформу воркспейсу дає раннер (Get-KitAgentPlatform), а не Get-V8Path; Get-V8Path лишився
+        # лише для шляху ІНШОЇ платформи (-Version). Мок без -Version кидає: виклик «основної» через нього — регресія.
+        Mock -ModuleName sync Get-KitRunnerPath { 'C:\fake\v8-runner.exe' }
+        Mock -ModuleName sync Get-KitAgentPlatform { $script:Platforms[0].Path }
+        Mock -ModuleName sync Invoke-KitAgentRelease { [pscustomobject]@{ released = $false; disconnected = $false } }
         Mock -ModuleName sync Get-V8Path {
             param($Version)
-            if ($Version) { ($script:Platforms | Where-Object Version -eq $Version | Select-Object -First 1).Path } else { $script:Platforms[0].Path }
+            if (-not $Version) { throw 'Get-V8Path без -Version: основну платформу має давати раннер' }
+            ($script:Platforms | Where-Object Version -eq $Version | Select-Object -First 1).Path
         }
         Mock -ModuleName sync Get-StorageVersions { , @((New-KitFakeStorageVersion -Version 34), (New-KitFakeStorageVersion -Version 35)) }
         Mock -ModuleName sync Invoke-KitMainMerge { $true }
@@ -290,7 +296,8 @@ Describe 'kit sync — версія, яку основна платформа н
         @($lines | Where-Object { $_ -match 'v35 ' -and $_ -like '*платформою*' }).Count | Should -Be 0
         Should -Invoke -ModuleName sync Invoke-KitStorageCheckoutViaPlatform -Times 0 -Exactly -Scope It
         Should -Invoke -ModuleName sync Invoke-KitStorageCheckout -Times 0 -Exactly -Scope It
-        Should -Invoke -ModuleName sync Get-V8Path -Times 1 -Exactly -Scope It
+        Should -Invoke -ModuleName sync Get-KitAgentPlatform -Times 1 -Exactly -Scope It   # основна платформа — від раннера, один раз на воркспейс
+        Should -Invoke -ModuleName sync Get-V8Path -Times 0 -Exactly -Scope It             # шлях обраної платформи потрібен лише з -Apply
     }
 
     It 'прев''ю -SkipVersion 34: v34 позначено «буде пропущено», платформа не кликається' {

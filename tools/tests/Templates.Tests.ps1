@@ -65,78 +65,85 @@ Describe 'templates/githooks — хуки захисту storage/*' {
     }
 }
 
-Describe 'onboarding — шаблон v8project.yaml (Task 6: колишній product-onboarding)' {
+Describe 'onboarding — v8project.yaml за рецептом Уніки (спека 2026-11-19 §3.8 п.1)' {
     BeforeAll {
         $script:Skill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
             Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
-    It 'шаблон оголошує власну базу воркспейсу' {
-        # Без цього блоку infobase.connection приходить з v8project.local.yaml і
-        # вказує на серверну дев-базу - тобто Уніка мутує базу, де людина працює
-        # Конфігуратором. Це і була першопричина всього розбору.
-        $script:Skill | Should -Match "(?m)^\s*infobase:\s*$"
-        $script:Skill | Should -Match "connection:\s*'File=build/ib'"
+    It 'бази агента скіл не оголошує в закоміченому файлі: вона машинна, у infobases.origin v8project.local.yaml (спека 1.5.0 §4.3 п. 2–3)' {
+        $script:Skill | Should -Not -Match "(?m)^\s*infobase:\s*$"
+        $script:Skill | Should -Match "connection:\s*'File=build/ib'"   # у блоці v8project.local.yaml розділу 3.2
     }
 
-    It 'імʼя EXTENSION-джерела — реальне ім''я розширення, не ім''я теки продукту' {
+    It 'імʼя EXTENSION-набору — реальне ім''я розширення: kit дописує його до рецепта Уніки' {
         # v8-runner виводить імʼя розширення з імені source-set. Якщо там імʼя теки
-        # продукту, operation=make падає на валідації:
+        # продукту, make падає на валідації:
         #   source-set 'X' resolves to extension 'X', expected 'SMP_X'
-        $script:Skill | Should -Not -Match "(?m)^\s*-\s*name:\s*<Продукт>\s*$"
-        $script:Skill | Should -Match "(?m)^\s*-\s*name:\s*<ІмʼяРозширення>\s*$"
+        $script:Skill | Should -Match 'unica\.view \{\}'
+        $script:Skill | Should -Match '<ІмʼяРозширення>'
         $script:Skill | Should -Match 'name:.*мусить дорівнювати імені розширення'
-    }
-
-    It 'C2 (рев''ю B4 Task 4): каркас несе хук старту сесії — таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
-        # До фіксу settings.json оголошував hooks.SessionStart, а сам файл шима цей скіл не
-        # клав — щойно підключений репозиторій падав на pwsh -File неіснуючого шляху (код 64)
-        # на КОЖНОМУ старті сесії.
-        $script:Skill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
-        $script:Skill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
     }
 }
 
-Describe 'onboarding — каркас несе хук старту сесії (C2, рев''ю B4 Task 4; Task 6: колишній repo-migration)' {
-    # Task 6 (B5): repo-migration вилучено, знання перенесено в docs/migration/legacy-gitsync-repo.md,
-    # а цей Describe перенацілено на onboarding — це той самий каркас (§2 «Новий репозиторій», §3.5),
-    # тож регресійний захист знахідки C2 (рев'ю B4 Task 4) лишається чинним, а не втрачається разом
-    # із перейменуванням скіла.
+Describe 'onboarding — каркас не кладе хука старту сесії у споживача (1.6.0: хук у плагіні)' {
     BeforeAll {
         $script:MigrationSkill = Get-Content -Raw -Encoding UTF8 -LiteralPath (
             Resolve-Path "$PSScriptRoot/../../skills/onboarding/SKILL.md").Path
     }
 
-    It 'таблиця й git add кладуть .claude/hooks/session-start.ps1 разом із settings.json' {
-        $script:MigrationSkill | Should -Match "hooks/session-start\.ps1.*\.claude/hooks/session-start\.ps1"
-        $script:MigrationSkill | Should -Match 'git add .*\.claude/hooks/session-start\.ps1'
+    It 'жоден git add і жоден рядок каркаса не згадує .claude/hooks/session-start.ps1, settings.json лишається' {
+        $script:MigrationSkill | Should -Not -Match 'hooks/session-start\.ps1'
+        $script:MigrationSkill | Should -Match 'git add .*\.claude/settings\.json'
     }
 }
-
-Describe 'templates/settings.json і using-v8storagekit — хук прив''язаний до репозиторію, не до плагіна (§7)' {
+Describe 'templates/settings.json, хук плагіна і using-v8storagekit' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
-    It 'settings.json споживача має hooks.SessionStart на .claude/hooks/session-start.ps1 з matcher startup|clear|compact' {
+    It 'settings.json споживача не має розділу hooks: хук старту сесії поставляє плагін' {
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
-        $hook = $s.hooks.SessionStart[0]
-        $hook.matcher | Should -Be 'startup|clear|compact'
-        $hook.hooks[0].command | Should -BeLike '*pwsh -NoProfile -File .claude/hooks/session-start.ps1*'
-        $hook.hooks[0].async | Should -BeFalse
+        $s.PSObject.Properties.Name | Should -Not -Contain 'hooks'
     }
-    It 'плагін не оголошує власних хуків' {
-        Join-Path $script:Root 'hooks/hooks.json' | Should -Not -Exist
+    It 'дозволи Уніки 0.16: у allow рівно читальні інструменти й run; apply — явно в ask (спека 2026-11-19 §3.13 п.1, §4.2 п.14)' {
+        # run — в allow: перезапис бази агента Уніка однаково питає людину своїм питанням, а дозвіл
+        # Claude Code перед ним лише дублює запит (§3.13). Інструментів задач (unica_task_*) у живому
+        # tools/list Уніки 0.16 немає (§7.1 Б3) — у переліку їх бути не може.
+        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+        # Усі записи allow, що стосуються Уніки чи будь-якого MCP, — з урахуванням регістру і без фільтра за
+        # префіксом інструмента: маска сервера (`mcp__plugin_unica_unica` чи `…__*`) мовчки дозволила б
+        # run/apply і нові інструменти наступних версій, а регістронечутливий збіг пропустив би «двійника».
+        $unica = @($s.permissions.allow | Where-Object { $_ -match '(?i)unica|^mcp__' } | Sort-Object { $_ } -CaseSensitive)
+        $want = @('view', 'search', 'resolve', 'docs', 'check', 'diff', 'run') |
+            ForEach-Object { "mcp__plugin_unica_unica__unica_$_" } | Sort-Object { $_ } -CaseSensitive
+        $unica.Count | Should -Be $want.Count -Because 'у allow рівно перелічені інструменти, жодної маски чи двійника'
+        for ($i = 0; $i -lt $want.Count; $i++) {
+            ($unica[$i] -ceq $want[$i]) | Should -BeTrue -Because "allow[$i] = '$($unica[$i])', очікувано точно '$($want[$i])'"
+        }
+        foreach ($e in @($s.permissions.allow) + @($s.permissions.ask)) {
+            if ($e -match '(?i)^mcp__') {
+                $e | Should -Not -Match '\*' -Because 'маска в allow/ask дозволила б чи затінила б інструменти поза переліком'
+                $e | Should -Not -MatchExactly '^mcp__plugin_unica_unica$' -Because 'ім''я сервера без інструмента — маска всього сервера'
+            }
+        }
+        $full = 'mcp__plugin_unica_unica__unica_apply'
+        @($s.permissions.allow) -ccontains $full | Should -BeFalse
+        # Головна причина — режим auto: класифікатор не питає, коли запису немає в ask; acceptEdits/bypass — додаткові.
+        @($s.permissions.ask) -ccontains $full | Should -BeTrue -Because 'відсутність в allow не гарантує запиту в режимах auto/acceptEdits/bypass'
+        @($s.permissions.ask | Where-Object { $_ -match '(?i)unica|^mcp__' }) | Should -Be @($full) -Because 'в ask з інструментів Уніки — лише apply'
     }
-    It 'шим не містить CLAUDE_PLUGIN_ROOT і не імпортує модулів kit' {
-        $shim = Get-Content -LiteralPath (Join-Path $script:Root 'templates/hooks/session-start.ps1') -Raw
-        $shim | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
-        $shim | Should -Not -Match 'Import-Module'
-        $shim | Should -Match 'installed_plugins\.json'
+    It 'хук плагіна не читає реєстру плагінів і не імпортує модулів kit' {
+        # Корінь плагіна хук бере зі свого $PSScriptRoot; реєстр (installed_plugins.json) читав лише шим 1.5.0.
+        $hook = Get-Content -LiteralPath (Join-Path $script:Root 'hooks/session-start.ps1') -Raw
+        $hook | Should -Not -Match 'Import-Module'
+        $hook | Should -Not -Match 'installed_plugins\.json'
+        $hook | Should -Match 'PSScriptRoot'
+        Join-Path $script:Root 'templates/hooks/session-start.ps1' | Should -Not -Exist
     }
-    It 'using-v8storagekit без токена CLAUDE_PLUGIN_ROOT, з префіксованими іменами скілів' {
+    It 'using-v8storagekit: шлях до kit через токен кореня плагіна (хук його більше не підставляє), з префіксованими іменами скілів' {
         $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/using-v8storagekit/SKILL.md') -Raw
-        $skill | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
         foreach ($n in 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
-        $skill | Should -Match '<корінь плагіна>'
+        $skill | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1'
+        $skill | Should -Not -Match '<корінь плагіна>'
     }
 }
 
@@ -204,7 +211,20 @@ Describe 'templates/CLAUDE.md — модель 1.0 (Task 6)' {
 
     It 'C2 Task 7: абзац «Збірка .cfe» називає output відносним до воркспейсу, не абсолютним' {
         $script:TemplateClaudeMd | Should -Match 'Збірка `\.cfe`'
-        $script:TemplateClaudeMd | Should -Match 'output=build/artifacts/<Ім''я>\.cfe'
+        $script:TemplateClaudeMd | Should -Match '"output":"build/artifacts/<Ім''я>\.cfe"'
         $script:TemplateClaudeMd | Should -Not -Match 'output=<корінь'
+    }
+
+    It 'templates/CLAUDE.md говорить мовою Уніки 0.16: сесія в корені, -text лишається, push force питає людину' {
+        # Спека 2026-11-19 §3.3 п.4 (сесія в корені), §3.9 п.3 (попередження про -text), §3.1 (П17 скасовано).
+        $c = $script:TemplateClaudeMd
+        $c | Should -Not -Match 'operation='
+        $c | Should -Match 'infobases\.origin'
+        $c | Should -Match '"op":"make"'
+        $c | Should -Match 'unica\.check'
+        $c | Should -Match 'відкривати в корені цього репозиторію'
+        $c | Should -Match 'git\.text_resource_marked_binary'
+        $c | Should -Match 'cancelled'
+        $c | Should -Not -Match 'виняток\s+лише для бази агента'
     }
 }

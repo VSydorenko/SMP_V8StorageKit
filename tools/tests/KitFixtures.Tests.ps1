@@ -63,4 +63,51 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         $sha2 = Set-KitFakeBranchTree -Repo $repo -Branch 'storage/Alpha_SMB' -Message 'v2' -Files ([ordered]@{ 'Alpha_SMB/cfe/src/a.xml' = 'A' })
         (git -C $repo rev-parse "$sha2^") | Should -Be $sha
     }
+
+    # Task 5: Invoke-KitCommand сам підставляє фальшивий реєстр Уніки для check/session-check. Щоб
+    # тест не залежав від Уніки на машині, підпроцесу ховаємо справжній домашній каталог (HOME і
+    # USERPROFILE → порожня тека): без підстановки kit побачив би «реєстр не знайдено» — error зі
+    # словами «Плагін unica», а з підстановкою 0.16.0 знахідки unica-version немає зовсім.
+    It 'check без -InstalledPluginsPath: фікстура підставляє фальшивий реєстр, знахідки unica-version немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-unica') -WithHooks -WithGitattributes -WithGitignore
+        $emptyHome = Join-Path $TestDrive 'empty-home'
+        New-Item -ItemType Directory -Path $emptyHome -Force | Out-Null
+        $oldHome = $env:HOME; $oldProfile = $env:USERPROFILE
+        try {
+            $env:HOME = $emptyHome; $env:USERPROFILE = $emptyHome
+            $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo
+        } finally { $env:HOME = $oldHome; $env:USERPROFILE = $oldProfile }
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*плагін unica*'
+    }
+    It 'check з явним -InstalledPluginsPath: фікстура свого не додає (явний реєстр виграє)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'explicit-unica') -WithHooks -WithGitattributes -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.15.2'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*0.15.2*'
+    }
+    It 'check без -RunnerPath: фікстура підставляє фальшивий раннер (фальшивий реєстр його не несе), знахідки runner-version немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-runner') -WithHooks -WithGitattributes -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*Раннер*'
+    }
+    It 'check з явним -RunnerPath: фікстура свого не додає (явний шлях виграє — на неіснуючий файл дає error runner-version)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'explicit-runner') -WithHooks -WithGitattributes -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'check' -Repo $repo -More @('-RunnerPath', (Join-Path $TestDrive 'нема\v8-runner.exe'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*Раннер Уніки недоступний*'
+    }
+    It 'session-check без -RunnerPath: фікстура підставляє фальшивий раннер і для нього' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fake-runner-sc') -WithHooks -WithGitattributes -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo
+        $r.Output | Should -Not -BeLike '*Раннер*'
+    }
+    It 'New-KitFakeUnicaRegistry: файл читається Get-UnicaInstallation з заданою версією' {
+        Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force
+        $i = Get-UnicaInstallation -InstalledPluginsPath (New-KitFakeUnicaRegistry -Version '0.16.4')
+        $i.Installed | Should -BeTrue
+        $i.PathExists | Should -BeTrue
+        $i.Version | Should -Be '0.16.4'
+    }
 }

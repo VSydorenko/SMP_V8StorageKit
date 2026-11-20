@@ -199,11 +199,13 @@ Describe 'Get-StorageVersions (команда, побудована для пл�
         $workDir = Join-Path $TestDrive 'get-storage-versions-workdir'
 
         $null = Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'X' `
-            -ExtensionName 'EXT' -StorageUser 'gitbot' -WorkDir $workDir
+            -ExtensionName 'EXT' -StorageUser 'gitbot' -WorkDir $workDir -V8Path 'C:\fake\1cv8.exe'
 
         Should -Invoke -ModuleName StorageReport Invoke-V8Designer -Times 1 -ParameterFilter {
             ($Arguments -join ' ') -match '-IncludeCommentLinesWithDoubleSlash'
         }
+        # Платформа, яку передав викликач, доходить до Invoke-V8Designer (запасного Get-V8Path тут немає).
+        Should -Invoke -ModuleName StorageReport Invoke-V8Designer -Times 1 -ParameterFilter { $V8Path -eq 'C:\fake\1cv8.exe' }
     }
 }
 
@@ -242,12 +244,23 @@ Describe 'Get-StorageVersions — відмова автентифікації с
         $workDir = Join-Path $TestDrive 'get-storage-versions-auth'
 
         $err = { Get-StorageVersions -IbSwitch '/F "X"' -StoragePath 'R:\S' -StorageUser 'someuser' `
-            -StoragePassword 'secret' -WorkDir $workDir } |
+            -StoragePassword 'secret' -WorkDir $workDir -V8Path 'C:\fake\1cv8.exe' } |
             Should -Throw "*R:\S*відхилило користувача 'someuser'*gitbot*storage.user*v8storagekit.local.yaml*storages.<ключ>.password*" -PassThru
         # Дисципліна секретів — не покладатись лише на те, що production-текст сьогодні
         # жорсткий літерал без інтерполяції пароля: явне заперечення ловить майбутню
         # правку, яка випадково почне вставляти пароль у текст зупинки, тестом, а не
         # рев'ю коду.
         $err.Exception.Message | Should -Not -Match 'secret'
+    }
+}
+
+Describe 'Get-StorageVersions — пароль бази агента (#26)' {
+    It 'Get-StorageVersions передає пароль бази агента в Invoke-V8Designer, а пароль сховища — лише аргументом /ConfigurationRepositoryP' {
+        Mock -ModuleName StorageReport Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        $wd = Join-Path $TestDrive 'rep'; New-Item -ItemType Directory -Path $wd -Force | Out-Null
+        try { $null = Get-StorageVersions -IbSwitch '/F "C:\ib"' -StoragePath 'C:\s' -StorageUser 'su' -StoragePassword 'sp' -WorkDir $wd -V8Path 'C:\fake\1cv8.exe' -User 'agent' -Password 'pw' } catch { }
+        Should -Invoke -ModuleName StorageReport Invoke-V8Designer -Times 1 -ParameterFilter {
+            $Password -eq 'pw' -and $User -eq 'agent' -and ($Arguments -join ' ') -like '*/ConfigurationRepositoryP "sp"*'
+        }
     }
 }

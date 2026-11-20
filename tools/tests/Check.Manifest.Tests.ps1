@@ -79,15 +79,21 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # корінь), цей файл живе В КОЖНОМУ воркспейсі поруч зі своїм v8project.yaml.
     It 'v8project.local.yaml (файл Уніки) гітігноровано ПРАВИЛОМ, але вже закомічено — код 1, факт відстеження' {
         $repo = New-GoodRepo 'local-tracked'
-        # CRLF — та сама причина, що в тесті вище про v8storagekit.local.yaml.
-        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
-            -Value "infobase:`r`n  connection: 'File=build/agent_ib'"
+        Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/agent_ib'
         git -C $repo add -f -- Alpha_SMB/v8project.local.yaml
         git -C $repo commit -qm 'фікстура: v8project.local.yaml закомічено силою попри .gitignore'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*git rm --cached*Alpha_SMB/v8project.local.yaml*'
         $r.Output | Should -BeLike '*ІСТОРІЇ*'
+    }
+
+    It 'v8project.local.yaml не гітігноровано правилом репозиторію — error local-ignored (exclude фікстури прибрано)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'local-not-ignored') -WithHooks
+        $ex = Join-Path $repo '.git/info/exclude'
+        Set-Content -LiteralPath $ex -Value (@(Get-Content -LiteralPath $ex | Where-Object { $_ -ne 'v8project.local.yaml' })) -Encoding UTF8
+        $r = Invoke-Check -Repo $repo
+        $r.Output | Should -BeLike '*v8project.local.yaml не гітігноровано*'
     }
 
     It 'без маніфесту — код 1 і підказка на onboarding' {
@@ -132,5 +138,122 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Match '\[i\].*main'
         $r.Output | Should -BeLike "*Свіжий репозиторій*'main'*ще немає*перший коміт*"
         $r.Output | Should -Not -BeLike '*перевірте mainBranch*'
+    }
+}
+
+Describe 'kit check і решта команд — застарілий конфіг Уніки зупиняє все (§10 П9)' {
+    BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
+
+    It 'check: стара форма infobase: у v8project.yaml — код 1; підсумок рахує воркспейси й джерела маніфесту, а не 0 (дефект пілоту §5 п.2)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-cfg') -WithHooks -WithGitignore
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*стара форма 'infobase:'*"
+        # Воркспейс із помилкою конфігу до розв'язаного контексту не потрапляє, але в маніфесті він є.
+        $r.Output | Should -BeLike '*Маніфест:*воркспейсів 1, джерел у перевірці 2 (*'
+        $r.Output | Should -Not -BeLike '*воркспейсів 0*'
+        $r.Output | Should -Not -BeLike '*джерел у перевірці 0*'
+        $r.Output | Should -BeLike "*розв'язано 0*"
+    }
+    It 'check: ключі, які відхиляє сам раннер (builder, execution_timeout, basePath, partialLoadThreshold), — не знахідки kit (§3.8 п.3)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'runner-keys') -WithHooks -WithGitignore -WithGitattributes
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('builder: DESIGNER', 'execution_timeout: 600000', 'execution_timeout_seconds: 600', 'basePath: x', 'push:', '  partialLoadThreshold: 10')
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike "*'builder'*"
+        $r.Output | Should -Not -BeLike '*execution_timeout*'
+        $r.Output | Should -Not -BeLike '*partialLoadThreshold*'
+    }
+    It 'sync на застарілому конфігу — зупинка на префлайті, build/sync не створено' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-sync') -WithHooks -WithGitignore
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'sync' -Repo $repo
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike "*стара форма 'infobase:'*"
+        Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
+    }
+    # Закріплення контракту з Унікою (спека §8, §7.1 «Побічне»), НЕ червоний-спершу тест: у check немає жодної
+    # перевірки ключа tools, тож до цієї задачі він уже був зеленим. Він стереже від майбутньої суворої
+    # перевірки невідомих ключів: Уніка дописує tools.platform.version у v8project.local.yaml сама.
+    It 'контракт: tools.platform.version поруч з infobases.origin у v8project.local.yaml — не знахідка, база агента читається' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'tools-platform') -WithHooks -WithGitignore -WithGitattributes
+        Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 -Value @(
+            'infobases:', '  origin:', "    connection: 'File=build/ib'", 'tools:', '  platform:', "    version: '8.3.27.1644'")
+        $r = Invoke-Check -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*tools.platform*'
+        # База агента прочитана: warn називає її теку «ще немає на диску», а не «не налаштована».
+        $r.Output | Should -BeLike '*бази агента воркспейсу*ще немає на диску*'
+        $r.Output | Should -Not -BeLike '*не налаштована*'
+    }
+}
+
+Describe 'kit check — версія Уніки й раннера (спека 2026-11-19 §4.2 п.4, п.19, п.20)' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        $script:FixDir = (Resolve-Path "$PSScriptRoot/fixtures/runner").Path
+        function script:New-VersionedRunner([string]$Line) {
+            $dir = Join-Path $TestDrive ('runner-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $dir | Out-Null
+            Copy-Item -Path (Join-Path $script:FixDir '*') -Destination $dir -Recurse
+            Set-Content -LiteralPath (Join-Path $dir 'version.txt') -Value $Line -Encoding ASCII
+            Join-Path $dir 'v8-runner.cmd'
+        }
+    }
+    It 'Уніка 0.15.2 — error unica-version, код 1, рецепт оновлення' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'old-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.15.2'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[[]-]*0.15.2*claude plugin update unica@unica*'
+    }
+    It 'Уніка 0.17.0 — warn з процедурою звірки, код 0' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'newer-unica') -WithHooks -WithGitignore -WithGitattributes
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.17.0'))
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*[[]!]*0.17.0*unica-contract.md*'
+    }
+    It 'Уніка 0.16.0 — знахідок unica-version і runner-version немає' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'good-unica') -WithHooks -WithGitignore -WithGitattributes
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.16.0'))
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*плагін unica*'
+        $r.Output | Should -Not -BeLike '*Раннер*'
+    }
+    It 'раннера немає (-RunnerPath на неіснуючий файл) — error runner-version, код 1' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-runner') -WithHooks -WithGitignore -WithGitattributes
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-RunnerPath', (Join-Path $TestDrive 'нема\v8-runner.exe'))
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[[]-] Раннер Уніки недоступний: Раннер не знайдено*нема\v8-runner.exe*'
+    }
+    It 'властивість §4.2 п.20: без -RunnerPath і з фальшивим реєстром без раннера — теж error (kit не йде до справжньої Уніки)' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'forgot-runner') -WithHooks -WithGitignore -WithGitattributes
+        # Прямий запуск, без Invoke-KitCommand: фікстура сама підставила б фальшивий раннер.
+        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry -Version '0.16.0') 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 1 -Because $out
+        $out | Should -BeLike '*[[]-] Раннер Уніки недоступний*'
+    }
+    It 'Уніки в реєстрі немає — error через runner-version (без окремого unica-version), текст каже, що dump працює' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-unica') -WithHooks -WithGitignore -WithGitattributes
+        $reg = Join-Path $TestDrive 'no-unica.json'
+        Set-Content -LiteralPath $reg -Encoding UTF8 -Value '{"version":2,"plugins":{}}'
+        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath $reg 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 1 -Because $out
+        $out | Should -BeLike '*[[]-] Раннер Уніки недоступний: Раннер не знайдено: Unica не встановлена*kit dump працює*'
+        ([regex]::Matches($out, '\[-\]')).Count | Should -Be 1 -Because 'два error про одну причину — шум'
+    }
+    It 'фальшивий раннер 0.19.0 — warn runner-version з процедурою звірки, код 0' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'runner-019') -WithHooks -WithGitignore -WithGitattributes
+        $r = Invoke-KitCommand -Kit $script:Kit -Command check -Repo $repo -More @('-RunnerPath', (New-VersionedRunner 'v8-runner 0.19.0'))
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike '*[[]!] Раннер v8-runner 0.19.0*0.18.x*unica-contract.md*'
+    }
+    It 'session-check прокидає -InstalledPluginsPath і -RunnerPath у check' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'sc-unica') -WithHooks -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo -More @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry -Version '0.15.2'), '-RunnerPath', (Join-Path $TestDrive 'нема\v8-runner.exe'))
+        # Обидві помилки (кожна з свого параметра) — у виводі session-check, що друкує лише errors, коли вони є.
+        $r.Output | Should -BeLike '*0.15.2*'
+        $r.Output | Should -BeLike '*Раннер Уніки недоступний*нема\v8-runner.exe*'
     }
 }

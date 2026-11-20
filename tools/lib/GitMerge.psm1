@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot/PathSafety.psm1"
 Import-Module "$PSScriptRoot/StorageBranch.psm1"
-# Потрібен Invoke-KitGitProcess. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
+# Потрібні Invoke-KitGitProcess і Get-KitCurrentBranch. module-order ставить GitMerge раніше за TreeCompare, тож імпорт вкладений (як у CaseGuard).
 Import-Module "$PSScriptRoot/TreeCompare.psm1"
 # Get-KitTreePaths, Get-KitCaseCollisions — перевірка груп регістру в дереві злиття (як у StorageBranch, вкладено).
 Import-Module "$PSScriptRoot/CaseGuard.psm1"
@@ -60,19 +60,16 @@ function Merge-KitBranchInto {
     # Залишок тимчасового worktree kit ≤ 1.3.1 (build/sync/_main/wt) — прибрати, якщо є: нова схема його не створює.
     $legacy = Join-Path $RepoRoot 'build/sync/_main/wt'
     if (Test-Path -LiteralPath $legacy) {
-        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -Description 'залишок worktree головної гілки'
+        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'залишок worktree головної гілки'
         git -C $RepoRoot worktree remove --force $legacy 2>$null | Out-Null
-        if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Recurse -Force }
+        Remove-KitDirectory -Path $legacy
         git -C $RepoRoot worktree prune 2>$null | Out-Null
     }
 
-    # 2>$null, не 2>&1: $current читається як ім'я гілки (той самий принцип, що StorageBranch.psm1).
-    $current = (git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "git branch --show-current у $RepoRoot завершився з кодом ${LASTEXITCODE}." }
+    $current = Get-KitCurrentBranch -RepoRoot $RepoRoot
     $here = ($current -eq $Into)
     if ($here) {
-        # -c core.quotepath=false і 2>$null — див. історію в коментарях попередньої редакції (B2):
-        # перелік має бути шляхами, не попередженнями git.
+        # -c core.quotepath=false і 2>$null: перелік має бути шляхами, не попередженнями git.
         $dirty = git -c core.quotepath=false -C $RepoRoot status --porcelain 2>$null
         if ($LASTEXITCODE -ne 0) { throw "git status завершився з кодом ${LASTEXITCODE}." }
         if ($dirty) {
@@ -120,7 +117,7 @@ function Merge-KitBranchInto {
     }
     $tree = $fields[0].Trim()
 
-    # Групи регістру в дереві злиття (спека 2026-10-04 §4.2, крок 3, фінальне рев'ю H1): merge-tree віддає код 0 і
+    # Групи регістру в дереві злиття (§4.2, крок 3): merge-tree віддає код 0 і
     # дерево з ОБОМА шляхами, коли перше злиття (--allow-unrelated-histories) приносить об'єкт з іншим регістром,
     # ніж у <Into>; після read-tree --reset -u копія була б брудною. Блокують лише групи, яких не було в <Into>
     # (порівняння за НАБОРОМ шляхів): стара зіпсована гілка не мусить блокувати злиття назавжди — її ловить check.
@@ -163,7 +160,7 @@ function Merge-KitBranchInto {
         if ($da.ExitCode -ne 0) { throw "git diff-tree завершився з кодом $($da.ExitCode): $($da.Stderr)" }
         $added = @($da.Stdout -split "`0" | Where-Object { $_ })
         if ($added.Count -gt 0) {
-            # Перетин — OrdinalIgnoreCase (спека 2026-10-04 §4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
+            # Перетин — OrdinalIgnoreCase (§4.2, крок 3а): на NTFS ігнорований x.BIN і доданий
             # x.bin — один файл, і read-tree перезапише його. Хибної зупинки на кириличному перейменуванні
             # регістром це не дає: старий файл відстежуваний, у переліку ігнорованих його немає.
             # Верхні теки для pathspec — фактичні імена в корені, зіставлені OrdinalIgnoreCase: магія icase у

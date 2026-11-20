@@ -2,7 +2,7 @@
 Describe 'skills/*/SKILL.md — правила, які легко порушити' {
     BeforeAll {
         $script:SkillsDir = (Resolve-Path "$PSScriptRoot/../../skills").Path
-        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify')   # migrate немає: спека 2f2da62, §9
+        $script:Allowed = @('using-v8storagekit', 'onboarding', 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'unica-folders')   # migrate немає: спека 2f2da62, §9
         # Лише скіли 1.0. Три старі (storage-pipeline, product-onboarding, repo-migration) живуть у
         # дереві до Task 6 і НЕ мусять проходити ці правила: у них є storage-sync.ps1, dump-config.ps1
         # і перехресні посилання на імена поза $Allowed. Без фільтра весь файл був би червоний із
@@ -45,6 +45,15 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $script:SkillDocs.Count | Should -BeGreaterThan 8 -Because 'набір мусить брати й references/, не лише вісім SKILL.md'
         foreach ($d in $script:SkillDocs) {
             [regex]::Matches($d.Text, '\$\{CLAUDE_PLUGIN_ROOT\}(?!/)').Count | Should -Be 0 -Because "у $($d.Rel) токен вжито не як частину шляху"
+        }
+    }
+    It '${CLAUDE_PLUGIN_ROOT} не вживається у skills/*/references/** — там токен НЕ підставляється, агент отримав би непридатну команду' {
+        # Підстановка діє лише в тілі SKILL.md (пілот 1.6.0, 2026-11-20: сім вживань у references/ дали
+        # агентові буквальний рядок із токеном). Контроль, що перевірка бачить references/: набір не порожній.
+        $refs = @($script:SkillDocs | Where-Object { $_.Rel -match '[\\/]references[\\/]' })
+        $refs.Count | Should -BeGreaterThan 0 -Because 'контроль: references/ мусить потрапляти в набір'
+        foreach ($d in $refs) {
+            $d.Text | Should -Not -Match '\$\{CLAUDE_PLUGIN_ROOT\}' -Because "у $($d.Rel) токен не підставляється"
         }
     }
     It 'перехресні посилання — лише з префіксом v8storagekit: і лише на відомі скіли' {
@@ -146,10 +155,19 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match 'гітігноровано'
             $t | Should -Match 'мовчазного дефолту немає|Мовчазних дефолтів'
         }
-        It 'шаблон v8project.yaml: база агента File=build/ib, name EXTENSION = ім''я розширення' {
+        It 'v8project.yaml — рецепт Уніки (unica.view {} → setup) плюс providers designer; власного шаблону немає; база — infobases.origin у блоці local' {
+            # Спека 2026-11-19 §3.8 п.1: шаблон kit старів би разом з Унікою; kit дописує лише свої вимоги.
             $t = Skill 'onboarding'
-            $t | Should -Match "connection:\s*'File=build/ib'"
-            $t | Should -Match '(?m)^\s*-\s*name:\s*<ІмʼяРозширення>'
+            $t | Should -Match 'unica\.view \{\}'
+            $t | Should -Match '`setup`'
+            $blocks = [regex]::Matches($t, '(?ms)^```yaml\s*\r?\n(.*?)^```') | ForEach-Object { $_.Groups[1].Value }
+            @($blocks | Where-Object { $_ -match '(?m)^\s*(format|workPath|source-set):' }) | Should -BeNullOrEmpty -Because 'власного шаблону v8project.yaml у скілі немає'
+            $prov = @($blocks | Where-Object { $_ -match '(?m)^providers:\s*$' })
+            $prov | Should -HaveCount 1
+            foreach ($op in 'push', 'pull', 'download') { $prov[0] | Should -Match "(?m)^\s+${op}:\s*designer\s*$" }
+            $local = @($blocks | Where-Object { $_ -match '(?m)^infobases:\s*$' -and $_ -match '(?m)^\s+origin:\s*$' })
+            $local | Should -Not -BeNullOrEmpty
+            $t.IndexOf('v8project.local.yaml') | Should -BeLessThan $t.IndexOf($local[0]) -Because 'блок бази стоїть після назви файлу, у який його пишуть'
         }
         It 'ставить хуки командою install-hooks, дописує -text і .gitignore під фактичні шляхи, перший коміт до -Apply' {
             $t = Skill 'onboarding'
@@ -175,8 +193,10 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             # й тест починає вимагати переходу, якого вже немає (спіймано бампом 1.0.1 → 1.1.0).
             $pluginVersion = [string]((Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.claude-plugin/plugin.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version)
             $pluginVersion | Should -Not -BeNullOrEmpty
-            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -BeLike "*$pluginVersion*" `
-                -Because "upgrades.md мусить описувати перехід на версію, яку плагін щойно оголосив ($pluginVersion)"
+            # Заголовок розділу переходу, а не підрядок: голе число трапляється й у прозі («версії 1.5.0
+            # не випускалось»), і тест на підрядок зеленів би без розділу переходу.
+            (Get-Content -LiteralPath $up -Raw -Encoding UTF8) | Should -Match ('(?m)^##\s+\d+\.\d+\.\d+\s+→\s+' + [regex]::Escape($pluginVersion) + '\s*$') `
+                -Because "upgrades.md мусить мати розділ переходу на версію, яку плагін щойно оголосив ($pluginVersion)"
         }
     }
 
@@ -210,22 +230,70 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'provision' {
-        It 'питає тип бази трьома варіантами й записує вибір у накладку; серверна — поза межами' {
+        It 'три типи бази, лише -ServerBase Existing, infobases.origin, -Remember, крок з виводу; без -Force, -ServerBase New, CrSQLDB' {
             $t = Skill 'provision'
             $t | Should -Match '\*\*порожня\*\*'
             $t | Should -Match '\*\*з `?\.dt`?\*\*|\*\*з \.dt\*\*'
             $t | Should -Match '\*\*серверна\*\*'
+            $t | Should -Match '-ServerBase Existing'
+            $t | Should -Match 'infobases\.origin'
             $t | Should -Match '-Remember'
-            $t | Should -Match 'operation=build'
+            $t | Should -Match 'надрукован'
             $t | Should -Match 'v8project\.local\.yaml'
+            # Прибране з kit 1.6.0: kit не видаляє базу й не створює серверних баз.
+            $t | Should -Not -Match '-Force'
+            $t | Should -Not -Match '-ServerBase New'
+            $t | Should -Not -Match 'CrSQLDB'
+            $t | Should -Match '\.local/infobases/origin' -Because 'зупинка на наявній базі називає обидві теки'
+        }
+    }
+    Context 'provision — цитати зупинок' {
+        It 'кожна фраза зупинки, процитована в розділі «Штатні зупинки», існує дослівно в tools/commands чи tools/lib' {
+            $t = Skill 'provision'
+            $m = [regex]::Match($t, '(?ms)^## 4\. Штатні зупинки\s*$(.*?)(?=^## )')
+            $m.Success | Should -BeTrue -Because 'розділ «## 4. Штатні зупинки» має бути у скілі provision'
+            # Форма цитати в розділі: пункт списку починається з `…` (перший спан у бектиках), «…» — місце змінної частини.
+            $quotes = foreach ($line in ($m.Groups[1].Value -split "`r?`n")) {
+                $q = [regex]::Match($line, '^- `([^`]+)`')
+                if ($q.Success) { $q.Groups[1].Value }
+            }
+            @($quotes).Count | Should -BeGreaterThan 10 -Because 'розділ має містити цитати зупинок у формі «- `текст`»'
+            $toolsDir = (Resolve-Path "$PSScriptRoot/..").Path
+            $code = (Get-ChildItem -LiteralPath $toolsDir -Recurse -Filter '*.psm1' |
+                Where-Object { $_.DirectoryName -match '[\\/](commands|lib)$' } |
+                ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 }) -join "`n"
+            # Нормалізація коду до тексту, який побачить людина: склейка літералів через `+` у рядках, '' -> ', `$ -> $.
+            $code = [regex]::Replace($code, '["'']\s*\+\s*\r?\n\s*["'']', '')
+            $code = $code.Replace("''", "'").Replace('`$', '$')
+            $missing = foreach ($q in $quotes) {
+                foreach ($frag in ($q -split '…')) {
+                    $f = $frag.Trim(' ')
+                    if ($f.Length -lt 6) { continue }
+                    if (-not $code.Contains($f)) { "«$f» (з цитати: $q)" }
+                }
+            }
+            @($missing) | Should -BeNullOrEmpty -Because ("скіл цитує тексти зупинок, яких немає в коді (виправляти скіл, не код):`n" + (@($missing) -join "`n"))
         }
     }
     Context 'reconcile' {
-        It 'sync → operation=build → canon → adopt (заміна, прев''ю обох списків)' {
+        It 'sync → крок, надрукований sync (push force) → pull force → adopt; #25' {
             $t = Skill 'reconcile'
             $t | Should -Match 'kit\.ps1" sync'
-            $t | Should -Match 'operation=build'
-            $t | Should -Match 'kit\.ps1" canon'
+            $t | Should -Match 'надрукован'
+            $t | Should -Match '"force":true'
+            $t | Should -Match 'infobase_state_unverified'
+            # Запобіжник порядку: push force стоїть РАНІШЕ за pull force, а pull — раніше за adopt. pull на базі, не вирівняній push force,
+            # вивантажив би версію сховища замість гілки задачі й замінив би закомічену роботу.
+            $posPush = $t.IndexOf('"op":"push"')
+            $posPull = $t.IndexOf('"op":"pull"')
+            $posAdopt = $t.IndexOf('kit.ps1" adopt')
+            $posPush | Should -BeGreaterThan -1
+            $posPull | Should -BeGreaterThan $posPush -Because 'pull force — після push force'
+            $posAdopt | Should -BeGreaterThan $posPull -Because 'adopt — після pull force'
+            $t | Should -Match '"force":true'
+            $t | Should -Match 'cancelled'
+            $t | Should -Match '"extension":'
+            $t | Should -Not -Match 'kit\.ps1" canon'
             $t | Should -Match 'kit\.ps1" adopt'
             $t | Should -Match 'зникне з гілки'
             # Позитивно, а не Should -Not -Match 'rebase': сам скіл ЗАБОРОНЯЄ rebase словами
@@ -238,9 +306,13 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
     Context 'finish' {
-        It 'sync → canon → adopt → verify → тести Unica → артефакти → PR; push і PR лише з дозволу' {
+        It 'sync → push force → pull force → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
-            foreach ($m in 'kit\.ps1" sync', 'kit\.ps1" canon', 'kit\.ps1" adopt', 'kit\.ps1" verify', 'kit\.ps1" build', 'operation=test', 'operation=syntax', 'operation=make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify',
+                           'unica\.check', '"op":"make"', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+            $t | Should -Not -Match 'kit\.ps1" build'   # Task 5: збірку робить лише make Уніки
+            $t | Should -Not -Match 'kit\.ps1" canon'
+            $t | Should -Not -Match 'testRunner'
             $t | Should -Match 'лише за явним проханням|лише на явне прохання'
             # R3: гейт «повідомити користувача» перед PR при суттєвих змінах зі сховища
             $t | Should -Match 'суттєв'
@@ -248,6 +320,27 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             $t | Should -Match '--name-only'      # перетин файлів F і нових версій — критерій (а)
             $t | Should -Not -Match 'ORIG_HEAD'   # ORIG_HEAD був від git merge; adopt його не лишає
         }
+    }
+    It 'finish: push force стоїть раніше за pull force, а той — раніше за adopt (порядок обох кроків канонізації)' {
+        $t = Skill 'finish'
+        $posPush = $t.IndexOf('"op":"push"')
+        $posPull = $t.IndexOf('"op":"pull"')
+        $posAdopt = $t.IndexOf('kit.ps1" adopt')
+        $posPush | Should -BeGreaterThan -1
+        $posPull | Should -BeGreaterThan $posPush
+        $posAdopt | Should -BeGreaterThan $posPull
+    }
+    It 'команди kit canon більше немає: жодного скіла (крім довідки upgrades.md про минулі версії) і шаблону, що її кличе чи згадує' {
+        # Команду замінили pull force Уніки й kit supply-marker (спека 2026-11-19 §3.2). Скіл, що кличе
+        # неіснуючу команду, — дефект, який користувач побачить лише на «Unknown command» у живій сесії.
+        $templatesDir = (Resolve-Path "$PSScriptRoot/../../templates").Path
+        $files = @($script:SkillDocs | Where-Object { $_.Rel -notlike '*upgrades.md' } |
+            ForEach-Object { [pscustomobject]@{ Rel = "skills/$($_.Rel)"; Text = $_.Text } }) +
+            @(Get-ChildItem -LiteralPath $templatesDir -Recurse -File | ForEach-Object {
+                [pscustomobject]@{ Rel = "templates/" + [IO.Path]::GetRelativePath($templatesDir, $_.FullName); Text = (Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8) } })
+        $files.Count | Should -BeGreaterThan 8 -Because 'перелік файлів не порожній (контроль, що перевірка дивиться)'
+        $hits = @($files | Where-Object { $_.Text -match '(?i)\bcanon\b' } | ForEach-Object Rel)
+        $hits | Should -BeNullOrEmpty -Because ("згадка canon у: " + ($hits -join ', '))
     }
     It 'reconcile і finish приймають версію сховища через adopt, а не git merge' {
         foreach ($s in @('reconcile', 'finish')) {
@@ -257,14 +350,14 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'finish ставить operation=build між verify і тестами' {
+    It 'finish ставить крок, надрукований verify, між verify і unica.check' {
         $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../skills/finish/SKILL.md') -Raw -Encoding UTF8
         $posVerify = $text.IndexOf('kit.ps1" verify')
-        $posBuild  = $text.IndexOf('operation=build', $posVerify)
-        $posTests  = $text.IndexOf('operation=syntax', $posVerify)
+        $posStep   = $text.IndexOf('надрукован', $posVerify)
+        $posCheck  = $text.IndexOf('unica.check', $posVerify)
         $posVerify | Should -BeGreaterThan -1
-        $posBuild  | Should -BeGreaterThan $posVerify
-        $posTests  | Should -BeGreaterThan $posBuild
+        $posStep   | Should -BeGreaterThan $posVerify
+        $posCheck  | Should -BeGreaterThan $posStep
     }
 
     It 'sync, verify і reconcile попереджають, що база лишається у стані сховища' {
@@ -274,14 +367,36 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # перелік неповний, і це знає код, а не текст.
         foreach ($s in @('sync', 'verify', 'reconcile')) {
             $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot "../../skills/$s/SKILL.md") -Raw -Encoding UTF8
-            # Два твердження, не одне: голе 'operation=build' регресії НЕ ловить для reconcile —
-            # цей підрядок був там і ДО C1 (тричі, з іншої причини — страховка canon), тож
-            # відкот кроку 2 до старого формулювання лишив би тест зеленим (рев'ю Task 6,
-            # Important). Друге твердження тримає саме те, що додав C1: стан бази після sync
-            # названо ОГОЛОШЕНИМ КОНТРАКТОМ, а не збоєм. До C1 слова «контракт» не було ЖОДНОГО
-            # разу в жодному з двох файлів (звірено проти ea4decc) — це й робить його guard'ом.
-            $text | Should -BeLike '*operation=build*'
+            # Два твердження, не одне (історія C1, лишається): перше тримає, що скіл відсилає до кроку,
+            # який надрукувала команда (раніше це був голий operation=build, і для reconcile підрядок
+            # був і до C1 — з іншої причини, колишньої страховки canon, тож його одного відкіт не ловив).
+            # Друге тримає саме те, що додав C1: стан бази після sync/verify названо ОГОЛОШЕНИМ
+            # КОНТРАКТОМ, а не збоєм; без нього агент читав би зрушену базу як поломку.
+            $text | Should -BeLike '*надрукован*'
             $text | Should -BeLike '*контракт*'
+        }
+    }
+
+    It 'using-v8storagekit: маршрутизація 0.16, push force питає людину, cancelled — зупинка, сітка, воркспейс з виводу, -text' {
+        # Спека 2026-11-19 §3.1 (наслідки 2, 3, 5, 6), §3.3 п.3, §3.9 п.3, §5 п.1: агент споживача виконує
+        # ці тексти дослівно, тож кожен наслідок — окремий підрядок, а не загальне «є розділ».
+        $t = Skill 'using-v8storagekit'
+        foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow',
+                       '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
+                       'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків',
+                       'Перезаписать базу', 'claude -p', 'cancelled', 'база агента не вирівняна',
+                       'воркспейсі, названому', 'git\.text_resource_marked_binary') {
+            $t | Should -Match $m
+        }
+        # П17 спеки 1.5.0 («force без питання людині») скасовано правилом Уніки; workspace і тайм-аут хоста —
+        # знання Уніки, не kit (§3.3 п.2, §5 п.1).
+        foreach ($m in 'без питання', '(?<![\w-])workspace(?![\w-])', 'MCP_TOOL_TIMEOUT', 'одинадцять') {
+            $t | Should -Not -Match $m
+        }
+    }
+    It 'sync, verify, reconcile наказують перевірити ЗУПИНКА й не йти далі' {
+        foreach ($s in @('sync', 'verify', 'reconcile')) {
+            (Skill $s) | Should -Match 'ЗУПИНКА' -Because "$s мусить зупиняти агента на кроці blocked (умова архітектора)"
         }
     }
 }

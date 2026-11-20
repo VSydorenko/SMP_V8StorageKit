@@ -2,8 +2,7 @@
 Set-StrictMode -Version Latest
 
 # Командний модуль нічого не імпортує сам: lib-модулі вже завантажив kit.ps1 у порядку
-# module-order.txt, і вкладений Import-Module тут лише ризикував би перезавантаженням
-# (docs/follow-ups.md §5, коментар у StorageReport.psm1).
+# module-order.txt, і вкладений Import-Module ризикував би перезавантаженням (docs/follow-ups.md §5).
 
 function Get-KitConfigurationName {
     <#
@@ -29,9 +28,14 @@ function Invoke-KitCheck {
         [Parameter(Mandatory)]$Context,
         [string]$Workspace,
         [string]$Source,
-        # -Apply ця команда не оголошує свідомо: вона нічого не мутує (спека §5, стовпець
-        # «Мутує: ні»), тож застосовувати нічого. Диспетчер на переданий -Apply зупиняється
-        # з поясненням — раніше параметр оголошувався лише заради splat і мовчки ігнорувався.
+        # Реєстр плагінів машини, де шукається Уніка (тестовий шов — параметр, не змінна оточення).
+        # Умовчання — реєстр поточного користувача.
+        [string]$InstalledPluginsPath = (Join-Path $HOME '.claude/plugins/installed_plugins.json'),
+        # Шлях до раннера Уніки; порожній — із ТОГО Ж реєстру (-InstalledPluginsPath), що й Уніка (§4.2 п.20):
+        # тест-підпроцес без -RunnerPath має почервоніти на фальшивому реєстрі без раннера, а не піти до справжньої Уніки.
+        [string]$RunnerPath,
+        # -Apply не оголошено свідомо: команда нічого не мутує (§5). Диспетчер на переданий -Apply
+        # зупиняється з поясненням.
         [switch]$Quiet
     )
 
@@ -40,24 +44,39 @@ function Invoke-KitCheck {
     $add = { param([string]$Level, [string]$Check, [string]$Message) $findings.Add((New-KitFinding -Level $Level -Check $Check -Message $Message)) }
     $root = $Context.RepoRoot
 
+    # §4.2 п.4, п.19: версія Уніки й раннера — вимоги. Реєстр машинний (Уніка — плагін рівня
+    # користувача); -InstalledPluginsPath — той самий інтерфейс, що в check-environment.ps1.
+    # Поза if ($Context.Manifest): це стан машини.
+    #
+    # Відсутня Уніка — error через runner-version (п.19), а не окремий рядок unica-version: раннера без
+    # неї не знайти, і текст runner-version уже називає причину. Два error про одне й те саме — шум.
+    $unicaInstall = Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath
+    if ($unicaInstall.Installed -and $unicaInstall.PathExists) {
+        $unicaVerdict = Get-KitUnicaVersionVerdict -Installation $unicaInstall
+        if ($unicaVerdict.Level -ne 'ok') { & $add $unicaVerdict.Level 'unica-version' $unicaVerdict.Message }
+    }
+    $runnerVerdict = Get-KitRunnerVerdict -RunnerPath $RunnerPath -InstalledPluginsPath $InstalledPluginsPath
+    if ($runnerVerdict.Level -ne 'ok') { & $add $runnerVerdict.Level 'runner-version' $runnerVerdict.Message }
+
     if ($Context.Manifest) {
         $all = @(Select-KitSources -Context $Context -Workspace $Workspace -Source $Source)
-        $byTruth = (@($all | Group-Object Truth | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
+        # Підсумок рахує за МАНІФЕСТОМ, а не за розв'язаним контекстом: воркспейс із помилкою конфігу (стара
+        # форма v8project.yaml, немає папки) до $Context.Workspaces не потрапляє, і підсумок «воркспейсів 0,
+        # джерел 0» (§5 п.2) читався б як «маніфест порожній», хоч порожній лише розв'язаний бік.
+        $declared = @($Context.Manifest.Workspaces | Where-Object { -not $Workspace -or $_.Path -eq $Workspace })
+        $declaredSources = @($declared | ForEach-Object { $_.Sources } | Where-Object { -not $Source -or $_.Key -eq $Source })
+        $byTruth = (@($declaredSources | Group-Object Truth | Sort-Object Name | ForEach-Object { "$($_.Name): $($_.Count)" })) -join ', '
+        $unresolved = if ($declared.Count -gt @($Context.Workspaces).Count) { " (розв'язано $(@($Context.Workspaces).Count) — решту див. у помилках конфігу нижче)" } else { '' }
         & $add info manifest ("Маніфест: $($Context.Kind) $($Context.Label), головна гілка $($Context.MainBranch), " +
-            "воркспейсів $($Context.Workspaces.Count), джерел у перевірці $($all.Count) ($byTruth).")
+            "воркспейсів $($declared.Count), джерел у перевірці $($declaredSources.Count) ($byTruth)$unresolved.")
 
         # Структура репозиторію-споживача має версію (спека §8). Порівнюємо з версією плагіна, який
         # зараз виконується. Обидва напрямки — warn: репозиторій несуперечливий, але правила
         # розходяться, і мовчати про це означає дати агентові працювати не тими правилами.
         #
-        # $pluginVersion — сирий рядок із .claude-plugin/plugin.json, а не з маніфесту: на відміну
-        # від $Context.Manifest.KitVersion (Manifest.psm1 уже перевірив його регекспом
-        # ^\d+\.\d+\.\d+$ під час Read-KitManifest), тут формат нічим не гарантований — plugin.json
-        # редагують автори плагіна, і передрелізний тег штибу '1.1.0-rc1' цілком можливий. [version]
-        # на такому рядку кидає виняток, а check виконується в кожній сесії через session-check —
-        # одна нестандартна версія у власному файлі плагіна не має право ламати старт сесії
-        # споживача. Тому той самий формат перевіряємо тут, і на невдачу мовчки не видаємо
-        # знахідку — так само, як уже поводиться код на $null від Get-KitPluginVersion.
+        # Формат $pluginVersion (сирий рядок plugin.json) нічим не гарантований — '1.1.0-rc1' можливий,
+        # і [version] на ньому кидає. check іде в кожній сесії через session-check, тож нестандартна
+        # версія плагіна не має ламати старт сесії: на невдачу формату знахідки немає (як і на $null).
         $pluginVersion = Get-KitPluginVersion
         if ($pluginVersion -and $Context.Manifest.KitVersion -and $pluginVersion -match '^\d+\.\d+\.\d+$') {
             $have = [version]$Context.Manifest.KitVersion
@@ -71,7 +90,7 @@ function Invoke-KitCheck {
             }
         }
 
-        # Після C1 дамп версії сховища виконується в базі агента (спека 2026-09-17 §3), тож для
+        # Дамп версії сховища виконується в базі агента (§3), тож для
         # кожного truth: storage база — передумова, а не зручність. Сказати на старті сесії дешевше,
         # ніж зупинити sync, який людина вже запустила. warn, не error: репозиторій несуперечливий —
         # просто ще не готовий до sync на ЦІЙ машині.
@@ -81,38 +100,28 @@ function Invoke-KitCheck {
             $ab = $null
             try { $ab = Resolve-KitAgentBase -Context $Context -Workspace $ws }
             catch {
-                # Ковтати це не можна: попередній коментар тут стверджував, що «збіг описує інша
-                # знахідка», і це було хибно — local-audit звіряє ЛИШЕ v8project.local.yaml, а
-                # підключення законно буває й у закоміченому v8project.yaml. Тоді про колізію не
-                # казав НІХТО, аж доки команда не падала.
+                # Ковтати не можна: local-audit звіряє ЛИШЕ v8project.local.yaml, а підключення законно
+                # буває й у закоміченому v8project.yaml — тоді про колізію не сказав би ніхто.
                 #
-                # Підстав для винятку кілька, і звужувати цей перелік назад до однієї НЕ треба
-                # (рев'ю C2 Task 11 спіймало саме таке звуження — тією ж помилкою, яку задача
-                # виправляла): (а) база агента збіглася з дев-базою людини — принцип 3;
-                # (б) підключення нерозбірне — ConvertFrom-V8Connection (V8.psm1, issue #9) кидає на
-                # порожньому рядку, на лапках (kit більше не має подвійного режиму розбору), на
-                # голому шляху, на Srvr= без Ref= і на невідомому ключі; (в) Test-KitSameInfobase
-                # fail-closed і кидає й тоді, коли нерозбірне підключення дев-бази з накладки.
-                # Зупинка виправдана в усіх трьох, а текст самого винятку йде у повідомлення —
-                # тож людина бачить справжню причину, не наш здогад про неї.
+                # Підстав для винятку кілька, і звужувати перелік до однієї НЕ треба: (а) база агента
+                # збіглася з дев-базою людини; (б) підключення нерозбірне (ConvertFrom-V8Connection кидає
+                # на порожньому рядку, непарній лапці, голому шляху, Srvr= без Ref=, невідомому ключі);
+                # (в) Test-KitInfobasesOverlap fail-closed на нерозбірній дев-базі накладки. Текст винятку
+                # іде в повідомлення — людина бачить справжню причину, не наш здогад.
                 & $add 'error' 'agent-base-required' "$($ws.Path): $($_.Exception.Message)"
                 continue
             }
-            if ($null -eq $ab -or ($ab.Kind -eq 'file' -and -not $ab.Exists)) {
-                & $add 'warn' 'agent-base-required' (
-                    "Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
-                    "воркспейсу '$($ws.Path)' немає: kit provision -Workspace $($ws.Path) -Apply, потім operation=build Уніки.")
+            if ($null -eq $ab) {
+                & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації. " + (New-KitAgentBaseMissingMessage -WorkspacePath $ws.Path))
+            } elseif ($ab.Kind -eq 'file' -and -not $ab.Exists) {
+                & $add 'warn' 'agent-base-required' ("Джерело '$($src.Key)' (truth: storage) вивантажується в контексті базової конфігурації, а бази агента " +
+                    "воркспейсу '$($ws.Path)' ще немає на диску: v8storagekit:provision.")
             }
         }
 
-        # Правка 3 (фінальне рев'ю) — mainBranch друкується рядком вище, але досі не
-        # перевірявся: маніфест міг називати гілку, якої в репозиторії ще немає (описка,
-        # або репозиторій, де trunk ще не перейменували на main), а B2 зіллє storage/* саме
-        # в неї — внутрішня суперечність, видима з будь-якої машини (спека §5). Два рівні
-        # (спека a7a5d45, Test-KitBranchUnborn — StorageBranch.psm1), не один: HEAD уже стоїть
-        # на цій самій гілці, лише самого ref ще немає (свіжий репозиторій до першого коміту) —
-        # законний стан, info, не warn; HEAD стоїть ДЕІНДЕ (сама гілка з маніфесту не існує,
-        # а поточна — інша) — найімовірніше описка в mainBranch:, warn.
+        # mainBranch маніфесту мусить існувати: sync зливає storage/* саме в неї (§5). Два рівні
+        # (Test-KitBranchUnborn): HEAD уже на цій гілці, лише ref ще немає (свіжий репозиторій) —
+        # законний стан, info; HEAD ДЕІНДЕ — найімовірніше описка в mainBranch:, warn.
         if (-not (Test-KitBranchExists -RepoRoot $root -Branch $Context.MainBranch)) {
             if (Test-KitBranchUnborn -RepoRoot $root -Branch $Context.MainBranch) {
                 & $add info main-branch (
@@ -134,15 +143,10 @@ function Invoke-KitCheck {
                 "гілка storage/$($d.Name) була б спільною. Перейменуйте source-set в одному з них (§2.3).")
         }
 
-        # S3 (живий прогін задачі 11) — v8storagekit.local.yaml (накладка з рядками
-        # підключення й користувачами сховищ) мусить бути гітігнорована в корені: справжній
-        # репозиторій мав .gitignore з v8project.local.yaml (Уніки), але БЕЗ *.local.yaml і
-        # без окремого рядка v8storagekit.local.yaml — накладка показувалась як ?? і
-        # застейджилась би першим же git add -A у публічному репозиторії. Рівно ОДНА
-        # знахідка на весь репозиторій (файл один на корінь) — тому перевірка стоїть ПОЗА
-        # циклом foreach ($src in $all) нижче: усередині нього дала б стільки самих помилок,
-        # скільки джерел. --no-index — питаємо про ПРАВИЛА .gitignore, а не про індекс
-        # (та сама причина, що й у решти check-ignore нижче).
+        # v8storagekit.local.yaml (накладка з рядками підключення й користувачами сховищ) мусить бути
+        # гітігнорована в корені, інакше перший git add -A застейджить її в публічний репозиторій.
+        # Файл один на корінь, тож перевірка ПОЗА циклом по джерелах. --no-index — питаємо про ПРАВИЛА
+        # .gitignore, а не про індекс.
         git -C $root check-ignore --no-index -q -- 'v8storagekit.local.yaml' 2>$null | Out-Null
         $overlayIgnoredCode = $LASTEXITCODE
         if ($overlayIgnoredCode -eq 1) {
@@ -154,16 +158,9 @@ function Invoke-KitCheck {
             & $add error overlay-ignored "git check-ignore для v8storagekit.local.yaml завершився з кодом $overlayIgnoredCode."
         }
 
-        # Правка 1 (фінальне рев'ю) — те саме друге питання, що вже стоїть нижче для
-        # truth: vendor: ПРАВИЛА (вище) і ФАКТ — окремі питання. Правило в .gitignore може
-        # бути на місці, а файл уже закомічено (git add -f, або з часів до появи правила) —
-        # check-ignore --no-index свідомо ігнорує індекс і такого не покаже; питаємо індекс
-        # напряму. Порада самого check ("додайте рядок у .gitignore") гасила б тривогу, не
-        # прибираючи файл з історії, — це і є діра, яку рев'ю знайшло тут: правило Є, файл
-        # закомічено, а check раніше давав код 0 і одне попередження.
-        # -c core.quotepath=false — уніфіковано з усіма git-викликами, що читають чи
-        # друкують шляхи (StorageBranch.psm1, GitMerge.psm1, Hooks.psm1): kit форсує
-        # налаштування за виклик, а не покладається на repo/global-конфігурацію.
+        # ПРАВИЛА (вище) і ФАКТ — окремі питання: правило може бути на місці, а файл уже закомічено
+        # (git add -f чи до появи правила), і check-ignore --no-index цього не покаже — питаємо індекс.
+        # -c core.quotepath=false — kit форсує це на кожному git-виклику, що читає чи друкує шляхи.
         $overlayTracked = @(git -c core.quotepath=false -C $root ls-files -- 'v8storagekit.local.yaml' 2>$null)
         if ($LASTEXITCODE -ne 0) {
             & $add error overlay-ignored "git ls-files для v8storagekit.local.yaml завершився з кодом $LASTEXITCODE."
@@ -174,23 +171,17 @@ function Invoke-KitCheck {
                 'Це не прибирає файл із ІСТОРІЇ попередніх комітів — лише зупиняє подальше витікання.')
         }
 
-        # Задача 3 (issue #9) — підключення дев-бази з infobases: накладки досі розбиралось
-        # (ConvertFrom-V8Connection, V8.psm1) лише тоді, коли її звіряли з базою агента
-        # (гілка Resolve-KitAgentBase вище, truth: storage) — для воркспейсів лише з
-        # truth: dump/vendor або без бази агента нерозбірне підключення (стара форма в
-        # лапках, яку kit сам роздавав у templates/v8storagekit.local.yaml.example до цієї
-        # гілки) проходило check кодом 0 і падало лише на kit dump — мовчазна пастка при
-        # міграції старих накладок. Один раз на дев-базу, незалежно від кількості
-        # воркспейсів, — тому цикл тут, поза foreach ($src in $all) нижче. warn, не error:
-        # error тут гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише
-        # kit dump. Там, де та сама дев-база вже дала error 'agent-base-required' у гілці
-        # Resolve-KitAgentBase вище, ця знахідка законно дублюється — розводити їх
-        # ускладнило б код заради усунення дубля повідомлення.
+        # Підключення кожної дев-бази накладки розбирається й тоді, коли її ні з чим не звіряють
+        # (воркспейси лише з truth: dump/vendor): інакше нерозбірне підключення (непарна лапка, голий
+        # шлях, Srvr= без Ref= — форми старих накладок) проходило б check і падало лише на kit dump.
+        # Раз на дев-базу — тому поза циклом по джерелах. warn, не error: error гасив би сигнали сховищ
+        # у хуку старту сесії, а дев-база потрібна лише dump. Дубль із 'agent-base-required' вище законний.
         if ($Context.Overlay) {
             foreach ($human in $Context.Overlay.Infobases.Values) {
                 try { ConvertFrom-V8Connection -Connection $human.Connection | Out-Null }
                 catch {
-                    & $add warn overlay-connection "Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)"
+                    $recipe = Get-V8CredentialsRecipe -Exception $_.Exception -Kind overlay
+                    & $add warn overlay-connection ("Дев-база '$($human.Name)' у $($Context.OverlayPath): $($_.Exception.Message)" + $(if ($recipe) { " $recipe" }))
                 }
             }
         }
@@ -212,8 +203,8 @@ function Invoke-KitCheck {
                     & $add error gitattributes "$tag`: git check-attr не відповів: $($_.Exception.Message)"
                 }
 
-                # Групи регістру в HEAD під шляхом джерела (спека 2026-10-04 §4.4): фантом приходить і
-                # ручним `git add -A` після dump/canon, не лише з дзеркала.
+                # Групи регістру в HEAD під шляхом джерела (§4.4): фантом приходить і
+                # ручним `git add -A` після dump чи pull Уніки, не лише з дзеркала.
                 try {
                     if ((Invoke-KitGitProcess -RepoRoot $root -Arguments @('rev-parse', '-q', '--verify', 'HEAD')).ExitCode -eq 0) {
                         $groups = @(Get-KitCaseCollisions -Paths @(Get-KitTreePaths -RepoRoot $root -Ref 'HEAD' -Path $src.RepoPath))
@@ -230,14 +221,11 @@ function Invoke-KitCheck {
 
                 # Дзеркальна перевірка до gitignore для vendor: дерево, яке МАЄ бути в git,
                 # не повинно ловитись правилом .gitignore. Помилково широке правило викидає
-                # вихідники з git мовчки — ні sync, ні canon цього не бачать.
+                # вихідники з git мовчки — ні sync, ні verify цього не бачать.
                 #
-                # --no-index обов'язковий: без нього check-ignore звіряється з індексом і
-                # НІКОЛИ не покаже вже трекований файл ігнорованим, хай яке правило
-                # додай — це задокументована поведінка git (див. check-ignore -h), а не
-                # артефакт. Перевірено емпірично на git 2.53.0.windows.1: без --no-index
-                # цей інваріант не ловив жодного випадку, коли Configuration.xml уже
-                # закомічено (справжній репозиторій-споживач — завжди саме такий стан).
+                # --no-index обов'язковий: без нього check-ignore звіряється з індексом і НІКОЛИ не
+                # покаже вже трекований файл ігнорованим (задокументована поведінка git) — а в
+                # живому репозиторії Configuration.xml завжди закомічено.
                 git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                 $ignoredCode = $LASTEXITCODE
                 if ($ignoredCode -eq 0) {
@@ -248,7 +236,7 @@ function Invoke-KitCheck {
                 }
             }
 
-            # Поставка вендора основної конфігурації (спека 2026-09-30 §5.2, §6.3.8–9). Для vendor
+            # Поставка вендора основної конфігурації (§5.2, §6.3.8–9). Для vendor
             # дерево ігнороване цілком — інваріант інший (нижче). Для розширень і конфігурацій без
             # підтримки .bin поставки не описує, і перевірки мовчать.
             # Проба ігнору теки — питанням про вигаданий файл у ній, НЕ про теку з кінцевою скісною
@@ -290,23 +278,20 @@ function Invoke-KitCheck {
                 if ($src.Truth -eq 'storage') {
                     $state = Get-KitSupplyState -TreeRoot $src.FullPath
                     if ($state -in 'missing', 'stale') {
-                        & $add warn supply ("$tag`: " + (Get-KitSupplyRecipe -SourceKey $src.Key -MainBranch $Context.MainBranch -State $state))
+                        # Варіант рецепту — за поточною гілкою.
+                        $onMain = Test-KitOnMainBranch -RepoRoot $root -MainBranch $Context.MainBranch
+                        & $add warn supply ("$tag`: " + (Get-KitSupplyRecipe -SourceKey $src.Key -Workspace $src.Workspace -MainBranch $Context.MainBranch `
+                            -State $state -Purpose check -OnMainBranch $onMain))
                     }
                 }
             }
 
             switch ($src.Truth) {
                 'vendor' {
-                    # Vendor — два РІЗНІ питання, не одне. До --no-index вони випадково
-                    # збігалися в одному виклику check-ignore (без прапорця check-ignore
-                    # звіряється з індексом, і тому "не ігнорований" фактично означало
-                    # "закомічений" — той самий побічний ефект, що ламав F5 у дзеркальній
-                    # перевірці вище, тут випадково ловив правильну тривогу). --no-index це
-                    # розвів, тож питання тепер задаються явно, кожне своєю перевіркою:
+                    # Vendor — два РІЗНІ питання, кожне своєю перевіркою.
 
-                    # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево. --no-index — та сама
-                    # причина, що й у дзеркальній перевірці: питаємо про правила, а не про
-                    # те, що вже випадково потрапило в індекс.
+                    # (1) ПРАВИЛА: чи .gitignore справді ігнорує дерево (--no-index — про правила,
+                    # не про індекс).
                     git -C $root check-ignore --no-index -q -- "$($src.RepoPath)/Configuration.xml" 2>$null | Out-Null
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
@@ -334,13 +319,8 @@ function Invoke-KitCheck {
                 }
                 'storage' {
                     if (-not (Test-Path -LiteralPath $src.StoragePath)) {
-                        # Правка 4 (живий прогін задачі 11) — рівень лишається warn: check не
-                        # відрізнить "немає доступу до диска" (законний сценарій рев'ю без
-                        # сховищ) від "помилка в маніфесті" (типо в шляху). Але текст мусить
-                        # показати людині обидві розвилки, а не тільки одну: живий приклад —
-                        # маніфест вказував …СМП_BankExchange_ACC, а реальне сховище лежало під
-                        # …СМП_BankExchange_BP, і попереднє формулювання радило б перевизначити
-                        # шлях, хоча насправді треба було виправити маніфест.
+                        # warn: check не відрізнить «немає доступу до диска» (законно) від описки в
+                        # маніфесті — тож текст показує обидві розвилки, а не одну.
                         $manifestWs  = @($Context.Manifest.Workspaces | Where-Object Path -eq $src.Workspace)[0]
                         $manifestSrc = @($manifestWs.Sources | Where-Object Key -eq $src.Key)[0]
                         $manifestPath = if ($manifestSrc) { $manifestSrc.StoragePath } else { $src.StoragePath }
@@ -354,11 +334,8 @@ function Invoke-KitCheck {
                             'якщо диск є, а шлях помилковий — виправте v8storagekit.yaml.')
                     }
                     if (Test-KitBranchExists -RepoRoot $root -Branch $src.Branch) {
-                        # Правка 8 (фінальне рев'ю) — Test-KitStorageBranchInvariants кидає на
-                        # збої git (StorageBranch.psm1: git log/git ls-tree). Без цього try/catch
-                        # (на відміну від Test-GitTextPolicy й Read-V8ProjectLocalInfobase поруч,
-                        # уже загорнутих) збій git тут зносив би ввесь звіт check разом з усіма
-                        # findings, уже зібраними до цього рядка — найгірший спосіб впасти для
+                        # Test-KitStorageBranchInvariants кидає на збоях git; без try/catch це зносило б
+                        # увесь звіт check з уже зібраними findings — найгірший спосіб впасти для
                         # команди, чий сенс «показати все, що не так».
                         try {
                             foreach ($f in @(Test-KitStorageBranchInvariants -RepoRoot $root -Branch $src.Branch -SourceKey $src.Key -RepoPath $src.RepoPath)) {
@@ -403,15 +380,9 @@ function Invoke-KitCheck {
         foreach ($ws in $Context.Workspaces) {
             if ($Workspace -and $ws.Path -ne $Workspace) { continue }
 
-            # S1 (живий прогін задачі 11) — source-set існує у v8project.yaml, але маніфест
-            # його не оголошує: sync про таке джерело не знає й ніколи не дзеркалить його в
-            # git. Перевірка йде лише в напрямку "маніфест → v8project.yaml" (щойно вище і в
-            # Preflight.psm1); зворотної не було — прибрали з маніфесту блок розширення,
-            # лишили base, а check мовчав "Помилок немає". warn, не error: чи це справді
-            # незаявлене джерело, вирішує людина, і check не має права ні вигадати його, ні
-            # завалити роботу з решти джерел. Звіряємо з КЛЮЧАМИ, оголошеними в маніфесті
-            # ($Context.Manifest.Workspaces) — не з розв'язаними $ws.Sources: "оголошене" —
-            # це те, що написала людина, а не те, що встигло розв'язатись.
+            # Зворотний напрямок «v8project.yaml → маніфест»: source-set без запису в маніфесті sync
+            # ніколи не дзеркалить. warn, не error: чи це незаявлене джерело, вирішує людина. Звіряємо
+            # з КЛЮЧАМИ маніфесту, не з розв'язаними $ws.Sources — «оголошене» те, що написала людина.
             $manifestWs = @($Context.Manifest.Workspaces | Where-Object Path -eq $ws.Path)[0]
             $declaredKeys = @($(if ($manifestWs) { $manifestWs.Sources.Key } else { @() }))
             foreach ($set in $ws.Project.SourceSets) {
@@ -423,22 +394,15 @@ function Invoke-KitCheck {
                 }
             }
 
-            # §2.6/§13 — артефакти збірки в git не лежать (рішення користувача 2026-09-10).
-            # Вони похідні: бінарний блоб лишається в історії назавжди, а закомічений артефакт
-            # поруч зі свіжим не відрізнити — хто читає дерево, не бачить, який із них зібрано з
-            # поточних вихідників. Єдине їх місце — build/artifacts/ (гітігнорована), куди пише
-            # kit build.
+            # §2.6/§13 — артефакти збірки в git не лежать: бінарний блоб лишається в історії назавжди, а
+            # закомічений артефакт поруч зі свіжим не відрізнити. Єдине їх місце — під
+            # <воркспейс>/<workPath>/ (гітігнорована; аудит приймає весь $workPrefix), куди пише make Уніки.
             #
-            # РІВЕНЬ warn, І САМЕ warn. error завалив би перехід репозиторію, у якому артефакти в
-            # git були ЗАКОННОЮ нормою форми 0.6.0 (SMP_BankExchange: epf/dist/*.epf у git).
-            # За правилом рівнів це «ще не ухвалене рішення», а не порушення: прибрати з індексу
-            # пропонує onboarding, вирішує людина. Наступний читач побачить warn там, де «очевидно
-            # має бути error», — причина написана тут, поруч з інваріантом, а не лише в плані.
+            # РІВЕНЬ warn, І САМЕ warn: у формі 0.6.0 артефакти в git були законною нормою, і error
+            # завалив би перехід. Це «ще не ухвалене рішення»: прибрати пропонує onboarding, вирішує людина.
             #
-            # .erf у переліку спеки (§2.6) немає — там три розширення. Доданий свідомо: зовнішній
-            # звіт збирає та сама команда платформи, що й .epf
-            # (/LoadExternalDataProcessorOrReportFromFiles), і лишити його поза переліком означало б
-            # відому дірку в інваріанті. Якщо це визнають зайвим — прибирати разом із цим рядком.
+            # .erf доданий понад три розширення §2.6 свідомо: зовнішній звіт збирає та сама команда
+            # платформи, що й .epf, — поза переліком це була б відома дірка в інваріанті.
             $artifactExt = @('.epf', '.erf', '.cfe', '.cf')
             $wsWorkPath = if ($ws.Project.WorkPath) { $ws.Project.WorkPath } else { 'build' }
             $wsPrefix = ($ws.Path -replace '\\', '/').TrimEnd('/')
@@ -458,7 +422,7 @@ function Invoke-KitCheck {
                     & $add warn build-artifacts (
                         "$($ws.Path): у git лежать артефакти збірки — $($committedArtifacts.Count) файл(ів): $shown$tail. " +
                         "Вони похідні, і закомічений артефакт застаріє непомітно: поруч зі свіжим його не відрізнити. " +
-                        'Єдине їх місце — build/artifacts/ у КОРЕНІ репозиторію (гітігнорована), куди пише kit build. ' +
+                        "Єдине їх місце — тека $workPrefix воркспейсу (робоча тека workPath, типово build/; гітігнорована), куди пише make Уніки (типово ${wsPrefix}/build/artifacts/). " +
                         'Прибрати з індексу зі збереженням історії: git rm --cached <шлях> — рішення за вами, kit сам нічого не змінює.')
                 }
             }
@@ -466,12 +430,9 @@ function Invoke-KitCheck {
             $localPath = Join-Path $ws.FullPath 'v8project.local.yaml'
             $relLocalPath = "$($ws.Path)/v8project.local.yaml"
 
-            # Правка 1 (фінальне рев'ю) — v8project.local.yaml (файл Уніки) теж гітігнорований,
-            # теж із підключенням до бази, і check його досі не перевіряв узагалі. Той самий
-            # зразок «два питання», що вище для kit-накладки й нижче для truth: vendor: ПРАВИЛА
-            # (check-ignore --no-index) і ФАКТ (ls-files), окремо. На відміну від накладки kit —
-            # вона одна на репозиторій, v8project.local.yaml живе В КОЖНОМУ воркспейсі поруч зі
-            # своїм v8project.yaml, тому перевірка тут, усередині цього циклу, а не поза ним.
+            # v8project.local.yaml (файл Уніки з підключенням до бази) — ті самі два питання, що для
+            # накладки kit: ПРАВИЛА (check-ignore --no-index) і ФАКТ (ls-files). Він живе в КОЖНОМУ
+            # воркспейсі, тому перевірка всередині циклу.
             git -C $root check-ignore --no-index -q -- $relLocalPath 2>$null | Out-Null
             $localIgnoredCode = $LASTEXITCODE
             if ($localIgnoredCode -eq 1) {
@@ -495,46 +456,63 @@ function Invoke-KitCheck {
             }
 
             $localConn = $null
-            try { $localConn = Read-V8ProjectLocalInfobase -Path $localPath }
+            try { $localIb = Read-V8ProjectLocalInfobase -Path $localPath; if ($localIb) { $localConn = $localIb.Connection } }
             catch { & $add error local-audit "$($ws.Path)/v8project.local.yaml не читається: $($_.Exception.Message)" }
+            if ($localConn) {
+                # Бази агента різних воркспейсів не перетинаються (той самий перелік перетинів, що перевіряє provision).
+                # Пара «база проти бази» симетрична — повідомляємо один раз (з воркспейсу, що йде першим за назвою).
+                try {
+                    foreach ($c in @(Find-KitAgentBaseCollisions -Context $Context -Workspace $ws)) {
+                        if ($c.Kind -eq 'base' -and [string]::CompareOrdinal($ws.Path, $c.Other) -gt 0) { continue }
+                        $detail = switch ($c.Kind) {
+                            'base' { if ($c.Server) { "база агента воркспейсу '$($ws.Path)' і база агента воркспейсу '$($c.Other)' — та сама серверна база (збігаються сервер і Ref)" } else { "база агента воркспейсу '$($ws.Path)' перетинається з базою агента воркспейсу '$($c.Other)'" } }
+                            'memory-mine' { "база агента воркспейсу '$($c.Other)' лежить у пам'яті раннера '.local/infobases/origin' воркспейсу '$($ws.Path)'" }
+                            'memory-both' { "пам'ять раннера воркспейсу '$($ws.Path)' перетинається з пам'яттю раннера воркспейсу '$($c.Other)'" }
+                            default { "база агента воркспейсу '$($ws.Path)' лежить у '.local/infobases' воркспейсу '$($c.Other)'" }
+                        }
+                        # Наслідок залежить від виду збігу. Kit нічого не видаляє: шкода — у тому, що створення чи
+                        # завантаження бази одного воркспейсу пішло б у теку (базу) іншого, а рецепт «видаліть теку»,
+                        # який друкує provision, зачепив би чуже: для memory-both це пам'ять раннера, для решти — база агента.
+                        $consequence = if ($c.Kind -eq 'memory-both') { "раннер двох воркспейсів вів би пам'ять в одній теці, а порада provision видалити теку пам'яті зачепила б пам'ять іншого воркспейсу" }
+                                       else { 'kit створив би чи завантажив базу агента в теку (базу) іншого воркспейсу, а порада provision видалити теку бази зачепила б чужу базу' }
+                        & $add error local-audit ("$($ws.Path)/v8project.local.yaml: $detail$(if (-not $c.Server) { ' (одна тека, вкладена чи батьківська)' }) — $consequence. " +
+                            'Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:provision).')
+                    }
+                } catch {
+                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: звірка бази агента з базами інших воркспейсів впала: $($_.Exception.Message)"
+                }
+            }
             if ($localConn -and $Context.Overlay) {
-                # F1 (рев'ю B4 Task 1): та сама формула ідентичності бази, що в
-                # Resolve-KitAgentBase (AgentBase.psm1) — текстова нормалізація (стара форма
-                # $norm) не бачила, що 'File=D:\x\' і 'File=D:\x' та сама тека, і що
-                # 'Srvr=A;Ref=B;' та 'Ref=B;Srvr=A;' та сама база. Test-KitSameInfobase
-                # кидає, коли підключення не розбирається однозначно (fail-closed, зокрема на
-                # значенні в лапках — issue #9) — тут це ЗАБОРОНЕНО дати впасти check:
-                # перетворюємо на знахідку error, як і решта аудитів git нижче (Test-KitGitHooks).
+                # Та сама формула ідентичності бази, що в Resolve-KitAgentBase: текстова нормалізація
+                # не бачить, що 'File=D:\x\' і 'File=D:\x' — та сама тека, а 'Srvr=A;Ref=B;' і
+                # 'Ref=B;Srvr=A;' — та сама база. Test-KitInfobasesOverlap fail-closed кидає на
+                # нерозбірному підключенні — check від цього не падає, а дає знахідку error.
                 #
                 # Бік воркспейсу розв'язується до звірки (Resolve-KitAgentInfobasePath, чиста
                 # функція), тим самим прийомом, що в Resolve-KitAgentBase: відносний File=
-                # бази агента законний (тека воркспейсу, §2.5) і Test-KitSameInfobase на ньому
+                # бази агента законний (тека воркспейсу, §2.5) і Test-KitInfobasesOverlap на ньому
                 # б кидав — без цього check давав би error на кожному штатному File=build/ib.
                 try {
                     $localResolved = Resolve-KitAgentInfobasePath -Project $ws.Project -Connection $localConn
                     $localAuditConn = if ($localResolved.Kind -eq 'file') { 'File={0}' -f $localResolved.Path } else { $localConn }
                     foreach ($human in $Context.Overlay.Infobases.Values) {
-                        if (Test-KitSameInfobase -Left $localAuditConn -Right $human.Connection) {
-                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobase.connection збігається з дев-базою '$($human.Name)' із накладки kit — " +
-                                'це база людини під ключем Unica, і operation=build писав би в неї. Приберіть infobase: звідти; ' +
-                                'у цьому файлі може бути лише серверна база АГЕНТА (§2.5).')
+                        if (Test-KitInfobasesOverlap -Left $localAuditConn -Right $human.Connection `
+                            -LeftOrigin "база агента воркспейсу '$($ws.Path)' (infobases.origin у v8project.local.yaml)" `
+                            -RightOrigin "дев-база '$($human.Name)' у v8storagekit.local.yaml") {
+                            & $add error local-audit ("$($ws.Path)/v8project.local.yaml: infobases.origin.connection збігається з дев-базою '$($human.Name)' із накладки kit або перетинається з нею (та сама, вкладена чи батьківська тека) — " +
+                                'це база людини під ключем Unica, і Уніка (push) писала б у неї. Приберіть infobases.origin звідти ' +
+                                'й дайте агентові окрему базу (v8storagekit:provision).')
                             break
                         }
                     }
                 } catch {
-                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobase.connection проти дев-баз накладки впав: $($_.Exception.Message)"
+                    & $add error local-audit "$($ws.Path)/v8project.local.yaml: аудит infobases.origin.connection проти дев-баз накладки впав: $($_.Exception.Message)"
                 }
             }
             elseif (Test-Path -LiteralPath $localPath -PathType Leaf) {
-                # Знахідка живого прогону B4: у ЖИВИХ репозиторіях цей файл несе devInfobase:,
-                # а не infobase: — конвенція, яку kit тримав до 1.0 і яку Task 5А вилучила
-                # разом із Read-V8LocalConnection. Без цієї гілки Read-V8ProjectLocalInfobase
-                # повертає $null, аудит вище пропускається БЕЗ ЖОДНОГО РЯДКА, і на таких
-                # репозиторіях перевірка §2.5 не спрацює ніколи. Форма дефекту та сама, яку
-                # блок закривав уже двічі: «нічого не сказано» читається як «все гаразд»,
-                # тільки ціна тут не миттєва — дев-база не зникає, вона стає невидимою.
-                # warn, не error: репозиторій робочий, sync і canon працюють — не працює лише
-                # dump (немає звідки взяти базу) і аудит бази людини.
+                # Стара конвенція devInfobase: (до 1.0) kit уже не читає: без цієї гілки аудит §2.5
+                # пропускався б БЕЗ ЖОДНОГО РЯДКА, а «нічого не сказано» читається як «все гаразд».
+                # warn, не error: sync і verify працюють — не працює лише dump і аудит бази людини.
                 $localRaw = ''
                 try { $localRaw = Get-Content -LiteralPath $localPath -Raw -Encoding UTF8 }
                 catch { $localRaw = '' }
@@ -555,19 +533,14 @@ function Invoke-KitCheck {
             & $add error hooks "Аудит хуків впав: $($_.Exception.Message)"
         }
 
-        # §7 — хук старту сесії (Claude Code), відповідальність окрема від git-хуків вище:
-        # .claude/settings.json + .claude/hooks/session-start.ps1 у самому репозиторії-споживачі,
-        # не в плагіні (hooks/hooks.json плагін навмисно не оголошує). Той самий захист, що вище
-        # для Test-KitGitHooks (рев'ю B4 Task 4, Important I3): попереднє обґрунтування «не
-        # викликає зовнішніх команд» було хибним — Get-Content усередині Test-KitSessionHook
-        # кидає на будь-якій IO-помилці (заблокований файл, гонка з claude plugin update, що
-        # перезаписує кеш плагіна під час прогону), а не лише на збої зовнішньої команди;
-        # перевірено відтворенням (заблокований шим). Без try/catch тут виняток зносив би усі
-        # findings, зібрані до цього рядка.
+        # §3.12 9а — хук старту сесії живе в плагіні; тут шукаємо СТАРИЙ проєктний хук
+        # (розділ hooks.SessionStart у .claude/settings.json і/або .claude/hooks/session-start.ps1),
+        # що дав би «Стан сховищ» двічі. Той самий захист, що вище для Test-KitGitHooks: Get-Content
+        # усередині кидає на будь-якій IO-помилці, і без try/catch виняток зносив би findings, зібрані до цього рядка.
         try {
-            foreach ($f in @(Test-KitSessionHook -RepoRoot $root)) { $findings.Add($f) }
+            foreach ($f in @(Test-KitLegacySessionHook -RepoRoot $root)) { $findings.Add($f) }
         } catch {
-            & $add error hook-shim "Аудит хука старту сесії впав: $($_.Exception.Message)"
+            & $add error hook-shim "Аудит старого проєктного хука старту сесії впав: $($_.Exception.Message)"
         }
     }
 
