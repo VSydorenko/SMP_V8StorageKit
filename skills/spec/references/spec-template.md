@@ -65,7 +65,7 @@ Glossary: <шлях> · ADR: ADR-N, ADR-M · Parent: <оглядова спек�
 станом у §5, а рядок видаляють.>
 ```
 
-<!-- tests: ADR-0004, pending owner discussion -->
+
 
 ## Оглядова спека + часткові (понад ≈ 50 КБ)
 

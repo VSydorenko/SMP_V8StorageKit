@@ -14,7 +14,7 @@
 | `superpowers:finishing-a-development-branch` | `v8storagekit:finish` (репо з `v8storagekit.yaml`) або `pr-gate` | replace |
 | `superpowers:using-git-worktrees` | режим `workspace.mode` профілю (ADR-0005): у 1С `shared`, без worktree | replace |
 | `superpowers:verification-before-completion` | правило kit: без «готово» без виводу команди, виконаної цього ходу | replace |
-| `superpowers:test-driven-development` | <!-- tests: ADR-0004, pending owner discussion --> тести — мінімум, лише на логіку й механізми, що справді треба перевіряти; форму називає бриф задачі | replace / remove за рішенням власника |
+| `superpowers:test-driven-development` | тести — мінімум, лише на логіку й механізми, що справді треба перевіряти; форму називає бриф задачі | replace / remove за рішенням власника |
 | `superpowers:systematic-debugging`, `superpowers:dispatching-parallel-agents` | частини kit немає за рішенням власника | remove |
 | `superpowers:using-superpowers`, `superpowers:writing-skills` | без заміни в проєкті | remove |
 
@@ -35,7 +35,7 @@
 | «субагенти не комітять — комітить контролер» | правило `v8storagekit:execute` і текст агента `v8storagekit:implementer` | pointer; специфіка дозволів класифікатора — keep |
 | «коміти точково: `git add <перелік>` + `git commit --only`; без stash/reset/`checkout --`» | правило режиму `shared` у `execute` і тексті агентів | pointer |
 | журнал виконання блоку (шлях, формат) | `sdd` і `.agents/sdd/<блок>/` | pointer |
-| прогін тестів «лише зачеплене, повний раз у фіналі» (`kit-scan` ловить за ознаками `лише зачеплене`, `повний набір`, `повний прогін` — регулярний вираз, можливі хибні збіги: читай файл) | <!-- tests: ADR-0004, pending owner discussion --> форму називає бриф задачі | keep до рішення власника |
+| прогін тестів «лише зачеплене, повний раз у фіналі» (`kit-scan` ловить за ознаками `лише зачеплене`, `повний набір`, `повний прогін` — регулярний вираз, можливі хибні збіги: читай файл) | форму називає бриф задачі | keep до рішення власника |
 | пам'ять про стиль відповідей (українська мова, терміни) | правила сесії з хука kit | delete |
 | пам'ять про ролі сесій (архітектор / виконавець), стан блоку | `v8storagekit:architect`, файл стану, `track` | pointer (ролі) / keep-as-history (стан закритого блоку) |
 
