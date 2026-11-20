@@ -149,3 +149,66 @@ Task failed: {"summary":"load failed for source-set 'ТК_Адаптация' wi
 («platform line that writes the format of the sources») без урахування версії кластера; не виміряно, що з іншим
 значенням ключа запуск пройде. Тим самим шляхом піде й `pull base force` з рішення `d66a680` — його не запускаю. **СТОП**,
 без повтору; ключ `tools.platform.version` не правлю (вибір платформи — рішення людини/архітектора).
+
+### 2026-11-20 — п.4 (продовження). Пін платформи кластера і повтор `push` розширення
+
+Рішення архітектора — спека `b75138e`, §4.2 п.25. За дозволом власника в `tehnokrat/v8project.local.yaml` блок `tools:`
+замінено: `version: sources` → `version: "8.3.27.1644"` + `path: "C:\Program Files\1cv8\8.3.27.1644\bin"`. Інші рядки
+не змінено.
+
+**Перевірка (лише читання).** З теки воркспейсу виконано
+`…/unica/0.16.0/bin/win-x64/v8-runner-windows-x86_64/v8-runner.exe platforms --json-message`. Результат: `ok: true`,
+`data.selected.designer` = `{"path":"C:\Program Files\1cv8\8.3.27.1644\bin\1cv8.exe","version":"8.3.27.1644","source":"explicit","chosen_by":"newest"}`;
+`thin_client` і `ibcmd` — теж 1644, `explicit`.
+
+**`dryRun`.** Відповідь та сама, що в першому записі п.4: `ok`, `infobase_overwritten`. `platform_line_written` цього разу
+немає: Уніка явний пін не переписує.
+
+**Справжній запуск** (з дозволу власника, 14:18:45 → результат о 14:19:13, ≈30 с).
+`unica.run {"op":"push","args":{"sourceSet":"ТК_Адаптация","force":true},"dryRun":false,"workspace":"tehnokrat_unf/tehnokrat"}`
+
+```
+{"ok":true,"summary":"push overwrote the infobase with source set `ТК_Адаптация`: every set was loaded in full without checking the infobase generation, and changes made in the infobase since this working copy's last exchange are lost; the infobase state is attested by the provider","data":{"op":"push","dryRun":false,"providerDispatched":true,"full":false,"force":true,"generationProtection":false,"appliesDatabaseConfiguration":true,"steps":[{"mode":"full","sourceSet":"ТК_Адаптация"}],"targetStateAttestedBy":"provider"},"changed":[{"infobase":true,"kind":"configuration","sourceSet":"ТК_Адаптация","mode":"full"}],"warnings":[{"code":"infobase_overwritten","sourceSets":["ТК_Адаптация"],"message":"force:true overwrote the infobase: …"}]}
+```
+
+Питання Уніки «Перезаписать базу «origin»…» власник **отримав і погодився** (його слова). У транскрипті агента цього
+питання не видно — його бачить лише людина. Логи платформи: `…-load.log` і `…-update.log` по 3 байти (BOM),
+`…-generation.log` — 45 байт; підрядків ліцензії немає.
+
+**Висновок (умова: серверна база, пін 1644).** Крок 9 для розширення виконано. Модель «питання — людині, згода — від
+людини» спрацювала.
+
+### 2026-11-20 — п.3 (продовження). `base` за рішенням `d66a680`: рецепт поставки + `pull force`
+
+1. VS Code git-розширення й Pylance для робочої області вимкнув власник (його відповідь).
+2. 14:20:19, з дозволу власника: `rm -rf tehnokrat/cf/src/Ext/ParentConfigurations`. Вміст до видалення:
+   `BASSmallBusiness.cf` (497464911 байт, 2026-10-05) і `.kit-bin-sha1` (`3e70dadb5dbd70c04e526b7c627ebec542ccc1d9`).
+   `ParentConfigurations.bin` (2699898 байт, під git) лишився.
+3. `pull` — справжній запуск без повторного `dryRun`. Його план з тими самими аргументами записано вище, у першому записі
+   п.3.
+   `unica.run {"op":"pull","args":{"sourceSet":"base","force":true},"dryRun":false,"workspace":"tehnokrat_unf/tehnokrat"}`.
+   Тривалість: старт ≈14:20:30, у `cf/src/Configuration.xml` mtime 14:21:38, нотифікація до 14:22:02 — **≈1,5 хв** на
+   повне вивантаження УНФ із серверної бази.
+   ```
+   {"ok":true,"summary":"pull exported source set `base` into `cf/src` in full mode","data":{"op":"pull","dryRun":false,"sourceSet":"base","extension":null,"mode":"full","performedMode":"full","modeReason":null,"target":"cf/src","state":"updated","providerDispatched":true},"changed":[{"path":"cf/src","kind":"updated"}]}
+   ```
+   `os error 5` не було. Логи: `dump-base-full.log` — 3 байти, `dump-base-generation.log` — `c2be45f7fd656e46b56f22fc5058392e00000000`;
+   підрядків ліцензії немає.
+4. **Вимір поставки після `pull`.** Тека `Ext/ParentConfigurations/` створена знову (14:20). У ній `BASSmallBusiness.cf`
+   (497464911 байт — розмір як до видалення; sha1 нового `92c064265211a3f78a4f75d0c4beca25d5d22da2`, sha1 старого не
+   знімався). **`.kit-bin-sha1` немає.** Через те, що теку перед `pull` видалено, вимір не розрізняє «pull стирає позначку»
+   і «позначки не було, бо видалено теку». Цей запуск тезу [гіп] п.18 не перевіряє, лише показує, що `pull` позначку не
+   відновлює. `.cf` з'явився.
+   Файлів у `cf/src`, новіших за лог `push` розширення, — 22792 із 22793. Не переписано лише `ConfigDumpInfo.xml`
+   (mtime 2026-10-05).
+5. `kit supply-marker -RepoRoot . -Workspace tehnokrat -Source base` (знімок `ca7ca74`) → «base: буде записано позначку
+   .kit-bin-sha1 без вивантаження. Для виконання додайте -Apply.», EXIT 0. З `-Apply` (дозвіл власника — разом із
+   пп.2–4) → «base: позначку .kit-bin-sha1 записано (3e70dadb5dbd70c04e526b7c627ebec542ccc1d9); дерево не
+   переписувалось.», EXIT 0. Позначка дорівнює sha1 `ParentConfigurations.bin` і значенню до видалення.
+6. `git status --porcelain -- tehnokrat/cf/src` → **порожньо** (0 рядків). Крок завершено: 22792 файли, переписані платформою
+   з серверної бази, побайтово рівні дереву git на `main` `4bae2d94b`.
+
+**Висновок (умова: серверна база агента 8.3.27.1644, пін платформи, база після `push` розширення; основу ніхто не
+перезавантажував).** Рецепт `d66a680` пройдено без відмов. Правило `.gitignore` `**/Ext/ParentConfigurations/` не завадило
+ні `pull`, ні `supply-marker`. Байти `pull` 0.16 = байти дзеркала: тезу §4.2 п.12 на цій серверній базі виміряно — різниці
+0. `kit check` після кроку → помилок немає, одне попередження (`kitVersion`).
