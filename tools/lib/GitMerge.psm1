@@ -57,15 +57,6 @@ function Merge-KitBranchInto {
         return [pscustomobject]@{ Outcome = 'already'; Sha = (Get-KitCommitSha -RepoRoot $RepoRoot -Ref $Into); Via = 'none' }
     }
 
-    # Залишок тимчасового worktree kit ≤ 1.3.1 (build/sync/_main/wt) — прибрати, якщо є: нова схема його не створює.
-    $legacy = Join-Path $RepoRoot 'build/sync/_main/wt'
-    if (Test-Path -LiteralPath $legacy) {
-        Assert-SafeWorkPath -Path $legacy -MustBeUnder (Join-Path $RepoRoot 'build/sync') -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description 'залишок worktree головної гілки'
-        git -C $RepoRoot worktree remove --force $legacy 2>$null | Out-Null
-        Remove-KitDirectory -Path $legacy
-        git -C $RepoRoot worktree prune 2>$null | Out-Null
-    }
-
     $current = Get-KitCurrentBranch -RepoRoot $RepoRoot
     $here = ($current -eq $Into)
     if ($here) {
@@ -127,7 +118,7 @@ function Merge-KitBranchInto {
     $newGroups = @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $tree) | Where-Object { -not $oldGroups.Contains($_ -join "`0") })
     if ($newGroups.Count -gt 0) {
         # Звідки група — від цього залежить рецепт. Уся група у вершині дзеркала — фантом несе саме дзеркало
-        # (запис kit ≤ 1.3.1): лікує наступний sync, не ціль. Інакше члени розділені між ціллю й дзеркалом.
+        # (запис старого kit): лікує наступний sync, не ціль. Інакше члени розділені між ціллю й дзеркалом.
         $mirrorGroups = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
         foreach ($g in @(Get-KitCaseCollisions -Paths (Get-KitTreePaths -RepoRoot $RepoRoot -Ref $branchSha))) { [void]$mirrorGroups.Add($g -join "`0") }
         $fromMirror = @($newGroups | Where-Object { $mirrorGroups.Contains($_ -join "`0") })

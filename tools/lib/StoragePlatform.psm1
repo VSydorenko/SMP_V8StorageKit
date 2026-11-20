@@ -209,7 +209,7 @@ function Invoke-KitStorageCheckout {
     Invoke-KitStorageUpdate -IbSwitch $IbSwitch -Source $Source -Version $Version -V8Path $V8Path -User $User -Password $Password
 
     # /DumpConfigToFiles не видаляє зниклих об'єктів — тека завжди порожня перед дампом.
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
+    Assert-KitBuildPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 
@@ -274,7 +274,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
     # Крок 2: основна платформа, та сама база — /DumpCfg у .cf під WorkDir.
     $cf = Join-Path $WorkDir ('v{0}.cf' -f $Version)
-    Assert-SafeWorkPath -Path $cf -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "файл .cf версії $Version"
+    Assert-KitBuildPath -Path $cf -MustBeUnder $WorkDir -RepoRoot $RepoRoot -Description "файл .cf версії $Version"
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
     if (Test-Path -LiteralPath $cf) { Remove-Item -LiteralPath $cf -Force }
     $mainPath = $V8Path
@@ -289,7 +289,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
 
     # Крок 3: обрана платформа створює тимчасову ІБ.
     $altIbPath = Join-Path $WorkDir 'alt-ib'
-    Assert-SafeWorkPath -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description 'тимчасова ІБ обраної платформи'
+    Assert-KitBuildPath -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -Description 'тимчасова ІБ обраної платформи'
     $null = New-V8FileInfobase -Path $altIbPath -MustBeUnder $WorkDir -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -V8Path $AltV8Path
     $altSwitch = '/F "{0}"' -f $altIbPath
 
@@ -299,7 +299,7 @@ function Invoke-KitStorageCheckoutViaPlatform {
         throw "Крок LoadCfg платформи $AltV8Path для версії $Version не вдався: $($load.Output)"
     }
 
-    Assert-SafeWorkPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot $(if ($RepoRoot) { Join-Path $RepoRoot 'build' }) -Description "тека дампу версії $Version"
+    Assert-KitBuildPath -Path $Target -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -Description "тека дампу версії $Version"
     Remove-KitDirectory -Path $Target
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
 

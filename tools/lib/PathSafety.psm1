@@ -165,4 +165,22 @@ function Remove-KitDirectory {
     }
 }
 
-Export-ModuleMember -Function Assert-SafeWorkPath, Remove-KitDirectory, Get-KitDirectoryEntriesNoLinks
+function Assert-KitBuildPath {
+    <#
+    .SYNOPSIS
+        Assert-SafeWorkPath з єдиним коренем власності build/ репозиторію (П25).
+    .DESCRIPTION
+        Межа -MustBeUnder — як в Assert-SafeWorkPath; -OwnedRoot завжди <RepoRoot>/build, тож посиланням
+        дозволено бути лише самій теці build/. Семантику перевірки не змінює.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [Parameter(Mandatory)][string]$MustBeUnder,
+        [Parameter(Mandatory)][string]$Description,
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
+    Assert-SafeWorkPath -Path $Path -MustBeUnder $MustBeUnder -RepoRoot $RepoRoot -OwnedRoot (Join-Path $RepoRoot 'build') -Description $Description
+}
+
+Export-ModuleMember -Function Assert-SafeWorkPath, Assert-KitBuildPath, Remove-KitDirectory, Get-KitDirectoryEntriesNoLinks

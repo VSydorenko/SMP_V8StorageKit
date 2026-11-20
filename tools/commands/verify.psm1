@@ -105,7 +105,7 @@ function Invoke-KitVerify {
             }
 
             $workDir = Join-Path $root 'build/verify' $src.Key
-            Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека verify $($src.Key)"
+            Assert-KitBuildPath -Path $workDir -MustBeUnder (Join-Path $root 'build/verify') -RepoRoot $root -Description "робоча тека verify $($src.Key)"
             Remove-KitDirectory -Path $workDir
             New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 

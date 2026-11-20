@@ -330,7 +330,7 @@ function Invoke-KitSync {
 
             # Робоча тека джерела — з нуля на кожен запуск. Worktree від перерваного прогону спершу знімаємо з реєстрації.
             $workDir = Join-Path $root 'build/sync' $src.Key
-            Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека джерела $($src.Key)"
+            Assert-KitBuildPath -Path $workDir -MustBeUnder (Join-Path $root 'build/sync') -RepoRoot $root -Description "робоча тека джерела $($src.Key)"
             $staleWt = Join-Path $workDir 'wt'
             if (Test-Path -LiteralPath $staleWt) {
                 # Ґейт на Test-Path: без нього git worktree remove на незареєстрованій теці штатно

@@ -200,35 +200,3 @@ Describe 'AUTHORS: рядок на версію (спека 2026-09-30 §6.8)' {
         $r.Count | Should -Be 0
     }
 }
-
-Describe 'Get-UnknownAuthors' {
-    It 'повертає лише тих, кого немає в мапі, без повторів' {
-        $map = Read-AuthorMap -Path $script:MapFile
-        Get-UnknownAuthors -Map $map -StorageUsers @(
-            'Перший Тестовий', 'Хтось Новий', 'Хтось Новий') |
-            Should -Be @('Хтось Новий')
-    }
-
-    It 'повертає порожній масив, а не $null, коли всі автори відомі' {
-        # Set-StrictMode тут відтворює умову виклику з боку Task 5 (storage-sync.ps1),
-        # який працює під Set-StrictMode -Version Latest: під ним $null.Count кидає
-        # виняток, тоді як без strict mode PowerShell тихо повертає 0. Тест ловить
-        # регресію, якщо унарну кому перед @(...) у реалізації прибрати.
-        Set-StrictMode -Version Latest
-        $map = Read-AuthorMap -Path $script:MapFile
-        $unknown = Get-UnknownAuthors -Map $map -StorageUsers @('Перший Тестовий')
-        { $unknown.Count } | Should -Not -Throw
-        $unknown.Count | Should -Be 0
-    }
-
-    It 'позначає порожній запис автора зрозумілим повідомленням замість порожнього рядка' {
-        # Порожній StorageUser не повинен ні впасти на байндингу параметра, ні мовчки
-        # зникнути в результаті як невидимий порожній рядок — оператор має побачити
-        # причину прямо в прев'ю-виводі storage-sync.ps1.
-        $map = Read-AuthorMap -Path $script:MapFile
-        $unknown = Get-UnknownAuthors -Map $map -StorageUsers @('Перший Тестовий', '')
-        $unknown.Count | Should -Be 1
-        $unknown[0] | Should -Not -BeNullOrEmpty
-        $unknown[0] | Should -Match 'пошкодж'
-    }
-}

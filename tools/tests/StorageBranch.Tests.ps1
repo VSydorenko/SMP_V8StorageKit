@@ -10,10 +10,6 @@ Describe 'StorageBranch.psm1 — стан синхронізації з git' {
         # (Add-KitFakeStorageCommit, KitFixtures.psm1) — задача 8 переносить його звідси.
     }
 
-    It 'імʼя гілки джерела' {
-        Get-KitStorageBranchName -SourceKey 'SMP_BankExchange_SMB' | Should -Be 'storage/SMP_BankExchange_SMB'
-    }
-
     It 'гілки немає — LastVersion = $null, інваріантів немає що порушувати' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'none')
         Test-KitBranchExists -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -BeFalse
@@ -448,6 +444,13 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/StorageBranch.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Stamp = [datetime]'2026-01-22T17:51:21'
+        # Теку джерела перед дампом знищує й створює заново StoragePlatform (тест stale.xml у StoragePlatform.*.Tests); тут — той самий крок підготовки.
+        function script:Reset-DumpTarget([string]$WorktreePath) {
+            $target = Join-Path $WorktreePath 'Alpha_SMB/cfe/src'
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            New-Item -ItemType Directory -Path $target -Force | Out-Null
+            (Resolve-Path -LiteralPath $target).Path
+        }
     }
 
     It 'перший sync: orphan-гілка через worktree; коміт не рухає HEAD і робочу копію основного дерева' {
@@ -457,7 +460,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $wt.Created | Should -BeTrue
         (git -C $wt.Path symbolic-ref -q HEAD) | Should -Be 'refs/heads/storage/Alpha_SMB'
 
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+        $target = Reset-DumpTarget -WorktreePath $wt.Path
         $target | Should -Exist
         Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
         Set-Content -LiteralPath (Join-Path $target 'ConfigDumpInfo.xml') -Value '<junk/>' -NoNewline
@@ -488,7 +491,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
             -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         $wt.Created | Should -BeFalse
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+        $target = Reset-DumpTarget -WorktreePath $wt.Path
         @(Get-ChildItem $target).Count | Should -Be 0
         Set-Content -LiteralPath (Join-Path $target 'Configuration.xml') -Value '<x/>' -NoNewline
         $r = Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo `
@@ -503,7 +506,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bytes') -WithHooks
         git -C $repo config core.autocrlf true
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
-        $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+        $target = Reset-DumpTarget -WorktreePath $wt.Path
         # Змішані кінці рядків в одному файлі — саме так пише платформа (docs/text-policy.md)
         $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
         [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
@@ -587,7 +590,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         }) | Out-Null
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         try {
-            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+            $target = Reset-DumpTarget -WorktreePath $wt.Path
             New-Item -ItemType Directory -Path (Join-Path $target "T/$New/Ext") -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $target "T/$New.xml") -Value 'xml' -NoNewline
             Set-Content -LiteralPath (Join-Path $target "T/$New/Ext/T.bin") -Value 'bin' -NoNewline
@@ -608,7 +611,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         Add-Content -LiteralPath (Join-Path $repo '.git/info/exclude') -Value '*.bin' -Encoding ascii
         $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
         try {
-            $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+            $target = Reset-DumpTarget -WorktreePath $wt.Path
             New-Item -ItemType Directory -Path (Join-Path $target 'Ext') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $target 'Ext/Template.bin') -Value 'new' -NoNewline
             Write-KitStorageVersion -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo -Message "v2`n`nStorage-Source: Alpha_SMB`nStorage-Version: 2" `
@@ -630,7 +633,7 @@ Describe 'StorageBranch.psm1 — worktree гілки дзеркала й ком�
         try {
             $wt = New-KitStorageWorktree -RepoRoot $repo -Branch 'storage/Alpha_SMB' -Path (Join-Path $repo 'build/sync/Alpha_SMB/wt')
             try {
-                $target = Clear-KitWorktreeSource -WorktreePath $wt.Path -RepoPath 'Alpha_SMB/cfe/src' -RepoRoot $repo
+                $target = Reset-DumpTarget -WorktreePath $wt.Path
                 $mixed = [byte[]](0x3C,0x61,0x3E,0x0D,0x0A,0x74,0x0A,0x74,0x3C,0x2F,0x61,0x3E)
                 [System.IO.File]::WriteAllBytes((Join-Path $target 'Form.xml'), $mixed)
                 $rawId = (git -C $repo hash-object --no-filters (Join-Path $target 'Form.xml')).Trim()

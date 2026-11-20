@@ -60,7 +60,7 @@ function Invoke-KitAdopt {
         Write-Host "Джерело: $($src.Workspace)/$($src.Key)  ·  приймаємо з: $mirror"
 
         $workDir = Join-Path $root 'build/adopt' $src.Key
-        Assert-SafeWorkPath -Path $workDir -MustBeUnder (Join-Path $root 'build/adopt') -RepoRoot $root -OwnedRoot (Join-Path $root 'build') -Description "робоча тека adopt $($src.Key)"
+        Assert-KitBuildPath -Path $workDir -MustBeUnder (Join-Path $root 'build/adopt') -RepoRoot $root -Description "робоча тека adopt $($src.Key)"
         Remove-KitDirectory -Path $workDir
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 

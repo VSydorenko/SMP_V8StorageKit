@@ -86,7 +86,6 @@ Describe 'GitMerge.psm1 — злиття storage/X у головну гілку 
         (git -C $repo branch --show-current) | Should -Be 'feature/task'
         (git -C $repo rev-parse main) | Should -Not -Be $mainBefore
         (git -C $repo rev-parse main) | Should -Be $r.Sha
-        Join-Path $repo 'build/sync/_main/wt' | Should -Not -Exist
         @(git -C $repo worktree list).Count | Should -Be 1
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
     }

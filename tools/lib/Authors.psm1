@@ -1,10 +1,6 @@
 #Requires -Version 7
 Set-StrictMode -Version Latest
 
-# Показується замість порожнього User: коли Read-StorageReport не зміг
-# розібрати мітку "Пользователь:" у звіті сховища — версія лишається без автора.
-$script:BlankUserPlaceholder = '<версія без автора: звіт пошкоджено, перевірте в Конфігураторі>'
-
 function Read-AuthorMap {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
@@ -94,20 +90,6 @@ function Resolve-Author {
           "Додайте рядок «$StorageUser=Ім'я <пошта>» і повторіть запуск."
 }
 
-function Get-UnknownAuthors {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][hashtable]$Map,
-        [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StorageUsers
-    )
-
-    $normalized = $StorageUsers | ForEach-Object {
-        if ([string]::IsNullOrWhiteSpace($_)) { $script:BlankUserPlaceholder } else { $_ }
-    }
-
-    , @($normalized | Sort-Object -Unique | Where-Object { -not $Map.ContainsKey($_) })
-}
-
 function Get-KitUnattributedVersions {
     <#
     .SYNOPSIS
@@ -127,4 +109,4 @@ function Get-KitUnattributedVersions {
     })
 }
 
-Export-ModuleMember -Function Read-AuthorMap, Resolve-Author, Get-UnknownAuthors, Get-KitUnattributedVersions
+Export-ModuleMember -Function Read-AuthorMap, Resolve-Author, Get-KitUnattributedVersions

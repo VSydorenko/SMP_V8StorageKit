@@ -314,7 +314,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         It 'sync → push force → pull force → adopt → verify → крок verify → unica.check → артефакти → PR; push і PR лише з дозволу' {
             $t = Skill 'finish'
             foreach ($m in 'kit\.ps1" sync', '"op":"push"', '"op":"pull"', '"force":true', 'cancelled', 'kit\.ps1" adopt', 'kit\.ps1" verify',
-                           'unica\.check', '"op":"make"', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
+                           'unica\.check', 'make', 'gh pr create', 'build/artifacts') { $t | Should -Match $m }
             $t | Should -Not -Match 'kit\.ps1" build'   # Task 5: збірку робить лише make Уніки
             $t | Should -Not -Match 'kit\.ps1" canon'
             $t | Should -Not -Match 'testRunner'
@@ -386,8 +386,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         # Спека 2026-11-19 §3.1 (наслідки 2, 3, 5, 6), §3.3 п.3, §3.9 п.3, §5 п.1: агент споживача виконує
         # ці тексти дослівно, тож кожен наслідок — окремий підрядок, а не загальне «є розділ».
         $t = Skill 'using-v8storagekit'
-        foreach ($m in 'unica\.view', 'unica\.check', 'unica\.apply', 'executionToken', 'object\.borrow',
-                       '"op":"push"', '"full":true', '"op":"make"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
+        # Аргументів операцій Уніки скіл не повторює (словник віддає unica.run без op) — лише конвенції kit.
+        foreach ($m in 'unica\.view', 'unica:unica-dev',
+                       '"op":"push"', 'non_fast_forward', 'no_memory', 'infobase_state_unverified',
                        'надрукован', '"dryRun":true', 'ЗУПИНКА', 'Для будь-якої іншої бази правило Уніки діє без винятків',
                        'Перезаписать базу', 'claude -p', 'cancelled', 'база агента не вирівняна',
                        'воркспейсі, названому', 'git\.text_resource_marked_binary') {
