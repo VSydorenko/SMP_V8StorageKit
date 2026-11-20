@@ -261,3 +261,30 @@
 їх у розділі `Skills outside the plugin` рядками `same-name`: звірте вміст і приберіть копію.
 Проєкт, що запускав у CI `check-localization.py`, переходить на `check-localization.ps1` зі скіла
 `v8storagekit:1c-localization`.
+
+## 1.6.2 → 1.6.3
+
+Плагін став одним інструментом: контур сховища й процес розробки — одне підключення (`v8storagekit:onboarding`), одна версія проєкту (`kit.version` у профілі), одні імена скілів.
+
+1. **Маніфест.** Видаліть рядок `kitVersion:` з `v8storagekit.yaml`: `kit check` з ним зупиняється. Проєкт, у якого ще немає `.agents/kit.profile.json`, отримує його через `kit-setup` (крок 5 [process.md](process.md)); останній коміт PR оновлення — `kit.version`.
+2. **Імена скілів.** У кореневому `CLAUDE.md` проєкту, проєктних командах і пам'яті замініть старі імена (голе старе ім'я дає `Unknown skill`):
+
+   | Було | Стало |
+   | --- | --- |
+   | `using-v8storagekit` | `v8storagekit:storage-rules` |
+   | `sync` | `v8storagekit:storage-sync` |
+   | `verify` | `v8storagekit:storage-verify` |
+   | `reconcile` | `v8storagekit:storage-adopt` |
+   | `dump` | `v8storagekit:infobase-dump` |
+   | `provision` | `v8storagekit:infobase-agent` |
+   | `finish` | `v8storagekit:task-finish` |
+   | `landed-review` | `v8storagekit:review` |
+   | `retro` | крок «Ретро» скіла `v8storagekit:close-block` |
+   | `unica-1c`, `unica-folders` | `v8storagekit:1c-unica` |
+   | `kit-onboard` | `v8storagekit:onboarding` |
+   | `codex-companion` | `v8storagekit:codex-audit` (команда `codex-audit`) |
+   | агенти `plan-auditor`, `spec-auditor` | агент `v8storagekit:auditor` |
+
+   Команди kit (`kit.ps1 sync`, `verify`, `dump`, `provision`, `adopt`) не перейменовано.
+3. **Codex.** Аудит — команда `codex-audit`; секція `codex` машинного профілю (`~/.config/v8storagekit/profile.json`) з полями `model` і `reasoningEffort` — раз на машину ([ранбук](../../codex-audit/references/runbook.md)).
+4. **Вихідники у форматі EDT** kit не підтримує: перетворіть їх операцією `convert` раннера Уніки або вивантажте сховище наново.
