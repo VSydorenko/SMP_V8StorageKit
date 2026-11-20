@@ -531,4 +531,28 @@ function Copy-KitTools {
     Join-Path $Root 'tools/kit.ps1'
 }
 
-Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces
+function Get-KitBashPath {
+    <#
+    .SYNOPSIS
+        Bash, яким тести кличуть обгортки bin/<команда> — той самий, що в агента (Git Bash).
+    .DESCRIPTION
+        На Windows голе `bash` у PATH процесу часто першим знаходить C:\Windows\System32\bash.exe
+        (реле WSL) або заглушку WindowsApps: без дистрибутива WSL воно відповідає
+        `execvpe(/bin/bash) failed` і кодом 1, і тест бачить «не той код виходу» замість
+        поведінки команди. Тож беремо перший bash поза System32 і WindowsApps, а коли такого в
+        PATH немає — bash.exe поруч із git (Git for Windows). Поза Windows — просто `bash`.
+    #>
+    if (-not $IsWindows) { return 'bash' }
+    $skip = { param($p) $p -like "$env:SystemRoot\*" -or $p -like '*\WindowsApps\*' }
+    $found = @(Get-Command bash -CommandType Application -All -ErrorAction SilentlyContinue |
+        Where-Object { -not (& $skip $_.Source) } | Select-Object -First 1)
+    if ($found.Count) { return $found[0].Source }
+    $git = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $root = Split-Path (Split-Path $git -Parent) -Parent   # …\Git\cmd\git.exe або …\Git\mingw64\bin\git.exe
+    foreach ($cand in (Join-Path $root 'bin\bash.exe'), (Join-Path (Split-Path $root -Parent) 'bin\bash.exe'), (Join-Path $root 'usr\bin\bash.exe')) {
+        if (Test-Path -LiteralPath $cand) { return $cand }
+    }
+    throw "Git Bash не знайдено (git: $git) — тести обгорток bin/ потребують Git for Windows."
+}
+
+Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces, Get-KitBashPath

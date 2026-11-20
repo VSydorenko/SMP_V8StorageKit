@@ -6,6 +6,7 @@ Describe 'Команди процесу — контракт виходу й а�
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        $script:Bash = Get-KitBashPath
         $script:KitRoot = Split-Path (Split-Path $script:Kit -Parent) -Parent
 
         # Проба-команда процесу лише в копії: друкує, що отримала, і читає профіль.
@@ -36,7 +37,7 @@ Export-ModuleMember -Function Invoke-KitProbeCli
             $errFile = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
             Push-Location $script:Repo
             try {
-                $out = if ($Via -eq 'bash') { & bash (Join-Path $script:KitRoot "bin/$Command") @Arguments 2>$errFile }
+                $out = if ($Via -eq 'bash') { & $script:Bash (Join-Path $script:KitRoot "bin/$Command") @Arguments 2>$errFile }
                        else { & (Join-Path $script:KitRoot "bin/$Command.ps1") @Arguments 2>$errFile }
                 $code = $LASTEXITCODE
             } finally { Pop-Location }
