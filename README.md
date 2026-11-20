@@ -180,8 +180,8 @@ Kit працює лише з форматом Designer. Вихідники в ED
 | Обговорення | «давай обговоримо», `/v8storagekit:discuss` | `discuss`: аналіз, 2–4 варіанти, рекомендація, одне питання за хід; факти агент шукає сам | Мала задача (тіло issue) або чернетка спеки |
 | Дослідження | «проведи дослідження» | `research`: агенти `researcher` по одному питанню; код — через Уніку, поведінка платформи — справка й дамп | Факти з якорями й рекомендація |
 | Візуалізація | «покажи» | `visual-companion`: макет чи схема у вкладці браузера (Node) | Варіант, обраний кліком |
-| Спека | вихід «спека» з обговорення | `spec`: таблиця блоків і «інтерфейс → блок-власник», глосарій, ADR; аудит агентами `spec-auditor`; `track spec` — issues блоків | Затверджена спека |
-| План | «план блоку X» | `plan`: ескіз із задачею 0; аудит агентами `plan-auditor` за ризиком 1С (права й RLS, обміни, проведення й блокування, перехоплення вендора) | Прийнятий план |
+| Спека | вихід «спека» з обговорення | `spec`: таблиця блоків і «інтерфейс → блок-власник», глосарій, ADR; аудит агентами `auditor`; `track spec` — issues блоків | Затверджена спека |
+| План | «план блоку X» | `plan`: ескіз із задачею 0; аудит агентами `auditor` за ризиком 1С (права й RLS, обміни, проведення й блокування, перехоплення вендора) | Прийнятий план |
 | Виконання | «виконай план X» | `execute`: `sdd dispatch` → `implementer` → коміт контролера → `sdd review` → `task-reviewer` → `sdd done`; не більше двох раундів виправлень, далі — архітектор. Push і PR — лише за рядком `Push:` брифу архітектора | Коміти, журнал `.agents/sdd/<план>/` |
 | Приймання | фінал `execute`, «зроби рецензію гілки» | `review`: `code-reviewer` на лінзу (зокрема 1С-лінзи `localization`, `vendor-compat`, `metadata`), `code-review-verifier` пробує спростувати кожну знахідку | Лише доведені знахідки |
 | Закриття задачі | фінал `execute` | у репозиторії з `v8storagekit.yaml` — `v8storagekit:task-finish` (сховище, канон, adopt, verify, `unica.check`, артефакти, PR); без маніфесту — `pr-gate open`, `pr-gate ready` | PR |
@@ -204,7 +204,7 @@ Kit працює лише з форматом Designer. Вихідники в ED
 | `sdd` | Журнал виконання плану: вікна задач, раунди, рішення | `init <план>`, `dispatch <N> -Model … -Weight …`, `watch`, `review`, `fix <N> -Note …`, `done`, `ruling`, `status`, `handoff`, `close` |
 | `review-pack` | Пакет для рецензента: лише зміни гілки | `review-pack <base> [<head>]`, `review-pack -Branch` |
 | `doc` | Читання документа частинами, пошук, якорі, борг | `doc <файл>`, `doc <файл> §N`, `doc find`, `doc anchors`, `doc refs`, `doc debt`, `doc history` |
-| `pr-gate` | Життя PR і worktree | `start <issue> [<slug>]`, `open [-Draft]`, `ready`, `land <pr>`, `cleanup`, `prune`, `scratch add\|rm` |
+| `pr-gate` | Життя PR і worktree | `start <issue> [<slug>]`, `open [-Draft]`, `ready`, `land <pr>`, `cleanup`, `scratch add\|rm` |
 | `track` | Статус і структура в GitHub | `track status`, `track spec <спека>`, `track milestone <назва>` |
 | `session-board` | Дошка сесій для архітектора | `session-board [-Fetch]` |
 | `session-cost` | Вартість сесій | `session-cost -By model\|agent\|day` |
@@ -227,7 +227,7 @@ Kit працює лише з форматом Designer. Вихідники в ED
   машинного розбору. Рядок скану — кандидат, не вирок: класифікує скіл, читаючи файл.
 - **`kit-setup`** — запис, ідемпотентно, нічого не видаляє; `-DryRun` друкує точний diff і нічого
   не пише. Дописує в `.claude/settings.json` проєкту правила дозволів на локальні команди процесу,
-  кожне у двох формах — `Bash(…)` і `PowerShell(…)` (зовнішні дії: `pr-gate open|ready|merge|land|prune`,
+  кожне у двох формах — `Bash(…)` і `PowerShell(…)` (зовнішні дії: `pr-gate open|ready|land`,
   `track spec|milestone` і сам `kit-setup` лишаються з питанням); рядки `.gitignore`; каркас профілю
   з `workspace.mode` з фактів і `kit.version` (у репозиторії самого плагіна — без неї). Плагін не може постачати дозволи сам — тому команда.
 

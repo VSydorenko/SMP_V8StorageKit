@@ -26,8 +26,8 @@ $script:KitCommands = @(
 # Широкі правила старих налаштувань: дозволяють зовнішні дії без питання. Не видаляємо (команда
 # нічого не видаляє) — кажемо власнику, чим замінити.
 $script:BroadOld = [ordered]@{
-    'Bash(pr-gate:*)'       = 'дозволяє й pr-gate open|ready|merge|land|prune без питання; заміни на Bash(pr-gate start:*), Bash(pr-gate cleanup:*), Bash(pr-gate scratch:*)'
-    'PowerShell(pr-gate:*)' = 'дозволяє й pr-gate open|ready|merge|land|prune без питання; заміни на PowerShell(pr-gate start:*), PowerShell(pr-gate cleanup:*), PowerShell(pr-gate scratch:*)'
+    'Bash(pr-gate:*)'       = 'дозволяє й pr-gate open|ready|land без питання; заміни на Bash(pr-gate start:*), Bash(pr-gate cleanup:*), Bash(pr-gate scratch:*)'
+    'PowerShell(pr-gate:*)' = 'дозволяє й pr-gate open|ready|land без питання; заміни на PowerShell(pr-gate start:*), PowerShell(pr-gate cleanup:*), PowerShell(pr-gate scratch:*)'
     'Bash(track:*)'         = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на Bash(track status:*)'
     'PowerShell(track:*)'   = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на PowerShell(track status:*)'
 }
@@ -49,7 +49,7 @@ kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInc
 
   permissions  дописати в $script:SettingsFile (permissions.allow) локальні команди процесу, кожну
                у двох формах — Bash(<x>:*) і PowerShell(<x>:*): $($script:KitCommands -join ', ').
-               Зовнішні дії (pr-gate open|ready|merge|land|prune, track spec|milestone, kit-setup)
+               Зовнішні дії (pr-gate open|ready|land, track spec|milestone, kit-setup)
                не дозволяються. Широкі правила Bash/PowerShell(pr-gate:*) і (track:*) не
                видаляються — команда називає, чим їх замінити
   gitignore    дописати .agents/out/, .agents/sdd/, <private.dir>/, .agents/briefs/,

@@ -165,7 +165,7 @@ Describe 'templates/settings.json, хук плагіна і storage-rules' {
         $inTemplate = @($s.permissions.allow | Where-Object { $_ -cmatch $process } | Sort-Object { $_ } -CaseSensitive)
         ($inTemplate -join "`n") | Should -BeExactly ($fromSetup -join "`n") -Because 'шаблон і kit-setup дозволяють той самий перелік команд процесу'
         foreach ($e in @($s.permissions.allow)) {
-            $e | Should -Not -Match '^(Bash|PowerShell)\((pr-gate (open|ready|merge|land|prune)|track (spec|milestone)|kit-setup|pr-gate:|track:)' -Because 'зовнішні дії й широкі маски — лише з запитом'
+            $e | Should -Not -Match '^(Bash|PowerShell)\((pr-gate (open|ready|land)|track (spec|milestone)|kit-setup|pr-gate:|track:)' -Because 'зовнішні дії й широкі маски — лише з запитом'
         }
     }
 }

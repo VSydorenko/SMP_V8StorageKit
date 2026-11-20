@@ -50,8 +50,6 @@ doc lint [<файли...>] [-List]    форма корпусу: дублі, л�
 doc refs <шлях...> [-Max <n>] | doc refs -Dead
 doc debt <файл...>
 doc history [-Code | -Docs] [-Only <regex>] [-Ignore <regex>] [-Path <тека>...] [-Max <n>]
-doc toc <файл> [-Level <n>]      довга форма doc <файл>
-doc section <файл> <запит>       довга форма doc <файл> <запит>
 
 Кожне читання завершується рядком "next:". Деталі: doc -Help <команда>; поля профілю: doc -Help profile.
 Коди виходу: 0 ок, 1 збій/биті посилання/немає збігів, 2 помилка виклику, 3 не перевірено (немає поля профілю, порожній корпус).
@@ -62,7 +60,7 @@ $script:HelpTopics = @{
     read    = @'
 doc <файл>                       зміст: заголовки з діапазонами рядків і КБ на розділ.
                                  До 3 рівнів заголовків; якщо виходить довше за ~1.5 КБ — 2 рівні
-                                 і підказка "-Level 3" (doc toc <файл> -Level <n> — обрати рівень).
+                                 і підказка "-Level 3" (doc <файл> -Level <n> — обрати рівень).
 doc <файл> <§N | слова заголовка>  один розділ разом з підрозділами. Запит збігається із заголовком
                                  точно, потім як унікальна підстрока, потім за всіма його словами
                                  (будь-який порядок, без регістру); §6.4 або 6.4 збігається із
@@ -120,8 +118,6 @@ doc lint [<файли...>] [-List]
   lint.contentsHeadLines    де шукати "Contents"/"Зміст" (за замовчуванням: перші 20 рядків)
 '@
 }
-$script:HelpTopics['toc'] = $script:HelpTopics['read']
-$script:HelpTopics['section'] = $script:HelpTopics['read']
 
 function Get-DocUsage {
     [CmdletBinding()]
@@ -1640,14 +1636,6 @@ function Invoke-DocCommand {
     }
     try {
         switch ($cmd) {
-            'toc' {
-                if ($rest.Count -ne 1) { throw (New-DocException 'usage' 'doc toc <файл>') }
-                return Get-DocToc -Ctx $ctx -File $rest[0] -Level (& $level)
-            }
-            'section' {
-                if ($rest.Count -lt 2) { throw (New-DocException 'usage' 'doc section <файл> <§N | слова заголовка>') }
-                return Get-DocSection -Ctx $ctx -File $rest[0] -Query ($rest[1..($rest.Count - 1)] -join ' ')
-            }
             'find' {
                 if ($rest.Count -ne 1) { throw (New-DocException 'usage' 'doc find <regex>') }
                 & $checkMax
@@ -1667,7 +1655,7 @@ function Invoke-DocCommand {
             }
             'lint' { return Test-DocLint -Ctx $ctx -Files $rest -List ([bool](Get-DocOpt $Options 'List')) }
             default {
-                # `doc <файл> [запит]`: короткі форми замість toc/section/sed -n.
+                # `doc <файл> [запит]`: зміст, розділ, рядки замість sed -n.
                 if ($cmd -and [System.IO.File]::Exists((Resolve-DocPath -Path $cmd -WorkDir $ctx.WorkDir))) {
                     if ($rest.Count -eq 0) { return Get-DocToc -Ctx $ctx -File $cmd -Level (& $level) }
                     return Get-DocSection -Ctx $ctx -File $cmd -Query ($rest -join ' ')

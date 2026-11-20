@@ -52,13 +52,10 @@ pr-gate <крок> …   <pr> типово — PR поточної гілки
   pr-gate scratch add [<ref>]  одноразове відокремлене worktree; друкує лише шлях
   pr-gate scratch rm <шлях>    прибрати його (лише дерева, зроблені scratch add)
   pr-gate cleanup <worktree>   прибрати worktree разом із журналом, видалити його злиту гілку
-  pr-gate merge [<pr>] [-Squash|-Merge] [-DryRun]   кроки, з яких складається land
-  pr-gate after-merge [<pr>]
-  pr-gate prune [-DryRun] [-Remote]
   pr-gate help [profile]   кожен крок докладно; поля профілю
 
 Параметри: -MergeableTimeout (land); -Draft -Base -Title -BodyFile (open); -Resume (start);
--Squash -Merge -DryRun (merge); -DryRun -Remote (prune).
+-Squash -Merge (land).
 Коди виходу: 0 виконано; 1 збій; 2 помилка виклику; 3 не перевірено (поле профілю, gh відсутній чи
 не залогінений, GitHub ще рахує mergeable).
 '@
@@ -74,6 +71,16 @@ pr-gate <крок> …
         cleanup worktree гілки PR -> видалення локальної гілки -> prune. При збої: що зроблено, що
         ні, і точна наступна команда. Повторний запуск продовжує: завершені кроки пізнаються й
         пропускаються.
+        Злиття — лише відкритий не-draft PR зі станом MERGEABLE, прив'язане до перевіреної голови
+        (--match-head-commit: хтось запушив після перевірки — GitHub відмовить); стан
+        перечитується, і лише після підтвердженого MERGED видаляється віддалена гілка (гілку з
+        форка не чіпає; і таку, чия верхівка на origin не дорівнює голові PR; і захищену: main,
+        base). Конфлікт — відмова з порадою `git merge origin/<base>`. after-merge — список
+        локальних worktree, чиї гілки торкаються злитих файлів, з порадою злити, і команди
+        pr.afterMerge, чиї шляхи збігаються зі злитими (код 1, якщо котрась упала). prune —
+        видаляє локальні гілки, злиті в origin/<base> (вміщені або голова злитого PR); ніколи
+        захищені (main, base, ціль origin/HEAD), гілку worktree і гілку з комітами після злиття
+        PR. Прогонів CI не дивиться: workflow немає.
   pr-gate start <issue> [<slug>] [-Resume]
         лише workspace.mode = worktree (у shared відмова: гілку обирає архітектор чи власник, а
         перемикання гілки в спільному дереві зсуває HEAD іншим сесіям). git fetch origin; worktree
@@ -89,20 +96,6 @@ pr-gate <крок> …
         профілю, на -Base, на main і на цілі origin/HEAD), створює PR (-Draft: як draft) або бере відкритий; друкує URL і draft/ready
   pr-gate ready [<pr>]
         позначити draft-PR готовим (gh pr ready); нічого робити, коли він уже готовий
-  pr-gate merge [<pr>] [-Squash|-Merge] [-DryRun]
-        зливає лише відкритий не-draft PR зі станом MERGEABLE; прив'язаний до перевіреної голови
-        (--match-head-commit: хтось запушив після перевірки — GitHub відмовить); потім перечитує
-        стан і лише після підтвердженого MERGED видаляє віддалену гілку (гілку з форка не чіпає; і
-        таку, чия верхівка на origin не дорівнює голові PR; і захищену: main, base).
-        UNKNOWN — код 3; конфлікт — відмова з порадою `git merge origin/<base>`. Прогонів CI не
-        дивиться: workflow немає
-  pr-gate after-merge [<pr>]
-        список локальних worktree, чиї гілки торкаються злитих файлів, з порадою злити; команди
-        pr.afterMerge, чиї шляхи збігаються зі злитими файлами (код 1, якщо котрась упала)
-  pr-gate prune [-DryRun] [-Remote]
-        видаляє локальні гілки, злиті в origin/<base> (вміщені або голова злитого PR); -Remote —
-        і віддалені (без gh віддалені не видаляються, код 3). Ніколи захищені (main, base, ціль
-        origin/HEAD), гілку worktree, гілку з комітами після злиття PR і віддалену гілку з відкритим PR
   pr-gate cleanup <worktree>
         git worktree remove (без --force); git-ignored теки журналів (.agents/out/, .agents/sdd/,
         .superpowers/) зникають разом з ним, копії немає; потім видаляє локальну гілку worktree,
@@ -121,9 +114,9 @@ pr-gate <крок> …
 $script:ProfileUsage = @'
 Профіль .agents/kit.profile.json (шари: машинний, проєктний, локальний):
   workspace.mode  "shared"|"worktree"   (start, land; обов'язкове: скрипт його не вгадує)
-  pr.base         гілка                 (open, start, prune, land; типово "main"; -Base у open сильніший)
-  pr.mergeMethod  "squash"|"merge"      (merge, land, якщо не задано прапорець)
-  pr.afterMerge   [{ paths: [glob], run: [argv] }]   (after-merge; argv без shell, у корені репо)
+  pr.base         гілка                 (open, start, land; типово "main"; -Base у open сильніший)
+  pr.mergeMethod  "squash"|"merge"      (land, якщо не задано прапорець)
+  pr.afterMerge   [{ paths: [glob], run: [argv] }]   (land, крок after-merge; argv без shell, у корені репо)
   worktrees.root  шлях                  (start, scratch; типово ".worktrees", відносно головного checkout, git-ignored)
 '@
 
@@ -394,7 +387,7 @@ function Invoke-PrGateReady {
         $null = Invoke-PgGh -Arguments @('pr', 'ready', [string]$p.number)
         & $Say "готово: #$($p.number) позначено готовим до рев'ю"
     }
-    Write-KitNext "pr-gate merge $($p.number)"
+    Write-KitNext "pr-gate land $($p.number)"
     0
 }
 
@@ -407,21 +400,15 @@ function Invoke-PgMergeChecked {
         mergeable == MERGEABLE (UNKNOWN — код 3). Злиття прив'язане до перевіреної голови; після
         нього стан перечитується, і гілка видаляється лише при підтвердженому MERGED.
     #>
-    param($Ctx, [Parameter(Mandatory)]$State, [Parameter(Mandatory)][string]$Method, [switch]$DryRun, [Parameter(Mandatory)][scriptblock]$Say)
+    param($Ctx, [Parameter(Mandatory)]$State, [Parameter(Mandatory)][string]$Method, [Parameter(Mandatory)][scriptblock]$Say)
     $p = $State
     $fail = { param($why, $hint) throw (New-KitRefusal ("НЕ ЗЛИТО #$($p.number): $why" + $(if ($hint) { "`n$hint" } else { '' }))) }
     if ($p.state -ne 'OPEN') { & $fail "стан $($p.state)" }
     if ($p.isDraft) { & $fail 'draft' "pr-gate ready $($p.number) (або pr-gate land $($p.number) сам позначить готовим)" }
-    if ($p.Conflict) { & $fail "PR у конфлікті з $($p.baseRefName)" (Get-PgConflictNext -Ctx $Ctx -Branch $p.headRefName -Base $p.baseRefName -Then "pr-gate merge $($p.number)") }
+    if ($p.Conflict) { & $fail "PR у конфлікті з $($p.baseRefName)" (Get-PgConflictNext -Ctx $Ctx -Branch $p.headRefName -Base $p.baseRefName -Then "pr-gate land $($p.number)") }
     # UNKNOWN — GitHub ще рахує; це «не перевірено», а не провал.
     if ($p.mergeable -eq 'UNKNOWN') { throw (New-KitNotChecked "НЕ ЗЛИТО #$($p.number): mergeable UNKNOWN (GitHub ще рахує); повтори пізніше") }
     if ($p.mergeable -ne 'MERGEABLE') { & $fail "mergeable $($p.mergeable)" }
-    $sha7 = $p.headRefOid.Substring(0, [Math]::Min(7, $p.headRefOid.Length))
-    if ($DryRun) {
-        $branchFate = if ((Get-PgProtectedBranches -Ctx $Ctx -Extra @($p.baseRefName)) -ccontains $p.headRefName) { "лишив би $($p.headRefName) (захищена)" } else { "видалив би $($p.headRefName), якщо її верхівка = $sha7" }
-        & $Say "ПРОБНИЙ ПРОГІН: злив би #$($p.number) методом $Method на $sha7 і $branchFate"
-        return 0
-    }
     # --match-head-commit: якщо після перевірки хтось запушив, GitHub відмовить, і неперевірений
     # коміт не потрапить у base.
     $null = Invoke-PgGh -Arguments @('pr', 'merge', [string]$p.number, "--$Method", '--match-head-commit', $p.headRefOid)
@@ -434,14 +421,6 @@ function Invoke-PgMergeChecked {
     elseif (Remove-PgRemoteBranch -Ctx $Ctx -Name $p.headRefName -ExpectedOid $p.headRefOid -Protected (Get-PgProtectedBranches -Ctx $Ctx -Extra @($p.baseRefName)) -Say $Say) {
         & $Say "видалено віддалену гілку $($p.headRefName)"
     }
-    0
-}
-
-function Invoke-PrGateMerge {
-    param($Ctx, [string]$Pr, [Parameter(Mandatory)][string]$Method, [switch]$DryRun, [scriptblock]$Say = $script:DefaultSay)
-    $p = Get-PgPr -Ctx $Ctx -Pr $Pr -Fields $script:MergeFields
-    $null = Invoke-PgMergeChecked -Ctx $Ctx -State $p -Method $Method -DryRun:$DryRun -Say $Say
-    if (-not $DryRun) { Write-KitNext "pr-gate after-merge $($p.number)" } else { Write-KitNext "pr-gate merge $($p.number)" }
     0
 }
 
@@ -599,8 +578,8 @@ function Invoke-PgAfterMergeCommands {
 }
 
 function Invoke-PgAfterMergeReport {
-    <# Поради сусіднім worktree і команди pr.afterMerge. `land` прибирає гілку PR сам (-InLand). Повертає код. #>
-    param($Ctx, [Parameter(Mandatory)]$State, [Parameter(Mandatory)][scriptblock]$Say, [switch]$InLand)
+    <# Поради сусіднім worktree і команди pr.afterMerge. `land` прибирає гілку PR сам. Повертає код. #>
+    param($Ctx, [Parameter(Mandatory)]$State, [Parameter(Mandatory)][scriptblock]$Say)
     $p = $State
     $merged = [System.Collections.Generic.HashSet[string]]::new([string[]]@($p.files | ForEach-Object { $_.path }), [System.StringComparer]::Ordinal)
     $root = $Ctx.MainRoot
@@ -609,10 +588,7 @@ function Invoke-PgAfterMergeReport {
     $advised = 0
     foreach ($wt in (Get-PgWorktrees -Cwd $root)) {
         if (-not $wt.Branch -or $wt.Branch -ceq $p.baseRefName) { continue }
-        if ($wt.Branch -ceq $p.headRefName) {
-            if (-not $InLand) { & $Say "$($wt.Path) ($($wt.Branch)): злита гілка -> pr-gate cleanup $($wt.Path)" }
-            continue
-        }
+        if ($wt.Branch -ceq $p.headRefName) { continue }
         # Свої зміни гілки (від точки розходження) плюс незакомічене в дереві.
         $mb = Get-PgGit -GitArgs @('merge-base', $base, $wt.Branch) -Cwd $wt.Path
         $own = (Get-PgGit -GitArgs @('-c', 'core.quotepath=false', 'diff', '--name-only', $mb, $wt.Branch) -Cwd $wt.Path) -split "\r?\n"
@@ -625,16 +601,6 @@ function Invoke-PgAfterMergeReport {
     }
     & $Say $(if ($advised) { "$advised worktree мають злити $base" } else { "жодне worktree не торкається $($merged.Count) злитих файлів" })
     if (Invoke-PgAfterMergeCommands -Ctx $Ctx -Files @($merged) -Say $Say) { return 1 }
-    0
-}
-
-function Invoke-PrGateAfterMerge {
-    param($Ctx, [string]$Pr, [scriptblock]$Say = $script:DefaultSay)
-    $p = Get-PgPr -Ctx $Ctx -Pr $Pr -Fields @('number', 'state', 'baseRefName', 'headRefName', 'files')
-    if ($p.state -ne 'MERGED') { throw (New-KitRefusal "#$($p.number) має стан $($p.state), а не злитий") }
-    $code = Invoke-PgAfterMergeReport -Ctx $Ctx -State $p -Say $Say
-    if ($code -ne 0) { throw (New-KitRefusal 'команда pr.afterMerge впала (вище)') }
-    Write-KitNext 'none'
     0
 }
 
@@ -657,7 +623,7 @@ function Invoke-PgPrune {
         злитого PR (squash: предка немає, тож дивимось на стан PR). Верхівка != голова PR — у гілці є
         коміти після злиття, вона не зайва. Друкує підсумок, повертає @{ Deleted; Skipped; NotChecked }.
     #>
-    param($Ctx, [switch]$DryRun, [switch]$Remote, [Parameter(Mandatory)][scriptblock]$Say)
+    param($Ctx, [Parameter(Mandatory)][scriptblock]$Say)
     $base = $Ctx.Base
     $cwd = $Ctx.MainRoot   # не Root: у land worktree цього checkout уже видалено
     $null = Get-PgGit -GitArgs @('fetch', '-q', '--prune', 'origin') -Cwd $cwd
@@ -673,12 +639,7 @@ function Invoke-PgPrune {
     }
     $branches = [System.Collections.Generic.List[object]]::new()
     foreach ($r in (& $refs 'refs/heads')) { $branches.Add([pscustomobject]@{ Name = $r.Name; Sha = $r.Sha; Where = 'local' }) }
-    if ($Remote) {
-        foreach ($r in (& $refs 'refs/remotes/origin')) {
-            if ($r.Name -in @('origin/HEAD', 'origin')) { continue }
-            $branches.Add([pscustomobject]@{ Name = $r.Name.Substring('origin/'.Length); Sha = $r.Sha; Where = 'remote' })
-        }
-    }
+
 
     # Один запит на всі PR: стан і голова кожної гілки. Без gh squash-злиття не розпізнати — такі
     # гілки «не перевірено», а не «злиті».
@@ -689,18 +650,14 @@ function Invoke-PgPrune {
         & $Say "gh недоступний ($(Get-PgGhWhy $_)): squash-злиті гілки не перевірено"
     }
     $prsOf = { param($b) @($prs | Where-Object { $_ -and $_.headRefName -ceq $b }) }
-    # Віддалені гілки видаляємо лише з повним переліком PR: без нього (gh недоступний, pr list
-    # впав) чи з обрізаним (--limit) відкритий PR міг лишитись невидимим.
-    $prsComplete = ($null -ne $prs) -and $prs.Count -lt 500
+
 
     $deleted = 0; $skipped = 0; $notChecked = 0
     foreach ($br in $branches) {
         $label = "$($br.Where) $($br.Name)"
         if ($protected -ccontains $br.Name) { continue }
         if ($held.ContainsKey($br.Name)) { $skipped++; & $Say "пропущено ${label}: тримає worktree $($held[$br.Name])"; continue }
-        if ($br.Where -eq 'remote' -and -not $prsComplete) { $notChecked++; continue }
-        $open = (& $prsOf $br.Name) | Where-Object { $_.state -eq 'OPEN' } | Select-Object -First 1
-        if ($br.Where -eq 'remote' -and $open) { $skipped++; & $Say "пропущено ${label}: відкритий PR #$($open.number)"; continue }
+
         $reason = $null
         if ((Invoke-PgGit -GitArgs @('merge-base', '--is-ancestor', $br.Sha, $baseRef) -Cwd $cwd).Ok) { $reason = "вміщена в $baseRef" }
         else {
@@ -710,28 +667,14 @@ function Invoke-PgPrune {
             elseif ($null -eq $prs) { $notChecked++; continue }
         }
         if (-not $reason) { continue }
-        if ($DryRun) { & $Say "видалив би $label ($reason)" }
-        else {
-            if ($br.Where -eq 'local') { $null = Get-PgGit -GitArgs @('branch', '-D', $br.Name) -Cwd $cwd }
-            elseif (-not (Remove-PgRemoteBranch -Ctx $Ctx -Name $br.Name -ExpectedOid $br.Sha -Protected $protected -Say $Say)) { $skipped++; continue }
-            & $Say "видалено $label ($reason)"
-        }
+        $null = Get-PgGit -GitArgs @('branch', '-D', $br.Name) -Cwd $cwd
+        & $Say "видалено $label ($reason)"
         $deleted++
     }
-    & $Say "$(if ($DryRun) { 'видалив би' } else { 'видалено' }) $deleted, пропущено $skipped$(if ($notChecked) { ", не перевірено $notChecked" })"
+    & $Say "видалено $deleted, пропущено $skipped$(if ($notChecked) { ", не перевірено $notChecked" })"
     [pscustomobject]@{ Deleted = $deleted; Skipped = $skipped; NotChecked = $notChecked }
 }
 
-function Invoke-PrGatePrune {
-    param($Ctx, [switch]$DryRun, [switch]$Remote, [scriptblock]$Say = $script:DefaultSay)
-    $r = Invoke-PgPrune -Ctx $Ctx -DryRun:$DryRun -Remote:$Remote -Say $Say
-    if ($r.NotChecked) {
-        Write-KitNext 'gh auth status (squash-злиті гілки потребують gh), потім pr-gate prune'
-        throw (New-KitNotChecked "prune: не перевірено $($r.NotChecked) гілок: без gh squash-злиття не розпізнати")
-    }
-    Write-KitNext $(if ($DryRun -and $r.Deleted) { "pr-gate prune$(if ($Remote) { ' -Remote' })" } else { 'none' })
-    0
-}
 
 function Move-PgOutOf {
     <# Процес не може лишатись у теці, яку видаляємо: переходимо в головний checkout. Повертає $true, якщо були всередині. #>
@@ -1015,7 +958,7 @@ function Invoke-PrGateLand {
         else {
             $full = Get-PgPr -Ctx $Ctx -Pr ([string]$p.number) -Fields @('number', 'state', 'baseRefName', 'headRefName', 'files')
             $c = & $newCollector
-            $code = Invoke-PgAfterMergeReport -Ctx $Ctx -State $full -Say $c.Add -InLand
+            $code = Invoke-PgAfterMergeReport -Ctx $Ctx -State $full -Say $c.Add
             if ($code -ne 0) {
                 & $Say (($c.Lines | ForEach-Object { "  $_" }) -join "`n")
                 & $stop 'команда pr.afterMerge впала (вище)' "виправ її, потім $rerun"
@@ -1080,6 +1023,6 @@ function Invoke-PrGateLand {
 }
 
 Export-ModuleMember -Function Get-PrGateUsage, Get-PrGateDetailUsage, Get-PrGateProfileUsage, New-PrGateContext,
-    Assert-PrGateWorkspaceMode, Get-PrGateSlug, Invoke-PrGateOpen, Invoke-PrGateReady, Invoke-PrGateMerge,
-    Invoke-PrGateStart, Invoke-PrGateAfterMerge, Invoke-PrGatePrune, Invoke-PrGateCleanup,
+    Assert-PrGateWorkspaceMode, Get-PrGateSlug, Invoke-PrGateOpen, Invoke-PrGateReady,
+    Invoke-PrGateStart, Invoke-PrGateCleanup,
     Invoke-PrGateScratchAdd, Invoke-PrGateScratchRm, Invoke-PrGateLand
