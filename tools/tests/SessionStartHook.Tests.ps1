@@ -94,15 +94,26 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
     }
 
     It 'постійна частина виводу хука (без стану й попередження) вміщається у 2048 байт UTF-8' {
+        # Найгірший випадок постійної частини: маніфест І профіль процесу, що відстав від плагіна —
+        # тоді до вказівки на скіл додаються правила спілкування й рядок оновлення. Фальшивий плагін
+        # несе справжні hooks/communication-rules.md, plugin.json і журнал з кроком, інакше межа
+        # міряла б вивід без блоку правил.
         $plugin = Join-Path $TestDrive 'fake-plugin-size'
-        New-Item -ItemType Directory -Path (Join-Path $plugin 'tools'), (Join-Path $plugin 'hooks') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $plugin 'tools'), (Join-Path $plugin 'hooks'), (Join-Path $plugin '.claude-plugin') -Force | Out-Null
         Copy-Item -LiteralPath $script:Hook -Destination (Join-Path $plugin 'hooks/session-start.ps1')
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../hooks/communication-rules.md') -Destination (Join-Path $plugin 'hooks/communication-rules.md')
+        Set-Content -LiteralPath (Join-Path $plugin '.claude-plugin/plugin.json') -Encoding UTF8 -Value '{ "name": "v8storagekit", "version": "9.9.9" }'
+        Set-Content -LiteralPath (Join-Path $plugin 'CHANGELOG.md') -Encoding UTF8 -Value @('# Журнал', '', '## 9.9.9 — 2026-11-20', '', '### Що змінилось', '', '- x', '', '### Чекліст оновлення проєкту', '', '- [ ] крок')
         Set-Content -LiteralPath (Join-Path $plugin 'tools/kit.ps1') -Encoding UTF8 -Value "'СТАН-ЗАГЛУШКА'"
         $repo = Join-Path $TestDrive 'repo-size'
-        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $repo '.agents') -Force | Out-Null
+        & git -C $repo init -q
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
+        Set-Content -LiteralPath (Join-Path $repo '.agents/kit.profile.json') -Encoding UTF8 -Value '{ "kit": { "version": "0.1.0" } }'
         $ctx = ((Invoke-Hook -ProjectDir $repo -Hook (Join-Path $plugin 'hooks/session-start.ps1')).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
         $ctx | Should -BeLike '*СТАН-ЗАГЛУШКА*' -Because 'контроль: заглушку стану видно, тож віднімання нижче щось віднімає'
+        $ctx | Should -BeLike '*ASD-STE100*' -Because 'контроль: блок правил спілкування входить у виміряну частину'
+        $ctx | Should -BeLike '*9.9.9*' -Because 'контроль: рядок оновлення входить у виміряну частину'
         $constant = $ctx.Replace('СТАН-ЗАГЛУШКА', '')
         [System.Text.Encoding]::UTF8.GetByteCount($constant) | Should -BeLessOrEqual 2048
     }
