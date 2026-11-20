@@ -16,7 +16,7 @@ Describe 'codex-audit — зелений лише з доказом читанн
         Set-Content -LiteralPath $fake -Encoding utf8NoBOM -Value @'
 $out = $args[[array]::IndexOf($args, '-o') + 1]
 [void][Console]::In.ReadToEnd()
-[System.IO.File]::WriteAllText($out, '{"files_read":["note.txt"],"findings":[]}')
+[System.IO.File]::WriteAllText($out, $(if ($args -contains 'review') { "[P1] defect at note.txt:1" } else { '{"files_read":["note.txt"],"findings":[]}' }))
 $cmd = $env:FAKE_CODEX_COMMAND
 '{"type":"thread.started"}'
 ('{"type":"item.completed","item":{"type":"command_execution","command":' + (ConvertTo-Json $cmd) + ',"exit_code":0,"status":"completed"}}')
@@ -27,12 +27,12 @@ $cmd = $env:FAKE_CODEX_COMMAND
         Set-Content -LiteralPath (Join-Path $TestDrive 'q.md') -Value 'Read note.txt.' -Encoding utf8NoBOM
 
         function script:Invoke-Audit {
-            param([string]$Command)
+            param([string]$Command, [string[]]$Mode = @('-Prompt', (Join-Path $TestDrive 'q.md')))
             $saved = $env:FAKE_CODEX_COMMAND, $env:XDG_CONFIG_HOME
             $env:FAKE_CODEX_COMMAND = $Command
             $env:XDG_CONFIG_HOME = Join-Path $TestDrive 'xdg'
             Push-Location $script:Repo
-            try { $out = & pwsh -NoProfile -File $script:KitProcess codex-audit -Prompt (Join-Path $TestDrive 'q.md') 2>&1 | Out-String; $code = $LASTEXITCODE }
+            try { $out = & pwsh -NoProfile -File $script:KitProcess codex-audit @Mode 2>&1 | Out-String; $code = $LASTEXITCODE }
             finally { Pop-Location; $env:FAKE_CODEX_COMMAND, $env:XDG_CONFIG_HOME = $saved }
             [pscustomobject]@{ Code = $code; Out = $out }
         }
@@ -48,5 +48,11 @@ $cmd = $env:FAKE_CODEX_COMMAND
         $r = Invoke-Audit -Command '"C:\Program Files\PowerShell\7\pwsh.exe" -Command ''Get-Content -LiteralPath note.txt'''
         $r.Code | Should -Be 0 -Because $r.Out
         $r.Out | Should -Match '0 finding\(s\).*1 file\(s\) read' -Because $r.Out
+    }
+
+    It 'review -Base: turn.completed і звіт із [P1] — код 0 і підсумок коментарів' {
+        $r = Invoke-Audit -Command 'git diff main' -Mode @('review', '-Base', 'main')
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'review done — P1: 1' -Because $r.Out
     }
 }

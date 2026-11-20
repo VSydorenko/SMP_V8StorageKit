@@ -295,7 +295,8 @@ function Invoke-KitCodexAudit {
     if ($a.Named.ContainsKey('Commit')) { $target += @('--commit', $a.Named['Commit']) }
     if ($a.Named.ContainsKey('Base')) { $target += @('--base', $a.Named['Base']) }
     if ($a.Named['Uncommitted']) { $target += '--uncommitted' }
-    $embeds = if ($a.Named.ContainsKey('Embed')) { @($a.Named['Embed']) } else { @() }
+    # @() навколо всього виразу: порожній масив з гілки if розгортається в $null, а суворий режим падає на .Count.
+    $embeds = @(if ($a.Named.ContainsKey('Embed')) { $a.Named['Embed'] })
     if ($mode -eq 'review') {
         if (@($target | Where-Object { $_.StartsWith('--') }).Count -ne 1) { throw (New-KitUsageError 'review потребує рівно одного з -Commit <sha>, -Base <гілка>, -Uncommitted') }
         if ($embeds.Count -or $a.Named['NoRepo'] -or $a.Named['Freeze']) { throw (New-KitUsageError '-Embed, -NoRepo і -Freeze — параметри аудиту, не review') }
