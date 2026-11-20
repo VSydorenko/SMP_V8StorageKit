@@ -162,7 +162,10 @@ function Assert-PrGateWorkspaceMode {
     param([AllowNull()][AllowEmptyString()]$Value)
     if ($null -eq $Value) { throw (New-KitNotChecked 'поле профілю "workspace.mode" порожнє (null); допустимі: shared, worktree') }
     $v = [string]$Value
-    if ($v -notin $script:WorkspaceModes) {
+    # Чутливо до регістру (-cnotin): далі режим порівнюють через -ceq, і "Shared", пропущений тут
+    # нечутливою перевіркою, land трактував би як не-shared і зсунув би HEAD спільного дерева
+    # (рев'ю-верифікація T3, N1).
+    if ($v -cnotin $script:WorkspaceModes) {
         throw (New-KitNotChecked "поле профілю `"workspace.mode`" має значення `"$v`"; допустимі: $($script:WorkspaceModes -join ', ')")
     }
     $v
@@ -415,7 +418,8 @@ function Invoke-PgMergeChecked {
     if ($p.mergeable -ne 'MERGEABLE') { & $fail "mergeable $($p.mergeable)" }
     $sha7 = $p.headRefOid.Substring(0, [Math]::Min(7, $p.headRefOid.Length))
     if ($DryRun) {
-        & $Say "ПРОБНИЙ ПРОГІН: злив би #$($p.number) методом $Method на $sha7 і видалив би $($p.headRefName)"
+        $branchFate = if ((Get-PgProtectedBranches -Ctx $Ctx -Extra @($p.baseRefName)) -ccontains $p.headRefName) { "лишив би $($p.headRefName) (захищена)" } else { "видалив би $($p.headRefName), якщо її верхівка = $sha7" }
+        & $Say "ПРОБНИЙ ПРОГІН: злив би #$($p.number) методом $Method на $sha7 і $branchFate"
         return 0
     }
     # --match-head-commit: якщо після перевірки хтось запушив, GitHub відмовить, і неперевірений
@@ -871,12 +875,13 @@ function Invoke-PrGateScratchRm {
     }
     $wt = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { Test-PgSamePath $_.Path $full } | Select-Object -First 1
     if ($wt -and $wt.Branch) { throw (New-KitUsageError "scratch rm: $full на гілці $($wt.Branch), не відокремлене: відмова") }
+    # П25: не видаляти крізь посилання і лише власне під <worktrees.root>/.scratch — до БУДЬ-ЯКОГО
+    # видалення, зокрема до `git worktree remove --force` (рев'ю-верифікація T3, M1).
+    Assert-SafeWorkPath -Path $full -MustBeUnder $place.Dir -RepoRoot $Ctx.MainRoot -OwnedRoot (Join-Path $Ctx.MainRoot $Ctx.WorktreesRoot) -Description 'тека scratch-дерева'
     $null = Move-PgOutOf -Path $full -To $Ctx.MainRoot
     if ($wt) { $null = Get-PgGit -GitArgs @('worktree', 'remove', '--force', $full) -Cwd $Ctx.MainRoot }
     # Рекурсивне видалення — лише Remove-KitDirectory (#34): провал кидає виняток, а не мовчить —
     # інакше наступний рядок сказав би «видалено» про теку, що лишилась.
-    # П25: не видаляти крізь посилання і лише власне під <worktrees.root>/.scratch.
-    Assert-SafeWorkPath -Path $full -MustBeUnder $place.Dir -RepoRoot $Ctx.MainRoot -OwnedRoot (Join-Path $Ctx.MainRoot $Ctx.WorktreesRoot) -Description 'тека scratch-дерева'
     Remove-KitDirectory -Path $full
     if (-not $wt) { $null = Invoke-PgGit -GitArgs @('worktree', 'prune') -Cwd $Ctx.MainRoot }
     & $Say $(if ($wt) { "видалено scratch-дерево $full" } else { "${full}: це вже не worktree; теку видалено" })
