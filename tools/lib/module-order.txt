@@ -56,3 +56,6 @@ KitProfile
 KitVersion
 KitWait
 GhRun
+KitGit
+KitReviewPack
+KitSdd
