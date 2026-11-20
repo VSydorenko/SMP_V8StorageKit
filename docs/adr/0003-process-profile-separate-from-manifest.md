@@ -14,7 +14,8 @@ Source: agent-kit 0.9.1 (оригінал, `.agents/private/agent-kit` у вор
 
 Профіль процесу — `.agents/kit.profile.json` (комітиться) з локальним перекриттям
 `.agents/kit.profile.local.json` (git-ignored) і машинним шаром
-`%USERPROFILE%\.config\v8storagekit\profile.json`. Шари зливаються від машинного до
+`%USERPROFILE%\.config\v8storagekit\profile.json`; змінна `XDG_CONFIG_HOME`, якщо задана, замінює
+`%USERPROFILE%\.config` (як в agent-kit; так тести ізолюють машинний шар). Шари зливаються від машинного до
 локального; об'єкти зливаються, масиви й скаляри замінюються. Схема полів повторює agent-kit
 там, де значення те саме, і додає 1С-поля (`tests.levels.<l>.kind = yaxunit`,
 `workspace.mode`). Команди процесу не потребують маніфесту й не проходять префлайт сховища.
