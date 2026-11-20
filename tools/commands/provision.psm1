@@ -534,6 +534,8 @@ function Invoke-KitProvision {
         if ($plan.UnfitNote) { Write-Host $plan.UnfitNote -ForegroundColor Cyan }
 
         if ($plan.Server) {
+            Write-Host ("  Серверна база: у v8project.local.yaml воркспейсу має бути пін платформи кластера (tools.platform.version і path) — " +
+                "інакше раннер візьме найновіший клієнт, і push чи kit sync упадуть з «Различаются версии клиента и сервера». Версію кластера знає людина.") -ForegroundColor Yellow
             Write-KitNextSteps -Title 'Далі:' -Steps $steps
             $done.Add([pscustomobject]@{ Workspace = $ws.Path; Path = $null; Template = $null; CreatedBy = $plan.CreatedBy; Steps = $steps })
             continue
