@@ -107,12 +107,14 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         [System.Text.Encoding]::UTF8.GetByteCount($constant) | Should -BeLessOrEqual 2048
     }
 
-    It 'session-check упав (код 1) — хук не мовчить: позначка «стан невідомий» і текст зупинки, код хука 0' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'broken') -WithHooks
-        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value "version: 1`nkitVersion: 1.0.1" -Encoding UTF8   # маніфест без workspaces → префлайт кидає
+    It 'репозиторій суперечливий (kit check має помилку, session-check код 1) — хук друкує вивід як є, без обгортки «неочікуваним кодом»' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'inconsistent') -WithHooks
+        Add-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")   # стара форма: error у check
         $r = Invoke-Hook -ProjectDir $repo
         $r.ExitCode | Should -Be 0
-        ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext | Should -BeLike '*НЕВІДОМИЙ*workspaces*'
+        $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+        $ctx | Should -BeLike '*спершу kit check*'
+        $ctx | Should -Not -BeLike '*неочікуваним*' -Because 'код 1 — контрактний код session-check, не збій'
     }
 
     Context 'стеля часу' {
