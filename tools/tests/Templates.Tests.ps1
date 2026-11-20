@@ -139,11 +139,11 @@ Describe 'templates/settings.json, хук плагіна і using-v8storagekit' 
         $hook | Should -Match 'PSScriptRoot'
         Join-Path $script:Root 'templates/hooks/session-start.ps1' | Should -Not -Exist
     }
-    It 'using-v8storagekit без токена CLAUDE_PLUGIN_ROOT, з префіксованими іменами скілів' {
+    It 'using-v8storagekit: шлях до kit через токен кореня плагіна (хук його більше не підставляє), з префіксованими іменами скілів' {
         $skill = Get-Content -LiteralPath (Join-Path $script:Root 'skills/using-v8storagekit/SKILL.md') -Raw
-        $skill | Should -Not -Match 'CLAUDE_PLUGIN_ROOT'
         foreach ($n in 'sync', 'dump', 'reconcile', 'finish', 'provision', 'verify', 'onboarding') { $skill | Should -Match "v8storagekit:$n" }
-        $skill | Should -Match '<корінь плагіна>'
+        $skill | Should -Match '\$\{CLAUDE_PLUGIN_ROOT\}/tools/kit\.ps1'
+        $skill | Should -Not -Match '<корінь плагіна>'
     }
 }
 

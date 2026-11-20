@@ -1,8 +1,8 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Хук SessionStart плагіна v8storagekit (hooks/hooks.json): «Стан сховищ» і вступ
-    using-v8storagekit на старті сесії в репозиторії під kit.
+    Хук SessionStart плагіна v8storagekit (hooks/hooks.json): «Стан сховищ» і вказівка на скіл
+    using-v8storagekit на старті сесії в репозиторії під kit. Текст скіла хук не вклеює.
 .DESCRIPTION
     Логіки тут немає: знайти v8storagekit.yaml, викликати kit.ps1 session-check і надрукувати
     контекст для сесії. Нічого не змінює: рішення — людині, дія — скіл v8storagekit:sync.
@@ -63,14 +63,6 @@ try {
     if ($repo) {
         $context = ''
         try {
-            $intro = ''
-            $skill = Join-Path $plugin 'skills/using-v8storagekit/SKILL.md'
-            if (Test-Path -LiteralPath $skill -PathType Leaf) {
-                $intro = Get-Content -LiteralPath $skill -Raw -Encoding UTF8
-                $intro = [regex]::Replace($intro, '\A---\r?\n.*?\r?\n---\r?\n', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-                $intro = $intro.Replace('<корінь плагіна>', $plugin)
-            }
-
             # Стеля часу — обов'язкова: цей код виконується на старті КОЖНОЇ сесії в репозиторії під kit,
             # а session-check обходить data/objects (часто SMB) і викликає повний check. Перевищення
             # показуємо рядком, не мовчанням: мовчання читалось би як «нових версій немає».
@@ -120,7 +112,11 @@ try {
             if ($repo -ne $project) {
                 $warning = "УВАГА: сесію відкрито в $project, а корінь репозиторію kit — $repo. Уніка бачитиме лише цей воркспейс, а не весь репозиторій; відкрийте сесію в корені репозиторію.`n`n"
             }
-            $context = "<v8storagekit>`n$intro`n`n## Стан сховищ (kit session-check)`n`n$warning$status`n</v8storagekit>"
+            # Порядок: попередження → стан → вказівка на скіл. Вступ НЕ вклеюється: Claude Code велику
+            # частину виводу хука показує агентові лише прев'ю, тож найважливіше (стан) стоїть першим,
+            # а правила контуру агент бере зі скіла, який йому тут названо.
+            $pointer = "Репозиторій під kit. Правила контуру — скіл ``v8storagekit:using-v8storagekit``: завантаж його перед першою командою kit, кроком Уніки над базою агента чи роботою зі сховищем."
+            $context = "<v8storagekit>`n$warning## Стан сховищ (kit session-check)`n`n$status`n`n$pointer`n</v8storagekit>"
         } catch {
             $context = "<v8storagekit>`nХук v8storagekit не зміг зібрати стан: $($_.Exception.Message)`n</v8storagekit>"
         }
