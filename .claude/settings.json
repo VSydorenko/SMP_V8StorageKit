@@ -43,8 +43,6 @@
       "PowerShell(pr-gate scratch:*)"
     ],
     "ask": [
-      "Bash(git push:*)",
-      "Bash(gh pr create:*)",
       "Bash(gh release:*)"
     ],
     "deny": [
