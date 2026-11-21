@@ -104,8 +104,7 @@ Describe 'session-board — злитий PR і нова робота в гілц
         } finally { Pop-Location; $env:PATH = $savedPath }
 
         $code | Should -Be 0 -Because $all
-        $plain | Should -Not -Match '(detached)'
-        @($all -split "?
-" | Where-Object { $_ -match '(detached)' }).Count | Should -Be 1 -Because $all
+        $plain | Should -Not -Match '\(detached\)'
+        @($all -split "`r?`n" | Where-Object { $_ -match '\(detached\)' }).Count | Should -Be 1 -Because $all
     }
 }
