@@ -5,6 +5,36 @@ Set-StrictMode -Version Latest
 # Supply дає Get-KitSupplyState і Get-KitSupplyRecipe.
 Import-Module "$PSScriptRoot/Supply.psm1"
 
+# Наступний крок команди для рядка `next:` (спека #51 D3, Р4): перший надрукований крок у формі команди
+# (`kit …` чи `unica.run …` з dryRun:true) і ознака «надруковано ЗУПИНКА». Стан одного виклику команди:
+# sync, verify і session-check скидають його на старті й друкують рядок наприкінці.
+$script:KitNextStep = @{ First = $null; Stopped = $false }
+
+function Reset-KitNextStep {
+    [CmdletBinding()]
+    param()
+    $script:KitNextStep = @{ First = $null; Stopped = $false }
+}
+
+function Register-KitNextStep {
+    <# Запам'ятати крок, який команда щойно надрукувала; лишається перший. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Step)
+    if ($null -eq $script:KitNextStep.First) { $script:KitNextStep.First = $Step }
+}
+
+function Write-KitNextStepLine {
+    <#
+    .SYNOPSIS
+        Останній рядок `next: <перший надрукований крок>` — лише коли крок був і рядків ЗУПИНКА не було.
+    #>
+    [CmdletBinding()]
+    param()
+    if ($null -ne $script:KitNextStep.First -and -not $script:KitNextStep.Stopped) {
+        Write-Host "next: $($script:KitNextStep.First)"
+    }
+}
+
 function Format-KitUnicaRun {
     <#
     .SYNOPSIS
@@ -44,6 +74,7 @@ function Write-KitNextSteps {
         $i++
         $tail = if ($s.StartsWith('unica.run ')) { '   — спершу так, потім той самий виклик з "dryRun":false' } else { '' }
         Write-Host "    $i. $s$tail" -ForegroundColor Cyan
+        Register-KitNextStep -Step $s
     }
 }
 
@@ -130,7 +161,8 @@ function Write-KitAlignStops {
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Steps)
     foreach ($s in @($Steps | Where-Object { $_.Op -eq 'blocked' })) {
         Write-Host "ЗУПИНКА: $($s.Recipe)" -ForegroundColor Red
+        $script:KitNextStep.Stopped = $true
     }
 }
 
-Export-ModuleMember -Function Format-KitUnicaRun, Write-KitNextSteps, Get-KitAlignStep, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops
+Export-ModuleMember -Function Reset-KitNextStep, Register-KitNextStep, Write-KitNextStepLine, Format-KitUnicaRun, Write-KitNextSteps, Get-KitAlignStep, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops

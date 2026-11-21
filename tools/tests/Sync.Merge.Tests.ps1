@@ -107,7 +107,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
-    It '-MergeInto гілка без v8storagekit.yaml (чужа гілка) — злиття не виконується, код 2, гілка не зрушила' {
+    It '-MergeInto гілка без v8storagekit.yaml (чужа гілка) — злиття не виконується, код 4, гілка не зрушила' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-legacy') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-into-legacy-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
@@ -127,7 +127,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
 
         $ctx = New-KitTestContext -Repo $repo
         $result = Invoke-KitSync -Context $ctx -Apply $true -MergeMain -MergeInto 'legacy' -InformationVariable infoRecords
-        $result.ExitCode | Should -Be 2
+        $result.ExitCode | Should -Be 4
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
         $text | Should -BeLike '*legacy*v8storagekit.yaml немає*'
         (git -C $repo rev-parse legacy) | Should -Be $legacyBefore
@@ -169,7 +169,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         (git -C $repo rev-parse main) | Should -Be $mainBefore
     }
 
-    It '-MergeInto у неіснуючу гілку — код 2, «Гілки … ще немає» з -MergeInto у рецепті, гілку не створено' {
+    It '-MergeInto у неіснуючу гілку — код 4, «Гілки … ще немає» з -MergeInto у рецепті, гілку не створено' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'merge-into-missing') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'merge-into-missing-storage'; New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
@@ -182,7 +182,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5) }
 
         $result = Invoke-KitSync -Context (New-KitTestContext -Repo $repo) -Apply $true -MergeMain -MergeInto 'nope' -InformationVariable infoRecords
-        $result.ExitCode | Should -Be 2
+        $result.ExitCode | Should -Be 4
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
         $text | Should -BeLike "*Гілки 'nope' ще немає*-Source Alpha_SMB -Apply -MergeMain -MergeInto nope*"
         git -C $repo rev-parse --verify --quiet refs/heads/nope; $LASTEXITCODE | Should -Not -Be 0
@@ -206,7 +206,7 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         Mock -ModuleName sync Merge-KitBranchInto { throw 'симульований збій злиття' }
 
         $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
-        $result.ExitCode | Should -Be 2
+        $result.ExitCode | Should -Be 4
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
         $text | Should -BeLike '*Дзеркало оновлено. Повторити злиття: kit sync -Source Alpha_SMB -Apply -MergeMain*'
         Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 7

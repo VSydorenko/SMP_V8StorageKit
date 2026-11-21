@@ -91,7 +91,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'кожна команда `kit.ps1" <команда>` у скілах і шаблонах існує в tools/commands' {
+    It 'кожна команда `kit <команда>` у скілах і шаблонах існує в tools/commands' {
         # Скіл, що кличе неіснуючу команду, — дефект, який користувач побачить лише на «Unknown command» у живій сесії.
         $commandsDir = (Resolve-Path "$PSScriptRoot/../commands").Path
         $known = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName)
@@ -104,9 +104,9 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         foreach ($f in $files) {
             # Документ про минулі версії називає прибрані команди свідомо.
             if ($f.Rel -like '*upgrades.md') { continue }
-            foreach ($m in [regex]::Matches($f.Text, 'kit\.ps1"?\s+([a-z][a-z0-9-]+)')) {
+            foreach ($m in [regex]::Matches($f.Text, '(?m)(?:^\s*|`)kit\s+([a-z][a-z0-9-]+)')) {
                 $seen++
-                $known | Should -Contain $m.Groups[1].Value -Because "у $($f.Rel) викликано kit.ps1 $($m.Groups[1].Value), а tools/commands/$($m.Groups[1].Value).psm1 немає"
+                $known | Should -Contain $m.Groups[1].Value -Because "у $($f.Rel) викликано kit $($m.Groups[1].Value), а tools/commands/$($m.Groups[1].Value).psm1 немає"
             }
         }
         $seen | Should -BeGreaterThan 5 -Because 'контроль: пошук мусить знаходити виклики'
@@ -160,7 +160,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         $t = Skill 'task-finish'
         $posPush = $t.IndexOf('"op":"push"')
         $posPull = $t.IndexOf('"op":"pull"')
-        $posAdopt = $t.IndexOf('kit.ps1" adopt')
+        $posAdopt = $t.IndexOf('kit adopt')
         $posPush | Should -BeGreaterThan -1
         $posPull | Should -BeGreaterThan $posPush
         $posAdopt | Should -BeGreaterThan $posPull

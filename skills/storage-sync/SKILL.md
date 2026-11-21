@@ -15,7 +15,7 @@ description: Перенести нові версії сховищ конфіг�
 ## 1. Що є і що нового
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" session-check -RepoRoot .
+kit session-check -RepoRoot .
 ```
 
 Без платформи: по рядку на джерело `truth: storage` — «ймовірно нові версії» / «не злиті в
@@ -26,7 +26,7 @@ main» / «дзеркала ще немає» / «недоступне». Якщ
 ## 2. Прев'ю
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest]
+kit sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest]
 ```
 
 Це **не** безкоштовно: команда звертається до бази агента воркспейсу й запускає платформу,
@@ -57,7 +57,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-S
 Дієслово-наказ («перенеси», «синхронізуй», «так, оновлюй») або підтвердження після прев'ю:
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest] -Apply
+kit sync -RepoRoot . [-Source <ключ>] [-MaxVersions <N>] [-FromVersion <N> | -FromLatest] -Apply
 ```
 
 **Після `sync` база агента містить версію зі сховища, а не ваше дерево.** Це оголошений контракт.
@@ -121,7 +121,7 @@ Windows не переводить копію через таке перейме�
 - `Гілка storage/… вибрана в основній робочій копії` — перейти на іншу гілку й повторити.
 - `Злиття не виконано: у гілці '…' v8storagekit.yaml немає` — запобіжник: перше злиття дзеркала
   в гілку без маніфесту (типово `main`, поки маніфест лежить на гілці
-  онбордингу). Код виходу 2, дзеркало вже оновлено. Рецепт — повторити з
+  онбордингу). Код виходу 4, дзеркало вже оновлено. Рецепт — повторити з
   `-Apply -MergeMain -MergeInto <гілка, де лежить v8storagekit.yaml>`.
 - `Версію N основної конфігурації '…' основна платформа … не вивантажує.` — див. підрозділ нижче.
 - `Синхронізацію зупинено через невідомих авторів.` / підрядки `лиценз`, `ліценз`, `license`,

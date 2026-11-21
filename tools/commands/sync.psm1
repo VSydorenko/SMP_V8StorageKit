@@ -151,7 +151,7 @@ function Invoke-KitSync {
 
         -MergeInto <гілка> — куди робити перше злиття й злиття -MergeMain (типово головна гілка
         маніфесту). Запобіжник: якщо дзеркало ще не злите в цільову гілку, а в ній немає
-        v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 2).
+        v8storagekit.yaml, злиття не виконується — результат як у провалу злиття (код 4).
 
         -DumpPlatform <версія> -ForVersion N — версію N основної конфігурації
         вивантажує інша встановлена платформа (через .cf), коміт несе трейлер
@@ -178,6 +178,7 @@ function Invoke-KitSync {
         # змінна оточення: так тести-підпроцеси підміняють раннер, а production нічого не читає заради тестів.
         [string]$RunnerPath
     )
+    Reset-KitNextStep
 
     # Валідація параметрів — ДО будь-якого звернення до джерел чи платформи: описку в прапорцях
     # має ловити безкоштовна перевірка, а не збій після прогону платформи (20–40 хв/версію).
@@ -604,10 +605,10 @@ function Invoke-KitSync {
         $transferred = @($results | Where-Object { @($_.Versions).Count -gt 0 }).Count -gt 0
         if ($blocked.Count -gt 0) {
             $line = "Дзеркала оновлено, але вирівнювання не завершено для: {0} — див. ЗУПИНКА нижче." -f (($blocked.SourceSet) -join ', ')
-            if ($mergeFailed) { $line += ' Злиття в основну гілку теж не вдалось (код виходу 2) — див. повідомлення вище.' }
+            if ($mergeFailed) { $line += ' Злиття в основну гілку теж не вдалось (код виходу 4) — див. повідомлення вище.' }
             Write-Host $line -ForegroundColor Yellow
         } elseif ($mergeFailed) {
-            # Злиття впало (код 2): «Готово» було б хибним успіхом; «Дзеркала оновлено» — лише коли справді
+            # Злиття впало (код 4): «Готово» було б хибним успіхом; «Дзеркала оновлено» — лише коли справді
             # щось перенесено.
             if ($transferred) {
                 Write-Host 'Дзеркала оновлено, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
@@ -619,7 +620,9 @@ function Invoke-KitSync {
         }
         Write-KitAlignStops -Steps $alignSteps.ToArray()
     }
-    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 2 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
+    # Після ЗУПИНКА і після винятку рядка немає (D3, Р4): finally вище його не друкує.
+    Write-KitNextStepLine
+    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 4 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitSync

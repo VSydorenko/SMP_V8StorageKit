@@ -498,18 +498,18 @@ function Copy-KitTools {
     # тимчасову ІБ через New-ExtensionInfobase — без копії тут kit.ps1 sync у пісочниці
     # падає на "Cannot find path ...\tools\assets\empty-extension" ще до звернення до
     # сховища (живий Integration-прогін це й спіймав).
-    # hooks, skills/storage-rules: хук старту сесії живе в самому плагіні (1.6.0,
-    # hooks/session-start.ps1), бере корінь плагіна зі свого $PSScriptRoot і шукає
-    # skills/storage-rules/SKILL.md у ньому — тож копія плагіна несе обидва.
+    # hooks, skills/storage-rules: хук старту сесії живе в самому плагіні (`bin/kit.exe
+    # session-start`, #51), бере корінь плагіна з теки над bin/ і читає з нього
+    # hooks/communication-rules.md — тож копія плагіна несе hooks/ і bin/kit.exe (нижче);
+    # skills/storage-rules — скіл, на який хук лише вказує (текст не вклеюється).
     foreach ($rel in 'tools/lib', 'tools/commands', 'tools/assets', 'templates/githooks', 'hooks', 'skills/storage-rules') {
         $dst = Join-Path $Root $rel
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
-    # Вхід команд процесу і їхні обгортки: тести кличуть команди процесу
-    # тим самим шляхом, що й агент, — bin/<команда> → tools/kit-process.ps1.
-    Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit-process.ps1') -Destination (Join-Path $Root 'tools/kit-process.ps1') -Force
+    # Обгортки команд процесу: тести кличуть команди процесу тим самим шляхом, що й агент, —
+    # bin/<команда> → tools/kit.ps1.
     New-Item -ItemType Directory -Path (Join-Path $Root 'bin') -Force | Out-Null
     Copy-Item -Path (Join-Path $kitRoot 'bin/*') -Destination (Join-Path $Root 'bin') -Force
     # templates/settings.json — раніше НЕ копіювали: тоді

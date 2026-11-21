@@ -2,12 +2,12 @@
 # codex-audit: аудит зелений лише з доказом читання репозиторію в подіях JSONL. Codex виходить кодом 0
 # і тоді, коли пісочниця не дала прочитати жодного файла (виміряно на Windows без windows.sandbox:
 # «blocked by policy», exit 0, звіт за схемою з вигаданою знахідкою) — тож це головний контракт
-# команди. Справжній kit-process.ps1 підпроцесом; Codex — фальшивий codex.ps1 (поле профілю codex.bin),
+# команди. Справжній kit.ps1 підпроцесом; Codex — фальшивий codex.ps1 (поле профілю codex.bin),
 # що друкує події зі сценарію й пише звіт у шлях після -o.
 Describe 'codex-audit — зелений лише з доказом читання' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
-        $script:KitProcess = Join-Path (Split-Path (Copy-KitTools -Root (Join-Path $TestDrive 'plugin')) -Parent) 'kit-process.ps1'
+        $script:KitProcess = Join-Path (Split-Path (Copy-KitTools -Root (Join-Path $TestDrive 'plugin')) -Parent) 'kit.ps1'
         $script:Repo = Join-Path $TestDrive 'repo'
         New-Item -ItemType Directory -Path (Join-Path $script:Repo '.agents') -Force | Out-Null
         & git -C $script:Repo init -q -b main 2>&1 | Out-Null

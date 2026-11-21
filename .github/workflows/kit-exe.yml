@@ -1,0 +1,56 @@
+# Збірка поставки bin/kit.exe на CI (спека #51 D7, план §14 п. 12). Рецепт один — tools/build-kit-exe.ps1:
+# cargo test, ресурс версії й маніфест (rust/res), лінкер MSVC link.exe, перевірка форми збірки поставки.
+# Той самий скрипт збирає й на машині розробника з MSVC; CI додає атестацію походження GitHub і потрібен
+# там, де MSVC немає. Як забрати артефакт у bin/kit.exe — CLAUDE.md, розділ «Збірка kit.exe і Rust».
+name: kit-exe
+
+on:
+  push:
+    paths:
+      - 'rust/**'
+      - 'tools/build-kit-exe.ps1'
+      - '.github/workflows/kit-exe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Toolchain from rust/rust-toolchain.toml
+        working-directory: rust
+        shell: pwsh
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: Build (tools/build-kit-exe.ps1)
+        shell: pwsh
+        run: ./tools/build-kit-exe.ps1 -Out dist/kit.exe
+
+      - name: Describe
+        shell: pwsh
+        run: |
+          $f = Get-Item dist/kit.exe
+          dumpbin /nologo /headers $f.FullName | Select-String 'linker version'
+          & $f.FullName source-fingerprint rust
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/kit.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-exe
+          path: dist/kit.exe
+          if-no-files-found: error

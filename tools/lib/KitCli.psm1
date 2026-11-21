@@ -1,18 +1,20 @@
 #Requires -Version 7
 # Ported from agent-kit 0.9.1 lib/cli.mjs, modified.
 <#
-    Спільна поведінка команд процесу (sdd, review-pack, doc, pr-gate, …): чесний код виходу,
-    один рядок помилки, рядок `next:` і розбір аргументів у стилі PowerShell.
+    Спільна поведінка команд kit (процесу й сховища): чесний код виходу, один рядок помилки,
+    рядок `next:` і розбір аргументів у стилі PowerShell.
 
-    Контракт (власник — блок «процес kit»):
-      0 — так; 1 — ні/провал/відмова; 2 — помилка виклику; 3 — НЕ ПЕРЕВІРЕНО: перевірка не
-      відбулась (немає поля профілю, порожній діапазон, таймаут). 3 ніколи не зелений.
+    Контракт (один для всіх команд, спека #51 D3):
+      0 — так / виконано; 1 — зупинка / ні / відмова; 2 — помилка виклику (аргументи, невідома
+      команда); 3 — НЕ ПЕРЕВІРЕНО: перевірка не відбулась (немає поля профілю, порожній діапазон,
+      таймаут) — ніколи не зелений; 4 — виконано, є наступний крок (sync: дзеркало оновлено, злиття
+      ні; verify/session-check: є що робити).
       Перший рядок stderr будь-якої помилки — `<команда>: ERROR <причина>`: у полі `| tail`
       ховав причину, а агенти шукали її в різних форматах.
-      Останній рядок успіху — `next: <точна наступна команда>`.
+      Останній рядок `next: <точний наступний крок>` — лише коли наступний крок детермінований;
+      успіх без наступного кроку рядка `next:` не друкує.
 
-    Команди сховища (sync, verify, …) мають свій контракт кодів — у шапці tools/kit.ps1.
-    Ці два контракти не змішуються: команду процесу називає tools/commands/process-commands.txt.
+    Вхід — tools/kit.ps1; команди процесу називає tools/commands/process-commands.txt.
 #>
 Set-StrictMode -Version Latest
 
@@ -20,7 +22,7 @@ Set-StrictMode -Version Latest
 
 function New-KitCliError {
     <# Виняток із кодом виходу в Data['KitExitCode']: throw (New-KitCliError 'причина' 1). #>
-    param([Parameter(Mandatory)][string]$Message, [ValidateSet(1, 2, 3)][int]$ExitCode = 1)
+    param([Parameter(Mandatory)][string]$Message, [ValidateSet(1, 2, 3, 4)][int]$ExitCode = 1)
     $e = [System.Exception]::new($Message)
     $e.Data['KitExitCode'] = $ExitCode
     $e
@@ -165,7 +167,7 @@ function Invoke-KitProcessEntry {
         Запуск команди процесу: модуль tools/commands/<команда>.psm1 експортує
         Invoke-Kit<Команда> -Arguments [string[]] -RepoRoot <шлях> і повертає код виходу (int).
     .DESCRIPTION
-        Кличуть tools/kit-process.ps1 (обгортки bin/) і гілка процесу в tools/kit.ps1. Префлайту
+        Кличе tools/kit.ps1 для команди процесу. Префлайту
         сховища тут немає: команди процесу не потребують маніфесту (ADR-0003).
 
         Будь-який виняток стає рядком `<команда>: ERROR …` і кодом із Data['KitExitCode']
@@ -179,7 +181,7 @@ function Invoke-KitProcessEntry {
         [Parameter(Mandatory)][string]$ToolsDir
     )
     $known = @(Get-KitProcessCommandNames -ToolsDir $ToolsDir)
-    $label = if ($Command) { $Command } else { 'kit-process' }
+    $label = if ($Command) { $Command } else { 'kit' }
     if (-not $Command -or $known -notcontains $Command) {
         $what = if ($Command) { "невідома команда процесу '$Command'" } else { 'команду не вказано' }
         Write-KitError -Command $label -Message "$what; доступні: $(if ($known) { $known -join ', ' } else { 'жодної' })" -ExitCode 1

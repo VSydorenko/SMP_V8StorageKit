@@ -41,9 +41,12 @@ function Invoke-KitSessionCheck {
         [switch]$AsJson
     )
 
+    Reset-KitNextStep
     $root = $Context.RepoRoot
     $main = $Context.MainBranch
     $signals = [System.Collections.Generic.List[object]]::new()
+    # Перший крок-команда кожного джерела — для рядка `next:` (D3, Р4); у -AsJson не друкується.
+    $stepOf = @{}
 
     # --- Повний check першим. Виняток із check — теж «репозиторій суперечливий», код 1.
     $checkFindings = @()
@@ -71,6 +74,8 @@ function Invoke-KitSessionCheck {
             Write-Host "session-check — $($Context.Kind) $($Context.Label)"
             foreach ($e in $allErrors) { Write-Host "[-] $($e.Message)" -ForegroundColor Red }   # і знахідки стану машини: вони теж інформація
             Write-Host 'Сигнали не обчислювались: репозиторій суперечливий — спершу kit check.' -ForegroundColor Red
+            Register-KitNextStep -Step 'kit check'
+            Write-KitNextStepLine
         }
         return [pscustomobject]@{ ExitCode = 1; CheckFindings = $checkFindings; Signals = @() }
     }
@@ -122,7 +127,7 @@ function Invoke-KitSessionCheck {
         #  'no-mirror'     — дзеркала ще немає при доступному сховищі;
         #  'newer'         — mtime data/objects новіший за дзеркало (з допуском);
         #  'packed-newer'  — усе запаковано, а data/pack новіший: дешева перевірка сказати не може
-        #                    — теж код 3, не тиша й не 1.
+        #                    — теж код 4, не тиша й не 1.
         $newInStorage = $false; $newInStorageReason = $null
         if ($imprintCurrent) {
             if ($imprint.Version -gt $lastVersion) { $newInStorage = $true; $newInStorageReason = 'imprint-ahead' }
@@ -151,7 +156,9 @@ function Invoke-KitSessionCheck {
         # Текст — з незалежних частин, не з ексклюзивних if/elseif: стан сховища, стан дзеркала й
         # незлиті коміти — три РІЗНІ питання, що можуть бути правдою одночасно. Єдиний виняток —
         # gitProblem: коли стан git не прочитано, решті обчисленого довіряти не можна.
+        $srcStep = $null
         $text = if ($gitProblem) {
+            $srcStep = 'kit check'
             "- $($src.Key): стан git не прочитано ($gitProblem) — сигнал недоступний; розбір: kit check."
         } else {
             $parts = [System.Collections.Generic.List[string]]::new()
@@ -159,10 +166,11 @@ function Invoke-KitSessionCheck {
             if ($imprintCurrent) {
                 # Точна відповідь замість здогадки: диск не змінювався з моменту, коли sync
                 # його читав, тож версія з того читання — факт, не оцінка mtime. Текст завжди називає
-                # версію й момент читання — і коли дзеркало вже на ній (код 0), і коли позаду (код 3) —
+                # версію й момент читання — і коли дзеркало вже на ній (код 0), і коли позаду (код 4) —
                 # і НІКОЛИ не каже «ймовірно»: це не той самий сигнал, що евристики нижче.
                 if ($newInStorageReason -eq 'imprint-ahead') {
                     $parts.Add(("за відбитком сховище було на версії {0} станом на {1:yyyy-MM-dd HH:mm:ss} UTC, дзеркало на версії {2} — оновити: kit sync -Source {3} -Apply" -f $imprint.Version, $imprint.ReadAtUtc, $lastVersion, $src.Key))
+                    $srcStep = "kit sync -Source $($src.Key) -Apply"
                 } else {
                     $parts.Add(("дзеркало синхронне зі сховищем на версії {0} (відбиток прочитано {1:yyyy-MM-dd HH:mm:ss} UTC)" -f $imprint.Version, $imprint.ReadAtUtc))
                 }
@@ -177,12 +185,15 @@ function Invoke-KitSessionCheck {
 
                 if (-not $mirror) {
                     $parts.Add("дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply")
+                    $srcStep = "kit sync -Source $($src.Key) -Apply"
                 } elseif ($newInStorageReason -eq 'newer') {
                     $parts.Add(("у сховищі ймовірно нові версії (запис {0:yyyy-MM-dd HH:mm:ss} UTC після дзеркала {1:yyyy-MM-dd HH:mm:ss} UTC) — оновити? kit sync -Source {2} -Apply" -f $activity.LatestObjectWrite, $lastMirror, $src.Key))
+                    $srcStep = "kit sync -Source $($src.Key) -Apply"
                 } elseif ($newInStorageReason -eq 'packed-newer') {
                     # Дешева перевірка чесно каже «не знаю»; дія — kit sync БЕЗ
                     # -Apply: прочитає звіт і залишить точний відбиток на майбутнє.
                     $parts.Add(("усі об'єкти запаковані після останнього дзеркала ({0:yyyy-MM-dd HH:mm:ss} UTC) — чи є нові версії, дешева перевірка сказати не може; точну відповідь дає kit sync -Source {1} без -Apply" -f $lastMirror, $src.Key))
+                    $srcStep = "kit sync -Source $($src.Key)"
                 }
             }
 
@@ -191,11 +202,13 @@ function Invoke-KitSessionCheck {
                 if ($mainMissing) {
                     if (Test-KitBranchUnborn -RepoRoot $root -Branch $main) {
                         $parts.Add("на $($src.Branch) є $unmerged коміт(и), а головної гілки '$main' ще немає — зробіть перший коміт у '$main', потім kit sync -Source $($src.Key) -Apply -MergeMain")
+                        if ($null -eq $srcStep) { $srcStep = "kit sync -Source $($src.Key) -Apply -MergeMain" }
                     } else {
                         $parts.Add("на $($src.Branch) є $unmerged коміт(и), а гілки '$main' з маніфесту немає — перевірте mainBranch: (описка?)")
                     }
                 } else {
                     $parts.Add("на $($src.Branch) є $unmerged коміт(и), не злиті в $main — звірочний коміт: kit verify -Apply")
+                    if ($null -eq $srcStep) { $srcStep = 'kit verify -Apply' }
                 }
             }
 
@@ -203,6 +216,7 @@ function Invoke-KitSessionCheck {
             "- $($src.Key): " + ($parts -join '; ') + '.'
         }
 
+        $stepOf[$src.Key] = $srcStep
         $signals.Add([pscustomobject]@{
             Key = $src.Key; Branch = $src.Branch; MirrorExists = $mirror; LastMirrorDate = $lastMirror
             StorageWrite = $activity.LatestObjectWrite; NewInStorage = $newInStorage; NewInStorageReason = $newInStorageReason
@@ -222,6 +236,7 @@ function Invoke-KitSessionCheck {
         if ($signals.Count -eq 0) { Write-Host '- джерел truth: storage у маніфесті немає.' }
         foreach ($s in $signals) {
             Write-Host $s.Text
+            if ($stepOf[$s.Key]) { Register-KitNextStep -Step $stepOf[$s.Key] }
             # Відставання від origin — окремим рядком лише в людському виводі; у -AsJson це
             # поле OriginGap сигналу, не текст.
             if ($null -ne $s.OriginGap -and $s.OriginGap.HasRemote -and $s.OriginGap.Behind -gt 0) {
@@ -229,13 +244,14 @@ function Invoke-KitSessionCheck {
                     $s.Key, $s.Branch, $s.OriginGap.Behind) -ForegroundColor Yellow
             }
         }
+        Write-KitNextStepLine
     }
     # Коди за змістом, пріоритет: 1 — хоч одне джерело зі станом git, який не прочитано (той самий
-    # клас, що зупинка check); інакше 3 — хоч один сигнал дії (нові версії, дзеркала немає, шлях не схожий
+    # клас, що зупинка check); інакше 4 — хоч один сигнал дії (нові версії, дзеркала немає, шлях не схожий
     # на сховище, незлиті коміти — і коли головної гілки немає); інакше 0. «Сховище недоступне» — стан
     # машини, 0 з рядком. Винятку немає навмисно: хук на код 1 сам ставить позначку «стан НЕВІДОМИЙ».
     $exit = if (@($signals | Where-Object { $_.GitProblem }).Count) { 1 }
-            elseif (@($signals | Where-Object { $_.NewInStorage -or $_.UnmergedCommits -gt 0 }).Count) { 3 }
+            elseif (@($signals | Where-Object { $_.NewInStorage -or $_.UnmergedCommits -gt 0 }).Count) { 4 }
             else { 0 }
     [pscustomobject]@{ ExitCode = $exit; CheckFindings = $checkFindings; Signals = $signals.ToArray() }
 }
