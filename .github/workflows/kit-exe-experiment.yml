@@ -1,0 +1,75 @@
+# Експеримент #51 (Defender): збірка kit.exe на windows-latest звичайним MSVC link.exe, як у Уніки.
+# V1 — джерело без змін; V2 — те саме плюс ресурс версії й маніфест (experiment/kit.rc, поза rust/).
+# Підпису немає. Гілка експерименту в main не зливається.
+name: kit-exe-experiment
+
+on:
+  push:
+    branches: ['exp/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Toolchain from rust/rust-toolchain.toml
+        working-directory: rust
+        shell: pwsh
+        run: |
+          rustup toolchain install
+          rustc -vV
+          cargo -V
+
+      - name: V1 — plain release, MSVC link.exe
+        working-directory: rust
+        shell: pwsh
+        run: |
+          cargo build --release --locked
+          New-Item -ItemType Directory -Force ../out | Out-Null
+          Copy-Item target/release/kit.exe ../out/kit-v1-msvc.exe
+
+      - name: V2 — plus VERSIONINFO and manifest
+        shell: pwsh
+        run: |
+          Push-Location experiment
+          rc.exe /nologo /fo ..\out\kit.res kit.rc
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Pop-Location
+          $res = (Resolve-Path out\kit.res).Path
+          Push-Location rust
+          cargo rustc --release --locked --bin kit -- -C "link-arg=$res"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item target/release/kit.exe ../out/kit-v2-msvc-res.exe
+          Pop-Location
+          Remove-Item out\kit.res
+
+      - name: Describe binaries
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem out\*.exe) {
+            "== $($f.Name)  $($f.Length) bytes  sha256 $((Get-FileHash $f).Hash)"
+            dumpbin /nologo /headers $f.FullName | Select-String 'linker version'
+            dumpbin /nologo /headers $f.FullName | Select-String 'Rich' -SimpleMatch
+            $f.VersionInfo | Format-List FileDescription, FileVersion, ProductName
+          }
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: out/*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-exe-experiment
+          path: out/*.exe
+          if-no-files-found: error
