@@ -405,6 +405,17 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $r.Results[0].Version | Should -Be 1
             $r.Results[0].Verdict | Should -Be 'storage-ahead'
         }
+        It 'next: (D3, Р4) — storage-ahead з -Apply: звірочний коміт виконано, next: — крок push, а не повтор verify' {
+            $repo = New-AlignVerifyRepo -Name 'al-next-apply' -Merge
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                -FileName 'Configuration.xml' -Content ($script:MockContent + '<!-- v2 -->') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
+            $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' -Apply $true } 6>&1 | Out-String
+            $script:R.Results[0].Verdict | Should -Be 'storage-ahead'
+            $script:R.Results[0].Merged | Should -BeTrue -Because $text
+            $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+            $lines[-1] | Should -BeExactly "next: $($script:R.AlignSteps[0].Steps[0])"
+            $lines[-1] | Should -BeLike 'next: unica.run {"op":"push"*'
+        }
         It 'поставка missing на головній гілці — blocked, рецепт: повний pull і supply-marker, без push; на від''єднаному HEAD — «спершу поставка на головній гілці», без pull' {
             Mock -ModuleName UnicaStep Get-KitSupplyState { 'missing' }
             $repo = New-AlignVerifyRepo -Name 'al-supply' -Config -Merge

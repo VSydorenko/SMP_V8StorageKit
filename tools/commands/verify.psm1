@@ -213,11 +213,13 @@ function Invoke-KitVerify {
                                  "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch) -ForegroundColor Yellow
                 }
 
+                # Крок звірочного коміту — у next: лише без -Apply: з -Apply злиття виконується нижче, і наступний
+                # крок — вирівнювання (push), а не повтор verify (D3, Р4).
                 switch ($verdict) {
                     'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
-                    'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; Register-KitNextStep -Step "kit verify -Ref $ref -Apply"; $anyAction = $true }
+                    'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; if (-not $Apply) { Register-KitNextStep -Step "kit verify -Ref $ref -Apply" }; $anyAction = $true }
                     'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
-                    'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; Register-KitNextStep -Step 'kit verify -Apply'; $anyAction = $true }
+                    'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; if (-not $Apply) { Register-KitNextStep -Step 'kit verify -Apply' }; $anyAction = $true }
                 }
 
                 $merged = $false

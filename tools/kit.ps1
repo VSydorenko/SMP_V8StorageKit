@@ -149,6 +149,26 @@ foreach ($n in @($parsed.Named.Keys)) {
         exit 2
     }
 }
+# Атрибути перевірки параметра (ValidateSet, ValidateRange) — теж до префлайту: помилка аргументу з CLI —
+# код 2 незалежно від стану репозиторію. Перевіряє сам PowerShell: змінна з цими атрибутами не приймає
+# недопустимого значення ще в конструкторі.
+foreach ($n in @($splat.Keys)) {
+    $checks = @($params[$n].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateArgumentsAttribute] })
+    if (-not $checks.Count) { continue }
+    $attrs = [System.Collections.ObjectModel.Collection[Attribute]]::new()
+    foreach ($c in $checks) { $attrs.Add($c) }
+    try {
+        $null = [System.Management.Automation.PSVariable]::new($n, $splat[$n], [System.Management.Automation.ScopedItemOptions]::None, $attrs)
+    } catch {
+        $rule = @(foreach ($c in $checks) {
+                if ($c -is [System.Management.Automation.ValidateSetAttribute]) { "допустимо: $($c.ValidValues -join ', ')" }
+                elseif ($c -is [System.Management.Automation.ValidateRangeAttribute]) { "діапазон $($c.MinRange)..$($c.MaxRange)" }
+                else { $c.GetType().Name -replace 'Attribute$', '' }
+            }) -join '; '
+        Write-KitError -Command $command -ExitCode 2 -Message "-${n}: значення '$($splat[$n])' не проходить перевірку параметра ($rule)"
+        exit 2
+    }
+}
 $repoRoot = if ($parsed.Named.ContainsKey('RepoRoot')) { [string]$parsed.Named['RepoRoot'] } else { (Get-Location).Path }
 
 # Префлайт і сама команда — під одним try/catch: throw будь-де — один рядок `<команда>: ERROR …` і код 1

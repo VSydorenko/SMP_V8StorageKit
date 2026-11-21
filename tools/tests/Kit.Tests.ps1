@@ -103,6 +103,16 @@ Export-ModuleMember -Function Invoke-KitProbe
     }
 
 
+    It 'verify -Version 0 поза git-репозиторієм — помилка ValidateRange до префлайту, код 2' {
+        # Без перевірки до префлайту код залежав би від стану репозиторію: тут префлайт зупинив би кодом 1.
+        $dir = Join-Path $TestDrive 'validate-nogit'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $r = Invoke-Kit @('verify', '-RepoRoot', $dir, '-Version', '0')
+        $r.ExitCode | Should -Be 2 -Because $r.Output
+        $r.Output | Should -BeLike '*-Version*'
+        $r.Output | Should -Not -BeLike '*.git*'
+    }
+
     It 'команда кидає виняток усередині — код 1, повідомлення показано, не сирий стек' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Throw')
         $r.ExitCode | Should -Be 1
