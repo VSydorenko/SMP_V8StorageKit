@@ -12,10 +12,12 @@
 // Перенесені команди: `session-board` (D8, план #51 T5).
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
-// «бінарник = джерело» (D7); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, D6, план Р5).
+// «бінарник = джерело» (D7); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, D6, план Р5);
+// `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С.
 
 mod fingerprint;
 mod session_start;
+mod subagent_start;
 
 use kit::{cli, session_board};
 use std::io::Write;
@@ -119,6 +121,15 @@ fn main() {
     if command == session_start::COMMAND {
         // Хук старту сесії (D6, план Р5): код 0 завжди, вивід — одним записом або жодного.
         let out = plugin_root().ok().and_then(|root| session_start::run(&root));
+        if let Some(text) = out {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
+        }
+        exit(0);
+    }
+    if command == subagent_start::COMMAND {
+        // Хук SubagentStart: код 0 завжди, вивід — одним записом або жодного (блокувати хук не може).
+        let out = plugin_root().ok().and_then(|root| subagent_start::run_stdin(&root));
         if let Some(text) = out {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
