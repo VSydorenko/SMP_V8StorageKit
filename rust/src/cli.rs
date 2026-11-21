@@ -9,8 +9,6 @@
 
 use std::collections::BTreeMap;
 
-// Str і List знадобляться перенесеним командам (план #51 T4, T5); вхід розбирає лише -Help.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Str,

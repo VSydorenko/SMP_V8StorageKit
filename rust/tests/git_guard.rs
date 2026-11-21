@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 /// мусить відповідати рівно одному місцю в коді — застарілий запис теж червоне.
 const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
     ("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру (план Р3)"),
-    ("src/session_start.rs", "&taskkill", "хук старту: убити дерево session-check на стелі часу (план Р5)"),
+    ("src/proc.rs", "&taskkill", "убити дерево процесів на стелі часу: хук старту (session-check) і gh (план Р5)"),
+    ("src/gh.rs", "&exe", "gh для session-board: програма знайдена в PATH (план T5)"),
 ];
 
 #[derive(Debug, Clone, PartialEq)]

@@ -34,9 +34,10 @@
 // Перенесено з hooks/session-start.ps1 (до #51 T4); той, у свою чергу, — з agent-kit 0.9.1
 // hooks/session-rules.mjs (modified): блок правил і рядок оновлення.
 
+use kit::profile::{ps_string, strip_json_comments};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// Ім'я прихованої підкоманди.
@@ -175,62 +176,6 @@ fn read_profile(git_root: &Path) -> Profile {
             if is_version(&s) { Profile::Ok(s) } else { Profile::Bad }
         }
     }
-}
-
-/// Значення JSON так, як його дає `[string]` PowerShell після ConvertFrom-Json. Об'єкт — текст `@{…}`,
-/// що ніколи не є версією.
-fn ps_string(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Null => String::new(),
-        serde_json::Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(items) => items.iter().map(ps_string).collect::<Vec<_>>().join(" "),
-        serde_json::Value::Object(_) => "@{}".to_string(),
-    }
-}
-
-/// JSON без коментарів `//` (до кінця рядка) і `/* */` поза рядковими літералами; коментар стає пробілом.
-fn strip_json_comments(text: &str) -> String {
-    let c: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    let mut in_string = false;
-    while i < c.len() {
-        let ch = c[i];
-        if in_string {
-            out.push(ch);
-            if ch == '\\' && i + 1 < c.len() {
-                out.push(c[i + 1]);
-                i += 2;
-                continue;
-            }
-            if ch == '"' {
-                in_string = false;
-            }
-            i += 1;
-        } else if ch == '"' {
-            in_string = true;
-            out.push(ch);
-            i += 1;
-        } else if ch == '/' && c.get(i + 1) == Some(&'/') {
-            while i < c.len() && c[i] != '\n' {
-                i += 1;
-            }
-            out.push(' ');
-        } else if ch == '/' && c.get(i + 1) == Some(&'*') {
-            i += 2;
-            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
-                i += 1;
-            }
-            i += 2;
-            out.push(' ');
-        } else {
-            out.push(ch);
-            i += 1;
-        }
-    }
-    out
 }
 
 /// Правила спілкування без провідного HTML-коментаря, обрізані. Файла немає — None.
@@ -429,14 +374,14 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
             Ok(None) if Instant::now() >= deadline => break None,
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(e) => {
-                kill_tree(&mut child);
+                kit::proc::kill_tree(&mut child);
                 return Err(format!("очікування session-check: {e}"));
             }
         }
     };
 
     let Some(code) = code else {
-        kill_tree(&mut child);
+        kit::proc::kill_tree(&mut child);
         let mut status = format!(
             "УВАГА: kit session-check не вклався в {timeout} с — стан сховищ НЕВІДОМИЙ, не «без змін». Найчастіша причина — повільний доступ до сховища (SMB); перевірити вручну: kit.ps1 session-check -RepoRoot ."
         );
@@ -489,19 +434,4 @@ fn std_handles_not_inheritable() {
             }
         }
     }
-}
-
-/// Убиває дерево процесів дочірнього (`taskkill /T /F`; session-check запускає git і раннер), потім —
-/// сам процес на випадок, коли taskkill не спрацював, і чекає його завершення.
-fn kill_tree(child: &mut std::process::Child) {
-    let system_root = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    let taskkill = system_root.join("System32").join("taskkill.exe");
-    let _ = Command::new(&taskkill)
-        .args(["/T", "/F", "/PID", &child.id().to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let _ = child.kill();
-    let _ = child.wait();
 }

@@ -9,13 +9,15 @@
 // Коди (D3): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
+// Перенесені команди: `session-board` (D8, план #51 T5).
+//
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (D7); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, D6, план Р5).
 
-mod cli;
 mod fingerprint;
 mod session_start;
 
+use kit::{cli, session_board};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
@@ -40,25 +42,6 @@ fn plugin_root() -> Result<PathBuf, String> {
         .ok_or_else(|| format!("у шляху {} немає теки над bin/", exe.display()))
 }
 
-/// Пошук програми так, як її шукає оболонка Windows: теки `PATH` по черзі, у кожній — розширення з
-/// `PATHEXT`. Одна функція для всіх зовнішніх програм; швів через змінні оточення немає (план Р3).
-fn find_program(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-    for dir in std::env::split_paths(&path) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        for ext in exts.split(';').filter(|e| !e.is_empty()) {
-            let candidate = dir.join(format!("{name}{ext}"));
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
-}
-
 fn print_help(root: Option<&Path>) {
     println!("usage: kit <команда> [аргументи]");
     let mut names: Vec<String> = root
@@ -68,6 +51,8 @@ fn print_help(root: Option<&Path>) {
         .filter_map(|e| e.ok())
         .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".psm1")).map(str::to_string))
         .collect();
+    // Команди, перенесені на Rust, модуля .psm1 не мають.
+    names.push("session-board".to_string());
     names.sort();
     if !names.is_empty() {
         println!("команди: {}", names.join(", "));
@@ -99,7 +84,7 @@ pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, Stri
     if !script.is_file() {
         return Err(format!("диспетчер {} не знайдено", script.display()));
     }
-    let Some(pwsh) = find_program("pwsh") else {
+    let Some(pwsh) = kit::proc::find_program("pwsh") else {
         return Err("pwsh (PowerShell 7+) не знайдено в PATH".to_string());
     };
     let argv = serde_json::to_string(tokens).map_err(|e| format!("KIT_ARGV не серіалізовано: {e}"))?;
@@ -139,6 +124,16 @@ fn main() {
             let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
         }
         exit(0);
+    }
+    if command == "session-board" {
+        // Перенесена команда (D8, план T5): вивід і код — як у PowerShell-версії, байти без перетворень.
+        let cwd = std::env::current_dir().unwrap_or_else(|e| fail("session-board", &format!("поточна тека не визначена: {e}"), 1));
+        let o = session_board::run(&tokens[1..], &cwd);
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(o.stdout.as_bytes()).and_then(|_| stdout.flush());
+        let mut stderr = std::io::stderr().lock();
+        let _ = stderr.write_all(o.stderr.as_bytes()).and_then(|_| stderr.flush());
+        exit(o.code);
     }
     let root = plugin_root();
     // Параметр замість команди: довідка чи помилка виклику — та сама форма розбору, що в команд.
