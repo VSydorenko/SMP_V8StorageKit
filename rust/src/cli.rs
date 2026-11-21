@@ -37,8 +37,10 @@ pub struct Parsed {
 pub struct UsageError(pub String);
 
 /// `-Ім'я` або `-Ім'я:значення` → (ім'я, вбудоване значення). Ім'я — латинська літера, далі
-/// літери й цифри (як `^-([A-Za-z][A-Za-z0-9]*)(?::(.*))?$` у PowerShell).
+/// літери й цифри (як `^-([A-Za-z][A-Za-z0-9]*)(?::(.*))?$` у PowerShell). .NET `$` збігається й
+/// перед ОДНИМ кінцевим `\n`, тож `-Model:abc\n` там — `Model=abc`: цей `\n` відкидаємо так само.
 fn split_name(t: &str) -> Option<(&str, Option<&str>)> {
+    let t = t.strip_suffix('\n').unwrap_or(t);
     let rest = t.strip_prefix('-')?;
     let end = rest.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(rest.len());
     let name = &rest[..end];
@@ -83,7 +85,8 @@ pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageErro
     while i < args.len() {
         let t = args[i].as_str();
         i += 1;
-        if t == "--help" || t.eq_ignore_ascii_case("-h") {
+        // PowerShell `-eq` порівнює рядки без регістру.
+        if t.eq_ignore_ascii_case("--help") || t.eq_ignore_ascii_case("-h") {
             out.help = true;
             continue;
         }
@@ -175,9 +178,14 @@ mod tests {
         assert_eq!(p(&["-Apply"]).unwrap().named["Apply"], Value::Switch(true));
         assert_eq!(p(&["-Apply:$TRUE"]).unwrap().named["Apply"], Value::Switch(true));
         assert_eq!(p(&["-Model:"]).unwrap().named["Model"], Value::Str(String::new()));
-        for h in ["-Help", "-help", "--help", "-h"] {
+        for h in ["-Help", "-help", "-HELP", "--help", "--HELP", "--Help", "-h", "-H"] {
             assert!(p(&[h]).unwrap().help, "{h}");
         }
+        // .NET `$` — і перед одним кінцевим `\n`; два `\n` чи `\n` посередині — уже не ім'я.
+        assert_eq!(p(&["-Model:abc\n"]).unwrap().named["Model"], Value::Str("abc".into()));
+        assert_eq!(p(&["-Apply\n"]).unwrap().named["Apply"], Value::Switch(true));
+        assert_eq!(p(&["-Model:a\nb"]).unwrap().positional, vec!["-Model:a\nb"]);
+        assert_eq!(p(&["-Apply\n\n"]).unwrap().positional, vec!["-Apply\n\n"]);
     }
 
     #[test]

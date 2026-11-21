@@ -1,0 +1,113 @@
+// Тести ядра git (спека #51 D5, план T3, §7 «байти порівняння й хешування») на справжньому git і
+// синтетичному репозиторії: кирилиця й пробіл у шляху, бінарний блоб 262 байти з невалідним UTF-8,
+// CRLF з BOM (вимір П2).
+
+use kit::git::{self, GitError};
+use std::path::PathBuf;
+
+const CYR_PATH: &str = "кирилиця/файл з пробілом.txt";
+const BLOB_PATH: &str = "дані/блоб.bin";
+const CRLF_BOM: &[u8] = b"\xEF\xBB\xBF\xD1\x80\xD1\x8F\xD0\xB4\xD0\xBE\xD0\xBA 1\r\n\xD1\x80\xD1\x8F\xD0\xB4\xD0\xBE\xD0\xBA 2\r\n";
+
+/// 262 байти: усі значення 0..=255 і шість, що не є валідним UTF-8 у жодному контексті.
+fn binary_blob() -> Vec<u8> {
+    let mut b: Vec<u8> = (0..=255u8).collect();
+    b.extend_from_slice(&[0xFF, 0xFE, 0xC3, 0x28, 0x80, 0x00]);
+    assert_eq!(b.len(), 262);
+    b
+}
+
+/// Тимчасова тека тесту; прибирається після тесту.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("kit-git-{name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Репозиторій з одним комітом. `core.quotepath=true` і `core.autocrlf=false` — локально: перше
+/// доводить, що `-c` ядра перекриває конфігурацію (і не залежить від глобальної на машині), друге —
+/// що в git лежать саме ці байти.
+fn fixture(name: &str) -> (TempDir, PathBuf) {
+    let tmp = TempDir::new(name);
+    let repo = tmp.0.join("репо з пробілом");
+    std::fs::create_dir_all(&repo).unwrap();
+    let ok = |args: &[&str], stdin: Option<&[u8]>| git::run(&repo, args, stdin, false).unwrap();
+    ok(&["init", "-q"], None);
+    ok(&["config", "core.quotepath", "true"], None);
+    ok(&["config", "core.autocrlf", "false"], None);
+    for (rel, bytes) in [(CYR_PATH, CRLF_BOM.to_vec()), (BLOB_PATH, binary_blob())] {
+        let file = repo.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, bytes).unwrap();
+    }
+    ok(&["add", "-A"], None);
+    // Повідомлення коміту — через stdin ядра.
+    ok(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-F", "-"], Some("коміт".as_bytes()));
+    (tmp, repo)
+}
+
+fn utf8(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).expect("вивід git — UTF-8")
+}
+
+#[test]
+fn cyrillic_paths_without_octal_escapes() {
+    let (_tmp, repo) = fixture("octal");
+    // Без -z: саме тут core.quotepath=true дав би "\320\272…" у лапках.
+    let plain = git::run(&repo, &["ls-files"], None, false).unwrap();
+    assert_eq!(utf8(&plain.stdout).lines().collect::<Vec<_>>(), vec![BLOB_PATH, CYR_PATH]);
+    let z = git::run(&repo, &["ls-files", "-z"], None, false).unwrap();
+    assert_eq!(z.stdout, format!("{BLOB_PATH}\0{CYR_PATH}\0").into_bytes());
+}
+
+#[test]
+fn nul_records_keep_cyrillic() {
+    let (_tmp, repo) = fixture("nul");
+    let ls = git::run(&repo, &["ls-tree", "-r", "-z", "HEAD"], None, false).unwrap();
+    let paths: Vec<&str> = ls
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|r| !r.is_empty())
+        .map(|r| utf8(r).split_once('\t').expect("запис ls-tree: <meta>\\t<шлях>").1)
+        .collect();
+    assert_eq!(paths, vec![BLOB_PATH, CYR_PATH]);
+}
+
+#[test]
+fn export_tree_is_byte_exact() {
+    let (tmp, repo) = fixture("export");
+    let dest = tmp.0.join("вивантаження");
+    assert_eq!(git::export_tree(&repo, "HEAD", "", &dest).unwrap(), 2);
+    assert_eq!(std::fs::read(dest.join(BLOB_PATH)).unwrap(), binary_blob());
+    // BOM і CRLF — як у git: декодування як тексту зняло б BOM.
+    assert_eq!(std::fs::read(dest.join(CYR_PATH)).unwrap(), CRLF_BOM);
+}
+
+#[test]
+fn failure_contract() {
+    let (_tmp, repo) = fixture("fail");
+    let args = ["rev-parse", "--verify", "немає-такої-гілки"];
+    // З дозволом — код і stderr як є.
+    let allowed = git::run(&repo, &args, None, true).unwrap();
+    assert_ne!(allowed.code, 0);
+    assert!(!allowed.stderr.is_empty(), "git мав надрукувати причину в stderr");
+    // Без дозволу — помилка з дослівним stderr того самого виклику, не порожній результат.
+    match git::run(&repo, &args, None, false) {
+        Err(GitError::Failed { code, stderr, .. }) => {
+            assert_eq!(code, Some(allowed.code));
+            assert_eq!(stderr.as_bytes(), allowed.stderr.as_slice());
+        }
+        other => panic!("очікувалась GitError::Failed, отримано {other:?}"),
+    }
+}

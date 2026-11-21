@@ -178,7 +178,7 @@ Describe 'Закомічений бінарник = джерело (D7, Р6)' {
             $f.Embedded | Should -Match '^[0-9a-f]{16}$' -Because $f.Raw
             $f.Computed | Should -Match '^[0-9a-f]{16}$' -Because $f.Raw
             $f.Files | Should -BeGreaterThan 0 -Because $f.Raw
-            $f.Computed | Should -Be $f.Embedded -Because "bin/kit.exe зібрано не з цих джерел rust/ — перезберіть: cargo build --release у rust/ і скопіюйте в bin/kit.exe`n$($f.Raw)"
+            $f.Computed | Should -Be $f.Embedded -Because "bin/kit.exe зібрано не з цих джерел rust/ — перезберіть: cargo build --release у rust/ і скопіюйте rust/target/release/kit.exe в bin/kit.exe`n$($f.Raw)"
         }
     }
 
