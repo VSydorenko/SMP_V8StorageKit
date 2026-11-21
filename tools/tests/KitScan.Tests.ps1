@@ -3,7 +3,7 @@
 # (оригінал — agent-kit 0.9.1 tests/kit-scan.test.mjs). Справжній kit.ps1 підпроцесом на
 # синтетичному git-репо в TestDrive: — за зразком KitSetup.Tests.ps1. Плагін — копія tools/, skills/,
 # agents/ зі своїми plugin.json і CHANGELOG.md.
-Describe 'kit-scan — скан підключення' {
+Describe 'kit-scan — скан підключення' -Tag 'Docs' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $kitRoot = (Resolve-Path "$PSScriptRoot/../..").Path

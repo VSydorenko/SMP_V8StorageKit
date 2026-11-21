@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'Запобіжник словника: поверхня Уніки 0.12.3 і інструменти задач 0.13' {
+Describe 'Запобіжник словника: поверхня Уніки 0.12.3 і інструменти задач 0.13' -Tag 'Docs' {
     BeforeAll {
         $script:KitRoot = (Resolve-Path "$PSScriptRoot/../..").Path
         # Повний перелік інструментів MCP unica 0.12.3 (mcp__plugin_unica_unica__unica_<x>_<y>) — знята

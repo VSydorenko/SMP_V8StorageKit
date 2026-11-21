@@ -19,6 +19,14 @@
     файлах, а саме їх тут ловили найчастіше (вимір 2026-09-17: ≈52 хв із
     ≈97 хв стінного часу виконавців пішли на повні прогони, більшість — у червоній фазі).
 
+    ПРОГІН ЗА ЗМІНОЮ (#88) — голий виклик без -Only, -Serial і -Full. Раннер дивиться, що змінено
+    від origin/main (tools/tests/lib/TestChanges.psm1, класифікатор agent-kit 0.11):
+       - лише документи (.md, .json, .yaml, … поза tools/, rust/, bin/) — гілка одного процесу на
+         файлах тестів з тегом Docs (тести, що читають документи);
+       - є код — нічого не запускає, код 3 «не перевірено», друкує кандидатів для -Only;
+       - змін немає — код 0, нічого не запускає.
+    Повний набір — лише -Full, раз у фіналі блоку (рішення власника 2026-11-19).
+
     ДВІ ГІЛКИ ОРКЕСТРАЦІЇ:
 
     1. Гілка одного процесу — вмикається -Only або -Serial. Поводиться точно як завжди:
@@ -28,7 +36,7 @@
        перелік файлів тепер будує Resolve-KitTestFiles (tools/tests/lib/TestRunner.psm1)
        замість дубльованої інлайн-логіки, поведінка й повідомлення про помилки ті самі.
 
-    2. Гілка паралельного прогону — усе інше, тобто типовий виклик без -Only/-Serial.
+    2. Гілка паралельного прогону — лише з -Full (повний набір).
        Файли розкладаються по -Workers дочірніх процесах `pwsh` (Split-KitTestFiles),
        кожен виконує tools/tests/lib/Invoke-TestWorker.ps1 і лишає підсумок JSON.
        Код виходу ВОРКЕРА означає "воркер зламався" (не дійшов до кінця свого переліку
@@ -47,13 +55,14 @@
        воркерів лишаються файлами під build/test-run/; надрукувати їх дослівно (у порядку
        номера воркера, а всередині — у порядку роздачі файлів) можна прапорцем -FullLog.
 .EXAMPLE
-    pwsh tools/tests/Run-Tests.ps1                                       # усе, разом з Integration, паралельно
-    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration                # без запуску платформи, паралельно
+    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration                # за зміною: документи → тег Docs; код → підказка -Only
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only Sync     # група Sync.*.Tests.ps1 (5 файлів), один процес
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Only Sync,Verify
+    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Full          # повний набір паралельно — раз у фіналі блоку
+    pwsh tools/tests/Run-Tests.ps1 -Full                                  # повний, разом з Integration (за підтвердженням)
     pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Serial        # усе послідовно, для діагностики
-    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Workers 4     # паралельно, але з 4 воркерами
-    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -FullLog       # + дослівні логи воркерів
+    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Full -Workers 4   # повний, з 4 воркерами
+    pwsh tools/tests/Run-Tests.ps1 -ExcludeTag Integration -Full -FullLog     # + дослівні логи воркерів
 #>
 [CmdletBinding()]
 param(
@@ -66,7 +75,10 @@ param(
     # 0 = автоматично: Max(2, Min(8, ProcessorCount - 4)). Актуально лише для паралельної гілки.
     [int]$Workers = 0,
     # Друкує логи воркерів дослівно (у порядку номера воркера, всередині — у порядку роздачі).
-    [switch]$FullLog
+    [switch]$FullLog,
+    # Повний набір паралельно — раз у фіналі блоку. Без нього (і без -Only/-Serial) прогін іде за
+    # зміною від origin/main: лише документи — тести з тегом Docs; є код — відмова з підказкою -Only.
+    [switch]$Full
 )
 
 # Кирилиця в порівняннях доходить із дочірніх процесів лише при UTF-8: під кодовою
@@ -92,6 +104,50 @@ Import-Module "$PSScriptRoot/lib/TestRunner.psm1" -Force
 # застосовує до себе окремо — він теж запускається через -File.
 $Only       = @($Only       | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $ExcludeTag = @($ExcludeTag | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+if (-not $Full -and -not $Serial -and $Only.Count -eq 0) {
+    # --- Прогін за зміною (#88, ідея agent-kit 0.11 `run-tests --changed`). ----------------
+    # Голий виклик більше не запускає весь набір: у задачі проганяють зачеплене, повний набір —
+    # раз у фіналі блоку (рішення власника 2026-11-19). Рішення ухвалює код, а не текст.
+    Import-Module "$PSScriptRoot/lib/TestChanges.psm1" -Force
+    $changeRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
+    $changed = Get-KitChangedFiles -RepoRoot $changeRoot
+    $runner = 'pwsh -NoProfile -File tools/tests/Run-Tests.ps1 -ExcludeTag Integration'
+    if ($null -eq $changed) {
+        Write-Host 'НЕ ПЕРЕВІРЕНО: зміни від origin/main не визначити (немає origin/main — git fetch).'
+        Write-Host "У задачі — зачеплене: $runner -Only <файли>; повний набір — -Full, раз у фіналі блоку."
+        Write-Host "next: $runner -Only <файли>"
+        exit 3
+    }
+    if ($changed.Count -eq 0) {
+        Write-Host 'Змін від origin/main немає — прогнати нічого. Повний набір — -Full, раз у фіналі блоку.'
+        exit 0
+    }
+    $code = @($changed | Where-Object { Test-KitCodePath -Path $_ })
+    if ($code.Count -gt 0) {
+        $shown = ($code | Select-Object -First 10) -join ', '
+        $more = if ($code.Count -gt 10) { " … (усього $($code.Count))" } else { '' }
+        $affected = @(Get-KitAffectedTestNames -Root $PSScriptRoot -CodeFiles $code)
+        Write-Host "НЕ ПЕРЕВІРЕНО: змінено код ($($code.Count)): $shown$more."
+        Write-Host 'Повний набір без -Full не запускається: у задачі — зачеплене (змінені модулі й ті, хто їх кличе), повний набір — -Full, раз у фіналі блоку.'
+        if ($affected.Count) {
+            Write-Host "Кандидати (файли тестів, що згадують змінене; викликачів через інші модулі допиши сам): $($affected -join ',')"
+            Write-Host "next: $runner -Only $($affected -join ',')"
+        } else {
+            Write-Host "next: $runner -Only <файли>"
+        }
+        exit 3
+    }
+    $docsTests = @(Get-KitDocsTestFiles -Root $PSScriptRoot)
+    $shownDocs = ($changed | Select-Object -First 10) -join ', '
+    if ($docsTests.Count -eq 0) {
+        # Без цієї гілки порожній $Only провалився б нижче в повний паралельний прогін.
+        Write-Host "Змінено лише документи ($($changed.Count)): $shownDocs — тестів з тегом Docs немає, прогнати нічого."
+        exit 0
+    }
+    Write-Host "Змінено лише документи ($($changed.Count)): $shownDocs — тести, що читають документи (тег Docs): $(($docsTests | ForEach-Object { $_ -replace '\.Tests\.ps1$', '' }) -join ', ')"
+    $Only = $docsTests
+}
 
 if ($Serial -or $Only.Count -gt 0) {
     # --- Гілка одного процесу: точно як завжди, лише резолвинг файлів. -----

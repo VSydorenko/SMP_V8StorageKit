@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'templates/gitattributes — політика тексту' {
+Describe 'templates/gitattributes — політика тексту' -Tag 'Docs' {
     # Тест читає справжній роздаваний артефакт, а не його переказ: саме цей файл
     # потрапляє в репозиторій-споживача, і саме в ньому жив дефект (конверсія
     # кінців рядків усередині текстових значень XML). Обґрунтування — docs/text-policy.md.
@@ -39,7 +39,7 @@ Describe 'templates/gitattributes — політика тексту' {
 
 }
 
-Describe 'templates/githooks — хуки захисту storage/*' {
+Describe 'templates/githooks — хуки захисту storage/*' -Tag 'Docs' {
     BeforeAll {
         $script:HooksDir = (Resolve-Path "$PSScriptRoot/../../templates/githooks").Path
     }
@@ -61,7 +61,7 @@ Describe 'templates/githooks — хуки захисту storage/*' {
     }
 }
 
-Describe 'templates/settings.json — дозволи споживача' {
+Describe 'templates/settings.json — дозволи споживача' -Tag 'Docs' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
     It 'settings.json споживача не має розділу hooks: хук старту сесії поставляє плагін' {
@@ -120,7 +120,7 @@ Describe 'templates/settings.json — дозволи споживача' {
     }
 }
 
-Describe 'templates/v8storagekit*.example — зразки проходять власну схему' {
+Describe 'templates/v8storagekit*.example — зразки проходять власну схему' -Tag 'Docs' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Manifest.psm1").Path -Force
         $script:Templates = (Resolve-Path "$PSScriptRoot/../../templates").Path

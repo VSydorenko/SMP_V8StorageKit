@@ -357,7 +357,7 @@ BeforeAll {
     }
 }
 
-Describe 'Обгортки команд процесу в bin/' {
+Describe 'Обгортки команд процесу в bin/' -Tag 'Docs' {
     # Без кутових дужок у назві: Pester читає <…> у назві It як шаблон підстановки.
     It 'кожна команда з process-commands.txt має bin/ІМ''Я і bin/ІМ''Я.ps1, bash-обгортки — 100755 в індексі й HEAD' {
         $p = Get-KitWrapperProblems $script:PluginRoot
@@ -383,7 +383,7 @@ Describe 'Обгортки команд процесу в bin/' {
     }
 }
 
-Describe 'Описи скілів і агентів' {
+Describe 'Описи скілів і агентів' -Tag 'Docs' {
     It 'description кожного скіла й агента не довший за 250 символів' {
         $c = Get-KitViolationClassification (Get-KitDescriptionProblems $script:PluginRoot) 'description' $script:KnownViolators
         Assert-KitViolationVerdict $c
@@ -401,7 +401,7 @@ Describe 'Описи скілів і агентів' {
     }
 }
 
-Describe 'Агенти: description, model, tools' {
+Describe 'Агенти: description, model, tools' -Tag 'Docs' {
     It 'кожен agents/*.md має description, model і tools (теки може ще не бути)' {
         $p = Get-KitAgentProblems $script:PluginRoot
         $p | Should -BeNullOrEmpty -Because ($p -join '; ')
@@ -419,7 +419,7 @@ Describe 'Агенти: description, model, tools' {
     }
 }
 
-Describe 'Розмір SKILL.md' {
+Describe 'Розмір SKILL.md' -Tag 'Docs' {
     It 'жоден SKILL.md не більший за 12000 символів' {
         $c = Get-KitViolationClassification (Get-KitSkillSizeProblems $script:PluginRoot) 'skill-size' $script:KnownViolators
         Assert-KitViolationVerdict $c
@@ -445,7 +445,7 @@ Describe 'Розмір SKILL.md' {
     }
 }
 
-Describe 'Правила домену 1С (hooks/domain-1c)' {
+Describe 'Правила домену 1С (hooks/domain-1c)' -Tag 'Docs' {
     It 'кожен файл названо за агентом з agents/ і він коротший за 10000 символів' {
         $p = Get-KitDomainRuleProblems $script:PluginRoot
         $p | Should -BeNullOrEmpty -Because ($p -join '; ')
@@ -468,7 +468,7 @@ Describe 'Правила домену 1С (hooks/domain-1c)' {
     }
 }
 
-Describe 'Команди процесу в зворотних лапках' {
+Describe 'Команди процесу в зворотних лапках' -Tag 'Docs' {
     It 'підкоманди й прапорці з команд у лапках у skills/ і agents/ є в довідці команди' {
         $p = Get-KitCommandUsageProblems $script:PluginRoot
         $p | Should -BeNullOrEmpty -Because ($p -join '; ')
@@ -488,7 +488,7 @@ Describe 'Команди процесу в зворотних лапках' {
     }
 }
 
-Describe 'Шапка походження' {
+Describe 'Шапка походження' -Tag 'Docs' {
     It 'кожен рядок з позначкою порту в tools/ skills/ agents/ hooks/ має форму з відносним шляхом' {
         $p = Get-KitProvenanceProblems $script:PluginRoot
         $p | Should -BeNullOrEmpty -Because ($p -join '; ')
@@ -510,7 +510,7 @@ Describe 'Шапка походження' {
     }
 }
 
-Describe 'Бамп версії плагіна' {
+Describe 'Бамп версії плагіна' -Tag 'Docs' {
     It 'версія в plugin.json вища за origin/main, коли гілка змінює файли плагіна (інакше — не перевірено)' {
         $r = Get-KitVersionBumpState $script:PluginRoot
         if (-not $r.Checked) { Set-ItResult -Inconclusive -Because $r.Reason; return }
