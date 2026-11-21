@@ -243,9 +243,15 @@ Describe 'Закомічений бінарник — збірка постав�
     # функція, якою tools/build-kit-exe.ps1 перевіряє власний результат перед записом у bin/.
     BeforeAll {
         $script:BuildScript = Join-Path $script:KitRepo 'tools/build-kit-exe.ps1'
+        # Скрипт пише UTF-8; читаємо його вивід як UTF-8 і поза Run-Tests.ps1 (консоль cp866 не ламає шаблон).
         function script:Invoke-ShipCheck([string]$Path) {
-            $out = & pwsh -NoProfile -File $script:BuildScript -Verify $Path 2>&1
-            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Text = ($out | ForEach-Object { "$_" }) -join "`n" }
+            $saved = [Console]::OutputEncoding
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            try {
+                $out = & pwsh -NoProfile -File $script:BuildScript -Verify $Path 2>&1
+                $code = $LASTEXITCODE
+            } finally { [Console]::OutputEncoding = $saved }
+            [pscustomobject]@{ ExitCode = $code; Text = ($out | ForEach-Object { "$_" }) -join "`n" }
         }
     }
 

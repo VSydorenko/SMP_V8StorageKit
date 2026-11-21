@@ -21,7 +21,10 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# Вивід — UTF-8 незалежно від кодової сторінки консолі (як tools/kit.ps1): у cp866 немає «і»/«ї».
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$repo =(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Fail([string]$Reason, [int]$Code = 1) {
     [Console]::Error.WriteLine("build-kit-exe: ERROR $Reason")
