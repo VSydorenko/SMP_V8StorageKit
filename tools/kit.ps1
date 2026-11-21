@@ -42,7 +42,9 @@ function Stop-KitDispatch([string]$Message, [int]$Code) {
 $tokens = $null
 $kitArgv = [Environment]::GetEnvironmentVariable('KIT_ARGV')
 if ($null -ne $kitArgv) {
-    [Environment]::SetEnvironmentVariable('KIT_ARGV', $null)
+    # [NullString]::Value, не $null: PowerShell передає $null у рядковий параметр методу як "", і змінна
+    # лишилась би в оточенні порожньою — її успадкували б дочірні процеси.
+    [Environment]::SetEnvironmentVariable('KIT_ARGV', [NullString]::Value)
     # System.Text.Json, не ConvertFrom-Json: той перетворює рядки, схожі на дату, на DateTime.
     try {
         $doc = [System.Text.Json.JsonDocument]::Parse($kitArgv)
