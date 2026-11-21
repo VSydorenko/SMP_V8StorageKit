@@ -1,11 +1,13 @@
 #Requires -Version 7
-Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
+# Хук SessionStart плагіна — прихована підкоманда `kit.exe session-start` (спека #51 D6, §3; план Р5).
+# Тести ходять у закомічений bin/kit.exe: копія плагіна Copy-KitTools несе його в bin/, фальшиві плагіни —
+# копію поруч із заглушкою tools/kit.ps1 (корінь плагіна для kit.exe — тека над bin/, план Р3).
+Describe 'kit.exe session-start — хук SessionStart плагіна' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:KitRoot = Split-Path -Parent (Split-Path -Parent (Copy-KitTools -Root (Join-Path $TestDrive 'kit')))   # <TestDrive>/kit
-        $script:Hook = Join-Path $script:KitRoot 'hooks/session-start.ps1'
-        # Маркер, який у скрипті хука є РІВНО в гілці «маніфест лише в предку» (grep по hooks/session-start.ps1
-        # знаходить його один раз): гілка «корінь репозиторію» його не друкує.
+        $script:Exe = Join-Path $script:KitRoot 'bin/kit.exe'
+        # Маркер, який хук друкує РІВНО в гілці «маніфест лише в предку»: гілка «корінь репозиторію» його не друкує.
         $script:AncestorWarning = 'Уніка бачитиме лише цей воркспейс'
 
         # Хук запускає справжній kit session-check БЕЗ -InstalledPluginsPath і -RunnerPath (за дизайном),
@@ -17,22 +19,51 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         $homeRegistry.plugins['v8storagekit@smp-v8storagekit'] = @(@{ version = 'test'; installPath = $script:KitRoot })
         $homeRegistry | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $script:FakeHome '.claude/plugins/installed_plugins.json') -Encoding UTF8
 
+        # Фальшивий плагін: kit.exe у bin/ і заглушка tools/kit.ps1, яку підміняє кожен It. Скіл хукові не
+        # потрібен (вступ не вклеюється), правил спілкування немає — контекст закінчується вказівкою на скіл.
+        $script:FakePlugin = Join-Path $TestDrive 'fake-plugin'
+        New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'tools'), (Join-Path $script:FakePlugin 'bin') -Force | Out-Null
+        Copy-Item -LiteralPath $script:Exe -Destination (Join-Path $script:FakePlugin 'bin/kit.exe')
+        $script:FakeExe = Join-Path $script:FakePlugin 'bin/kit.exe'
+        function script:Set-KitStub([string[]]$Lines) {
+            # Заглушка диспетчера: вивід у UTF-8 (так робить і справжній tools/kit.ps1), далі — рядки тесту.
+            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 `
+                -Value (@('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8') + $Lines)
+        }
+        # Репо з маніфестом: без нього хук мовчить і session-check не кличе.
+        $script:FakeRepo = Join-Path $TestDrive 'fake-repo'
+        New-Item -ItemType Directory -Path $script:FakeRepo -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:FakeRepo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
+
         function script:Invoke-Hook {
             # $ProjectDir = $null — змінна CLAUDE_PROJECT_DIR не виставлена. Cwd процесу навмисно НЕ тека
-            # проєкту: хук мусить орієнтуватись на змінну, а не на поточну теку.
-            param([AllowNull()][string]$ProjectDir, [string]$Hook = $script:Hook)
-            $prevProject = $env:CLAUDE_PROJECT_DIR
-            $prevHome = $env:HOME; $prevProfile = $env:USERPROFILE
-            if ($ProjectDir) { $env:CLAUDE_PROJECT_DIR = $ProjectDir } else { Remove-Item Env:CLAUDE_PROJECT_DIR -ErrorAction SilentlyContinue }
-            $env:HOME = $script:FakeHome; $env:USERPROFILE = $script:FakeHome
-            try {
-                Push-Location $TestDrive
-                try { $out = & pwsh -NoProfile -File $Hook 2>&1 | Out-String } finally { Pop-Location }
-            } finally {
-                if ($null -eq $prevProject) { Remove-Item Env:CLAUDE_PROJECT_DIR -ErrorAction SilentlyContinue } else { $env:CLAUDE_PROJECT_DIR = $prevProject }
-                $env:HOME = $prevHome; $env:USERPROFILE = $prevProfile
-            }
-            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+            # проєкту: хук мусить орієнтуватись на змінну, а не на поточну теку. -Env — додаткові змінні.
+            # -AfterExit — блок, що виконується одразу після виходу процесу хука, до читання його виводу:
+            # нащадок, що успадкував канал stdout хука, тримав би читання до власного завершення.
+            param([AllowNull()][string]$ProjectDir, [string]$Exe = $script:Exe, [hashtable]$Env = @{}, [scriptblock]$AfterExit)
+            $psi = [System.Diagnostics.ProcessStartInfo]::new($Exe)
+            $psi.ArgumentList.Add('session-start')
+            $psi.WorkingDirectory = $TestDrive
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardInput = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+            $psi.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+            foreach ($n in 'CLAUDE_PROJECT_DIR', 'V8KIT_SESSION_CHECK_TIMEOUT') { [void]$psi.Environment.Remove($n) }
+            if ($ProjectDir) { $psi.Environment['CLAUDE_PROJECT_DIR'] = $ProjectDir }
+            $psi.Environment['HOME'] = $script:FakeHome
+            $psi.Environment['USERPROFILE'] = $script:FakeHome
+            foreach ($k in $Env.Keys) { $psi.Environment[$k] = $Env[$k] }
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $p.StandardInput.Close()
+            $out = $p.StandardOutput.ReadToEndAsync()
+            $err = $p.StandardError.ReadToEndAsync()
+            $p.WaitForExit()
+            $sw.Stop()
+            $after = if ($AfterExit) { & $AfterExit }
+            [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out.Result; Err = $err.Result; Seconds = $sw.Elapsed.TotalSeconds; AfterExit = $after }
         }
     }
 
@@ -99,18 +130,18 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         # несе справжні hooks/communication-rules.md, plugin.json і журнал з кроком, інакше межа
         # міряла б вивід без блоку правил.
         $plugin = Join-Path $TestDrive 'fake-plugin-size'
-        New-Item -ItemType Directory -Path (Join-Path $plugin 'tools'), (Join-Path $plugin 'hooks'), (Join-Path $plugin '.claude-plugin') -Force | Out-Null
-        Copy-Item -LiteralPath $script:Hook -Destination (Join-Path $plugin 'hooks/session-start.ps1')
+        New-Item -ItemType Directory -Path (Join-Path $plugin 'tools'), (Join-Path $plugin 'hooks'), (Join-Path $plugin 'bin'), (Join-Path $plugin '.claude-plugin') -Force | Out-Null
+        Copy-Item -LiteralPath $script:Exe -Destination (Join-Path $plugin 'bin/kit.exe')
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../hooks/communication-rules.md') -Destination (Join-Path $plugin 'hooks/communication-rules.md')
         Set-Content -LiteralPath (Join-Path $plugin '.claude-plugin/plugin.json') -Encoding UTF8 -Value '{ "name": "v8storagekit", "version": "9.9.9" }'
         Set-Content -LiteralPath (Join-Path $plugin 'CHANGELOG.md') -Encoding UTF8 -Value @('# Журнал', '', '## 9.9.9 — 2026-11-20', '', '### Що змінилось', '', '- x', '', '### Чекліст оновлення проєкту', '', '- [ ] крок')
-        Set-Content -LiteralPath (Join-Path $plugin 'tools/kit.ps1') -Encoding UTF8 -Value "'СТАН-ЗАГЛУШКА'"
+        Set-Content -LiteralPath (Join-Path $plugin 'tools/kit.ps1') -Encoding UTF8 -Value '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8', "'СТАН-ЗАГЛУШКА'"
         $repo = Join-Path $TestDrive 'repo-size'
         New-Item -ItemType Directory -Path (Join-Path $repo '.agents') -Force | Out-Null
         & git -C $repo init -q
         Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
         Set-Content -LiteralPath (Join-Path $repo '.agents/kit.profile.json') -Encoding UTF8 -Value '{ "kit": { "version": "0.1.0" } }'
-        $ctx = ((Invoke-Hook -ProjectDir $repo -Hook (Join-Path $plugin 'hooks/session-start.ps1')).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+        $ctx = ((Invoke-Hook -ProjectDir $repo -Exe (Join-Path $plugin 'bin/kit.exe')).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
         $ctx | Should -BeLike '*СТАН-ЗАГЛУШКА*' -Because 'контроль: заглушку стану видно, тож віднімання нижче щось віднімає'
         $ctx | Should -BeLike '*ASD-STE100*' -Because 'контроль: блок правил спілкування входить у виміряну частину'
         $ctx | Should -BeLike '*9.9.9*' -Because 'контроль: рядок оновлення входить у виміряну частину'
@@ -164,74 +195,137 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
         }
     }
 
-    Context 'стеля часу' {
+    Context 'тиша без pwsh (§7)' {
         BeforeAll {
-            # Окремий фейковий плагін: kit.ps1 підміняється в кожному It, скіл хукові не потрібен (вступ не вклеюється).
-            $script:FakePlugin = Join-Path $TestDrive 'fake-plugin'
-            New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'tools') -Force | Out-Null
-            New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'hooks') -Force | Out-Null
-            New-Item -ItemType Directory -Path (Join-Path $script:FakePlugin 'skills/storage-rules') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'skills/storage-rules/SKILL.md') -Encoding UTF8 -Value '# вступ'
-            Copy-Item -LiteralPath $script:Hook -Destination (Join-Path $script:FakePlugin 'hooks/session-start.ps1')
-            $script:FakeHook = Join-Path $script:FakePlugin 'hooks/session-start.ps1'
-            # Репо з маніфестом: без нього хук мовчить і session-check не кличе.
-            $script:FakeRepo = Join-Path $TestDrive 'fake-repo'
-            New-Item -ItemType Directory -Path $script:FakeRepo -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $script:FakeRepo 'v8storagekit.yaml') -Encoding UTF8 -Value 'version: 1'
+            # Фальшивий pwsh.exe (саме .exe: заглушку-скрипт пошук pwsh за PATHEXT не знайде) пише маркер і
+            # виходить з кодом 0; його тека — першою в PATH процесу хука.
+            $bin = Join-Path $TestDrive 'fake-pwsh-bin'
+            New-Item -ItemType Directory -Path $bin -Force | Out-Null
+            $src = Join-Path $bin 'fake-pwsh.cs'
+            Set-Content -LiteralPath $src -Encoding UTF8 -Value @'
+using System; using System.IO;
+class FakePwsh { static int Main(string[] a) {
+    var m = Environment.GetEnvironmentVariable("FAKE_PWSH_MARKER");
+    if (!string.IsNullOrEmpty(m)) File.AppendAllText(m, string.Join(" ", a) + "\n");
+    return 0;
+} }
+'@
+            $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+            $out = & $csc /nologo "/out:$(Join-Path $bin 'pwsh.exe')" $src 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "не зібрано фальшивий pwsh.exe: $($out -join ' ')" }
+            $script:PwshEnv = @{ PATH = "$bin;$env:PATH"; FAKE_PWSH_MARKER = (Join-Path $TestDrive 'pwsh-marker.txt') }
+            Set-KitStub @("'не мав запуститись справжній pwsh'")
+        }
+        BeforeEach { Remove-Item -LiteralPath $script:PwshEnv.FAKE_PWSH_MARKER -ErrorAction SilentlyContinue }
+
+        It 'без маніфесту й профілю — тиша, код 0, pwsh не запускався' {
+            $plain = Join-Path $TestDrive 'no-pwsh/inner'
+            New-Item -ItemType Directory -Path (Join-Path $TestDrive 'no-pwsh/.git') -Force | Out-Null
+            New-Item -ItemType Directory -Path $plain -Force | Out-Null
+            $r = Invoke-Hook -ProjectDir $plain -Exe $script:FakeExe -Env $script:PwshEnv
+            $r.ExitCode | Should -Be 0
+            $r.Output | Should -BeNullOrEmpty
+            $r.Err | Should -BeNullOrEmpty
+            $script:PwshEnv.FAKE_PWSH_MARKER | Should -Not -Exist
         }
 
+        It 'позитивний двійник: з маніфестом хук запускає саме pwsh з PATH (маркер є)' {
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env $script:PwshEnv
+            $r.ExitCode | Should -Be 0
+            ($r.Output | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
+            $script:PwshEnv.FAKE_PWSH_MARKER | Should -Exist
+            Get-Content -LiteralPath $script:PwshEnv.FAKE_PWSH_MARKER -Raw | Should -BeLike '*-NoProfile -File *kit.ps1*'
+        }
+    }
+
+    Context 'стеля часу й коди session-check' {
         It 'хук не чекає довше за стелю: повільний session-check дає рядок «не вклався», а не зависання' {
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'Start-Sleep -Seconds 30'
-            $env:V8KIT_SESSION_CHECK_TIMEOUT = '1'
-            try {
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook
-                $sw.Stop()
-            } finally { Remove-Item Env:\V8KIT_SESSION_CHECK_TIMEOUT -ErrorAction SilentlyContinue }
-            $sw.Elapsed.TotalSeconds | Should -BeLessThan 20        # стеля 1 с + запас на старт pwsh
-            $r.Output | Should -BeLike '*не вклався*'
+            Set-KitStub @('Start-Sleep -Seconds 30')
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '1' }
+            $r.Seconds | Should -BeLessThan 20        # стеля 1 с + запас на старт pwsh
+            $r.Output | Should -BeLike '*не вклався в 1 с*'
             ($r.Output | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'   # JSON лишився валідним
         }
 
         It 'те, що kit устиг надрукувати до стелі, потрапляє у вивід із позначкою «частково»' {
             # Заглушка друкує знахідку check і зависає — як повільне джерело після вже виданих рядків check.
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 `
-                -Value "'[!] хуків немає: kit install-hooks'", 'Start-Sleep -Seconds 30'
             # Стеля 6 с, не 2: заглушка мусить устигнути запустити pwsh, надрукувати рядок і скинути буфер
             # у файл — під паралельним прогоном 2 с інколи не вистачає. Заглушка все одно спить 30 с,
             # тож властивість (частковий вивід до стелі) не міняється, росте лише запас.
-            $env:V8KIT_SESSION_CHECK_TIMEOUT = '6'
-            try { $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook }
-            finally { Remove-Item Env:\V8KIT_SESSION_CHECK_TIMEOUT -ErrorAction SilentlyContinue }
+            Set-KitStub @("[Console]::Out.WriteLine('[!] хуків немає: kit install-hooks'); [Console]::Out.Flush()", 'Start-Sleep -Seconds 30')
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '6' }
             $r.Output | Should -BeLike '*Частково*'
-            $r.Output | Should -BeLike '*install-hooks*'
+            $r.Output | Should -BeLike '*хуків немає: kit install-hooks*'
             $r.Output | Should -BeLike '*повнота НЕ гарантована*'
         }
 
-        It 'хук ніколи не передає -Apply' {
-            # Заглушка друкує власні аргументи — хук мусить дати рівно session-check -RepoRoot <шлях>.
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'param([Parameter(ValueFromRemainingArguments)]$Rest) $Rest -join " "'
-            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook
-            $r.Output | Should -Not -BeLike '*-Apply*'
-            $r.Output | Should -BeLike '*session-check*-RepoRoot*'
+        It 'на стелі хук убиває дерево: онук, що успадкував вивід, не переживає хука' {
+            # Заглушка запускає онука (pwsh зі сном 30 с) з успадкованими stdout/stderr, пише його PID і чекає
+            # його. Стеля 3 с, а не 1: заглушка мусить устигнути стартувати pwsh, запустити онука й записати
+            # PID; межа часу — стеля + 5 с (мутація «стелю проігноровано» дає 15 с). Онука перевіряємо одразу після
+            # виходу хука (-AfterExit), до читання виводу: живий онук тримав би успадкований канал stdout хука й
+            # читання дочекалося б його природного кінця — тоді перевірка «онука немає» пройшла б і без /T.
+            $pidFile = Join-Path $TestDrive 'grandchild.pid'
+            $probe = {
+                if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
+                $id = [int](Get-Content -LiteralPath $pidFile -Raw).Trim()
+                $deadline = (Get-Date).AddSeconds(3)
+                while ((Get-Process -Id $id -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+                [pscustomobject]@{ Id = $id; Alive = [bool](Get-Process -Id $id -ErrorAction SilentlyContinue) }
+            }.GetNewClosure()
+            Set-KitStub @(
+                '$g = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList ''-NoProfile'', ''-c'', ''Start-Sleep 30'' -NoNewWindow -PassThru'
+                'Set-Content -LiteralPath $env:GRANDCHILD_PID_FILE -Value $g.Id'
+                "[Console]::Out.WriteLine('ОНУК-ЗАПУЩЕНО'); [Console]::Out.Flush()"
+                '$g.WaitForExit()'
+            )
+            $r = $null
+            try {
+                $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '3'; GRANDCHILD_PID_FILE = $pidFile } -AfterExit $probe
+                $r.Seconds | Should -BeLessThan 8
+                $r.Output | Should -BeLike '*не вклався в 3 с*'
+                $r.Output | Should -BeLike '*Частково*ОНУК-ЗАПУЩЕНО*'
+                $r.AfterExit | Should -Not -BeNullOrEmpty -Because 'контроль: онук справді стартував до стелі, інакше перевірка нижче порожня'
+                $r.AfterExit.Alive | Should -BeFalse -Because 'taskkill /T мав убити й онука'
+            } finally {
+                if ($r -and $r.AfterExit -and $r.AfterExit.Alive) { Stop-Process -Id $r.AfterExit.Id -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It 'хук ніколи не передає -Apply: токени в KIT_ARGV — рівно session-check, -RepoRoot і шлях репозиторію' {
+            Set-KitStub @('$t = [System.Text.Json.JsonSerializer]::Deserialize[string[]]($env:KIT_ARGV)', "'ARGV ' + (`$t -join '|')")
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe
+            $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+            $ctx | Should -BeLike "*ARGV session-check|-RepoRoot|$script:FakeRepo`n*"
+            $ctx | Should -Not -BeLike '*-Apply*'
         }
 
         It 'session-check завершується неочікуваним кодом (не 0, 1 чи 4) — «НЕВІДОМИЙ», не порожній сигнал' {
             # Процес, що завершився нормально з якимось ІНШИМ кодом (антивірус, OOM, неповний запуск pwsh),
             # без цієї гілки друкувався б як є: порожній вивід читався б як «нових версій немає».
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 2'
-            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook
+            Set-KitStub @('exit 2')
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe
             $r.Output | Should -BeLike '*НЕВІДОМИЙ*'
             $r.Output | Should -BeLike '*кодом 2*'
             ($r.Output | ConvertFrom-Json).hookSpecificOutput.hookEventName | Should -Be 'SessionStart'
         }
 
-        It 'код 1 без жодного виводу — «НЕВІДОМИЙ» із кодом, а не порожній «Стан сховищ», що читався б як «без змін»' {
-            Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 1'
-            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Hook $script:FakeHook
+        It 'код <Code> без жодного виводу — «НЕВІДОМИЙ» із кодом, а не порожній «Стан сховищ», що читався б як «без змін»' -ForEach @(
+            @{ Code = 1 }
+            @{ Code = 4 }
+        ) {
+            Set-KitStub @("exit $Code")
+            $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe
             $r.Output | Should -BeLike '*НЕВІДОМИЙ*'
-            $r.Output | Should -BeLike '*кодом 1*'
-            $r.Output | Should -Not -BeLike '*неочікуваним*' -Because 'код 1 контрактний; маркер інший, ніж для сторонніх кодів'
+            $r.Output | Should -BeLike "*кодом $Code *"
+            $r.Output | Should -Not -BeLike '*неочікуваним*' -Because "код $Code контрактний; маркер інший, ніж для сторонніх кодів"
+        }
+
+        It 'код 4 з виводом — вивід як є, без «НЕВІДОМИЙ»' {
+            Set-KitStub @('[Console]::Out.Write("є нові версії: Alpha_SMB`nnext: kit sync`n")', 'exit 4')
+            $ctx = ((Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe).Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+            $ctx | Should -BeLike "*## Стан сховищ (kit session-check)`n`nє нові версії: Alpha_SMB`nnext: kit sync`n`n*"
+            $ctx | Should -Not -BeLike '*НЕВІДОМИЙ*'
         }
     }
 }
@@ -239,7 +333,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
 Describe 'hooks/hooks.json — оголошення хука плагіна' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
-    It 'має обгортку hooks.SessionStart; команда веде на ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ps1 і не ламає сесію без pwsh' {
+    It 'має обгортку hooks.SessionStart; команда — ${CLAUDE_PLUGIN_ROOT}/bin/kit.exe session-start без pwsh; хука-скрипта немає' {
         $raw = Get-Content -LiteralPath (Join-Path $script:Root 'hooks/hooks.json') -Raw -Encoding UTF8
         $json = $raw | ConvertFrom-Json   # не розбирається — тест падає тут
         $json.PSObject.Properties.Name | Should -Contain 'hooks'
@@ -247,14 +341,9 @@ Describe 'hooks/hooks.json — оголошення хука плагіна' {
         $entry.Count | Should -Be 1
         $entry[0].matcher | Should -Be 'startup|clear|compact'
         $entry[0].hooks[0].type | Should -Be 'command'
-        $cmd = $entry[0].hooks[0].command
-        $cmd | Should -BeLike '*${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ps1*'
-        # Форма вживання токена (правило 1 CLAUDE.md): за токеном одразу «/».
-        $cmd | Should -Not -MatchExactly 'CLAUDE_PLUGIN_ROOT\}(?!/)'
-        # Без pwsh у PATH — код 0 без виводу: перевірка наявності перед запуском і безумовний exit 0.
-        $cmd | Should -BeLike 'command -v pwsh*'
-        $cmd | Should -BeLike '*; exit 0'
-        Join-Path $script:Root 'hooks/session-start.ps1' | Should -Exist
+        # Форма вживання токена (правило 1 CLAUDE.md): за токеном одразу «/»; безумовний exit 0.
+        $entry[0].hooks[0].command | Should -BeExactly '"${CLAUDE_PLUGIN_ROOT}/bin/kit.exe" session-start; exit 0'
+        Join-Path $script:Root 'hooks/session-start.ps1' | Should -Not -Exist
     }
 }
 

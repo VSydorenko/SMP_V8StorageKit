@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 
 /// Дозволені динамічні `Command::new`: (файл відносно rust/, текст аргументу, навіщо). Кожен запис
 /// мусить відповідати рівно одному місцю в коді — застарілий запис теж червоне.
-const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру (план Р3)")];
+const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
+    ("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру (план Р3)"),
+    ("src/session_start.rs", "&taskkill", "хук старту: убити дерево session-check на стелі часу (план Р5)"),
+];
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -67,14 +70,38 @@ fn lex(src: &str) -> Vec<(Tok, usize)> {
             i += 1;
             while i < c.len() && c[i] != '"' {
                 if c[i] == '\\' && i + 1 < c.len() {
-                    v.push(match c[i + 1] {
-                        'n' => '\n',
-                        't' => '\t',
-                        'r' => '\r',
-                        '0' => '\0',
-                        other => other,
-                    });
-                    i += 2;
+                    match c[i + 1] {
+                        // `\` + перенос: перенос і пробіли після нього не входять у значення.
+                        '\n' | '\r' => {
+                            i += 1;
+                            while i < c.len() && c[i].is_whitespace() {
+                                i += 1;
+                            }
+                        }
+                        // `\xHH`: рівно дві шістнадцяткові цифри.
+                        'x' => {
+                            let hex: String = c[(i + 2).min(c.len())..(i + 4).min(c.len())].iter().collect();
+                            v.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                            i += 4;
+                        }
+                        // `\u{…}`: до шести цифр, підкреслення дозволені.
+                        'u' if c.get(i + 2) == Some(&'{') => {
+                            let close = c[i..].iter().position(|ch| *ch == '}').map_or(c.len(), |p| i + p);
+                            let hex: String = c[i + 3..close].iter().filter(|ch| **ch != '_').collect();
+                            v.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                            i = close + 1;
+                        }
+                        other => {
+                            v.push(match other {
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                '0' => '\0',
+                                other => other,
+                            });
+                            i += 2;
+                        }
+                    }
                 } else {
                     v.push(c[i]);
                     i += 1;
@@ -367,6 +394,9 @@ fn launch_forms_are_caught() {
         ("A1 псевдонім зі змінною", r#"use std::process::Command as Proc; fn f(v: &str) { Proc::new(v).status(); }"#),
         ("A1 псевдонім type", r#"type Proc = std::process::Command; fn f(v: &str) { Proc::new(v).status(); }"#),
         ("A3 /* у рядку", "fn f() { let s = \"/*\"; Command::new(\"git\").status(); let t = \"*/\"; }"),
+        ("A4 екранування \\x", r#"fn f() { Command::new("\x67it").status(); }"#),
+        ("A4 екранування \\u", r#"fn f() { Command::new("\u{67}\u{0069}t").status(); }"#),
+        ("A4 перенос рядка після \\", "fn f() { Command::new(\"g\\\n      it\").status(); }"),
     ];
     for (name, src) in cases {
         let (hits, dynamic) = scan_source(src);

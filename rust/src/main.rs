@@ -8,10 +8,15 @@
 //
 // Коди (D3): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
+//
+// Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
+// «бінарник = джерело» (D7); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, D6, план Р5).
 
 mod cli;
 mod fingerprint;
+mod session_start;
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
 
@@ -87,25 +92,28 @@ fn source_fingerprint(args: &[String]) -> i32 {
     }
 }
 
-/// Передача команди PowerShell-диспетчеру через KIT_ARGV (D1а); код диспетчера — код kit.exe.
-fn dispatch(root: &Path, tokens: &[String]) -> i32 {
+/// Процес PowerShell-диспетчера з токенами в KIT_ARGV (D1а), ще не запущений: його запускає передача
+/// команди (`dispatch`) і хук старту (`session_start`) — одне місце запуску `pwsh`.
+pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
     let script = root.join("tools").join("kit.ps1");
     if !script.is_file() {
-        fail("kit", &format!("диспетчер {} не знайдено", script.display()), 1);
+        return Err(format!("диспетчер {} не знайдено", script.display()));
     }
     let Some(pwsh) = find_program("pwsh") else {
-        fail("kit", "pwsh (PowerShell 7+) не знайдено в PATH", 1);
+        return Err("pwsh (PowerShell 7+) не знайдено в PATH".to_string());
     };
-    let argv = serde_json::to_string(tokens).expect("масив рядків серіалізується завжди");
-    let status = Command::new(&pwsh)
-        .arg("-NoProfile")
-        .arg("-File")
-        .arg(&script)
-        .env("KIT_ARGV", argv)
-        .status();
-    match status {
+    let argv = serde_json::to_string(tokens).map_err(|e| format!("KIT_ARGV не серіалізовано: {e}"))?;
+    let mut cmd = Command::new(&pwsh);
+    cmd.arg("-NoProfile").arg("-File").arg(&script).env("KIT_ARGV", argv);
+    Ok(cmd)
+}
+
+/// Передача команди PowerShell-диспетчеру через KIT_ARGV (D1а); код диспетчера — код kit.exe.
+fn dispatch(root: &Path, tokens: &[String]) -> i32 {
+    let mut cmd = dispatcher(root, tokens).unwrap_or_else(|e| fail("kit", &e, 1));
+    match cmd.status() {
         Ok(s) => s.code().unwrap_or(1),
-        Err(e) => fail("kit", &format!("{} не запустився: {e}", pwsh.display()), 1),
+        Err(e) => fail("kit", &format!("{} не запустився: {e}", Path::new(cmd.get_program()).display()), 1),
     }
 }
 
@@ -122,6 +130,15 @@ fn main() {
     };
     if command == FINGERPRINT_COMMAND {
         exit(source_fingerprint(&tokens[1..]));
+    }
+    if command == session_start::COMMAND {
+        // Хук старту сесії (D6, план Р5): код 0 завжди, вивід — одним записом або жодного.
+        let out = plugin_root().ok().and_then(|root| session_start::run(&root));
+        if let Some(text) = out {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
+        }
+        exit(0);
     }
     let root = plugin_root();
     // Параметр замість команди: довідка чи помилка виклику — та сама форма розбору, що в команд.

@@ -29,8 +29,8 @@ pub struct Output {
 pub enum GitError {
     /// git не запустився.
     Spawn { args: String, source: io::Error },
-    /// Ненульовий код без дозволу; `stderr` — дослівно те, що надрукував git.
-    Failed { args: String, code: Option<i32>, stderr: String },
+    /// Ненульовий код без дозволу; `stderr` — дослівно байти, які надрукував git (декодуються лише в `Display`).
+    Failed { args: String, code: Option<i32>, stderr: Vec<u8> },
     /// Збій вводу-виводу поза git (канал, файл призначення).
     Io { context: String, source: io::Error },
     /// git відповів не за протоколом (рядок `ls-tree`, заголовок `cat-file`) або вхід недопустимий.
@@ -43,7 +43,7 @@ impl fmt::Display for GitError {
             GitError::Spawn { args, source } => write!(f, "git {args} не запустився: {source}"),
             GitError::Failed { args, code, stderr } => {
                 let code = code.map_or_else(|| "без коду".to_string(), |c| c.to_string());
-                write!(f, "git {args} завершився з кодом {code}: {}", stderr.trim_end())
+                write!(f, "git {args} завершився з кодом {code}: {}", String::from_utf8_lossy(stderr).trim_end())
             }
             GitError::Io { context, source } => write!(f, "{context}: {source}"),
             GitError::Protocol(msg) => f.write_str(msg),
@@ -96,7 +96,7 @@ pub fn run<S: AsRef<OsStr>>(repo: &Path, args: &[S], stdin: Option<&[u8]>, allow
         return Err(GitError::Failed {
             args: describe(args),
             code,
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            stderr: out.stderr,
         });
     }
     Ok(Output { code: code.unwrap_or(-1), stdout: out.stdout, stderr: out.stderr })
@@ -148,7 +148,7 @@ impl Stream {
             return Err(GitError::Failed {
                 args: std::mem::take(&mut self.args),
                 code,
-                stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                stderr,
             });
         }
         Ok(code.unwrap_or(-1))

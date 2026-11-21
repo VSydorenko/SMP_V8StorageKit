@@ -106,7 +106,21 @@ fn failure_contract() {
     match git::run(&repo, &args, None, false) {
         Err(GitError::Failed { code, stderr, .. }) => {
             assert_eq!(code, Some(allowed.code));
-            assert_eq!(stderr.as_bytes(), allowed.stderr.as_slice());
+            assert_eq!(stderr, allowed.stderr);
+        }
+        other => panic!("очікувалась GitError::Failed, отримано {other:?}"),
+    }
+}
+
+#[test]
+fn failure_stderr_is_byte_exact() {
+    let (_tmp, repo) = fixture("fail-bytes");
+    // Псевдонім-оболонка git друкує в stderr байти, що не є UTF-8: помилка несе їх дослівно (D4).
+    let args = ["-c", "alias.bad=!printf '\\377\\376збій' >&2; exit 3", "bad"];
+    match git::run(&repo, &args, None, false) {
+        Err(GitError::Failed { code, stderr, .. }) => {
+            assert_eq!(code, Some(3));
+            assert_eq!(stderr, b"\xFF\xFE\xD0\xB7\xD0\xB1\xD1\x96\xD0\xB9".to_vec());
         }
         other => panic!("очікувалась GitError::Failed, отримано {other:?}"),
     }
