@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^v8storagekit:",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/kit.exe\" subagent-start; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
