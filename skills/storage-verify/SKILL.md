@@ -12,7 +12,7 @@ description: Звірити дерево гілки (типово головно
 ## 1. Запуск
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . [-Ref <гілка>] [-Source <ключ>]
+kit verify -RepoRoot . [-Ref <гілка>] [-Source <ключ>]
 ```
 
 Без `-Ref` — головна гілка маніфесту. `-Ref storage/<ключ>` — канонічність самого дзеркала.
@@ -39,7 +39,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . [
 (git розійшовся зі сховищем; `binary` — лише побайтово), **тільки в дампі**, **тільки в
 дереві**. `ConfigDumpInfo.xml` не рахується.
 
-Окремі класи розбіжностей регістру (вердикт не буває `equal`, код виходу 3): **регістр-дублікати
+Окремі класи розбіжностей регістру (вердикт не буває `equal`, код виходу 4): **регістр-дублікати
 в дереві** (дві форми одного шляху, що на Windows — один файл; член, який точно збігається з
 дампом, позначено справжнім, решта — фантоми) і **лише регістр шляху** (шлях у дампі й у дереві
 різняться тільки регістром). Це дефект дерева git, а не робота для сховища: його створив запис
@@ -58,7 +58,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . [
 ## 3. Звірочний коміт — лише на явне прохання
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . [-Ref <гілка>] -Apply
+kit verify -RepoRoot . [-Ref <гілка>] -Apply
 ```
 
 Зливає `storage/<ключ>` у `<ref>` (`--no-ff`): якщо `<ref>` вибраний і копія чиста — на місці;
