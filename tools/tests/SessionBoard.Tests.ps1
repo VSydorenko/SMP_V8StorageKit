@@ -1,12 +1,12 @@
 #Requires -Version 7
 # session-board: злитий PR зараховується гілці лише тоді, коли в ній немає нової роботи після нього
-# (оригінал — agent-kit 0.9.1 tests/session-board.test.mjs). Справжній kit-process.ps1 підпроцесом
+# (оригінал — agent-kit 0.9.1 tests/session-board.test.mjs). Справжній kit.ps1 підпроцесом
 # на синтетичному репо, gh — фальшивий gh.cmd першим у PATH підпроцесу.
 Describe 'session-board — злитий PR і нова робота в гілці' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
-        $script:KitProcess = Join-Path (Split-Path $script:Kit -Parent) 'kit-process.ps1'
+        $script:KitProcess = Join-Path (Split-Path $script:Kit -Parent) 'kit.ps1'
         function script:G { param([string]$Repo, [string[]]$A) $o = & git -C $Repo @A 2>&1; if ($LASTEXITCODE) { throw "git $A : $o" }; ([string]($o -join "`n")).Trim() }
         function script:Commit { param([string]$Repo, [string]$File) Set-Content -LiteralPath (Join-Path $Repo $File) -Value $File; G $Repo @('add', '-A'); G $Repo @('commit', '-q', '-m', $File) }
     }

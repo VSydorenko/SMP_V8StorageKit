@@ -33,6 +33,7 @@ function Invoke-KitVerify {
         # змінна оточення.
         [string]$RunnerPath
     )
+    Reset-KitNextStep
 
     $root = $Context.RepoRoot
     $ref  = if ($Ref) { $Ref } else { $Context.MainBranch }
@@ -214,9 +215,9 @@ function Invoke-KitVerify {
 
                 switch ($verdict) {
                     'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
-                    'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; $anyAction = $true }
+                    'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; Register-KitNextStep -Step "kit verify -Ref $ref -Apply"; $anyAction = $true }
                     'ref-ahead'     { Write-Host "  Вердикт: ref-ahead — '$ref' розійшовся зі сховищем (версія $ver): змістовні/CR-розбіжності й «тільки в дереві» — робота, ще не застосована у сховищі (зберіть артефакт: unica.run op=make); «тільки в дампі» — див. «Увага» вище." -ForegroundColor Yellow; $anyAction = $true }
-                    'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; $anyAction = $true }
+                    'mixed'         { Write-Host "  Вердикт: mixed — і '$ref' має незастосоване, і сховище пішло вперед. Спершу звірочний коміт (kit verify -Apply), потім розбір залишку." -ForegroundColor Yellow; Register-KitNextStep -Step 'kit verify -Apply'; $anyAction = $true }
                 }
 
                 $merged = $false
@@ -259,8 +260,9 @@ function Invoke-KitVerify {
         # виняток летить далі, змінюється лише те, що бачить агент.
         Write-KitAlignStops -Steps $alignSteps.ToArray()
     }
+    Write-KitNextStepLine
 
-    [pscustomobject]@{ ExitCode = $(if ($anyAction) { 3 } else { 0 }); Results = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
+    [pscustomobject]@{ ExitCode = $(if ($anyAction) { 4 } else { 0 }); Results = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitVerify

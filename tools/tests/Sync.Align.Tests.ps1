@@ -52,7 +52,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 7) }
         $h = @{}
         $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
-        $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' })
+        $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' -and $_ -notlike 'next: *' })
         $lines | Should -HaveCount 2
         $lines[0] | Should -BeLike '*"sourceSet":"base"*'
         $lines[1] | Should -BeLike '*"sourceSet":"Alpha_SMB"*'
@@ -78,12 +78,12 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $lines[0] | Should -BeLike '*"sourceSet":"Alpha_SMB"*"force":true*'
         $text | Should -Not -BeLike '*Готово.*'
     }
-    It 'злиття відмовило — код виходу 2, підсумок не каже «Готово»' {
+    It 'злиття відмовило — код виходу 4, підсумок не каже «Готово»' {
         $repo = New-AlignRepo -Name 'merge-fail'
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/cfe/src/Новая.xml') -Value 'x' -Encoding UTF8
         $h = @{}
         $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
-        $h.R.ExitCode | Should -Be 2
+        $h.R.ExitCode | Should -Be 4
         $text | Should -Not -BeLike '*Готово.*'
         $text | Should -BeLike '*злиття в основну гілку не вдалось*'
     }
@@ -95,14 +95,14 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $text | Should -BeLike '*Готово.*'
         $text | Should -Not -BeLike '*не вдалось*'
     }
-    It 'нових версій немає, злиття впало — підсумок не каже «Дзеркала оновлено», код виходу 2, кроку немає' {
+    It 'нових версій немає, злиття впало — підсумок не каже «Дзеркала оновлено», код виходу 4, кроку немає' {
         $repo = New-AlignRepo -Name 'none-merge-fail'
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
             -FileName 'Configuration.xml' -Content $script:MockContent -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 7')
         Mock -ModuleName sync Invoke-KitMainMerge { $false }
         $h = @{}
         $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true -MergeMain } 6>&1 | Out-String
-        $h.R.ExitCode | Should -Be 2
+        $h.R.ExitCode | Should -Be 4
         @($h.R.AlignSteps) | Should -HaveCount 0
         $text | Should -BeLike '*Нових версій не було, але злиття в основну гілку не вдалось*'
         $text | Should -Not -BeLike '*Дзеркала оновлено*'
@@ -115,9 +115,33 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $repo = New-AlignRepo -Name 'blocked-merge-fail'
         $h = @{}
         $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
-        $h.R.ExitCode | Should -Be 2
+        $h.R.ExitCode | Should -Be 4
         $text | Should -BeLike '*вирівнювання не завершено*Злиття в основну гілку теж не вдалось*'
         $text | Should -Not -BeLike '*Готово.*'
+    }
+    It 'next: (D3, Р4) — крок push надруковано, але є ЗУПИНКА: рядка next: немає, ЗУПИНКА остання' {
+        # Два набори: base — зупинка, Alpha_SMB — крок push. Без ЗУПИНКА крок дав би next: (правило «є крок»).
+        $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
+            @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }
+            @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) } }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'next-stop') -Workspaces $ws -WithHooks -WithAgentBase -WithGitignore
+        $d1 = Join-Path $TestDrive 'next-stop-s1'; $d2 = Join-Path $TestDrive 'next-stop-s2'
+        New-Item -ItemType Directory -Path $d1, $d2 -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (@('storages:', "  base: '$d1'", "  Alpha_SMB: '$d2'") -join "`n")
+        Mock -ModuleName sync Get-KitAlignStep {
+            if ($Source.Key -eq 'base') {
+                [pscustomobject]@{ SourceSet = 'base'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cf/src'; Op = 'blocked'; Supply = 'missing'; Steps = @(); Recipe = 'рецепт' }
+            } else {
+                [pscustomobject]@{ SourceSet = 'Alpha_SMB'; Workspace = 'Alpha_SMB'; RepoPath = 'Alpha_SMB/cfe/src'; Op = 'push'; Supply = 'none'
+                    Steps = @('unica.run {"op":"push","args":{"sourceSet":"Alpha_SMB","force":true},"dryRun":true}'); Recipe = $null }
+            }
+        }
+        $h = @{}
+        $text = & { $h.R = Invoke-KitSync -Context (Invoke-KitPreflight -RepoRoot $repo) -Apply $true } 6>&1 | Out-String
+        $lines = @($text -split "`r?`n" | Where-Object { $_.Trim() })
+        $text | Should -BeLike '*unica.run {"op":"push","args":{"sourceSet":"Alpha_SMB"*' -Because 'крок надруковано — інакше тест не про ЗУПИНКА'
+        @($lines | Where-Object { $_ -like 'next:*' }) | Should -HaveCount 0
+        $lines[-1] | Should -BeLike 'ЗУПИНКА: *'
     }
     It 'нових версій немає — кроку немає (база не зрушена)' {
         $repo = New-AlignRepo -Name 'none'

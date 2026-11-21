@@ -185,7 +185,7 @@ BeforeAll {
     function script:Get-KitCommandContract([string]$PluginRoot, [string]$Name) {
         $key = "$PluginRoot|$Name"
         if (-not $script:HelpCache.ContainsKey($key)) {
-            $help = (& pwsh -NoProfile -File (Join-Path $PluginRoot 'tools/kit-process.ps1') $Name -Help 2>&1 | Out-String)
+            $help = (& pwsh -NoProfile -File (Join-Path $PluginRoot 'tools/kit.ps1') $Name -Help 2>&1 | Out-String)
             $subs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             foreach ($m in [regex]::Matches($help, "(?m)^\s*$([regex]::Escape($Name)) ([a-z][a-z0-9-]*)\b")) { [void]$subs.Add($m.Groups[1].Value) }
             $script:HelpCache[$key] = @{ Help = $help; Subs = $subs }

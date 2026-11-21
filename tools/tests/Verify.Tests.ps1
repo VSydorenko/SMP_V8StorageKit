@@ -67,7 +67,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         Join-Path $repo 'build/verify/Alpha_SMB' | Should -Not -Exist
     }
 
-    It '-Version без числа — зупинка з поясненням, а не тиха звірка проти версії 1' {
+    It '-Version без числа — помилка виклику (код 2) з поясненням, а не тиха звірка проти версії 1' {
         # CommandArgs = @('-Version', '-Ref', 'main'): наступний токен після '-Version' — інший
         # прапорець ('-Ref'), тож без захисту диспетчер підставив би $splat.Version = $true.
         # [Nullable[int]]$Version у verify.psm1 зв'язав би $true як 1 (bool->int), і
@@ -78,7 +78,7 @@ Describe 'kit verify — штатні зупинки до платформи' {
         # [Nullable[int]], тож диспетчер сам зупиняє виклик, ще ДО Invoke-KitVerify.
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-version') -WithHooks
         $r = Invoke-Verify -Repo $repo -More @('-Version', '-Ref', 'main')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*-Version*значення*'
     }
 }
@@ -322,7 +322,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $repo = New-AlignVerifyRepo -Name 'al-push' -Merge
             $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
             $script:R.Results[0].Verdict | Should -Be 'equal'
-            $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' })
+            $lines = @($text -split "`r?`n" | Where-Object { $_ -like '*unica.run {"op":"push"*' -and $_ -notlike 'next: *' })
             $lines | Should -HaveCount 1
             $lines[0] | Should -BeLike '*"sourceSet":"Alpha_SMB"*'
             $lines[0] | Should -BeLike '*"force":true*'
@@ -500,7 +500,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
             }
         }
 
-        It 'дерево з кириличним фантомом — не equal, група з позначеним справжнім членом, код 3 (#32)' {
+        It 'дерево з кириличним фантомом — не equal, група з позначеним справжнім членом, код 4 (#32)' {
             # Не літерал [ordered]@{…}: хештаблиця PowerShell нечутлива до регістру ключів — пара
             # 'Образецанализ'/'ОбразецАнализ' або дала б ParseException, або мовчки злилась би в один ключ.
             $f = [System.Collections.Specialized.OrderedDictionary]::new([System.StringComparer]::Ordinal)
@@ -519,7 +519,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
             }
             $result = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB'
             $result.Results[0].Verdict | Should -Not -Be 'equal'
-            $result.ExitCode | Should -Be 3
+            $result.ExitCode | Should -Be 4
             $result.Results[0].Diff.CaseCollisions | Should -HaveCount 1
             $result.Results[0].Diff.CaseCollisions[0].InDump | Should -BeExactly 'T/ОбразецАнализ.xml'
             # Звіт сходиться арифметично: шляхи груп регістру не губляться між «рівними» й Total.
@@ -629,11 +629,11 @@ Describe 'kit verify — живе сховище: рівні → сховище 
         if (Complete-Authors -Output $s.Output) { $s = Run @('sync', '-Apply', '-MaxVersions', '1') }
         $s.ExitCode | Should -Be 0 -Because $s.Output
         $v = Run @('verify')
-        $v.ExitCode | Should -Be 3 -Because $v.Output
+        $v.ExitCode | Should -Be 4 -Because $v.Output
         $v.Output | Should -BeLike '*storage-ahead*'
         $mainBefore = git -C $script:Repo rev-parse main
         $a = Run @('verify', '-Apply')
-        $a.ExitCode | Should -Be 3 -Because $a.Output     # звірка йшла проти старої версії; коміт зроблено
+        $a.ExitCode | Should -Be 4 -Because $a.Output     # звірка йшла проти старої версії; коміт зроблено
         (git -C $script:Repo rev-parse main) | Should -Not -Be $mainBefore
         $v2 = Run @('verify')
         $v2.ExitCode | Should -Be 0 -Because $v2.Output

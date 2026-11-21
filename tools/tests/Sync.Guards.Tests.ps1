@@ -71,10 +71,10 @@ Describe 'kit sync — штатні зупинки до звернення до 
     # (Verify.Tests.ps1) — без диспетчерської перевірки типу параметра '-Apply', що йде одразу
     # після '-FromVersion', мовчки прив'язався б як $true, а [Nullable[int]] звів би це до 1 —
     # sync тихо реплеїв би "з версії 1" замість штатної зупинки.
-    It '-FromVersion без значення (далі інший прапорець) — зупинка "потребує значення", не мовчазна прив''язка як 1' {
+    It '-FromVersion без значення (далі інший прапорець) — помилка виклику "потребує значення" (код 2), не мовчазна прив''язка як 1' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'fromversion-novalue') -WithHooks
         $r = Invoke-Sync -Repo $repo -More @('-FromVersion', '-Apply')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*-FromVersion*значення*'
         Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
     }

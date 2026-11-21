@@ -216,7 +216,7 @@ Describe 'hooks/session-start.ps1 — хук SessionStart плагіна' {
             $r.Output | Should -BeLike '*session-check*-RepoRoot*'
         }
 
-        It 'session-check завершується неочікуваним кодом (не 0, не 3) — «НЕВІДОМИЙ», не порожній сигнал' {
+        It 'session-check завершується неочікуваним кодом (не 0, 1 чи 4) — «НЕВІДОМИЙ», не порожній сигнал' {
             # Процес, що завершився нормально з якимось ІНШИМ кодом (антивірус, OOM, неповний запуск pwsh),
             # без цієї гілки друкувався б як є: порожній вивід читався б як «нових версій немає».
             Set-Content -LiteralPath (Join-Path $script:FakePlugin 'tools/kit.ps1') -Encoding UTF8 -Value 'exit 2'

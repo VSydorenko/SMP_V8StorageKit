@@ -467,12 +467,12 @@ Describe 'kit provision 1.5.0 — хто створює базу' {
         $r.Output | Should -BeLike '*створює людина в кластері*-ServerBase Existing*'
         $r.Output | Should -Not -BeLike '*-ServerBase New*'
     }
-    It '-ServerBase New більше не існує — зупинка на прив''язці параметра, код 1' {
+    It '-ServerBase New більше не існує — помилка виклику на прив''язці параметра, код 2' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'srv-new-gone') -WithHooks
         Add-Owner -Repo $repo
         Set-KitFakeAgentBase -Repo $repo -Connection 'Srvr=VSDEV;Ref=agent_alpha;'
         $r = Invoke-Provision -Repo $repo -More @('-ServerBase', 'New')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -Not -BeLike '*"op":"infobase.create"*'
     }
     It 'серверна Existing: ні прев''ю, ні -Apply нічого не видаляють (пам''ять раннера ціла); крок — push force:true' {

@@ -105,7 +105,7 @@ Describe 'templates/settings.json — дозволи споживача' {
         git -C $repo init -q
         Push-Location $repo
         try {
-            $null = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit-process.ps1') kit-setup -NoGitignore -NoProfile -NoWorktreeInclude 2>&1
+            $null = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit.ps1') kit-setup -NoGitignore -NoProfile -NoWorktreeInclude 2>&1
             $LASTEXITCODE | Should -Be 0
         } finally { Pop-Location }
         $fromSetup = @((Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).permissions.allow | Sort-Object { $_ } -CaseSensitive)

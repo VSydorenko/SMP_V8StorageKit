@@ -5,14 +5,29 @@ Describe 'kit session-check — сигнал без платформи' {
     It '(б) коміти на storage/X, не злиті в main → сигнал із кількістю і підказкою verify' {
         $s = New-FakeStorage -Name 'unmerged' -ObjectsWrite $script:Old -DbWrite $script:Old
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'b-unmerged' -StoragePath $s -MirrorDate $script:New)
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -BeLike '*- Alpha_SMB:*1 *не злит*main*kit verify*'
     }
 
-    It 'дзеркала ще немає при доступному сховищі → «дзеркала немає — kit sync», код 3' {
+    It 'next: (D3, Р4) — є крок: останній рядок next: дорівнює першому надрукованому кроку' {
+        $s = New-FakeStorage -Name 'next-step' -ObjectsWrite $script:Old -DbWrite $script:Old
+        $r = Invoke-SessionCheck -Repo (New-Repo -Name 'next-step' -StoragePath $s -MirrorDate $script:New)
+        $r.ExitCode | Should -Be 4
+        $lines = @($r.Output -split "`r?`n" | Where-Object { $_.Trim() })
+        $r.Output | Should -BeLike '*звірочний коміт: kit verify -Apply*'
+        $lines[-1] | Should -BeExactly 'next: kit verify -Apply'
+    }
+
+    It 'next: (D3, Р4) — код 0 без кроку: рядка next: немає' {
+        $r = Invoke-SessionCheck -Repo (New-Repo -Name 'next-none' -StoragePath (Join-Path $TestDrive 'nope-next') -MirrorDate $script:Old -Merge)
+        $r.ExitCode | Should -Be 0
+        @($r.Output -split "`r?`n" | Where-Object { $_ -like 'next:*' }) | Should -HaveCount 0
+    }
+
+    It 'дзеркала ще немає при доступному сховищі → «дзеркала немає — kit sync», код 4' {
         $s = New-FakeStorage -Name 'nomirror' -ObjectsWrite $script:Old -DbWrite $script:Old
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'no-mirror' -StoragePath $s -MirrorDate $script:Old -NoMirror)
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -BeLike '*- Alpha_SMB:*дзеркала*немає*kit sync*'
     }
 
@@ -38,18 +53,18 @@ Describe 'kit session-check — сигнал без платформи' {
         $r.Output | Should -BeLike '*storage/Alpha_SMB*'
     }
 
-    It 'гілки mainBranch немає, HEAD деінде (описка) → [!] від check, код 3, «перевірте mainBranch:»' {
+    It 'гілки mainBranch немає, HEAD деінде (описка) → [!] від check, код 4, «перевірте mainBranch:»' {
         $s = New-FakeStorage -Name 'nomain' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-Repo -Name 'no-main' -StoragePath $s -MirrorDate $script:Old -Merge
         git -C $repo branch -m main trunk
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -Match '\[!\].*main'
         $r.Output | Should -BeLike "*- Alpha_SMB:*коміт*гілки 'main'*немає*перевірте mainBranch*"
         $r.Output | Should -Not -BeLike '*зробіть перший коміт*'
     }
 
-    It 'свіжий репозиторій: unborn main і готове дзеркало → [i] від check, код 3, «зробіть перший коміт … -MergeMain»' {
+    It 'свіжий репозиторій: unborn main і готове дзеркало → [i] від check, код 4, «зробіть перший коміт … -MergeMain»' {
         $s = New-FakeStorage -Name 'unborn' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unborn') -OverlayText "storages:`n  Alpha_SMB: '$s'" -WithHooks -WithGitattributes -WithGitignore -NoCommit
         # Дзеркало без жодного коміту в main: якщо `worktree add --orphan` відмовить на репо без комітів —
@@ -58,7 +73,7 @@ Describe 'kit session-check — сигнал без платформи' {
         Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' -FileName 'a.xml' -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 1')
         (git -C $repo symbolic-ref -q HEAD) | Should -Be 'refs/heads/main'
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -Match '\[i\].*main'
         $r.Output | Should -BeLike '*- Alpha_SMB:*зробіть перший коміт*-MergeMain*'
     }

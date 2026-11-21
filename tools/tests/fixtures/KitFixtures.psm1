@@ -507,9 +507,8 @@ function Copy-KitTools {
         Copy-Item -Path (Join-Path $kitRoot "$rel/*") -Destination $dst -Recurse -Force
     }
     Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit.ps1') -Destination (Join-Path $Root 'tools/kit.ps1') -Force
-    # Вхід команд процесу і їхні обгортки: тести кличуть команди процесу
-    # тим самим шляхом, що й агент, — bin/<команда> → tools/kit-process.ps1.
-    Copy-Item -LiteralPath (Join-Path $kitRoot 'tools/kit-process.ps1') -Destination (Join-Path $Root 'tools/kit-process.ps1') -Force
+    # Обгортки команд процесу: тести кличуть команди процесу тим самим шляхом, що й агент, —
+    # bin/<команда> → tools/kit.ps1.
     New-Item -ItemType Directory -Path (Join-Path $Root 'bin') -Force | Out-Null
     Copy-Item -Path (Join-Path $kitRoot 'bin/*') -Destination (Join-Path $Root 'bin') -Force
     # templates/settings.json — раніше НЕ копіювали: тоді

@@ -1,28 +1,31 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Диспетчер команд kit: pwsh tools/kit.ps1 <команда> [-RepoRoot .] [-Workspace X] [-Source Y] [-Apply] [власні параметри команди]
+    Єдиний PowerShell-диспетчер kit: pwsh -NoProfile -File tools/kit.ps1 <команда> [аргументи].
 .DESCRIPTION
-    Спільний префлайт і виклик Invoke-Kit<Команда> з tools/commands/<команда>.psm1.
-    Команди не імпортують lib-модулів самі — їх імпортує цей файл у порядку
-    tools/lib/module-order.txt, і командний модуль бачить їх із глобальної області.
+    Навмисно БЕЗ param-блоку: усі токени доходять сирими, і диспетчер розбирає їх сам. Параметри
+    скрипта перехоплювали б однойменні токени команд ще на прив'язці PowerShell (`sdd fix 3 -Source
+    controller` віддав би -Source диспетчеру).
 
-    Власні параметри команди передаються після спільних як -Ім'я значення або -Прапорець і
-    доходять до Invoke-Kit<Команда> сплатом; невідомий параметр зупиняє PowerShell ще на
-    прив'язці — команда не виконується.
+    Токени: змінна оточення KIT_ARGV (JSON-масив рядків; її пише kit.exe) — диспетчер читає її й
+    прибирає зі свого оточення до будь-якої іншої дії, щоб її не успадкували git, раннер чи 1cv8;
+    змінної немає — $args (прямий виклик). Аргументи `pwsh -File` PowerShell переписує сам
+    (`-Apply:false` доходить як `-Apply` + `False`), тому команда сховища не приймає позиційних
+    токенів: такий токен — помилка виклику, команда не запускається.
+
+    Команди процесу (tools/commands/process-commands.txt): імпорт лише розділу «процес» з
+    tools/lib/module-order.txt, сирі аргументи команді, корінь — поточна тека (ADR-0003).
+    Команди сховища: імпорт усього module-order.txt, розбір ConvertFrom-KitArguments за
+    специфікацією з сигнатури Invoke-Kit<Команда> ([switch]/[bool] — прапорець, [string[]] —
+    список, решта — рядок, без Context) плюс -RepoRoot (умовчання — поточна тека), префлайт і
+    виклик іменованою сплатою (позиційної прив'язки функцій тут немає).
+
+    Контракт кодів виходу — один для всіх команд (tools/lib/KitCli.psm1): 0 — так; 1 — зупинка;
+    2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний крок. Помилка — перший рядок
+    stderr `<команда>: ERROR …`.
 .EXAMPLE
-    pwsh tools/kit.ps1 check -RepoRoot <шлях до репо-споживача>
+    pwsh -NoProfile -File tools/kit.ps1 check -RepoRoot <шлях до репо-споживача>
 #>
-[CmdletBinding()]
-param(
-    [Parameter(Position = 0)][string]$Command,
-    [string]$RepoRoot = '.',
-    [string]$Workspace,
-    [string]$Source,
-    [switch]$Apply,
-    [Parameter(ValueFromRemainingArguments)][string[]]$CommandArgs = @()
-)
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -30,108 +33,143 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$libDir = Join-Path $PSScriptRoot 'lib'
-$order = @(Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8 |
-    ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-foreach ($name in $order) {
-    Import-Module (Join-Path $libDir "$name.psm1") -Force
+function Stop-KitDispatch([string]$Message, [int]$Code) {
+    [Console]::Error.WriteLine("kit: ERROR $Message")
+    exit $Code
 }
 
+# ---------- токени: KIT_ARGV або $args ----------
+$tokens = $null
+$kitArgv = [Environment]::GetEnvironmentVariable('KIT_ARGV')
+if ($null -ne $kitArgv) {
+    [Environment]::SetEnvironmentVariable('KIT_ARGV', $null)
+    # System.Text.Json, не ConvertFrom-Json: той перетворює рядки, схожі на дату, на DateTime.
+    try {
+        $doc = [System.Text.Json.JsonDocument]::Parse($kitArgv)
+        if ($doc.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array) { throw 'очікувався JSON-масив рядків' }
+        $tokens = [string[]]@(foreach ($el in $doc.RootElement.EnumerateArray()) {
+                if ($el.ValueKind -ne [System.Text.Json.JsonValueKind]::String) { throw "елемент масиву — $($el.ValueKind), очікувався рядок" }
+                $el.GetString()
+            })
+    } catch {
+        Stop-KitDispatch "KIT_ARGV не розібрано: $($_.Exception.Message)" 2
+    }
+} else {
+    $tokens = [string[]]@(foreach ($a in $args) { [string]$a })
+}
+
+$command = if ($tokens.Count) { $tokens[0] } else { '' }
+$rest = [string[]]@($tokens | Select-Object -Skip 1)
+
+$libDir = Join-Path $PSScriptRoot 'lib'
 $commandsDir = Join-Path $PSScriptRoot 'commands'
-$available = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName | Sort-Object)
-if (-not $Command -or $available -notcontains $Command) {
-    $what = if ($Command) { "Невідома команда '$Command'." } else { 'Команду не вказано.' }
-    # Не throw: сирий стек PowerShell суперечить охайному [-]-виводу. Код 1 — диспетчерська відмова.
-    # Контракт кодів виходу: 0 — виконано; 1 — зупинка (throw будь-де: невідома команда,
-    # префлайт, розбір аргументів, сама команда) або check із помилками; 2 — лише sync:
-    # дзеркало оновлено, злиття не виконано; 3 — verify і session-check: є що робити. Тобто 2 і 3 —
-    # коди команд, які ВІДПРАЦЮВАЛИ, а не «не запустились узагалі»: код виходу сам не
-    # розрізняє «диспетчер відмовив» від «команда завершилась частковим успіхом» —
-    # розрізняти треба з тексту виводу.
-    Write-Host "$what Доступні: $($available -join ', '). Приклад: pwsh tools/kit.ps1 check -RepoRoot ." -ForegroundColor Red
+$processCommands = @(Get-Content -LiteralPath (Join-Path $commandsDir 'process-commands.txt') -Encoding UTF8 |
+    ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+$storageCommands = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName |
+    Where-Object { $processCommands -notcontains $_ })
+
+if (-not $command -or ($processCommands -notcontains $command -and $storageCommands -notcontains $command)) {
+    $what = if ($command) { "невідома команда '$command'" } else { 'команду не вказано' }
+    Stop-KitDispatch "$what; доступні: $((@($storageCommands) + @($processCommands) | Sort-Object -Unique) -join ', ')" 2
+}
+
+# ---------- команда процесу: лише розділ «процес» module-order.txt ----------
+$isProcess = $processCommands -contains $command
+$inSection = -not $isProcess
+foreach ($line in Get-Content -LiteralPath (Join-Path $libDir 'module-order.txt') -Encoding UTF8) {
+    $t = $line.Trim()
+    if ($t -match '^#\s*==\s*процес\s*==') { $inSection = $true; continue }
+    if (-not $inSection -or -not $t -or $t.StartsWith('#')) { continue }
+    Import-Module (Join-Path $libDir "$t.psm1") -Force
+}
+if (-not (Get-Command -Name Invoke-KitProcessEntry -ErrorAction SilentlyContinue)) {
+    Stop-KitDispatch 'у tools/lib/module-order.txt немає розділу «# == процес ==» з KitCli' 1
+}
+
+if ($isProcess) {
+    exit (Invoke-KitProcessEntry -Command $command -Arguments $rest -RepoRoot (Get-Location).Path -ToolsDir $PSScriptRoot)
+}
+
+# ---------- команда сховища ----------
+Import-Module (Join-Path $commandsDir "$command.psm1") -Force
+$functionName = Get-KitProcessFunctionName -Command $command
+$functionCmd = Get-Command -Name $functionName -ErrorAction SilentlyContinue
+if (-not $functionCmd) {
+    Write-KitError -Command $command -Message "модуль commands/$command.psm1 не експортує функцію $functionName"
     exit 1
 }
 
-# Команди процесу (tools/commands/process-commands.txt) — свій контракт (tools/lib/KitCli.psm1:
-# 0/1/2/3, `<команда>: ERROR …`, `next:`), без префлайту сховища й маніфесту (ADR-0003), сирі
-# аргументи. Звичайний вхід для них — обгортки bin/ через tools/kit-process.ps1: тут параметри
-# диспетчера (-RepoRoot, -Workspace, -Source, -Apply) перехоплюють однойменні токени команди.
-if ((Get-KitProcessCommandNames -ToolsDir $PSScriptRoot) -contains $Command) {
-    if ($Workspace -or $Source -or $Apply) {
-        Write-KitError -Command $Command -ExitCode 2 -Message "-Workspace/-Source/-Apply тут бере диспетчер kit.ps1, а не команда процесу; клич обгортку bin/$Command (tools/kit-process.ps1)"
+# Специфікація розбору — із сигнатури функції команди. -Workspace/-Source/-Apply отримує лише та
+# команда, що їх оголошує: інакше це «невідомий параметр», а не мовчки проігнорований.
+$skip = @('Context') + [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
+$params = @{}
+$spec = @{ RepoRoot = 'string' }
+foreach ($p in $functionCmd.Parameters.Values) {
+    if ($skip -contains $p.Name) { continue }
+    $params[$p.Name] = $p
+    $spec[$p.Name] = if ($p.ParameterType -eq [switch] -or $p.ParameterType -eq [bool]) { 'switch' }
+                     elseif ($p.ParameterType -eq [string[]]) { 'list' }
+                     else { 'string' }
+}
+
+try {
+    $parsed = ConvertFrom-KitArguments -Arguments $rest -Spec $spec
+} catch {
+    Write-KitError -Command $command -Message $_.Exception.Message -ExitCode 2
+    exit 2
+}
+if ($parsed.Help) {
+    $usage = foreach ($n in @($spec.Keys | Sort-Object)) {
+        switch ($spec[$n]) { 'switch' { "[-$n]" } 'list' { "[-$n <значення> …]" } default { "[-$n <значення>]" } }
+    }
+    Write-KitLine "usage: kit $command $($usage -join ' ')"
+    exit 0
+}
+if ($parsed.Positional.Count) {
+    Write-KitError -Command $command -ExitCode 2 -Message ("позиційний токен '$($parsed.Positional[0])': команди сховища приймають лише -Ім'я значення і -Прапорець " +
+        "(pwsh -File розщеплює -Ім'я:значення на два токени — пиши -Ім'я значення)")
+    exit 2
+}
+
+# Значення — у тип параметра функції до виклику: помилка перетворення — помилка виклику (2), а не зупинка.
+$splat = @{}
+foreach ($n in @($parsed.Named.Keys)) {
+    if ($n -eq 'RepoRoot') { continue }
+    $v = $parsed.Named[$n]
+    $type = $params[$n].ParameterType
+    if ($type -eq [switch]) { $splat[$n] = [switch][bool]$v; continue }
+    if ($type -eq [bool]) { $splat[$n] = [bool]$v; continue }
+    if ($type -eq [string[]]) { $splat[$n] = [string[]]@($v); continue }
+    if ($type -eq [string] -or $type -eq [object]) { $splat[$n] = [string]$v; continue }
+    try {
+        $splat[$n] = [System.Management.Automation.LanguagePrimitives]::ConvertTo($v, $type)
+    } catch {
+        $target = [Nullable]::GetUnderlyingType($type) ?? $type
+        Write-KitError -Command $command -ExitCode 2 -Message "-${n}: значення '$v' не перетворюється на $($target.FullName)"
         exit 2
     }
-    exit (Invoke-KitProcessEntry -Command $Command -Arguments $CommandArgs -RepoRoot $RepoRoot -ToolsDir $PSScriptRoot)
 }
+$repoRoot = if ($parsed.Named.ContainsKey('RepoRoot')) { [string]$parsed.Named['RepoRoot'] } else { (Get-Location).Path }
 
-Import-Module (Join-Path $commandsDir "$Command.psm1") -Force
-$functionName ='Invoke-Kit' + ((($Command -split '-') | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '')
-if (-not (Get-Command -Name $functionName -ErrorAction SilentlyContinue)) {
-    # Як і вище: не throw, код 1 — «команда не запустилась узагалі».
-    Write-Host "Модуль команди commands/$Command.psm1 не експортує функцію $functionName." -ForegroundColor Red
-    exit 1
-}
-
-# Префлайт, розбір аргументів і сам виклик команди — під одним try/catch: throw БУДЬ-ДЕ тут дає
-# одну зупинку одним стилем (Write-Host, код 1), а не сирий стек pwsh.
+# Префлайт і сама команда — під одним try/catch: throw будь-де — один рядок `<команда>: ERROR …` і код 1
+# (або код із Data['KitExitCode'], або 2 за помилки прив'язки — нижче), а не сирий стек pwsh.
 try {
     # check і session-check — діагностика: вони мусять ДОПОВІСТИ про суперечливий репозиторій, а не впасти на
     # ньому. Решта команд без чистого префлайту не має з чим працювати.
-    $context = Invoke-KitPreflight -RepoRoot $RepoRoot -Lenient:($Command -in @('check', 'session-check'))
-
-    # Решта аргументів → іменовані параметри команди.
-    $splat = @{}
-    for ($i = 0; $i -lt $CommandArgs.Count; $i++) {
-        $arg = $CommandArgs[$i]
-        if ($arg -notmatch '^-(?<n>[A-Za-z][A-Za-z0-9]*)(?::(?<v>.+))?$') {
-            throw "Не розпізнаю аргумент '$arg' — очікувалось -Ім'я значення або -Прапорець."
-        }
-        $n = $Matches['n']
-        if ($Matches.ContainsKey('v')) { $splat[$n] = $Matches['v']; continue }
-        if ($i + 1 -lt $CommandArgs.Count -and $CommandArgs[$i + 1] -notmatch '^-[A-Za-z]') {
-            $splat[$n] = $CommandArgs[++$i]
-        } else {
-            # $true лише справжньому [switch]-параметру команди: інакше True мовчки в'язалось би з
-            # будь-яким типом — на [Nullable[int]] "kit verify -Version -Ref main" (забули число) тихо
-            # звіряло б проти версії 1. Питаємо ТИП параметра функції, не вгадуємо за формою CLI.
-            #
-            # Свідома межа: скорочене ім'я (-Ver замість -Version) у словнику ПОВНИХ імен не знайдеться,
-            # і скорочений [switch] дасть зупинку «потребує значення». Підтримуване — лише повне ім'я.
-            $functionCmd = Get-Command -Name $functionName
-            $param = $functionCmd.Parameters[$n]
-            if ($param -and $param.ParameterType -eq [switch]) {
-                $splat[$n] = $true
-            } else {
-                throw "Параметр -$n потребує значення — '$arg' без нього. Приклад: -$n <значення>."
-            }
-        }
-    }
-
-    # Спільні параметри передаються лише тим командам, які їх ОГОЛОШУЮТЬ. Команда оголошує лише те,
-    # що вживає (це тримає тест): оголошений «для splat» і непрочитаний параметр мовчки нічого не
-    # звужував би. Переданий людиною параметр, якого команда не приймає, — зупинка з переліком, а не тиша.
-    $accepted = @((Get-Command -Name $functionName).Parameters.Keys)
-    $common = @{ Context = $context }
-    foreach ($shared in @(
-            @{ Name = 'Workspace'; Given = [bool]$Workspace; Value = $Workspace },
-            @{ Name = 'Source';    Given = [bool]$Source;    Value = $Source },
-            @{ Name = 'Apply';     Given = [bool]$Apply;     Value = [bool]$Apply })) {
-        if ($accepted -contains $shared.Name) { $common[$shared.Name] = $shared.Value; continue }
-        if ($shared.Given) {
-            $alsoAccepts = @('Workspace', 'Source', 'Apply') | Where-Object { $accepted -contains $_ }
-            $what = if ($alsoAccepts) { "приймає лише: $($alsoAccepts -join ', ')" } else { 'не приймає жодного зі спільних параметрів' }
-            throw "Команда '$Command' не приймає -$($shared.Name): вона $what."
-        }
-    }
-    # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream
-    # (те, що потрапляє сюди, у $result) повертає лише $null або {ExitCode; …} — жодного
-    # третього варіанту. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
-    $result = & $functionName @common @splat
+    $context = Invoke-KitPreflight -RepoRoot $repoRoot -Lenient:($command -in @('check', 'session-check'))
+    # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream повертає лише
+    # $null або {ExitCode; …}. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
+    $result = & $functionName -Context $context @splat
 } catch {
-    # Сирий throw команди, префлайту чи розбору аргументів — охайний рядок і код 1 (не стек PowerShell,
-    # що топив би зібрані знахідки). Контракт кодів виходу — у коментарі вище.
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    exit 1
+    $ex = $_.Exception
+    # Помилка прив'язки параметра самої функції команди (ValidateSet, ValidateRange) — аргумент з CLI, тобто
+    # помилка виклику (2). Прив'язка всередині команди (throw після старту) — зупинка (1).
+    $code = if ($null -ne $ex.Data -and $ex.Data.Contains('KitExitCode')) { [int]$ex.Data['KitExitCode'] }
+            elseif ($ex -is [System.Management.Automation.ParameterBindingException] -and $_.InvocationInfo -and
+                    $_.InvocationInfo.MyCommand -and $_.InvocationInfo.MyCommand.Name -eq $functionName) { 2 }
+            else { 1 }
+    Write-KitError -Command $command -Message $ex.Message -ExitCode $code
+    exit $code
 }
 if ($null -ne $result -and ($result.PSObject.Properties.Name -contains 'ExitCode') -and $result.ExitCode -ne 0) {
     exit $result.ExitCode
