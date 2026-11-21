@@ -1,7 +1,7 @@
 # Специфіка 1С у механізмах kit: драбина перевірок, перевірки на платформі, хуки
 
-Issue: заводиться після прийняття спеки (`v8storagekit:track`) — статус живе в GitHub, не в цьому файлі
-Glossary: `docs/GLOSSARY.md` · ADR: ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013 (ADR-0004 — superseded)
+Issue: #83 — статус живе в GitHub (`track`), не в цьому файлі
+Glossary: `docs/GLOSSARY.md` · ADR: ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0015 (ADR-0004 — superseded)
 
 ## 1. Мета
 
@@ -73,14 +73,19 @@ Kit — плагін лише для 1С. Його процес (спека, п�
 
 #### 5.1.2 Шаблон плану й скіли процесу
 
-- `skills/plan/references/template.md`: розділ **«Зміни метаданих»** — таблиця «об'єкт | нове /
-  змінене / запозичене | форми | source-set»; у розділі «Задачі» — поле `Сходинка:`.
-  `skills/plan/SKILL.md` (таблиця «Що є планом») називає обидва.
-- Лінза аудиту плану «план проти спеки й коду» (`skills/plan/references/audit-lenses.md`)
-  перевіряє: кожна задача має сходинку; задача, що змінює код BSL, має сходинку не нижче `syntax`.
-- `skills/execute/references/dispatch.md` і `skills/execute/references/preflight.md`: сходинка
-  задачі переходить у бриф; таблиця ваг має колонку сходинки.
-- `agents/implementer.md`: робочий цикл 1С — прочитати через Уніку → змінити → `unica.check {at}` →
+Агенти й скіли процесу загальні; специфіка 1С живе окремо (ADR-0015): агентам — правила домену
+`hooks/domain-1c/<агент>.md`, які додає хук `kit.exe subagent-start`; скілам — їхні
+`references/1c.md` з покажчиком у `SKILL.md`.
+
+- `skills/plan/references/1c.md`: розділ **«Зміни метаданих»** — таблиця «об'єкт | нове /
+  змінене / запозичене | форми | source-set»; у розділі «Задачі» — поле `Сходинка:`; назви ризиків
+  і лінз аудиту для 1С.
+- Лінза аудиту плану «план проти спеки й коду» в 1С (`skills/plan/references/1c.md`,
+  `hooks/domain-1c/auditor.md`) перевіряє: кожна задача має сходинку; задача, що змінює код BSL,
+  має сходинку не нижче `syntax`.
+- `skills/execute/references/1c.md`: сходинка задачі переходить у бриф; таблиця ваг має колонку
+  сходинки.
+- `hooks/domain-1c/implementer.md`: робочий цикл 1С — прочитати через Уніку → змінити → `unica.check {at}` →
   `push` лише свого source-set → коміт (у `shared` — стейдж і коміт контролера) → сходинка з брифу.
   Після B2 сходинки `syntax` і `yaxunit` виконує `kit step`, і окремий `push` перед ними не
   потрібен. Тести — за політикою §5.1.3.
@@ -154,7 +159,7 @@ Kit — плагін лише для 1С. Його процес (спека, п�
 | `dangling-form-uuid` | `metadata` | `uuid` у `Form.xml` запозиченої форми, яких немає ні в розширенні, ні в `cf/src` |
 | `temp-doc-ref` | `drift` | коментар коду посилається на тимчасовий документ (план, спека, хеш версії) |
 
-Лінзи — `skills/review/references/lenses.md`, `agents/code-reviewer.md`, `agents/task-reviewer.md`.
+Лінзи 1С — `skills/review/references/1c.md`, `hooks/domain-1c/code-reviewer.md`, `hooks/domain-1c/task-reviewer.md`.
 Лінза `test-honesty` додатково звіряє колір доказу на коміті тесту з очікуванням задачі плану
 (ADR-0010 п. 3). Стандартів, які ловить аналізатор Уніки, лінзи не дублюють.
 
