@@ -8,5 +8,19 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     if ($a -match '^-[A-Za-z][A-Za-z0-9]*:$' -and $i + 1 -lt $args.Count) { $a += [string]$args[++$i] }
     $kitArgs.Add($a)
 }
-& (Join-Path $PSScriptRoot 'kit.exe') ([IO.Path]::GetFileNameWithoutExtension($PSCommandPath)) @kitArgs
+# kit.exe не запустився (немає поруч, заблокований антивірусом, не застосунок) — не тихий код 0 від
+# `exit $LASTEXITCODE` із застарілого значення, а код 2 (помилка виклику, tools/lib/KitCli.psm1) і рядок
+# `<команда>: ERROR …` у stderr. Код запущеного kit.exe проходить як є.
+$kitName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
+$global:LASTEXITCODE = $null
+try {
+    & (Join-Path $PSScriptRoot 'kit.exe') $kitName @kitArgs
+} catch {
+    [Console]::Error.WriteLine("${kitName}: ERROR kit.exe не запустився: $($_.Exception.Message)")
+    exit 2
+}
+if ($null -eq $LASTEXITCODE) {
+    [Console]::Error.WriteLine("${kitName}: ERROR kit.exe не повернув коду виходу")
+    exit 2
+}
 exit $LASTEXITCODE

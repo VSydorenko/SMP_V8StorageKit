@@ -215,4 +215,24 @@ Describe 'Закомічений бінарник = джерело (D7, Р6)' {
         $after.Computed | Should -Match '^[0-9a-f]{16}$' -Because $after.Raw
         $after.Computed | Should -Not -Be $before.Computed
     }
+
+    It 'контроль: копія rust/, де всі текстові файли переписано в CRLF, дає той самий відбиток (autocrlf клона не ламає запобіжник)' {
+        $crate = Join-Path $TestDrive "crate-crlf-$([guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $crate -Force | Out-Null
+        Get-ChildItem -LiteralPath (Join-Path $script:KitRepo 'rust') -Force |
+            Where-Object Name -ne 'target' | Copy-Item -Destination $crate -Recurse
+        $before = Get-KitFingerprint $script:KitExe $crate
+        $before.Computed | Should -Match '^[0-9a-f]{16}$' -Because $before.Raw
+        $rewritten = 0
+        foreach ($f in Get-ChildItem -LiteralPath $crate -Recurse -File -Force | Where-Object Extension -In '.rs', '.toml', '.lock') {
+            $text = [System.IO.File]::ReadAllText($f.FullName)
+            $crlf = $text -replace "`r?`n", "`r`n"
+            if ($crlf -ne $text) { $rewritten++ }
+            [System.IO.File]::WriteAllText($f.FullName, $crlf, [System.Text.UTF8Encoding]::new($false))
+        }
+        # Контроль вміє впасти: якщо нічого не переписано (у дереві вже CRLF чи файлів нема), тест нічого не доводить.
+        $rewritten | Should -BeGreaterThan 0 -Because 'жодного файла rust/ не переписано в CRLF — контроль порожній'
+        $after = Get-KitFingerprint $script:KitExe $crate
+        $after.Computed | Should -Be $before.Computed -Because "CRLF-копія rust/ дала інший відбиток: запобіжник «бінарник = джерело» залежить від autocrlf`n$($after.Raw)"
+    }
 }

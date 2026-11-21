@@ -86,6 +86,22 @@ Describe 'kit-scan — скан підключення' {
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/notes/` \| user \| other \|' -Because $r.Out
     }
 
+    It 'Duplicates: власна bin/session-board споживача — та сама підказка, що й для команди з модулем (bin/sdd)' {
+        # session-board виконує kit.exe: модуля в tools/commands немає, у плагіні його ознака — обгортка bin/.
+        $pluginBin = Join-Path $script:Plugin 'bin'
+        New-Item -ItemType Directory -Path $pluginBin -Force | Out-Null
+        foreach ($n in 'sdd', 'session-board') { Set-Content -LiteralPath (Join-Path $pluginBin "$n.ps1") -Value '# обгортка' }
+        try {
+            $repo = New-Repo 'binparts'
+            New-Item -ItemType Directory -Path (Join-Path $repo 'bin') | Out-Null
+            foreach ($n in 'sdd', 'session-board') { Set-Content -LiteralPath (Join-Path $repo "bin/$n") -Value "#!/bin/sh`necho власна $n" }
+            $r = Invoke-Scan $repo -Arguments @('-Json')
+        } finally { Remove-Item -LiteralPath $pluginBin -Recurse -Force }
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'та сама назва, що в bin sdd' -Because $r.Out
+        $r.Out | Should -Match 'та сама назва, що в bin session-board' -Because $r.Out
+    }
+
     It 'Kit version: кроки лише версій у (kit.version, плагін] — запис 1.5.0 не береться' {
         $repo = New-Repo 'ver'
         New-Item -ItemType Directory -Path (Join-Path $repo '.agents') | Out-Null
