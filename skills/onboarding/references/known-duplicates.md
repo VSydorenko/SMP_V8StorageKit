@@ -54,6 +54,7 @@
 | Залишок | Заміна в kit | Звичайний клас |
 | --- | --- | --- |
 | `~/.claude/skills/<ім'я>/` з назвою скіла плагіна (`1c-unica`, `1c-localization`, `1c-bsp-service-user`, `1c-websocket-client`, `codex-companion` — колись жили на рівні користувача) | `v8storagekit:<ім'я>` | remove (звір вміст: новіше знання копії — спершу issue плагіна) |
+| `~/.claude/skills/<ім'я>/`, який плагін переніс під іншим ім'ям: `unica-1c` → `1c-unica`, `yaxunit-test-writer` → `1c-yaxunit`, `designing-1c-skd-reports` → `1c-skd-reports`. `kit-scan` такий рядок показує як `domain` / move-to-plugin, бо порівнює лише імена | `v8storagekit:<нове ім'я>` | remove (звір вміст, як у рядку вище) |
 | користувацький чи проєктний скіл про 1С або Уніку, якого в плагіні немає | issue плагіна; перенесення з адаптацією: опис ≤ 250 символів, `SKILL.md` ≤ 12000, деталі в `references/`, код лише PowerShell (ADR-0002), посилання з префіксом `v8storagekit:` | move-to-plugin |
 
 ## Підключення контуру сховища
