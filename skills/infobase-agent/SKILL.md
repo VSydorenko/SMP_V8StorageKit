@@ -72,7 +72,7 @@ git grep -c "ObjectBelonging>Adopted"
 Власник уже на диску (§1 не зупинив) — тепер визначаємо тип бази. Прев'ю показує, що відомо:
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot . [-Workspace <ws>]
+kit provision -RepoRoot . [-Workspace <ws>]
 ```
 
 Тип визначений, якщо: у `v8storagekit.local.yaml` є `workspaces.<ws>.agentBase.template` (база з
@@ -104,15 +104,15 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot 
 
 Порожня:
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot . -Workspace <ws> -Apply
+kit provision -RepoRoot . -Workspace <ws> -Apply
 ```
 З `.dt` (і запам'ятати вибір у накладці kit):
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot . -Workspace <ws> -Apply -Template "<шлях>.dt" -Remember
+kit provision -RepoRoot . -Workspace <ws> -Apply -Template "<шлях>.dt" -Remember
 ```
 Серверна (базу створила людина):
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" provision -RepoRoot . -Workspace <ws> -ServerBase Existing -Apply
+kit provision -RepoRoot . -Workspace <ws> -ServerBase Existing -Apply
 ```
 **Зламана чи застаріла файлова база.** Перестворення — не параметр: kit не видаляє нічого. Якщо за
 шляхом бази вже є порожня тека чи тека з `1Cv8.1CD`, `provision` зупиняється й називає **дві** теки, які

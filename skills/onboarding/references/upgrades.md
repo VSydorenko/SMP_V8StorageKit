@@ -15,9 +15,8 @@
 видалити. Число з нього — версія контуру сховища, до якої репозиторій доведено: з нього видно, з якого
 розділу таблиці нижче починати.
 
-`<корінь плагіна>` у командах нижче — каталог плагіна `v8storagekit`: той самий шлях, що стоїть перед
-`/tools/kit.ps1` у командах `SKILL.md` скіла `v8storagekit:onboarding` (там його підставлено; у цьому
-файлі підстановки немає).
+Команди kit нижче — `kit <команда>`: `kit` — це `kit.exe` з `bin/` плагіна `v8storagekit`, теку якого сесія
+має в `PATH`. `<корінь плагіна>` — тека над `bin/` (у цьому файлі підстановки немає).
 
 ## Кроки оновлення
 
@@ -285,7 +284,7 @@
    | `codex-companion` | `v8storagekit:codex-audit` (команда `codex-audit`) |
    | агенти `plan-auditor`, `spec-auditor` | агент `v8storagekit:auditor` |
 
-   Команди kit (`kit.ps1 sync`, `verify`, `dump`, `provision`, `adopt`) не перейменовано.
+   Команди kit (`kit sync`, `verify`, `dump`, `provision`, `adopt`) не перейменовано.
 3. **Codex.** Аудит — команда `codex-audit`; секція `codex` машинного профілю (`~/.config/v8storagekit/profile.json`) з полями `model` і `reasoningEffort` — раз на машину ([ранбук](../../codex-audit/references/runbook.md)).
 4. **Вихідники у форматі EDT** kit не підтримує: перетворіть їх операцією `convert` раннера Уніки або вивантажте сховище наново.
 

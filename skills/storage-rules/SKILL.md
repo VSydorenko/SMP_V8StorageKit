@@ -22,13 +22,13 @@ Unica не вміє: сховища, дамп із живої бази, база
 
 | Намір | Скіл | Команда kit |
 |---|---|---|
-| «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:storage-sync` | `kit.ps1 sync [-Apply]` |
-| «вивантаж конфігурацію з бази» | `v8storagekit:infobase-dump` | `kit.ps1 dump [-Apply]` |
+| «є нові версії у сховищі», «перенеси зі сховища» | `v8storagekit:storage-sync` | `kit sync [-Apply]` |
+| «вивантаж конфігурацію з бази» | `v8storagekit:infobase-dump` | `kit dump [-Apply]` |
 | «я поклав частину в сховище» | `v8storagekit:storage-adopt` | `sync` → `push force` → `pull force` → `adopt storage/*` у гілку задачі (заміна, з прев'ю всіх списків) |
 | «закриваємо задачу», «готуй PR» | `v8storagekit:task-finish` | `sync` → `push force` → `pull force` → `adopt storage/*` → `verify` → артефакти → PR |
-| «розгорни / перезбери базу агента» | `v8storagekit:infobase-agent` | `kit.ps1 provision [-Apply]` |
-| «звір git зі сховищем» | `v8storagekit:storage-verify` | `kit.ps1 verify [-Ref X] [-Apply]` |
-| «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit.ps1 check`, `kit.ps1 install-hooks [-Apply]` |
+| «розгорни / перезбери базу агента» | `v8storagekit:infobase-agent` | `kit provision [-Apply]` |
+| «звір git зі сховищем» | `v8storagekit:storage-verify` | `kit verify [-Ref X] [-Apply]` |
+| «підключи репозиторій / воркспейс / джерело», «переведи репозиторій на маніфест» | `v8storagekit:onboarding` | `kit check`, `kit install-hooks [-Apply]` |
 | Уніка не бачить потрібної теки (немає в `unica.view {}`, тека поза сесією) | `v8storagekit:1c-unica` (`references/unica-folders.md`) | — |
 
 ### Процес розробки (обговорення → спека → план → виконання → приймання)
@@ -57,7 +57,9 @@ Unica не вміє: сховища, дамп із живої бази, база
 
 Команди kit: `check`, `session-check`, `sync`, `dump`, `verify`, `supply-marker`, `adopt`,
 `provision`, `install-hooks`. Запускаються з кореня репозиторію:
-`pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" <команда> -RepoRoot .`
+`kit <команда> -RepoRoot .`
+Коди виходу — один контракт для всіх команд: `0` — так, `1` — зупинка, `2` — помилка виклику, `3` — не
+перевірено, `4` — виконано, є наступний крок (останній рядок виводу `next: …`, коли в команди є крок-команда).
 Без `-Apply` жодна команда нічого не змінює в git, сховищі чи базах — але `sync` і `verify`
 без `-Apply` усе одно піднімають платформу (хвилина-дві, ліцензія). `dump` — ні: без `-Apply`
 він лише друкує базу, користувача й ціль (`dump.psm1`, гілка без `-Apply`, `continue` до
