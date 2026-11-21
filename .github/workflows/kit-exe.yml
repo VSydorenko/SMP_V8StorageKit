@@ -1,0 +1,87 @@
+# Збірка поставки bin/kit.exe (план #51 §14). У репозиторій комітиться лише бінарник з цього workflow:
+# windows-latest, лінкер MSVC link.exe, ресурс версії й маніфест (rust/res), атестація походження GitHub.
+# Локальна збірка (rust-lld тощо) — лише для тестів розробника: її байти Defender позначав (Bearfoos.A!ml).
+# Як забрати артефакт у bin/kit.exe — CLAUDE.md, розділ «Збірка kit.exe і Rust».
+name: kit-exe
+
+on:
+  push:
+    paths:
+      - 'rust/**'
+      - '.claude-plugin/plugin.json'
+      - '.github/workflows/kit-exe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Toolchain from rust/rust-toolchain.toml
+        working-directory: rust
+        shell: pwsh
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: cargo test
+        working-directory: rust
+        shell: pwsh
+        run: cargo test --locked
+
+      - name: Version resource
+        shell: pwsh
+        run: |
+          $v = (Get-Content .claude-plugin/plugin.json -Raw | ConvertFrom-Json).version
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "plugin.json version '$v' is not X.Y.Z" }
+          New-Item -ItemType Directory -Force out | Out-Null
+          $num = ($v -replace '\.', ',') + ',0'
+          Set-Content -LiteralPath out/kit-version.h -Encoding ascii -Value @(
+            "#define KIT_VERSION_NUM $num",
+            "#define KIT_VERSION_STR `"$v.0`""
+          )
+          $outDir = (Resolve-Path out).Path
+          Push-Location rust/res
+          rc.exe /nologo /i $outDir /fo "$outDir\kit.res" kit.rc
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code) { exit $code }
+
+      - name: Build release with resource
+        working-directory: rust
+        shell: pwsh
+        run: |
+          $res = (Resolve-Path ../out/kit.res).Path
+          cargo rustc --release --locked --bin kit -- -C "link-arg=$res"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force ../dist | Out-Null
+          Copy-Item target/release/kit.exe ../dist/kit.exe
+
+      - name: Describe
+        shell: pwsh
+        run: |
+          $f = Get-Item dist/kit.exe
+          "kit.exe  $($f.Length) bytes  sha256 $((Get-FileHash $f).Hash)"
+          dumpbin /nologo /headers $f.FullName | Select-String 'linker version'
+          $f.VersionInfo | Format-List FileDescription, FileVersion, ProductVersion
+          & $f.FullName source-fingerprint rust
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/kit.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-exe
+          path: dist/kit.exe
+          if-no-files-found: error

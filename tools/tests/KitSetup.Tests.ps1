@@ -1,12 +1,12 @@
 #Requires -Version 7
 # kit-setup: ідемпотентність, збереження чужого в settings.json, -DryRun без запису
-# (оригінал — agent-kit 0.9.1 tests/kit-setup.test.mjs). Справжній kit-process.ps1 підпроцесом на
+# (оригінал — agent-kit 0.9.1 tests/kit-setup.test.mjs). Справжній kit.ps1 підпроцесом на
 # синтетичному git-репо в TestDrive: — за зразком SessionBoard.Tests.ps1.
 Describe 'kit-setup — підключення проєкту' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
-        $script:KitProcess = Join-Path (Split-Path $script:Kit -Parent) 'kit-process.ps1'
+        $script:KitProcess = Join-Path (Split-Path $script:Kit -Parent) 'kit.ps1'
         $script:Files = @('.claude/settings.json', '.gitignore', '.agents/kit.profile.json', '.worktreeinclude')
 
         function script:New-Repo {

@@ -42,7 +42,7 @@ Describe 'track — перевірка таблиці блоків до перш
             $env:PATH = "$script:Bin$([System.IO.Path]::PathSeparator)$savedPath"
             $env:FAKE_GH_LOG = $script:Journal; $env:FAKE_GH_SCENARIO = $script:Scenario
             Push-Location $script:Repo
-            try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit-process.ps1') track @Arguments 2>$err }
+            try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit.ps1') track @Arguments 2>$err }
             finally { Pop-Location; $env:PATH = $savedPath }
             [pscustomobject]@{
                 Code = $LASTEXITCODE; Out = ($out -join "`n"); Err = (Get-Content -LiteralPath $err -Raw -Encoding UTF8)

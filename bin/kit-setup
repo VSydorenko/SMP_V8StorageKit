@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Обгортка команди процесу v8storagekit (ADR-0002): ім'я команди = ім'я цього файлу.
-# Нова команда — копія цього файлу під її ім'ям (з бітом виконання) і така сама копія <ім'я>.ps1.
+# Обгортка команди v8storagekit: ім'я команди = ім'я цього файлу; вхід — kit.exe поруч (спека #51 D2).
+# Нова команда процесу — копія цього файлу під її ім'ям (з бітом виконання) і така сама копія <ім'я>.ps1.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-exec pwsh -NoProfile -File "$here/../tools/kit-process.ps1" "$(basename "${BASH_SOURCE[0]}")" "$@"
+exec "$here/kit.exe" "$(basename "${BASH_SOURCE[0]}")" "$@"

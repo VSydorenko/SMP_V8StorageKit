@@ -1,4 +1,4 @@
-# Команди процесу: контракт agent-kit (коди 0/1/2/3, `<команда>: ERROR …`, `next:`), без префлайту
+# Команди процесу: контракт kit (коди 0–4, `<команда>: ERROR …`, `next:`; tools/lib/KitCli.psm1), без префлайту
 # сховища й без маніфесту (ADR-0003). Рядок — ім'я команди = ім'я модуля tools/commands/<ім'я>.psm1,
 # що експортує Invoke-Kit<Ім'я> -Arguments [string[]] -RepoRoot <шлях> і повертає код виходу (int).
 # Кожна сесія дописує свої рядки разом із модулем і обгортками bin/<ім'я>, bin/<ім'я>.ps1.
@@ -6,7 +6,6 @@
 review-pack
 sdd
 session-cost
-session-board
 kit-setup
 kit-scan
 doc

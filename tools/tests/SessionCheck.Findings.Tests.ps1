@@ -23,7 +23,7 @@ Describe 'kit session-check — сигнал без платформи' {
 
         $warnOnly = New-Repo -Name 'warn-only' -StoragePath $s -MirrorDate $script:Old -Merge   # дев-бази base у накладці немає → warn dump-from
         $r2 = Invoke-SessionCheck -Repo $warnOnly
-        $r2.ExitCode | Should -Be 3
+        $r2.ExitCode | Should -Be 4
         $r2.Output | Should -Match '\[!\].*dump\.from|\[!\].*infobases'
         $r2.Output | Should -BeLike '*- Alpha_SMB:*нові версії*'
     }
@@ -56,7 +56,7 @@ Describe 'kit session-check — сигнал без платформи' {
     It 'сховище недоступне, а на дзеркалі є незлиті коміти — текст називає ОБИДВІ причини' {
         $repo = New-Repo -Name 'i1-inaccessible-unmerged' -StoragePath (Join-Path $TestDrive 'nope-i1') -MirrorDate $script:Old
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -BeLike '*- Alpha_SMB:*недоступн*'
         $r.Output | Should -BeLike '*- Alpha_SMB:*не злит*main*kit verify*'
     }
@@ -65,12 +65,12 @@ Describe 'kit session-check — сигнал без платформи' {
     # сховище 1С (немає data/objects) — і дзеркало вже є (шлях переплутано ПІСЛЯ першого sync,
     # напр. на батьківську теку). Раніше це мовчки давало "синхронне", код 0 — хибний all-clear
     # на завідомо неправильному шляху гірший за будь-який шум.
-    It 'сценарій A: шлях доступний, але без data/objects, дзеркало вже є — НЕ "синхронне", код 3' {
+    It 'сценарій A: шлях доступний, але без data/objects, дзеркало вже є — НЕ "синхронне", код 4' {
         $wrong = Join-Path $TestDrive 'i2-wrong-a'
         New-Item -ItemType Directory -Path $wrong -Force | Out-Null
         $repo = New-Repo -Name 'i2-wrong-a' -StoragePath $wrong -MirrorDate $script:Old -Merge
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -BeLike '*- Alpha_SMB:*не схож*сховищ*'
         $r.Output | Should -Not -BeLike '*синхронне*'
     }
@@ -78,12 +78,12 @@ Describe 'kit session-check — сигнал без платформи' {
     # Сценарій B: те саме, але дзеркала ще й немає — раніше текст казав
     # "дзеркала ще немає — kit sync" (дієво), а код був 0 (тиша): контракт "дзеркала немає при
     # доступному сховищі → 3" порушувався саме тут.
-    It 'сценарій B: дзеркала немає, шлях доступний, але без data/objects — код і текст узгоджені (3)' {
+    It 'сценарій B: дзеркала немає, шлях доступний, але без data/objects — код і текст узгоджені (4)' {
         $wrong = Join-Path $TestDrive 'i2-wrong-b'
         New-Item -ItemType Directory -Path $wrong -Force | Out-Null
         $repo = New-Repo -Name 'i2-wrong-b' -StoragePath $wrong -MirrorDate $script:Old -NoMirror
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 3
+        $r.ExitCode | Should -Be 4
         $r.Output | Should -BeLike '*- Alpha_SMB:*не схож*сховищ*'
         $r.Output | Should -BeLike '*- Alpha_SMB:*дзеркала*немає*kit sync*'
     }

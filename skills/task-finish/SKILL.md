@@ -30,7 +30,7 @@ description: Закрити задачу агента — синхронізув
 
 ## 2. Кроки
 
-1. **Сховище → дзеркало**: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" sync -RepoRoot . -Apply`
+1. **Сховище → дзеркало**: `kit sync -RepoRoot . -Apply`
    (`-Apply` — після прев'ю й згоди; прохання «готуй PR» це включає, якщо людина не сказала інакше).
 2. **База з `F` і канонізація — один список з двох кроків, у цьому порядку** (обидва по `unica.run`, спершу
    `"dryRun":true`, тоді той самий виклик з `"dryRun":false`; `sourceSet` називається явно):
@@ -50,10 +50,10 @@ description: Закрити задачу агента — синхронізув
    один формат платформи, тож саме `pull force` лишає у прев'ю `adopt` роботу людини замість різниці
    форматів (`v8storagekit:storage-adopt`, кроки 2–3 розділу 2).
 3. **Прийняти дзеркала в `F`**: для кожного `truth: storage`
-   `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" adopt -RepoRoot . -Source <ключ>`
+   `kit adopt -RepoRoot . -Source <ключ>`
    — прев'ю, показ людині всіх списків, і за її згодою `-Apply` (як у `v8storagekit:storage-adopt`,
    кроки 4–5 розділу 2).
-4. **Звірка `F` зі сховищем**: `pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" verify -RepoRoot . -Ref <F>`.
+4. **Звірка `F` зі сховищем**: `kit verify -RepoRoot . -Ref <F>`.
    Очікувано `ref-ahead` (робота задачі — це й є залишок для сховища) або `equal`; `storage-ahead`/`mixed`
    означає, що крок 3 не завершено.
 

@@ -165,7 +165,9 @@ BeforeAll {
     function script:Get-KitSkillSizeProblems([string]$Root) {
         $problems = [System.Collections.Generic.List[string]]::new()
         foreach ($f in @(Get-KitSkillAgentFiles $Root) | Where-Object { $_.Kind -eq 'skill' }) {
-            $len = (Get-Content -LiteralPath $f.Path -Raw -Encoding UTF8).Length
+            # Без CR: розмір — властивість тексту в git, а не кінців рядків робочої копії
+            # (з core.autocrlf=true той самий файл на диску довший на кількість рядків).
+            $len = ((Get-Content -LiteralPath $f.Path -Raw -Encoding UTF8) -replace "`r", '').Length
             if ($len -gt $script:SkillMaxChars) {
                 $problems.Add("$($f.Rel) — $len символів > $($script:SkillMaxChars): деталі винесіть у references/")
             }
@@ -185,7 +187,7 @@ BeforeAll {
     function script:Get-KitCommandContract([string]$PluginRoot, [string]$Name) {
         $key = "$PluginRoot|$Name"
         if (-not $script:HelpCache.ContainsKey($key)) {
-            $help = (& pwsh -NoProfile -File (Join-Path $PluginRoot 'tools/kit-process.ps1') $Name -Help 2>&1 | Out-String)
+            $help = (& pwsh -NoProfile -File (Join-Path $PluginRoot 'tools/kit.ps1') $Name -Help 2>&1 | Out-String)
             $subs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             foreach ($m in [regex]::Matches($help, "(?m)^\s*$([regex]::Escape($Name)) ([a-z][a-z0-9-]*)\b")) { [void]$subs.Add($m.Groups[1].Value) }
             $script:HelpCache[$key] = @{ Help = $help; Subs = $subs }
@@ -411,6 +413,16 @@ Describe 'Розмір SKILL.md' {
         $p = (Get-KitSkillSizeProblems $root) -join "`n"
         $p | Should -Match 'skills/big/SKILL\.md'
         $p | Should -Not -Match 'skills/small'
+    }
+
+    It 'контроль: CRLF робочої копії не рахується — 11000 символів тексту з CR понад межу не знахідка' {
+        $root = Join-Path $TestDrive 'shape-size-crlf'
+        # 2750 рядків по 'abc': без CR ~11000 символів, з CRLF ~13750 — понад 12000.
+        $body = (@('abc') * 2750) -join "`r`n"
+        New-KitShapeSkill $root 'crlf' "name: crlf`r`ndescription: d" $body
+        $raw = Get-Content -LiteralPath (Join-Path $root 'skills/crlf/SKILL.md') -Raw -Encoding UTF8
+        $raw.Length | Should -BeGreaterThan 12000 -Because 'контроль має сенс лише коли файл на диску понад межу'
+        Get-KitSkillSizeProblems $root | Should -BeNullOrEmpty
     }
 }
 

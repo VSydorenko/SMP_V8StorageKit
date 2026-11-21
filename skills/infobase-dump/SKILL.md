@@ -13,7 +13,7 @@ Kit із бази людини лише **читає**, і лише на явн�
 ## 1. Прев'ю
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . [-Source <ключ>]
+kit dump -RepoRoot . [-Source <ключ>]
 ```
 
 Без платформи: база (`/F` або `/S`), користувач, ціль. Перед `-Apply` сказати людині:
@@ -25,7 +25,7 @@ pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . [-S
 ## 2. Виконання — лише на явне прохання
 
 ```
-pwsh -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/tools/kit.ps1" dump -RepoRoot . -Source <ключ> -Apply
+kit dump -RepoRoot . -Source <ключ> -Apply
 ```
 
 Після: кількість файлів; для `truth: dump` — запропонувати коміт у поточну гілку задачі. Форма коміту

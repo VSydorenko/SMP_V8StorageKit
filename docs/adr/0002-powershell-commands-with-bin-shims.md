@@ -1,6 +1,6 @@
 # ADR-0002: Скрипти процесу — команди kit на PowerShell з короткими обгортками в `bin/`
 
-Status: accepted 2026-11-19
+Status: accepted 2026-11-19; замінено частково 2026-11-21 — окремий вхід `tools/kit-process.ps1` змінено єдиним входом `kit.exe` (ADR-0014); решта рішення діє
 Decided by: architect
 Source: agent-kit 0.9.1 (оригінал, `.agents/private/agent-kit` у ворктрі блоку); окремої спеки немає — рішення власника 2026-11-19
 
