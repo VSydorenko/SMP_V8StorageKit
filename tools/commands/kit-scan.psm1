@@ -187,6 +187,14 @@ function Get-ScanKitParts {
         $f = Join-Path $pr "tools/commands/$n.psm1"
         if (Test-Path -LiteralPath $f -PathType Leaf) { & $add $f "bin $n" }
     }
+    # Команди, які kit.exe виконує сам (session-board): модуля в tools/commands і рядка в process-commands.txt
+    # нема, єдина ознака в дереві поза rust/ — обгортка bin/<ім'я>.ps1 (її має кожна команда входу).
+    $binDir = Join-Path $pr 'bin'
+    if (Test-Path -LiteralPath $binDir -PathType Container) {
+        foreach ($w in (Get-ChildItem -LiteralPath $binDir -Filter '*.ps1' -File | Sort-Object Name)) {
+            if (-not $parts.ContainsKey($w.BaseName)) { $parts[$w.BaseName] = "bin $($w.BaseName)" }
+        }
+    }
     @{ Parts = $parts; Corpus = $corpus.ToArray() }
 }
 

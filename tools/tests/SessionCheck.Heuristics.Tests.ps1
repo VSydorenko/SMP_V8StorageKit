@@ -5,7 +5,7 @@ Describe 'kit session-check — сигнал без платформи' {
     It '(а) файли data/objects новіші за дзеркало → сигнал «нові версії»' {
         $s = New-FakeStorage -Name 'newer' -ObjectsWrite $script:New -DbWrite $script:New
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'a-newer' -StoragePath $s -MirrorDate $script:Old -Merge)
-        $r.ExitCode | Should -Be 3     # є що робити
+        $r.ExitCode | Should -Be 4     # є що робити
         $r.Output | Should -BeLike '*- Alpha_SMB:*нові версії*kit sync*'
     }
 
@@ -28,7 +28,7 @@ Describe 'kit session-check — сигнал без платформи' {
         It 'objects новіші за дзеркало → «нові версії», НЕЗАЛЕЖНО від того, чи pack теж новіший' {
             $s = New-FakeStorage -Name 'pack-objects-newer' -ObjectsWrite $script:New -DbWrite $script:New -PackWrite $script:New
             $r = Invoke-SessionCheck -Repo (New-Repo -Name 'pack-objects-newer' -StoragePath $s -MirrorDate $script:Old -Merge)
-            $r.ExitCode | Should -Be 3
+            $r.ExitCode | Should -Be 4
             $r.Output | Should -BeLike '*- Alpha_SMB:*нові версії*'
             $r.Output | Should -Not -BeLike '*запаковані*'
         }
@@ -41,10 +41,10 @@ Describe 'kit session-check — сигнал без платформи' {
             $r.Output | Should -Not -BeLike '*запаковані*'
         }
 
-        It 'усі об''єкти запаковано (objects сигналу не дає), pack новіший за дзеркало → код 3, порада kit sync БЕЗ -Apply' {
+        It 'усі об''єкти запаковано (objects сигналу не дає), pack новіший за дзеркало → код 4, порада kit sync БЕЗ -Apply' {
             $s = New-FakeStorage -Name 'pack-only-newer' -DbWrite $script:Old -NoObjectFile -PackWrite $script:New
             $r = Invoke-SessionCheck -Repo (New-Repo -Name 'pack-only-newer' -StoragePath $s -MirrorDate $script:Old -Merge)
-            $r.ExitCode | Should -Be 3
+            $r.ExitCode | Should -Be 4
             $r.Output | Should -BeLike '*- Alpha_SMB:*запаковані*kit sync*без -Apply*'
             $r.Output | Should -Not -BeLike '*ймовірно нові версії*'
         }

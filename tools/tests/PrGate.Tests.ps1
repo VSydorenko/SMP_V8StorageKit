@@ -2,7 +2,7 @@
 # pr-gate (перенесено з agent-kit 0.9.1): запобіжники, чия поломка мовчки дає хибний результат —
 # push у base/main, злиття конфліктного PR, злиття не тієї голови, видалення гілки без підтвердженого
 # MERGED, worktree у спільному дереві. Справжня команда `pr-gate` — підпроцесом
-# (tools/kit-process.ps1) на синтетичному репо з bare-origin проти фальшивого gh.exe на початку PATH
+# (tools/kit.ps1) на синтетичному репо з bare-origin проти фальшивого gh.exe на початку PATH
 # (fixtures/FakeGh.psm1). Кожен тест має контроль, що вміє впасти: нормальний шлях доходить до
 # пишучого виклику, тож порожній журнал чи «нічого не змінилось» не означає, що фальшивка не
 # підхоплена.
@@ -72,7 +72,7 @@ Describe 'pr-gate — запобіжники' {
             $vars = @{ PATH = "$script:Bin$([System.IO.Path]::PathSeparator)$env:PATH"; FAKE_GH_LOG = $script:Journal; FAKE_GH_SCENARIO = $script:Scenario; XDG_CONFIG_HOME = $script:EmptyConfig } + $script:Git
             foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
             Push-Location $Cwd
-            try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit-process.ps1') pr-gate @Arguments 2>$err; $code = $LASTEXITCODE }
+            try { $out = & pwsh -NoProfile -File (Join-Path $script:KitRoot 'tools/kit.ps1') pr-gate @Arguments 2>$err; $code = $LASTEXITCODE }
             finally { Pop-Location; foreach ($k in $saved.Keys) { Restore-PgEnv $k $saved[$k] } }
             [pscustomobject]@{
                 Code = $code; Out = ($out -join "`n"); Err = (Get-Content -LiteralPath $err -Raw -Encoding UTF8)

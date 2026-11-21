@@ -1,6 +1,6 @@
 #Requires -Version 7
 # Контракт команд процесу (оригінал — agent-kit 0.9.1 tests/cli.test.mjs):
-# коди 0/1/2/3, перший рядок stderr `<команда>: ERROR …`, останній рядок успіху `next:`.
+# коди 0–4 (tools/lib/KitCli.psm1), перший рядок stderr `<команда>: ERROR …`, останній рядок успіху `next:`.
 # Команди процесу звертаються сюди списком $script:ProcessCommands, коли з'являються (sdd, review-pack).
 Describe 'Команди процесу — контракт виходу й аргументів' {
     BeforeAll {
@@ -88,11 +88,11 @@ Export-ModuleMember -Function Invoke-KitProbeCli
         } finally { Remove-Item -LiteralPath (Join-Path $dir 'kit.profile.json') }
     }
 
-    It 'kit.ps1 probe-cli з -Source — код 2 і вказівка на обгортку, а не тихий перехоплений параметр' {
+    It 'kit.ps1 напряму: -Source доходить до команди процесу, диспетчер його не перехоплює' {
         Push-Location $script:Repo
         try { $out = & pwsh -NoProfile -File $script:Kit probe-cli -Source controller 2>&1 | Out-String; $code = $LASTEXITCODE }
         finally { Pop-Location }
-        $code | Should -Be 2
-        $out | Should -BeLike '*probe-cli: ERROR*bin/probe-cli*'
+        $code | Should -Be 0 -Because $out
+        $out | Should -BeLike '*source=controller*'
     }
 }

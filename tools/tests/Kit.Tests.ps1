@@ -34,22 +34,19 @@ Export-ModuleMember -Function Invoke-KitProbe
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo')
     }
 
-    # Раніше — сирий throw і стек PowerShell; тепер —
-    # Write-Host червоним і exit 1 (був код 2, конфліктував зі
-    # штатним частковим успіхом sync — sync теж повертає 2, коли дзеркало оновлено, а
-    # злиття не виконано, і один код означав три різні речі). Таблиця кодів тепер: 0 —
-    # виконано; 1 — зупинка (throw будь-де: невідома команда, префлайт, розбір аргументів,
-    # сама команда) або check із помилками; 2 — лише sync (частковий успіх); 3 —
-    # verify і session-check (є що робити; той самий сенс, лише session-check дешевше).
-    It 'без команди — зупинка з переліком доступних, код 1' {
+    # Один контракт кодів (спека #51 D3, tools/lib/KitCli.psm1): 0 — виконано; 1 — зупинка (throw
+    # префлайту чи команди) або check із помилками; 2 — помилка виклику (невідома команда, розбір
+    # аргументів, перетворення типу); 3 — не перевірено; 4 — виконано, є наступний крок (sync: злиття
+    # не виконано; verify і session-check: є що робити). Помилка — `<команда>: ERROR …` у stderr.
+    It 'без команди — помилка виклику з переліком доступних, код 2' {
         $r = Invoke-Kit @('-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*probe*'
     }
 
-    It 'невідома команда — зупинка з переліком доступних, код 1' {
+    It 'невідома команда — помилка виклику з переліком доступних, код 2' {
         $r = Invoke-Kit @('frobnicate', '-RepoRoot', $script:Repo)
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike "*'frobnicate'*probe*"
     }
 
@@ -73,15 +70,15 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r.Output | Should -BeLike '*force=True*'
     }
 
-    It '-Ref без значення — параметр НЕ [switch], диспетчер вимагає значення, код 1' {
+    It '-Ref без значення — параметр НЕ [switch], диспетчер вимагає значення, код 2' {
         # Ref — [string], не [switch]: -Ref останнім токеном (значення немає) мав би раніше
         # мовчки зв'язатися як $true (перетворений на рядок 'True') — тепер диспетчер сам
         # зупиняє виклик, ще до Invoke-KitProbe. Той самий механізм, що захищає -Version у
         # verify — тут перевірений на нейтральній probe-команді.
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Ref')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*-Ref*'
-        $r.Output | Should -Not -BeLike '*PROBE*'
+        $r.Output | Should -Not -BeLikeExactly '*PROBE*'
     }
 
     It 'sync: -ForVersion і -SkipVersion оголошені як [Nullable[int]], а не [switch] — тому диспетчер вимагає в них значення' {
@@ -92,19 +89,29 @@ Export-ModuleMember -Function Invoke-KitProbe
         $out | Should -Match 'ForVersion=System\.Nullable`1\[\[System\.Int32'
         $out | Should -Match 'SkipVersion=System\.Nullable`1\[\[System\.Int32'
         $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-ForVersion')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*-ForVersion потребує значення*'
     }
 
-    It 'sync -SkipVersion abc — помилка конверсії саме в Int32 (параметр існує), не тиха конверсія' {
+    It 'sync -SkipVersion abc — помилка конверсії саме в Int32 (параметр існує), код 2, не тиха конверсія' {
         $r = Invoke-Kit @('sync', '-RepoRoot', $script:Repo, '-SkipVersion', 'abc')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         # Без англійського речення (локаль PowerShell): ім'я параметра й назва типу Int32 є в
         # будь-якій локалізації, а для невідомого параметра назви типу в тексті немає.
         $r.Output | Should -BeLike '*SkipVersion*'
         $r.Output | Should -BeLike '*System.Int32*'
     }
 
+
+    It 'verify -Version 0 поза git-репозиторієм — помилка ValidateRange до префлайту, код 2' {
+        # Без перевірки до префлайту код залежав би від стану репозиторію: тут префлайт зупинив би кодом 1.
+        $dir = Join-Path $TestDrive 'validate-nogit'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $r = Invoke-Kit @('verify', '-RepoRoot', $dir, '-Version', '0')
+        $r.ExitCode | Should -Be 2 -Because $r.Output
+        $r.Output | Should -BeLike '*-Version*'
+        $r.Output | Should -Not -BeLike '*.git*'
+    }
 
     It 'команда кидає виняток усередині — код 1, повідомлення показано, не сирий стек' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Throw')
@@ -115,7 +122,7 @@ Export-ModuleMember -Function Invoke-KitProbe
     It 'невідомий власний параметр команди — зупинка, команда не виконана' {
         $r = Invoke-Kit @('probe', '-RepoRoot', $script:Repo, '-Bogus', '1')
         $r.ExitCode | Should -Not -Be 0
-        $r.Output | Should -Not -BeLike '*PROBE*'
+        $r.Output | Should -Not -BeLikeExactly '*PROBE*'
     }
 
     It 'провал префлайту зупиняє до виклику команди' {
@@ -124,7 +131,7 @@ Export-ModuleMember -Function Invoke-KitProbe
         $r = Invoke-Kit @('probe', '-RepoRoot', $broken)
         $r.ExitCode | Should -Not -Be 0
         $r.Output | Should -BeLike '*v8project.yaml*'
-        $r.Output | Should -Not -BeLike '*PROBE*'
+        $r.Output | Should -Not -BeLikeExactly '*PROBE*'
     }
 
     It 'не git-репозиторій — зупинка' {
@@ -172,10 +179,10 @@ Export-ModuleMember -Function Invoke-KitProbe
         ($bad -join "`n") | Should -BeNullOrEmpty
     }
 
-    It 'параметр, якого команда не приймає, зупиняє диспетчер із поясненням' {
+    It 'параметр, якого команда не приймає, — помилка виклику з поясненням, код 2' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'unsupported-param')
         $r = Invoke-Kit @('install-hooks', '-RepoRoot', $repo, '-Source', 'Alpha_SMB')
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 2
         $r.Output | Should -BeLike '*install-hooks*'
         $r.Output | Should -BeLike '*-Source*'
     }
@@ -202,5 +209,96 @@ Describe 'Copy-KitTools — повнота пісочниці' {
         # і жодна штатна зупинка kit так не звучить.
         $out | Should -Not -Match 'Cannot find path|не вдалося знайти шлях|ItemNotFoundException|FileNotFoundException'
         $code | Should -Be 0 -Because "у справному репозиторії check має завершитись нулем; вивід:`n$out"
+    }
+}
+
+Describe 'Інваріант -Apply — прямий виклик диспетчера (спека #51 D1а)' {
+    # `pwsh -File` сам розщеплює -Ім'я:значення на два токени: `-Apply:false` доходить до скрипта як
+    # `-Apply` + `False`. Прийми диспетчер позиційний токен — `sync -Apply:false` застосував би
+    # замість прев'ю. Заглушка sync лише в копії: друкує, що отримала, — маркер доводить, чи її кликали.
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:ApplyKit = Copy-KitTools -Root (Join-Path $TestDrive 'apply-kit')
+        Set-Content -LiteralPath (Join-Path (Split-Path $script:ApplyKit) 'commands/sync.psm1') -Encoding UTF8 -Value @'
+function Invoke-KitSync {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Context, [string]$Workspace, [string]$Source, [bool]$Apply)
+    [Console]::Out.WriteLine("SYNC-STUB apply=$Apply ws=$Workspace src=$Source")
+}
+Export-ModuleMember -Function Invoke-KitSync
+'@
+        $script:ApplyRepo = New-KitFakeRepo -Root (Join-Path $TestDrive 'apply-repo')
+
+        function script:Invoke-ApplyKit {
+            param([string[]]$Arguments)
+            $errFile = Join-Path $TestDrive "apply-err-$([guid]::NewGuid()).txt"
+            $out = & pwsh -NoProfile -File $script:ApplyKit @Arguments 2>$errFile
+            [pscustomobject]@{
+                ExitCode = $LASTEXITCODE
+                Out      = (@($out | ForEach-Object { [string]$_ }) -join "`n")
+                Err      = @(Get-Content -LiteralPath $errFile -Encoding UTF8 -ErrorAction SilentlyContinue)
+            }
+        }
+    }
+
+    It 'sync -Apply:false — код 2, stderr називає позиційний токен False, команда не запускалась' {
+        $r = Invoke-ApplyKit @('sync', '-RepoRoot', $script:ApplyRepo, '-Apply:false')
+        $r.ExitCode | Should -Be 2 -Because ($r.Err -join "`n")
+        $r.Err[0] | Should -BeLike "sync: ERROR *'False'*"
+        $r.Out | Should -Not -BeLike '*SYNC-STUB*'
+    }
+
+    It 'позитивний двійник: sync -Apply — заглушка отримала Apply = True, код 0' {
+        $r = Invoke-ApplyKit @('sync', '-RepoRoot', $script:ApplyRepo, '-Apply')
+        $r.ExitCode | Should -Be 0 -Because ($r.Err -join "`n")
+        $r.Out | Should -BeLike '*SYNC-STUB apply=True*'
+    }
+}
+
+Describe 'Контракт кодів D3 — кожен код справжньою командою підпроцесом' {
+    # Код береться з $LASTEXITCODE підпроцесу справжнього tools/kit.ps1, у множину йде СПОСТЕРЕЖЕНИЙ
+    # код, не очікуваний: випадок, що свідомо віддає інший код, червонить останнє твердження.
+    BeforeAll {
+        . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1')
+        $script:Seen = [System.Collections.Generic.HashSet[int]]::new()
+        $script:Plain = Join-Path $TestDrive 'd3-plain'
+        New-Item -ItemType Directory -Path $script:Plain -Force | Out-Null
+        $script:NoProfile = Join-Path $TestDrive 'd3-no-profile'
+        New-Item -ItemType Directory -Path $script:NoProfile -Force | Out-Null
+        git -C $script:NoProfile init -q 2>$null
+        $script:Good = New-KitFakeRepo -Root (Join-Path $TestDrive 'd3-good') -WithHooks -WithGitattributes -WithGitignore
+        $s = New-FakeStorage -Name 'd3-unmerged' -ObjectsWrite $script:Old -DbWrite $script:Old
+        $script:Unmerged = New-Repo -Name 'd3-unmerged-repo' -StoragePath $s -MirrorDate $script:New
+        $script:Machine = @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry), '-RunnerPath', (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd'))
+
+        function script:Invoke-D3 {
+            param([string]$Cwd, [string[]]$Arguments)
+            $errFile = Join-Path $TestDrive "d3-err-$([guid]::NewGuid()).txt"
+            Push-Location $Cwd
+            try { $out = & pwsh -NoProfile -File $script:Kit @Arguments 2>$errFile; $code = $LASTEXITCODE }
+            finally { Pop-Location }
+            [pscustomobject]@{
+                ExitCode = $code
+                Out      = (@($out | ForEach-Object { [string]$_ }) -join "`n")
+                Err      = @(Get-Content -LiteralPath $errFile -Encoding UTF8 -ErrorAction SilentlyContinue)
+            }
+        }
+    }
+
+    It 'код <Code>: <Case>' -ForEach @(
+        @{ Code = 0; Case = 'check справного репозиторію'; Cwd = 'Good'; Run = { @('check', '-RepoRoot', $script:Good) + $script:Machine } }
+        @{ Code = 1; Case = 'verify поза git-репозиторієм — зупинка префлайту'; Cwd = 'Plain'; ErrLike = 'verify: ERROR *'; Run = { @('verify', '-RepoRoot', $script:Plain) } }
+        @{ Code = 2; Case = 'check з невідомим параметром — помилка виклику'; Cwd = 'Good'; ErrLike = 'check: ERROR *-Bogus*'; Run = { @('check', '-RepoRoot', $script:Good, '-Bogus', '1') } }
+        @{ Code = 3; Case = 'pr-gate start без workspace.mode у профілі — не перевірено'; Cwd = 'NoProfile'; ErrLike = 'pr-gate: ERROR *workspace.mode*'; Run = { @('pr-gate', 'start', 'x') } }
+        @{ Code = 4; Case = 'session-check: дзеркало не злите в main — є наступний крок'; Cwd = 'Unmerged'; Run = { @('session-check', '-RepoRoot', $script:Unmerged) + $script:Machine } }
+    ) {
+        $r = Invoke-D3 -Cwd (Get-Variable -Name $Cwd -Scope Script -ValueOnly) -Arguments (& $Run)
+        [void]$script:Seen.Add($r.ExitCode)
+        $r.ExitCode | Should -Be $Code -Because "$($r.Out)`n$($r.Err -join "`n")"
+        if ($ErrLike) { $r.Err[0] | Should -BeLike $ErrLike }
+    }
+
+    It 'множина перевірених кодів = {0,1,2,3,4}' {
+        (@($script:Seen) | Sort-Object) -join ',' | Should -Be '0,1,2,3,4'
     }
 }

@@ -1,6 +1,6 @@
 #Requires -Version 7
 # kit-scan: посилання на superpowers із заміною v8storagekit і межа діапазону кроків оновлення
-# (оригінал — agent-kit 0.9.1 tests/kit-scan.test.mjs). Справжній kit-process.ps1 підпроцесом на
+# (оригінал — agent-kit 0.9.1 tests/kit-scan.test.mjs). Справжній kit.ps1 підпроцесом на
 # синтетичному git-репо в TestDrive: — за зразком KitSetup.Tests.ps1. Плагін — копія tools/, skills/,
 # agents/ зі своїми plugin.json і CHANGELOG.md.
 Describe 'kit-scan — скан підключення' {
@@ -34,7 +34,7 @@ Describe 'kit-scan — скан підключення' {
 - [ ] Крок п-один
 - [ ] Крок п-два
 '@)
-        $script:KitProcess = Join-Path $script:Plugin 'tools/kit-process.ps1'
+        $script:KitProcess = Join-Path $script:Plugin 'tools/kit.ps1'
 
         function script:New-Repo {
             param([string]$Name)
@@ -84,6 +84,22 @@ Describe 'kit-scan — скан підключення' {
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/storage-sync/` \| user \| same-name \| remove: у плагіні є v8storagekit:storage-sync' -Because $r.Out
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/bsp-recipe/` \| user \| domain \| move-to-plugin' -Because $r.Out
         $r.Out | Should -Match '(?m)^\| K\d+ \| `[^`]*/skills/notes/` \| user \| other \|' -Because $r.Out
+    }
+
+    It 'Duplicates: власна bin/session-board споживача — та сама підказка, що й для команди з модулем (bin/sdd)' {
+        # session-board виконує kit.exe: модуля в tools/commands немає, у плагіні його ознака — обгортка bin/.
+        $pluginBin = Join-Path $script:Plugin 'bin'
+        New-Item -ItemType Directory -Path $pluginBin -Force | Out-Null
+        foreach ($n in 'sdd', 'session-board') { Set-Content -LiteralPath (Join-Path $pluginBin "$n.ps1") -Value '# обгортка' }
+        try {
+            $repo = New-Repo 'binparts'
+            New-Item -ItemType Directory -Path (Join-Path $repo 'bin') | Out-Null
+            foreach ($n in 'sdd', 'session-board') { Set-Content -LiteralPath (Join-Path $repo "bin/$n") -Value "#!/bin/sh`necho власна $n" }
+            $r = Invoke-Scan $repo -Arguments @('-Json')
+        } finally { Remove-Item -LiteralPath $pluginBin -Recurse -Force }
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'та сама назва, що в bin sdd' -Because $r.Out
+        $r.Out | Should -Match 'та сама назва, що в bin session-board' -Because $r.Out
     }
 
     It 'Kit version: кроки лише версій у (kit.version, плагін] — запис 1.5.0 не береться' {

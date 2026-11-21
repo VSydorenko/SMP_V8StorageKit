@@ -17,12 +17,12 @@ Describe 'kit session-check — сигнал без платформи' {
             $r.Output | Should -Not -BeLike '*ймовірно*'
         }
 
-        It 'відбиток є, дзеркало позаду (M < N) → код 3, текст називає ОБИДВІ версії' {
+        It 'відбиток є, дзеркало позаду (M < N) → код 4, текст називає ОБИДВІ версії' {
             $s = New-FakeStorage -Name 'imprint-ahead' -ObjectsWrite $script:Old -DbWrite $script:Old
             $repo = New-Repo -Name 'imprint-ahead' -StoragePath $s -MirrorDate $script:Old -Merge   # дзеркало: Storage-Version 1
             Write-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB' -StoragePath $s -Version 2 | Out-Null
             $r = Invoke-SessionCheck -Repo $repo
-            $r.ExitCode | Should -Be 3
+            $r.ExitCode | Should -Be 4
             $r.Output | Should -BeLike '*- Alpha_SMB:*версії 2*версії 1*'
         }
 
@@ -34,7 +34,7 @@ Describe 'kit session-check — сигнал без платформи' {
             $extra = Join-Path $s 'data/objects/ab/extra.bin'; Set-Content -LiteralPath $extra -Value 'new'
             (Get-Item $extra).LastWriteTimeUtc = $script:New.ToUniversalTime()
             $r = Invoke-SessionCheck -Repo $repo
-            $r.ExitCode | Should -Be 3
+            $r.ExitCode | Should -Be 4
             $r.Output | Should -BeLike '*ймовірно*'
         }
 
@@ -43,7 +43,7 @@ Describe 'kit session-check — сигнал без платформи' {
             $repo = New-Repo -Name 'imprint-none' -StoragePath $s -MirrorDate $script:Old -Merge
             # Жодного Write-KitStorageImprint — кешу build/session-check ще нема (свіжий клон).
             $r = Invoke-SessionCheck -Repo $repo
-            $r.ExitCode | Should -Be 3
+            $r.ExitCode | Should -Be 4
             $r.Output | Should -BeLike '*ймовірно*'
         }
     }

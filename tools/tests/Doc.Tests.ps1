@@ -72,7 +72,7 @@ Describe 'doc — запобіжники' {
         function Invoke-DocAnchors {
             Push-Location $repo
             try {
-                $out = & pwsh -NoProfile -File (Join-Path $kitRoot 'tools/kit-process.ps1') doc anchors 2>&1 | ForEach-Object { [string]$_ }
+                $out = & pwsh -NoProfile -File (Join-Path $kitRoot 'tools/kit.ps1') doc anchors 2>&1 | ForEach-Object { [string]$_ }
                 [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out -join "`n") }
             } finally { Pop-Location }
         }

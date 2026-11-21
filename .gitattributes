@@ -39,5 +39,9 @@ skills/1c-yaxunit/templates/**/*.xml -text
 # бути LF у будь-якому клоні й у будь-якому кеші плагіна.
 templates/githooks/* text eol=lf
 
+# Зібраний бінарник входу kit (ADR-0014). Бінарним його треба назвати явно: евристика
+# text=auto вгадує за вмістом, а байти файла мусять дійти до клону без жодних перетворень.
+bin/kit.exe binary
+
 # Фальшивий раннер тестів: cmd чутливий до кінців рядків, файл мусить бути CRLF на будь-якій ОС.
 tools/tests/fixtures/runner/*.cmd text eol=crlf

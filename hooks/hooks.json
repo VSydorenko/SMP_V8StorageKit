@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v pwsh >/dev/null 2>&1 && pwsh -NoProfile -File \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ps1\"; exit 0",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/kit.exe\" session-start; exit 0",
             "async": false,
             "timeout": 60
           }

@@ -11,7 +11,7 @@ function Invoke-KitInstallHooks {
         .claude/settings.json (дозволи), якщо його ще немає. Хука старту сесії тут немає: його поставляє плагін. Ідемпотентно.
     .DESCRIPTION
         Скіл onboarding кладе те саме, але сам не імпортує lib-модулів (текст скіла цього не може) —
-        ця команда існує рівно для того, щоб скіл викликав один kit.ps1 install-hooks -Apply замість
+        ця команда існує рівно для того, щоб скіл викликав один kit install-hooks -Apply замість
         відтворення логіки Install-KitGitHooks/Install-KitSettings у собі.
     #>
     [CmdletBinding()]

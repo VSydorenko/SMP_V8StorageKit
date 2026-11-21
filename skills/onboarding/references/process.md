@@ -10,8 +10,8 @@
 вів процес через `superpowers:*`, `docs/superpowers/*` і `.superpowers/sdd/`.
 
 Відомі залишки й їхні заміни в kit: [known-duplicates.md](known-duplicates.md). Журнал змін плагіна —
-`CHANGELOG.md` у корені плагіна (`<корінь плагіна>` — той самий каталог, що перед `/tools/kit.ps1` у
-командах `SKILL.md`).
+`CHANGELOG.md` у корені плагіна (`<корінь плагіна>` — каталог плагіна `v8storagekit`, тека над `bin/`
+з `kit.exe`).
 
 Кроки 1–5 нічого не змінюють у проєкті до схвалення звіту (крок 4).
 
