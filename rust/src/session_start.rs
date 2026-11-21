@@ -383,7 +383,7 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
     let Some(code) = code else {
         kit::proc::kill_tree(&mut child);
         let mut status = format!(
-            "УВАГА: kit session-check не вклався в {timeout} с — стан сховищ НЕВІДОМИЙ, не «без змін». Найчастіша причина — повільний доступ до сховища (SMB); перевірити вручну: kit.ps1 session-check -RepoRoot ."
+            "УВАГА: kit session-check не вклався в {timeout} с — стан сховищ НЕВІДОМИЙ, не «без змін». Найчастіша причина — повільний доступ до сховища (SMB); перевірити вручну: kit session-check -RepoRoot ."
         );
         // Те, що kit устиг надрукувати, не пропадає; позначка «частково» обов'язкова.
         let partial = out.text().trim().to_string();
@@ -398,7 +398,7 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
         0 => raw,
         1 | 4 if !raw.is_empty() => raw,
         1 | 4 => format!(
-            "УВАГА: kit session-check завершився кодом {code} без жодного виводу — стан сховищ НЕВІДОМИЙ, не «без змін». Перевірити вручну: kit.ps1 session-check -RepoRoot ."
+            "УВАГА: kit session-check завершився кодом {code} без жодного виводу — стан сховищ НЕВІДОМИЙ, не «без змін». Перевірити вручну: kit session-check -RepoRoot ."
         ),
         _ => format!(
             "УВАГА: kit session-check завершився неочікуваним кодом {code} (очікувалось 0, 1 або 4) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:\n{raw}"

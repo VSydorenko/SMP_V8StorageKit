@@ -6,7 +6,8 @@
 // Джерело розбирається на лексеми без коментарів; рядкові літерали розбираються РАНІШЕ за коментарі,
 // тож `"/*"` чи `"//"` у рядку не ховає код за ним. Правило поза модулем `git`:
 //  (а) рядковий літерал `git`, `git.exe`, `…/git`, `…\git(.exe)` (без регістру);
-//  (б) літерал `git …` всередині аргументів `.arg(`, `.args(` чи `Command::new(`;
+//  (б) літерал зі словом `git` у будь-якому місці рядка оболонки (`cd x && git status`) всередині
+//      аргументів `.arg(`, `.args(` чи `Command::new(`;
 //  (в) `Command::new` з нелітеральним аргументом (або без виклику — як значення функції) — лише з
 //      явного переліку дозволених місць ALLOWED_DYNAMIC;
 //  (г) псевдонім типу `Command` (`Command as X`, `type X = …Command;`).
@@ -182,9 +183,11 @@ fn is_git_name(v: &str) -> bool {
         || ["/git", "\\git", "/git.exe", "\\git.exe"].iter().any(|s| v.ends_with(s))
 }
 
+/// Рядок оболонки, де `git` — окреме слово команди в будь-якому місці: `git status`, `cd x && git status`,
+/// `& git status`, `(git status)`. Межі слова — пробіли й роздільники оболонки; `.git`, `--no-git`,
+/// `gitignore` словом `git` не є.
 fn is_git_command_line(v: &str) -> bool {
-    let v = v.trim_start().to_lowercase();
-    v.starts_with("git ") || v.starts_with("git.exe ")
+    v.split(|c: char| c.is_whitespace() || ";&|()'\"`".contains(c)).any(is_git_name)
 }
 
 fn ident(t: Option<&(Tok, usize)>, name: &str) -> bool {
@@ -389,6 +392,9 @@ fn launch_forms_are_caught() {
         ("R6 повний шлях типу", r#"fn f() { std::process::Command::new("git").status(); }"#),
         ("R7 cmd /c", r#"fn f() { Command::new("cmd").args(["/c", "git status"]).status(); }"#),
         ("R8 pwsh -c", r#"fn f() { Command::new("pwsh").arg("-c").arg("git status --short").status(); }"#),
+        ("R12 git посеред рядка cmd", r#"fn f() { Command::new("cmd").args(["/c", "cd x && git status"]).status(); }"#),
+        ("R13 git після & у pwsh", r#"fn f() { Command::new("pwsh").args(["-Command", "& git status"]).status(); }"#),
+        ("R14 git.exe у дужках", r#"fn f() { Command::new("pwsh").arg("-c").arg("(git.exe rev-parse HEAD)").status(); }"#),
         ("R9 конкатенація", r#"fn f() { Command::new(format!("{}{}", "gi", "t")).status(); }"#),
         ("R10 ім'я з оточення", r#"fn f() { Command::new(std::env::var("KIT_GIT").unwrap()).status(); }"#),
         ("R11 сирий рядок", r##"fn f() { Command::new(r#"git"#).status(); }"##),
@@ -417,6 +423,7 @@ fn non_launches_are_not_hits() {
             let _ = kit::git::run(repo, &["status"], None, false);
             let c = '"';
             Command::new("taskkill").args(["/T", "/F"]).status();
+            Command::new("taskkill").args(["/c", "echo .git --no-git gitignore"]).status();
         }
     "#;
     assert_eq!(scan_source(src), (vec![], vec![]));

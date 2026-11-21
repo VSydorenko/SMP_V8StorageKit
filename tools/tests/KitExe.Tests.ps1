@@ -178,7 +178,7 @@ Describe 'Закомічений бінарник = джерело (D7, Р6)' {
             $f.Embedded | Should -Match '^[0-9a-f]{16}$' -Because $f.Raw
             $f.Computed | Should -Match '^[0-9a-f]{16}$' -Because $f.Raw
             $f.Files | Should -BeGreaterThan 0 -Because $f.Raw
-            $f.Computed | Should -Be $f.Embedded -Because "bin/kit.exe зібрано не з цих джерел rust/ — перезберіть: cargo build --release у rust/ і скопіюйте rust/target/release/kit.exe в bin/kit.exe`n$($f.Raw)"
+            $f.Computed | Should -Be $f.Embedded -Because "bin/kit.exe зібрано не з цих джерел rust/ — перезберіть: pwsh -NoProfile -File tools/build-kit-exe.ps1 (машина з MSVC) або візьміть артефакт workflow kit-exe`n$($f.Raw)"
         }
     }
 
@@ -234,5 +234,48 @@ Describe 'Закомічений бінарник = джерело (D7, Р6)' {
         $rewritten | Should -BeGreaterThan 0 -Because 'жодного файла rust/ не переписано в CRLF — контроль порожній'
         $after = Get-KitFingerprint $script:KitExe $crate
         $after.Computed | Should -Be $before.Computed -Because "CRLF-копія rust/ дала інший відбиток: запобіжник «бінарник = джерело» залежить від autocrlf`n$($after.Raw)"
+    }
+}
+
+Describe 'Закомічений бінарник — збірка поставки (D7, план §14 п. 12)' {
+    # Збірка поставки = лінкер MSVC link.exe (заголовок Rich) + ресурс версії з rust/res. Збірку rust-lld/xwin
+    # і голий cargo build Defender видаляв (docs/research/2026-11-21-defender-kit-exe.md). Перевірка — та сама
+    # функція, якою tools/build-kit-exe.ps1 перевіряє власний результат перед записом у bin/.
+    BeforeAll {
+        $script:BuildScript = Join-Path $script:KitRepo 'tools/build-kit-exe.ps1'
+        function script:Invoke-ShipCheck([string]$Path) {
+            $out = & pwsh -NoProfile -File $script:BuildScript -Verify $Path 2>&1
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Text = ($out | ForEach-Object { "$_" }) -join "`n" }
+        }
+    }
+
+    It 'робоче дерево й індекс: bin/kit.exe — збірка поставки' {
+        $prefix = Join-Path $TestDrive 'ship-index'
+        git -C $script:KitRepo checkout-index "--prefix=$($prefix.Replace('\', '/'))/" -- bin/kit.exe
+        $LASTEXITCODE | Should -Be 0
+        foreach ($exe in $script:KitExe, (Join-Path $prefix 'bin/kit.exe')) {
+            $r = Invoke-ShipCheck $exe
+            $r.ExitCode | Should -Be 0 -Because "$exe не збірка поставки — перезберіть: pwsh -NoProfile -File tools/build-kit-exe.ps1 (машина з MSVC) або візьміть артефакт workflow kit-exe`n$($r.Text)"
+        }
+    }
+
+    It 'контроль: копія bin/kit.exe без заголовка Rich (як збірка rust-lld) — код 1 з причиною' {
+        $b = [System.IO.File]::ReadAllBytes($script:KitExe)
+        $pe = [BitConverter]::ToInt32($b, 0x3C)
+        $at = -1
+        for ($i = 0x40; $i -le $pe - 8; $i += 4) { if ([System.Text.Encoding]::ASCII.GetString($b, $i, 4) -eq 'Rich') { $at = $i; break } }
+        $at | Should -BeGreaterThan 0 -Because 'у bin/kit.exe немає «Rich» — контроль порожній'
+        $b[$at] = 0
+        $copy = Join-Path $TestDrive 'no-rich.exe'
+        [System.IO.File]::WriteAllBytes($copy, $b)
+        $r = Invoke-ShipCheck $copy
+        $r.ExitCode | Should -Be 1 -Because $r.Text
+        $r.Text | Should -Match '^build-kit-exe: ERROR .*заголовка Rich'
+    }
+
+    It 'контроль: PE від MSVC без ресурсу версії kit (whoami.exe) — код 1 з причиною' {
+        $r = Invoke-ShipCheck (Join-Path $env:SystemRoot 'System32/whoami.exe')
+        $r.ExitCode | Should -Be 1 -Because $r.Text
+        $r.Text | Should -Match '^build-kit-exe: ERROR .*ресурсу версії'
     }
 }
