@@ -38,6 +38,59 @@ Unica 0.16 з раннером `v8-runner`, який вона постачає (
 раннер — інструмент kit: `sync` і `verify` беруть у нього платформу для бази агента, тож без
 Уніки вони не працюють. `dump` з бази людини працює й без неї.
 
+### Локальний маркетплейс з гілки `main`
+
+Встановлення вище дає **протегований реліз**. Щоб працювати з вершиною `main` (наприклад, щоб
+перевірити зміну до релізу), підключіть плагін з локального клону. Тоді оновлення — це `git pull`
+у клоні й `/reload-plugins` у сесії, без перепублікації й без `plugin update`.
+
+Чому окрема тека маркетплейсу, а не сам клон: `marketplace.json` репозиторію вказує на реліз на
+GitHub (`source` типу `url` з `ref`), тож `marketplace add <клон>` поставив би той самий реліз у кеш.
+Локальний маркетплейс натомість має відносний `source`, і такий плагін Claude Code читає **на місці**
+— з робочої копії клону.
+
+1. Якщо плагін уже встановлено з GitHub — приберіть той маркетплейс (ім'я в обох однакове):
+
+       claude plugin marketplace remove smp-v8storagekit
+
+2. Створіть теку маркетплейсу й покладіть у неї клон (PowerShell):
+
+       $m = "$HOME\.claude\local-marketplaces\smp-v8storagekit"
+       New-Item -ItemType Directory -Force "$m\.claude-plugin" | Out-Null
+       git clone https://github.com/VSydorenko/SMP_V8StorageKit.git "$m\v8storagekit"
+
+   Клон уже є в іншому місці — замість `git clone` зробіть на нього junction:
+   `New-Item -ItemType Junction -Path "$m\v8storagekit" -Target <шлях до клону>`.
+
+3. Опишіть маркетплейс — файл `$m\.claude-plugin\marketplace.json`:
+
+       {
+         "name": "smp-v8storagekit",
+         "owner": { "name": "<ваше ім'я>" },
+         "plugins": [
+           { "name": "v8storagekit", "source": "./v8storagekit",
+             "description": "kit з гілки main локального клону" }
+         ]
+       }
+
+4. Підключіть і встановіть:
+
+       claude plugin marketplace add "$m"
+       claude plugin install v8storagekit@smp-v8storagekit
+
+   Перевірка: `claude plugin list` показує `Read from` — теку `$m\v8storagekit`, а версію — з
+   `.claude-plugin/plugin.json` клону.
+
+Оновлення: `git -C "$m\v8storagekit" pull --ff-only`, потім `/reload-plugins` у відкритій сесії
+(нова сесія підхопить сама). Правила, без яких це ламається:
+
+- **Клон завжди на `main` і чистий.** Плагін читає робоче дерево як є: інша гілка чи незакомічена
+  правка одразу діє в усіх сесіях машини. Розробляйте в окремому клоні чи `git worktree`.
+- **`bin/kit.exe` зайнятий, поки працює команда kit із плагіна.** Довга команда (`sdd watch`) не дає
+  `git pull` замінити `bin/kit.exe` — зупиніть її й повторіть `pull`.
+- Повернутись на релізи: `claude plugin marketplace remove smp-v8storagekit`, далі — команди
+  встановлення вище.
+
 ## Як це працює
 
 - **Маніфест `v8storagekit.yaml`** у корені репозиторію описує воркспейси й джерела. Для
