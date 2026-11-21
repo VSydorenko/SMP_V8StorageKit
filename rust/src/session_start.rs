@@ -22,7 +22,9 @@
 //
 // session-check — фаза 2 (спека D6): хук кличе його передачею PowerShell-диспетчеру (main.rs,
 // `dispatcher`) зі стелею часу. Вивід дочірнього процесу — у тимчасові файли, не в канали: онук, що
-// успадкував дескриптор, не блокує читання. На стелі хук убиває ДЕРЕВО процесів (`taskkill /T /F`):
+// успадкував дескриптор, не блокує читання. Власні стандартні потоки kit.exe перед запуском стають
+// неуспадковуваними: інакше нащадок, що пережив session-check, тримав би читання виводу хука в Claude
+// Code до власного кінця. На стелі хук убиває ДЕРЕВО процесів (`taskkill /T /F`):
 // session-check сам запускає git і раннер. Убивати дозволено рівно тому, що session-check нічого не
 // мутує; -Apply хук не передає ніколи — список токенів закритий.
 //
@@ -153,6 +155,13 @@ fn read_profile(git_root: &Path) -> Profile {
         return Profile::None;
     }
     let Ok(text) = read_text(&file) else { return Profile::Bad };
+    // Як ConvertFrom-Json PowerShell-хука (спека D6 «як зараз»): порожній файл — профіль без полів,
+    // коментарі `//` і `/* */` поза рядками дозволені. Решту його поблажливостей (одинарні лапки, ключі
+    // без лапок, кома в кінці) kit сам не пише — тут вони дають Bad.
+    let text = strip_json_comments(&text);
+    if text.trim().is_empty() {
+        return Profile::Ok("0.1.0".to_string());
+    }
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Profile::Bad };
     let version = match json.get("kit") {
         Some(serde_json::Value::Object(kit)) => kit.get("version"),
@@ -160,9 +169,68 @@ fn read_profile(git_root: &Path) -> Profile {
     };
     match version {
         None | Some(serde_json::Value::Null) => Profile::Ok("0.1.0".to_string()),
-        Some(serde_json::Value::String(s)) if is_version(s) => Profile::Ok(s.clone()),
-        Some(_) => Profile::Bad,
+        // `[string]$verProp` у PowerShell-хука: масив — елементи через пробіл, число й булеве — текстом.
+        Some(v) => {
+            let s = ps_string(v);
+            if is_version(&s) { Profile::Ok(s) } else { Profile::Bad }
+        }
     }
+}
+
+/// Значення JSON так, як його дає `[string]` PowerShell після ConvertFrom-Json. Об'єкт — текст `@{…}`,
+/// що ніколи не є версією.
+fn ps_string(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(items) => items.iter().map(ps_string).collect::<Vec<_>>().join(" "),
+        serde_json::Value::Object(_) => "@{}".to_string(),
+    }
+}
+
+/// JSON без коментарів `//` (до кінця рядка) і `/* */` поза рядковими літералами; коментар стає пробілом.
+fn strip_json_comments(text: &str) -> String {
+    let c: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut in_string = false;
+    while i < c.len() {
+        let ch = c[i];
+        if in_string {
+            out.push(ch);
+            if ch == '\\' && i + 1 < c.len() {
+                out.push(c[i + 1]);
+                i += 2;
+                continue;
+            }
+            if ch == '"' {
+                in_string = false;
+            }
+            i += 1;
+        } else if ch == '"' {
+            in_string = true;
+            out.push(ch);
+            i += 1;
+        } else if ch == '/' && c.get(i + 1) == Some(&'/') {
+            while i < c.len() && c[i] != '\n' {
+                i += 1;
+            }
+            out.push(' ');
+        } else if ch == '/' && c.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                i += 1;
+            }
+            i += 2;
+            out.push(' ');
+        } else {
+            out.push(ch);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Правила спілкування без провідного HTML-коментаря, обрізані. Файла немає — None.
@@ -347,6 +415,7 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
     let err = TempFile::new("err")?;
     let mut cmd = crate::dispatcher(plugin, &tokens)?;
     cmd.stdin(Stdio::null()).stdout(out.stdio()?).stderr(err.stdio()?);
+    std_handles_not_inheritable();
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("{} не запустився: {e}", Path::new(cmd.get_program()).display()))?;
@@ -390,6 +459,36 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
             "УВАГА: kit session-check завершився неочікуваним кодом {code} (очікувалось 0, 1 або 4) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:\n{raw}"
         ),
     })
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn SetHandleInformation(handle: *mut std::ffi::c_void, mask: u32, flags: u32) -> i32;
+}
+
+const HANDLE_FLAG_INHERIT: u32 = 0x1;
+
+/// Власні stdin, stdout і stderr kit.exe — неуспадковувані. Rust std на Windows запускає дочірній процес з
+/// `bInheritHandles=TRUE` без переліку дескрипторів, тож pwsh і його нащадки дістали б і канал stdout хука,
+/// який kit.exe отримав від батька успадковуваним. Нащадок, що пережив session-check (або осиротів, і
+/// `taskkill /T` його не бачить), тримав би тоді читання виводу хука в Claude Code до власного кінця.
+/// Дескрипторам дочірнього це не шкодить: `Stdio::from(File)` і `Stdio::null()` std дублює як
+/// успадковувані окремо. Збій — без наслідків для виводу: це запобіжник, не умова роботи.
+fn std_handles_not_inheritable() {
+    use std::os::windows::io::AsRawHandle;
+    let handles = [
+        std::io::stdin().as_raw_handle(),
+        std::io::stdout().as_raw_handle(),
+        std::io::stderr().as_raw_handle(),
+    ];
+    for h in handles {
+        if !h.is_null() {
+            // SAFETY: дескриптор власного стандартного потоку процесу; змінюється лише прапорець успадкування.
+            unsafe {
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
 }
 
 /// Убиває дерево процесів дочірнього (`taskkill /T /F`; session-check запускає git і раннер), потім —

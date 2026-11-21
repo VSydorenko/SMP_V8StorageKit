@@ -38,9 +38,9 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' {
         function script:Invoke-Hook {
             # $ProjectDir = $null — змінна CLAUDE_PROJECT_DIR не виставлена. Cwd процесу навмисно НЕ тека
             # проєкту: хук мусить орієнтуватись на змінну, а не на поточну теку. -Env — додаткові змінні.
-            # -AfterExit — блок, що виконується одразу після виходу процесу хука, до читання його виводу:
-            # нащадок, що успадкував канал stdout хука, тримав би читання до власного завершення.
-            param([AllowNull()][string]$ProjectDir, [string]$Exe = $script:Exe, [hashtable]$Env = @{}, [scriptblock]$AfterExit)
+            # Seconds — до кінця читання stdout і stderr хука (EOF), як читає Claude Code: нащадок, що успадкував
+            # канал stdout хука, тримав би читання до власного завершення.
+            param([AllowNull()][string]$ProjectDir, [string]$Exe = $script:Exe, [hashtable]$Env = @{})
             $psi = [System.Diagnostics.ProcessStartInfo]::new($Exe)
             $psi.ArgumentList.Add('session-start')
             $psi.WorkingDirectory = $TestDrive
@@ -61,9 +61,10 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' {
             $out = $p.StandardOutput.ReadToEndAsync()
             $err = $p.StandardError.ReadToEndAsync()
             $p.WaitForExit()
+            $output = $out.Result
+            $errors = $err.Result
             $sw.Stop()
-            $after = if ($AfterExit) { & $AfterExit }
-            [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out.Result; Err = $err.Result; Seconds = $sw.Elapsed.TotalSeconds; AfterExit = $after }
+            [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $output; Err = $errors; Seconds = $sw.Elapsed.TotalSeconds }
         }
     }
 
@@ -181,6 +182,19 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' {
             $ctx | Should -Not -BeLike '*Стан сховищ*'
         }
 
+        It 'профіль <Name>, який читає ConvertFrom-Json, — профіль читається: правила в контексті' -ForEach @(
+            @{ Name = 'порожній'; Text = '' }
+            @{ Name = 'з коментарями'; Text = "// профіль`n{ `"kit`": /* версія */ { `"version`": `"0.1.0`" }, `"x`": `"a // b /* c */`" }" }
+        ) {
+            # Еталон — PowerShell-хук до #51 T4: він розбирав профіль ConvertFrom-Json (як і KitProfile.psm1).
+            { $Text | ConvertFrom-Json } | Should -Not -Throw -Because 'еталон: ConvertFrom-Json приймає цей профіль'
+            $dir = New-ProfileProject -Name "profile-lenient-$Name" -ProfileText $Text
+            $r = Invoke-Hook -ProjectDir $dir
+            $r.ExitCode | Should -Be 0
+            $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+            $ctx | Should -BeLike '*ASD-STE100*'
+        }
+
         It 'лише профіль, але зламаний JSON — тиша й код 0' {
             $dir = New-ProfileProject -Name 'profile-broken' -ProfileText '{ broken'
             $r = Invoke-Hook -ProjectDir $dir
@@ -239,6 +253,18 @@ class FakePwsh { static int Main(string[] a) {
     }
 
     Context 'стеля часу й коди session-check' {
+        BeforeAll {
+            function script:Get-Grandchild([string]$PidFile, [int]$WaitSeconds = 0) {
+                # Онук заглушки за PID з файлу: $null — не стартував; Alive — чи живий (з очікуванням до -WaitSeconds,
+                # поки він зникне).
+                if (-not (Test-Path -LiteralPath $PidFile)) { return $null }
+                $id = [int](Get-Content -LiteralPath $PidFile -Raw).Trim()
+                $deadline = (Get-Date).AddSeconds($WaitSeconds)
+                while ((Get-Process -Id $id -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+                [pscustomobject]@{ Id = $id; Alive = [bool](Get-Process -Id $id -ErrorAction SilentlyContinue) }
+            }
+        }
+
         It 'хук не чекає довше за стелю: повільний session-check дає рядок «не вклався», а не зависання' {
             Set-KitStub @('Start-Sleep -Seconds 30')
             $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '1' }
@@ -262,33 +288,51 @@ class FakePwsh { static int Main(string[] a) {
         It 'на стелі хук убиває дерево: онук, що успадкував вивід, не переживає хука' {
             # Заглушка запускає онука (pwsh зі сном 30 с) з успадкованими stdout/stderr, пише його PID і чекає
             # його. Стеля 3 с, а не 1: заглушка мусить устигнути стартувати pwsh, запустити онука й записати
-            # PID; межа часу — стеля + 5 с (мутація «стелю проігноровано» дає 15 с). Онука перевіряємо одразу після
-            # виходу хука (-AfterExit), до читання виводу: живий онук тримав би успадкований канал stdout хука й
-            # читання дочекалося б його природного кінця — тоді перевірка «онука немає» пройшла б і без /T.
+            # PID; межа часу — стеля + 5 с (мутація «стелю проігноровано» дає 15 с). Онука перевіряємо після
+            # кінця читання виводу хука: канал stdout хука нащадки не успадковують (наступний тест), тож EOF
+            # настає з виходом хука, а не з природним кінцем онука.
             $pidFile = Join-Path $TestDrive 'grandchild.pid'
-            $probe = {
-                if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
-                $id = [int](Get-Content -LiteralPath $pidFile -Raw).Trim()
-                $deadline = (Get-Date).AddSeconds(3)
-                while ((Get-Process -Id $id -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
-                [pscustomobject]@{ Id = $id; Alive = [bool](Get-Process -Id $id -ErrorAction SilentlyContinue) }
-            }.GetNewClosure()
             Set-KitStub @(
                 '$g = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList ''-NoProfile'', ''-c'', ''Start-Sleep 30'' -NoNewWindow -PassThru'
                 'Set-Content -LiteralPath $env:GRANDCHILD_PID_FILE -Value $g.Id'
                 "[Console]::Out.WriteLine('ОНУК-ЗАПУЩЕНО'); [Console]::Out.Flush()"
                 '$g.WaitForExit()'
             )
-            $r = $null
+            $g = $null
             try {
-                $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '3'; GRANDCHILD_PID_FILE = $pidFile } -AfterExit $probe
+                $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ V8KIT_SESSION_CHECK_TIMEOUT = '3'; GRANDCHILD_PID_FILE = $pidFile }
+                $g = Get-Grandchild $pidFile -WaitSeconds 3
                 $r.Seconds | Should -BeLessThan 8
                 $r.Output | Should -BeLike '*не вклався в 3 с*'
                 $r.Output | Should -BeLike '*Частково*ОНУК-ЗАПУЩЕНО*'
-                $r.AfterExit | Should -Not -BeNullOrEmpty -Because 'контроль: онук справді стартував до стелі, інакше перевірка нижче порожня'
-                $r.AfterExit.Alive | Should -BeFalse -Because 'taskkill /T мав убити й онука'
+                $g | Should -Not -BeNullOrEmpty -Because 'контроль: онук справді стартував до стелі, інакше перевірка нижче порожня'
+                $g.Alive | Should -BeFalse -Because 'taskkill /T мав убити й онука'
             } finally {
-                if ($r -and $r.AfterExit -and $r.AfterExit.Alive) { Stop-Process -Id $r.AfterExit.Id -Force -ErrorAction SilentlyContinue }
+                if ($g -and $g.Alive) { Stop-Process -Id $g.Id -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It 'нащадок, що пережив нормальний вихід session-check, не тримає читання виводу хука' {
+            # Заглушка лишає онука (PING на 12 с) і виходить з кодом 0. Онук не в дереві, яке хук убиває: стелі
+            # немає. Якби канал stdout хука (дескриптор kit.exe від батька) успадкувався в pwsh, а з ним в онука,
+            # читання до EOF чекало б кінця PING (~11 с), як Claude Code чекав би старту сесії.
+            $pidFile = Join-Path $TestDrive 'orphan.pid'
+            Set-KitStub @(
+                '$g = Start-Process -FilePath "$env:SystemRoot\System32\PING.EXE" -ArgumentList ''-n'', ''12'', ''127.0.0.1'' -NoNewWindow -PassThru'
+                'Set-Content -LiteralPath $env:GRANDCHILD_PID_FILE -Value $g.Id'
+                "[Console]::Out.WriteLine('СТАН-ГОТОВО')"
+                'exit 0'
+            )
+            $g = $null
+            try {
+                $r = Invoke-Hook -ProjectDir $script:FakeRepo -Exe $script:FakeExe -Env @{ GRANDCHILD_PID_FILE = $pidFile }
+                $g = Get-Grandchild $pidFile
+                $g | Should -Not -BeNullOrEmpty -Because 'контроль: онук стартував'
+                $r.Output | Should -BeLike '*СТАН-ГОТОВО*'
+                $r.Seconds | Should -BeLessThan 6 -Because 'читання виводу хука не чекає онука, що успадкував би його канал stdout'
+                $g.Alive | Should -BeTrue -Because 'контроль: онук пережив кінець читання — інакше швидкий EOF нічого не доводить'
+            } finally {
+                if ($g -and $g.Alive) { Stop-Process -Id $g.Id -Force -ErrorAction SilentlyContinue }
             }
         }
 
