@@ -173,6 +173,25 @@ BeforeAll {
         return , $problems.ToArray()
     }
 
+    # 3а. Правила домену 1С для агентів (hooks/domain-1c/<агент>.md). Хук `kit.exe subagent-start`
+    # додає файл агенту за його іменем і не обрізає: понад 10 000 символів Claude Code винесе
+    # additionalContext у файл із прев'ю 2000 — агент правил не побачить. Ім'я поза agents/ хук не
+    # знайде ніколи — файл мертвий.
+    function script:Get-KitDomainRuleProblems([string]$Root) {
+        $problems = [System.Collections.Generic.List[string]]::new()
+        $dir = Join-Path $Root 'hooks/domain-1c'
+        if (-not (Test-Path -LiteralPath $dir)) { return , $problems.ToArray() }
+        $agents = @(Get-ChildItem -LiteralPath (Join-Path $Root 'agents') -Filter '*.md' -File -ErrorAction SilentlyContinue).BaseName
+        foreach ($f in Get-ChildItem -LiteralPath $dir -Filter '*.md' -File) {
+            $rel = "hooks/domain-1c/$($f.Name)"
+            if ($f.BaseName -cnotmatch '^[a-z0-9-]+$') { $problems.Add("$rel — ім'я не [a-z0-9-]+: хук такого не прочитає") }
+            elseif ($f.BaseName -notin $agents) { $problems.Add("$rel — агента agents/$($f.Name) немає: хук ніколи не додасть цей файл") }
+            $len = (Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8).Length
+            if ($len -ge 10000) { $problems.Add("$rel — $len символів ≥ 10000: Claude Code не передасть агенту повний текст") }
+        }
+        return , $problems.ToArray()
+    }
+
     function script:Get-KitProcessCommandNames([string]$Root) {
         $listFile = Join-Path $Root 'tools/commands/process-commands.txt'
         return @(Get-Content -LiteralPath $listFile -Encoding UTF8 |
@@ -411,6 +430,29 @@ Describe 'Розмір SKILL.md' {
         $p = (Get-KitSkillSizeProblems $root) -join "`n"
         $p | Should -Match 'skills/big/SKILL\.md'
         $p | Should -Not -Match 'skills/small'
+    }
+}
+
+Describe 'Правила домену 1С (hooks/domain-1c)' {
+    It 'кожен файл названо за агентом з agents/ і він коротший за 10000 символів' {
+        $p = Get-KitDomainRuleProblems $script:PluginRoot
+        $p | Should -BeNullOrEmpty -Because ($p -join '; ')
+        @(Get-ChildItem -LiteralPath (Join-Path $script:PluginRoot 'hooks/domain-1c') -Filter '*.md').Count | Should -BeGreaterThan 0 -Because 'контроль: перевірка мусить бачити теку'
+    }
+
+    It 'контроль: файл без агента, ім''я з великою літерою й файл на 10000 символів — знахідки; правильний — ні' {
+        $root = Join-Path $TestDrive 'shape-domain'
+        New-Item -ItemType Directory -Force -Path (Join-Path $root 'agents'), (Join-Path $root 'hooks/domain-1c') | Out-Null
+        foreach ($a in 'good', 'big') { Set-Content -LiteralPath (Join-Path $root "agents/$a.md") -Value 'x' -Encoding UTF8 }
+        Set-Content -LiteralPath (Join-Path $root 'hooks/domain-1c/good.md') -Value 'правила' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'hooks/domain-1c/orphan.md') -Value 'x' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'hooks/domain-1c/Bad.md') -Value 'x' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'hooks/domain-1c/big.md') -Value ('х' * 10000) -Encoding UTF8 -NoNewline
+        $p = (Get-KitDomainRuleProblems $root) -join "`n"
+        $p | Should -Match 'orphan\.md — агента'
+        $p | Should -Match 'Bad\.md — ім''я'
+        $p | Should -Match 'big\.md — 10000 символів'
+        $p | Should -Not -Match 'good\.md'
     }
 }
 
