@@ -2,7 +2,7 @@
 # Хук SessionStart плагіна — прихована підкоманда `kit.exe session-start` (спека #51 D6, §3; план Р5).
 # Тести ходять у закомічений bin/kit.exe: копія плагіна Copy-KitTools несе його в bin/, фальшиві плагіни —
 # копію поруч із заглушкою tools/kit.ps1 (корінь плагіна для kit.exe — тека над bin/, план Р3).
-Describe 'kit.exe session-start — хук SessionStart плагіна' {
+Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Docs' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:KitRoot = Split-Path -Parent (Split-Path -Parent (Copy-KitTools -Root (Join-Path $TestDrive 'kit')))   # <TestDrive>/kit
@@ -374,7 +374,7 @@ class FakePwsh { static int Main(string[] a) {
     }
 }
 
-Describe 'hooks/hooks.json — оголошення хука плагіна' {
+Describe 'hooks/hooks.json — оголошення хука плагіна' -Tag 'Docs' {
     BeforeAll { $script:Root = (Resolve-Path "$PSScriptRoot/../..").Path }
 
     It 'має обгортку hooks.SessionStart; команда — ${CLAUDE_PLUGIN_ROOT}/bin/kit.exe session-start без pwsh; хука-скрипта немає' {
@@ -391,7 +391,7 @@ Describe 'hooks/hooks.json — оголошення хука плагіна' {
     }
 }
 
-Describe 'Test-KitLegacySessionHook — старий проєктний хук (до 1.6.0)' {
+Describe 'Test-KitLegacySessionHook — старий проєктний хук (до 1.6.0)' -Tag 'Docs' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Preflight.psm1").Path -Force
         Import-Module (Resolve-Path "$PSScriptRoot/../lib/Hooks.psm1").Path -Force

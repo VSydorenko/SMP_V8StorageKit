@@ -64,6 +64,7 @@ Describe 'Run-Tests.ps1 — контракт паралельного ранне
 
             Copy-Item -LiteralPath (Join-Path $script:RealTestsDir 'Run-Tests.ps1')            -Destination (Join-Path $testsDir 'Run-Tests.ps1')
             Copy-Item -LiteralPath (Join-Path $script:RealTestsDir 'lib/TestRunner.psm1')       -Destination (Join-Path $libDir 'TestRunner.psm1')
+            Copy-Item -LiteralPath (Join-Path $script:RealTestsDir 'lib/TestChanges.psm1')      -Destination (Join-Path $libDir 'TestChanges.psm1')
             Copy-Item -LiteralPath (Join-Path $script:RealTestsDir 'lib/Invoke-TestWorker.ps1') -Destination (Join-Path $libDir 'Invoke-TestWorker.ps1')
             Copy-Item -LiteralPath (Join-Path $script:RealLibDir 'PathSafety.psm1')             -Destination (Join-Path $toolsLib 'PathSafety.psm1')
             Copy-Item -LiteralPath (Join-Path $script:RealLibDir 'RepoRoot.psm1')               -Destination (Join-Path $toolsLib 'RepoRoot.psm1')
@@ -84,7 +85,8 @@ Describe 'Run-Tests.ps1 — контракт паралельного ранне
 
         function script:Invoke-KitRunnerSandbox {
             param([Parameter(Mandatory)]$Lab, [string[]]$Extra = @())
-            $out = & pwsh -NoProfile -File $Lab.RunnerPath -ExcludeTag Integration @Extra 2>&1 | Out-String
+            # -Full: контракт паралельної гілки; голий виклик тепер іде за зміною (#88).
+            $out = & pwsh -NoProfile -File $Lab.RunnerPath -ExcludeTag Integration -Full @Extra 2>&1 | Out-String
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
         }
 
@@ -155,5 +157,69 @@ function Проба-ЗламанаФункція {
         # провалився, — не просто лічильник без адреси.
         $r.Output   | Should -BeLike '*дискавері*'
         $r.Output   | Should -BeLike '*Проба.Злам.Tests.ps1*'
+    }
+
+    # Прогін за зміною (#88): голий виклик без -Full. Пісочниця стає git-репозиторієм з
+    # origin/main на базовому коміті; зміна — поверх нього.
+    Context 'прогін за зміною від origin/main (#88)' {
+        BeforeAll {
+            $script:DocsProbe = @'
+Describe 'Проба.Документи — тест, що читає документи' -Tag 'Docs' {
+    It 'виконався' { $true | Should -BeTrue }
+}
+'@
+            function script:New-KitChangeLab([string]$Name) {
+                $lab = New-KitRunnerSandbox -Root (Join-Path $TestDrive $Name) -ExtraTestFiles @{ 'ПробаДоки.Tests.ps1' = $script:DocsProbe }
+                $g = @('-C', $lab.Root, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', '-c', 'core.autocrlf=false')
+                & git @g init -q -b main 2>&1 | Out-Null
+                & git @g add -A 2>&1 | Out-Null
+                & git @g commit -q -m base 2>&1 | Out-Null
+                & git @g update-ref refs/remotes/origin/main HEAD 2>&1 | Out-Null
+                $lab | Add-Member -NotePropertyName Git -NotePropertyValue $g -PassThru
+            }
+            function script:Invoke-KitChangeRun($Lab) {
+                $out = & pwsh -NoProfile -File $Lab.RunnerPath -ExcludeTag Integration 2>&1 | Out-String
+                [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+            }
+        }
+
+        It 'змінено лише документ — прогін лише тестів з тегом Docs, код 0' {
+            $lab = New-KitChangeLab 'change-docs'
+            New-Item -ItemType Directory -Force -Path (Join-Path $lab.Root 'docs') | Out-Null
+            Set-Content -LiteralPath (Join-Path $lab.Root 'docs/a.md') -Value 'текст' -Encoding utf8NoBOM
+
+            $r = Invoke-KitChangeRun $lab
+
+            $r.ExitCode | Should -Be 0 -Because $r.Output
+            $r.Output   | Should -BeLike '*Змінено лише документи*ПробаДоки*'
+            $r.Output   | Should -BeLike '*Проба.Документи*'
+            # Тести коду (PathSafety, RepoRoot у пісочниці) не запускались.
+            $r.Output   | Should -Not -BeLike '*Файлів: *воркерів*'
+            $r.Output   | Should -Not -BeLike '*PathSafety.Tests.ps1*'
+        }
+
+        It 'змінено код — нічого не запущено, код 3 і підказка -Only; повний набір лише з -Full' {
+            $lab = New-KitChangeLab 'change-code'
+            Add-Content -LiteralPath (Join-Path $lab.Root 'tools/lib/PathSafety.psm1') -Value '# зміна'
+
+            $r = Invoke-KitChangeRun $lab
+
+            $r.ExitCode | Should -Be 3 -Because $r.Output
+            $r.Output   | Should -BeLike '*НЕ ПЕРЕВІРЕНО: змінено код*tools/lib/PathSafety.psm1*'
+            $r.Output   | Should -BeLike '*next: *-Only *PathSafety*'
+            $r.Output   | Should -Not -BeLike '*Tests Passed*'
+            $r.Output   | Should -Not -BeLike '*Файлів: *воркерів*'
+        }
+
+        It 'код, перейменований у документ, — усе ще код (перейменування за обома шляхами)' {
+            $lab = New-KitChangeLab 'change-rename'
+            & git @($lab.Git) mv tools/lib/RepoRoot.psm1 RepoRoot.md 2>&1 | Out-Null
+            & git @($lab.Git) commit -q -m rename 2>&1 | Out-Null
+
+            $r = Invoke-KitChangeRun $lab
+
+            $r.ExitCode | Should -Be 3 -Because $r.Output
+            $r.Output   | Should -BeLike '*змінено код*tools/lib/RepoRoot.psm1*'
+        }
     }
 }

@@ -3,7 +3,7 @@
 # `^v8storagekit:`): у репозиторії 1С вміст hooks/domain-1c/<агент>.md іде в additionalContext субагента.
 # Тест ходить у закомічений bin/kit.exe: копія поруч із фальшивою текою hooks/domain-1c (корінь плагіна для
 # kit.exe — тека над bin/). Вхід — JSON у stdin, як його дає Claude Code (agent_type, cwd).
-Describe 'kit.exe subagent-start — хук SubagentStart плагіна' {
+Describe 'kit.exe subagent-start — хук SubagentStart плагіна' -Tag 'Docs' {
     BeforeAll {
         $kitRepo = (Resolve-Path "$PSScriptRoot/../..").Path
         $script:Plugin = Join-Path $TestDrive 'plugin'
