@@ -1,4 +1,4 @@
-# ADR-0009: Rust і один вхід `kit.exe`
+# ADR-0014: Rust і один вхід `kit.exe`
 
 Status: accepted 2026-11-21
 Decided by: owner
