@@ -1,6 +1,6 @@
 #Requires -Version 7
-# Вхід bin/kit.exe (спека #51 D1, D1а, D2, D7; план Р2, Р3, Р6): передача неперенесених команд
-# PowerShell-диспетчеру через KIT_ARGV, інваріанти «-Apply» і «KIT_ARGV» через kit.exe, дефект Н6
+# Вхід bin/kit.exe (ADR-0014): передача неперенесених команд
+# PowerShell-диспетчеру через KIT_ARGV, інваріанти «-Apply» і «KIT_ARGV» через kit.exe, дефект `-Ім'я:false`
 # через обгортку bin/ і запобіжник «закомічений бінарник = джерело».
 # Тести ходять у закомічений bin/kit.exe (через копію плагіна Copy-KitTools або напряму), не збирають його.
 
@@ -41,7 +41,7 @@ BeforeAll {
     }
 }
 
-Describe 'kit.exe — канал KIT_ARGV до диспетчера (D1а, Н6)' {
+Describe 'kit.exe — канал KIT_ARGV до диспетчера' {
     # Фальшивий плагін: справжній kit.exe у bin/ і заглушка tools/kit.ps1, що друкує токени з KIT_ARGV,
     # байти stdin і пише в stderr. Заглушка читає САМЕ KIT_ARGV: без змінної — код 9.
     BeforeAll {
@@ -64,7 +64,7 @@ exit 4
         $script:FakeExe = Join-Path $script:Fake 'bin/kit.exe'
     }
 
-    It 'токени Н6 і -Apply:false доходять дослівно, stdin — байтами, stderr і код 4 — як є' {
+    It 'токени -Ім''я:false і -Apply:false доходять дослівно, stdin — байтами, stderr і код 4 — як є' {
         $tokens = @('probe', "-Ім'я:знач ення", '-Apply:false', '', 'з "лапками"', 'хвіст\', '$env:X', '--', 'a&b|c', '%PATH%', 'кирилиця')
         [byte[]]$bytes = 0..255
         $r = Invoke-KitExe -Exe $script:FakeExe -Arguments $tokens -Stdin $bytes
@@ -80,7 +80,7 @@ exit 4
     }
 }
 
-Describe 'Інваріанти через kit.exe — «-Apply» і «KIT_ARGV» (D1а)' {
+Describe 'Інваріанти через kit.exe — «-Apply» і «KIT_ARGV»' {
     # Копія плагіна зі справжнім tools/kit.ps1 і bin/kit.exe. Заглушки лише в копії: sync друкує Apply,
     # probe-argv друкує свої токени й запускає дочірній процес, що дивиться на KIT_ARGV.
     BeforeAll {
@@ -132,7 +132,7 @@ Export-ModuleMember -Function Invoke-KitProbeArgv
     }
 }
 
-Describe 'Дефект Н6 закрито: обгортка bin/ доносить -Ім''я:false цілим' {
+Describe 'Дефект закрито: обгортка bin/ доносить -Ім''я:false цілим' {
     # -Code розібрано як прапорець, шляхів немає — помилка виклику refs без шляху. Колишній дефект:
     # шлях `False`, код 0 і рядок «next: … doc refs False» (bash) чи «-Code: прапорець без значення» (.ps1).
     BeforeAll {
@@ -158,7 +158,7 @@ Describe 'Дефект Н6 закрито: обгортка bin/ доносит�
     }
 }
 
-Describe 'Закомічений бінарник = джерело (D7, Р6)' {
+Describe 'Закомічений бінарник = джерело' {
     BeforeAll {
         # Рядки прихованої підкоманди: `embedded <hex>` і `computed <hex> <файлів>`.
         function script:Get-KitFingerprint([string]$Exe, [string]$Crate) {
@@ -237,7 +237,7 @@ Describe 'Закомічений бінарник = джерело (D7, Р6)' {
     }
 }
 
-Describe 'Закомічений бінарник — збірка поставки (D7, план §14 п. 12)' {
+Describe 'Закомічений бінарник — збірка поставки' {
     # Збірка поставки = лінкер MSVC link.exe (заголовок Rich) + ресурс версії з rust/res. Збірку rust-lld/xwin
     # і голий cargo build Defender видаляв (docs/research/2026-11-21-defender-kit-exe.md). Перевірка — та сама
     # функція, якою tools/build-kit-exe.ps1 перевіряє власний результат перед записом у bin/.

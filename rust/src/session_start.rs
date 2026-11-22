@@ -1,4 +1,4 @@
-// Хук SessionStart плагіна (спека #51 D6, §3; план Р5): прихована підкоманда `kit.exe session-start`,
+// Хук SessionStart плагіна (ADR-0014): прихована підкоманда `kit.exe session-start`,
 // її кличе `hooks/hooks.json`. «Стан сховищ» і вказівка на скіл storage-rules на старті сесії в
 // репозиторії під kit; блок правил спілкування власника (hooks/communication-rules.md) і рядок
 // оновлення проєкту. Нічого не змінює: рішення — людині, дія — скіл v8storagekit:storage-sync.
@@ -20,7 +20,7 @@
 // нижче, дає None — тишу. Код не панікує: у release `panic = "abort"`, тож розпакування без перевірки
 // тут заборонене.
 //
-// session-check — фаза 2 (спека D6): хук кличе його передачею PowerShell-диспетчеру (main.rs,
+// session-check — фаза 2 (#53): хук кличе його передачею PowerShell-диспетчеру (main.rs,
 // `dispatcher`) зі стелею часу. Вивід дочірнього процесу — у тимчасові файли, не в канали: онук, що
 // успадкував дескриптор, не блокує читання. Власні стандартні потоки kit.exe перед запуском стають
 // неуспадковуваними: інакше нащадок, що пережив session-check, тримав би читання виводу хука в Claude
@@ -31,7 +31,7 @@
 // Матчери (hooks.json): startup|clear|compact — сесія без раніше доданого контексту. resume і fork
 // успадковують транскрипт, у якому «Стан сховищ» уже є.
 //
-// Перенесено з hooks/session-start.ps1 (до #51 T4); той, у свою чергу, — з agent-kit 0.9.1
+// Перенесено з hooks/session-start.ps1 (PowerShell-хук до переносу на Rust); той, у свою чергу, — з agent-kit 0.9.1
 // hooks/session-rules.mjs (modified): блок правил і рядок оновлення.
 
 use kit::profile::{ps_string, strip_json_comments};
@@ -94,7 +94,7 @@ pub fn run(plugin: &Path) -> Option<String> {
     }
 }
 
-/// JSON хука; ключі — у тому порядку, що й у PowerShell-хука до #51 T4.
+/// JSON хука; ключі — у тому порядку, що й у PowerShell-хука до переносу на Rust.
 fn hook_json(context: &str) -> String {
     let ctx = serde_json::to_string(context).unwrap_or_else(|_| "\"\"".to_string());
     format!("{{\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\"additionalContext\":{ctx}}}}}\n")
@@ -156,7 +156,7 @@ fn read_profile(git_root: &Path) -> Profile {
         return Profile::None;
     }
     let Ok(text) = read_text(&file) else { return Profile::Bad };
-    // Як ConvertFrom-Json PowerShell-хука (спека D6 «як зараз»): порожній файл — профіль без полів,
+    // Як ConvertFrom-Json PowerShell-хука («як було»): порожній файл — профіль без полів,
     // коментарі `//` і `/* */` поза рядками дозволені. Решту його поблажливостей (одинарні лапки, ключі
     // без лапок, кома в кінці) kit сам не пише — тут вони дають Bad.
     let text = strip_json_comments(&text);

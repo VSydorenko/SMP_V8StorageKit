@@ -2,8 +2,8 @@
 // чи на CI): rc.exe -> kit.res -> аргумент лінкера. Номер версії — з .claude-plugin/plugin.json через
 // kit-version.h, який скрипт генерує поруч із kit.res. Голий cargo build ресурсу не вбудовує — така збірка
 // лише для тестів, і `build-kit-exe.ps1 -Verify` її відхиляє.
-// Чому ресурс є: збірка без нього й без лінкера MSVC отримала ML-детекцію Defender (план #51 §14,
-// docs/research/2026-11-21-defender-kit-exe.md).
+// Чому ресурс є: збірка без нього й без лінкера MSVC отримала ML-детекцію Defender
+// (docs/research/2026-11-21-defender-kit-exe.md).
 #pragma code_page(65001)
 #include <winver.h>
 #include "kit-version.h"

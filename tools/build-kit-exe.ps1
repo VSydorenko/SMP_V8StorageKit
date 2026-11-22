@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
     Збірка поставки bin/kit.exe — один рецепт для машини розробника з MSVC і для CI
-    (.github/workflows/kit-exe.yml кличе цей самий файл). Спека #51 D7, план §14 п. 12.
+    (.github/workflows/kit-exe.yml кличе цей самий файл). ADR-0014.
 
     Збірка поставки = лінкер MSVC link.exe (заголовок Rich) + ресурс версії й маніфест з rust/res.
     Збірку без них (rust-lld, xwin, голий `cargo build`) Windows Defender видаляв як ML-детекцію

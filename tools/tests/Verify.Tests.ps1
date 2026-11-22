@@ -405,7 +405,7 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $r.Results[0].Version | Should -Be 1
             $r.Results[0].Verdict | Should -Be 'storage-ahead'
         }
-        It 'next: (D3, Р4) — storage-ahead з -Apply: звірочний коміт виконано, next: — крок push, а не повтор verify' {
+        It 'next: — storage-ahead з -Apply: звірочний коміт виконано, next: — крок push, а не повтор verify' {
             $repo = New-AlignVerifyRepo -Name 'al-next-apply' -Merge
             Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
                 -FileName 'Configuration.xml' -Content ($script:MockContent + '<!-- v2 -->') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')

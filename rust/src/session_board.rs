@@ -1,8 +1,8 @@
-// `kit session-board` (спека #51 D8; перенесено з tools/commands/session-board.psm1, який походив з
+// `kit session-board` (ADR-0014; перенесено з tools/commands/session-board.psm1, який походив з
 // agent-kit 0.9.1 bin/session-board + lib/session-board.mjs): статус паралельних сесій одним екраном.
 // Джерела — git і gh, не список агентів.
 //
-// Вивід збігається з PowerShell-версією побайтно (еталон — task-5-golden плану): рядки таблиці
+// Вивід збігається з PowerShell-версією побайтно (еталон знято з PowerShell-версії на фікстурах до видалення модуля, ADR-0014): рядки таблиці
 // з'єднані `\n`, кожен записаний рядок завершується `\r\n` (Console.WriteLine на Windows), помилки
 // stderr — теж `\r\n`. Відомі відмінності: (1) detached worktree з `-All` дає рядок `(detached)`, а не
 // падіння; (2) корінь файлу сесій, що не є JSON-об'єктом, — відмова із зрозумілим текстом (PowerShell

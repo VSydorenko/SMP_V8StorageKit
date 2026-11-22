@@ -1,7 +1,7 @@
 #Requires -Version 7
-# Хук SessionStart плагіна — прихована підкоманда `kit.exe session-start` (спека #51 D6, §3; план Р5).
+# Хук SessionStart плагіна — прихована підкоманда `kit.exe session-start` (ADR-0014).
 # Тести ходять у закомічений bin/kit.exe: копія плагіна Copy-KitTools несе його в bin/, фальшиві плагіни —
-# копію поруч із заглушкою tools/kit.ps1 (корінь плагіна для kit.exe — тека над bin/, план Р3).
+# копію поруч із заглушкою tools/kit.ps1 (корінь плагіна для kit.exe — тека над bin/).
 Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Docs' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
@@ -186,7 +186,7 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Do
             @{ Name = 'порожній'; Text = '' }
             @{ Name = 'з коментарями'; Text = "// профіль`n{ `"kit`": /* версія */ { `"version`": `"0.1.0`" }, `"x`": `"a // b /* c */`" }" }
         ) {
-            # Еталон — PowerShell-хук до #51 T4: він розбирав профіль ConvertFrom-Json (як і KitProfile.psm1).
+            # Еталон — PowerShell-хук до переносу на Rust: він розбирав профіль ConvertFrom-Json (як і KitProfile.psm1).
             { $Text | ConvertFrom-Json } | Should -Not -Throw -Because 'еталон: ConvertFrom-Json приймає цей профіль'
             $dir = New-ProfileProject -Name "profile-lenient-$Name" -ProfileText $Text
             $r = Invoke-Hook -ProjectDir $dir

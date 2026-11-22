@@ -45,7 +45,7 @@ function Invoke-KitSessionCheck {
     $root = $Context.RepoRoot
     $main = $Context.MainBranch
     $signals = [System.Collections.Generic.List[object]]::new()
-    # Перший крок-команда кожного джерела — для рядка `next:` (D3, Р4); у -AsJson не друкується.
+    # Перший крок-команда кожного джерела — для рядка `next:` (ADR-0014); у -AsJson не друкується.
     $stepOf = @{}
 
     # --- Повний check першим. Виняток із check — теж «репозиторій суперечливий», код 1.

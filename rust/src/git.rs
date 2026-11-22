@@ -1,13 +1,13 @@
-// Ядро git (спека #51 D4, D4а, D5) — ЄДИНЕ місце, де Rust-код kit запускає git; поза цим модулем
+// Ядро git (ADR-0014) — ЄДИНЕ місце, де Rust-код kit запускає git; поза цим модулем
 // запуск git ловить запобіжник rust/tests/git_guard.rs.
 //
 // Кожен запуск: `git -C <repo> -c core.quotepath=false <аргументи>`, `GIT_TERMINAL_PROMPT=0`, решта
 // оточення успадкована. Вивід — байти, без декодування: текстове декодування псує бінарні блоби
-// (262 байти → 524) і знімало б BOM на початку потоку (вимір П2 плану). Контракт збою явний: ненульовий
+// (262 байти → 524) і знімало б BOM на початку потоку (виміряно). Контракт збою явний: ненульовий
 // код без дозволу — помилка з дослівним stderr git; з дозволом — `Output` з кодом. Режиму «тихо
 // порожньо» немає.
 //
-// Два входи (D4а): `run` збирає весь вивід; `start` — потоковий процес (stdin/stdout каналами) для
+// Два входи: `run` збирає весь вивід; `start` — потоковий процес (stdin/stdout каналами) для
 // байтового обміну `cat-file --batch`, де збирання всього stdout тримало б у пам'яті все джерело.
 
 use std::ffi::{OsStr, OsString};
@@ -102,7 +102,7 @@ pub fn run<S: AsRef<OsStr>>(repo: &Path, args: &[S], stdin: Option<&[u8]>, allow
     Ok(Output { code: code.unwrap_or(-1), stdout: out.stdout, stderr: out.stderr })
 }
 
-/// Потоковий процес git (D4а): stdin і stdout — канали для обміну запит-відповідь, stderr збирає
+/// Потоковий процес git: stdin і stdout — канали для обміну запит-відповідь, stderr збирає
 /// окремий потік (обсяг невідомий — непрочитаний канал зупинив би git).
 pub struct Stream {
     args: String,
@@ -169,7 +169,7 @@ impl Drop for Stream {
 /// застосовують eol-конверсію з .gitattributes, а потрібне те, що ЛЕЖИТЬ у git). Один процес
 /// `cat-file --batch`, запит-відповідь по блобу. Повертає кількість записаних файлів.
 ///
-/// Тек не видаляє (план #51 §7, П25/#34): `dest` має не існувати або бути порожньою текою.
+/// Тек не видаляє (#34): `dest` має не існувати або бути порожньою текою.
 pub fn export_tree(repo: &Path, rev: &str, repo_path: &str, dest: &Path) -> Result<usize, GitError> {
     let io_err = |context: String| move |source| GitError::Io { context, source };
     if dest.exists() {

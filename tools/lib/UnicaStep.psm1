@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 # Supply дає Get-KitSupplyState і Get-KitSupplyRecipe.
 Import-Module "$PSScriptRoot/Supply.psm1"
 
-# Наступний крок команди для рядка `next:` (спека #51 D3, Р4): перший надрукований крок у формі команди
+# Наступний крок команди для рядка `next:` (ADR-0014): перший надрукований крок у формі команди
 # (`kit …` чи `unica.run …` з dryRun:true) і ознака «надруковано ЗУПИНКА». Стан одного виклику команди:
 # sync, verify і session-check скидають його на старті й друкують рядок наприкінці.
 $script:KitNextStep = @{ First = $null; Stopped = $false }

@@ -1,4 +1,4 @@
-// Запобіжник D5 (спека #51; план T3, правило Н5): поза модулем `git` Rust-код kit git не запускає.
+// Запобіжник «запуск git лише в модулі git» (ADR-0014): поза модулем `git` Rust-код kit git не запускає.
 //
 // Обсяг — rust/src/** (рекурсивно) і rust/build.rs; тести rust/tests/ поза обсягом, як tools/tests/ у
 // PowerShell. Модуль `git` — src/git.rs і src/git/**.
@@ -18,9 +18,9 @@ use std::path::{Path, PathBuf};
 /// Дозволені динамічні `Command::new`: (файл відносно rust/, текст аргументу, навіщо). Кожен запис
 /// мусить відповідати рівно одному місцю в коді — застарілий запис теж червоне.
 const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
-    ("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру (план Р3)"),
-    ("src/proc.rs", "&taskkill", "убити дерево процесів на стелі часу: хук старту (session-check) і gh (план Р5)"),
-    ("src/gh.rs", "&exe", "gh для session-board: програма знайдена в PATH (план T5)"),
+    ("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру"),
+    ("src/proc.rs", "&taskkill", "убити дерево процесів на стелі часу: хук старту (session-check) і gh"),
+    ("src/gh.rs", "&exe", "gh для session-board: програма знайдена в PATH"),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,7 +379,7 @@ fn git_is_launched_only_in_git_module() {
     assert!(r.violations.is_empty(), "запуск git поза модулем git:\n{}", r.violations.join("\n"));
 }
 
-/// Мутації R1–R11 правила Н5 і три з аудиту: кожна дає влучення (для (в) — динамічний запуск поза
+/// Мутації R1–R14 правила і три з аудиту: кожна дає влучення (для (в) — динамічний запуск поза
 /// переліком).
 #[test]
 fn launch_forms_are_caught() {

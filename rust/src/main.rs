@@ -1,4 +1,4 @@
-// kit.exe — один вхід команд kit (спека #51 D1, D1а, D2, D3): `kit <команда> [аргументи]`.
+// kit.exe — один вхід команд kit (ADR-0014): `kit <команда> [аргументи]`.
 //
 // Перенесені на Rust команди kit виконує сам; решту передає PowerShell-диспетчеру
 // `<корінь плагіна>/tools/kit.ps1`. Токени йдуть НЕ аргументами `pwsh -File` (PowerShell сам
@@ -6,13 +6,13 @@
 // змінній оточення KIT_ARGV; диспетчер читає її й прибирає зі свого оточення. stdin, stdout і stderr
 // успадковані, код диспетчера — код kit.exe.
 //
-// Коди (D3): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
+// Коди (ADR-0014): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
-// Перенесені команди: `session-board` (D8, план #51 T5).
+// Перенесені команди: `session-board` (ADR-0014).
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
-// «бінарник = джерело» (D7); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, D6, план Р5);
+// «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
 // `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С.
 
 mod fingerprint;
@@ -24,7 +24,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
 
-/// Відбиток джерел `rust/`, вбудований build.rs під час збірки (D7).
+/// Відбиток джерел `rust/`, вбудований build.rs під час збірки (ADR-0014).
 const EMBEDDED_FINGERPRINT: &str = env!("KIT_SOURCE_FINGERPRINT");
 
 /// Прихована підкоманда запобіжника «бінарник = джерело»: не в довідці, не команда для людини.
@@ -35,7 +35,7 @@ fn fail(command: &str, message: &str, code: i32) -> ! {
     exit(code)
 }
 
-/// Корінь плагіна — батьківська тека теки бінарника (bin/kit.exe → корінь), план Р3.
+/// Корінь плагіна — батьківська тека теки бінарника (bin/kit.exe → корінь).
 fn plugin_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("шлях kit.exe не визначено: {e}"))?;
     exe.parent()
@@ -63,7 +63,7 @@ fn print_help(root: Option<&Path>) {
 }
 
 /// `kit source-fingerprint [<тека крейта>]`: вбудований відбиток і, якщо тека задана, обчислений з неї
-/// з кількістю файлів. Запобіжник D7 у Pester порівнює ці два рядки.
+/// з кількістю файлів. Запобіжник «бінарник = джерело» у Pester порівнює ці два рядки.
 fn source_fingerprint(args: &[String]) -> i32 {
     println!("embedded {EMBEDDED_FINGERPRINT}");
     match args {
@@ -79,7 +79,7 @@ fn source_fingerprint(args: &[String]) -> i32 {
     }
 }
 
-/// Процес PowerShell-диспетчера з токенами в KIT_ARGV (D1а), ще не запущений: його запускає передача
+/// Процес PowerShell-диспетчера з токенами в KIT_ARGV, ще не запущений: його запускає передача
 /// команди (`dispatch`) і хук старту (`session_start`) — одне місце запуску `pwsh`.
 pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
     let script = root.join("tools").join("kit.ps1");
@@ -95,7 +95,7 @@ pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, Stri
     Ok(cmd)
 }
 
-/// Передача команди PowerShell-диспетчеру через KIT_ARGV (D1а); код диспетчера — код kit.exe.
+/// Передача команди PowerShell-диспетчеру через KIT_ARGV (ADR-0014); код диспетчера — код kit.exe.
 fn dispatch(root: &Path, tokens: &[String]) -> i32 {
     let mut cmd = dispatcher(root, tokens).unwrap_or_else(|e| fail("kit", &e, 1));
     match cmd.status() {
@@ -119,7 +119,7 @@ fn main() {
         exit(source_fingerprint(&tokens[1..]));
     }
     if command == session_start::COMMAND {
-        // Хук старту сесії (D6, план Р5): код 0 завжди, вивід — одним записом або жодного.
+        // Хук старту сесії (ADR-0014): код 0 завжди, вивід — одним записом або жодного.
         let out = plugin_root().ok().and_then(|root| session_start::run(&root));
         if let Some(text) = out {
             let mut stdout = std::io::stdout().lock();
@@ -137,7 +137,7 @@ fn main() {
         exit(0);
     }
     if command == "session-board" {
-        // Перенесена команда (D8, план T5): вивід і код — як у PowerShell-версії, байти без перетворень.
+        // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.
         let cwd = std::env::current_dir().unwrap_or_else(|e| fail("session-board", &format!("поточна тека не визначена: {e}"), 1));
         let o = session_board::run(&tokens[1..], &cwd);
         let mut stdout = std::io::stdout().lock();
