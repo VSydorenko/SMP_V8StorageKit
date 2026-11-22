@@ -119,7 +119,7 @@ Describe 'kit sync — крок вирівнювання пам''яті ранн
         $text | Should -BeLike '*вирівнювання не завершено*Злиття в основну гілку теж не вдалось*'
         $text | Should -Not -BeLike '*Готово.*'
     }
-    It 'next: (D3, Р4) — крок push надруковано, але є ЗУПИНКА: рядка next: немає, ЗУПИНКА остання' {
+    It 'next: — крок push надруковано, але є ЗУПИНКА: рядка next: немає, ЗУПИНКА остання' {
         # Два набори: base — зупинка, Alpha_SMB — крок push. Без ЗУПИНКА крок дав би next: (правило «є крок»).
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Infobase = 'File=build/ib'; Sets = @(
             @{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src'; Truth = 'storage' }

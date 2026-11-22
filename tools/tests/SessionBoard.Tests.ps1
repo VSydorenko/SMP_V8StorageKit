@@ -1,7 +1,7 @@
 #Requires -Version 7
 # session-board: злитий PR зараховується гілці лише тоді, коли в ній немає нової роботи після нього
 # (оригінал — agent-kit 0.9.1 tests/session-board.test.mjs). Справжній bin/kit.exe підпроцесом
-# на синтетичному репо (команда перенесена на Rust, спека #51 D8), gh — фальшивий gh.cmd першим у PATH підпроцесу.
+# на синтетичному репо (команда перенесена на Rust, ADR-0014), gh — фальшивий gh.cmd першим у PATH підпроцесу.
 Describe 'session-board — злитий PR і нова робота в гілці' {
     BeforeAll {
         $script:KitExe = (Resolve-Path "$PSScriptRoot/../../bin/kit.exe").Path

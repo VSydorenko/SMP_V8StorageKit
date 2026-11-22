@@ -1,4 +1,4 @@
-// `kit session-board` (спека #51 D8; перенесено з tools/commands/session-board.psm1, який походив з
+// `kit session-board` (ADR-0014; перенесено з tools/commands/session-board.psm1, який походив з
 // agent-kit 0.9.1 bin/session-board + lib/session-board.mjs): статус паралельних сесій одним екраном.
 // Джерела — git і gh, не список агентів.
 //

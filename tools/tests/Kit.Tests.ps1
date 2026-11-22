@@ -34,7 +34,7 @@ Export-ModuleMember -Function Invoke-KitProbe
         $script:Repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo')
     }
 
-    # Один контракт кодів (спека #51 D3, tools/lib/KitCli.psm1): 0 — виконано; 1 — зупинка (throw
+    # Один контракт кодів (ADR-0014, tools/lib/KitCli.psm1): 0 — виконано; 1 — зупинка (throw
     # префлайту чи команди) або check із помилками; 2 — помилка виклику (невідома команда, розбір
     # аргументів, перетворення типу); 3 — не перевірено; 4 — виконано, є наступний крок (sync: злиття
     # не виконано; verify і session-check: є що робити). Помилка — `<команда>: ERROR …` у stderr.
@@ -212,7 +212,7 @@ Describe 'Copy-KitTools — повнота пісочниці' {
     }
 }
 
-Describe 'Інваріант -Apply — прямий виклик диспетчера (спека #51 D1а)' {
+Describe 'Інваріант -Apply — прямий виклик диспетчера' {
     # `pwsh -File` сам розщеплює -Ім'я:значення на два токени: `-Apply:false` доходить до скрипта як
     # `-Apply` + `False`. Прийми диспетчер позиційний токен — `sync -Apply:false` застосував би
     # замість прев'ю. Заглушка sync лише в копії: друкує, що отримала, — маркер доводить, чи її кликали.
@@ -255,7 +255,7 @@ Export-ModuleMember -Function Invoke-KitSync
     }
 }
 
-Describe 'Контракт кодів D3 — кожен код справжньою командою підпроцесом' {
+Describe 'Контракт кодів — кожен код справжньою командою підпроцесом' {
     # Код береться з $LASTEXITCODE підпроцесу справжнього tools/kit.ps1, у множину йде СПОСТЕРЕЖЕНИЙ
     # код, не очікуваний: випадок, що свідомо віддає інший код, червонить останнє твердження.
     BeforeAll {
@@ -271,7 +271,7 @@ Describe 'Контракт кодів D3 — кожен код справжнь�
         $script:Unmerged = New-Repo -Name 'd3-unmerged-repo' -StoragePath $s -MirrorDate $script:New
         $script:Machine = @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry), '-RunnerPath', (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd'))
 
-        function script:Invoke-D3 {
+        function script:Invoke-CodeContract {
             param([string]$Cwd, [string[]]$Arguments)
             $errFile = Join-Path $TestDrive "d3-err-$([guid]::NewGuid()).txt"
             Push-Location $Cwd
@@ -292,7 +292,7 @@ Describe 'Контракт кодів D3 — кожен код справжнь�
         @{ Code = 3; Case = 'pr-gate start без workspace.mode у профілі — не перевірено'; Cwd = 'NoProfile'; ErrLike = 'pr-gate: ERROR *workspace.mode*'; Run = { @('pr-gate', 'start', 'x') } }
         @{ Code = 4; Case = 'session-check: дзеркало не злите в main — є наступний крок'; Cwd = 'Unmerged'; Run = { @('session-check', '-RepoRoot', $script:Unmerged) + $script:Machine } }
     ) {
-        $r = Invoke-D3 -Cwd (Get-Variable -Name $Cwd -Scope Script -ValueOnly) -Arguments (& $Run)
+        $r = Invoke-CodeContract -Cwd (Get-Variable -Name $Cwd -Scope Script -ValueOnly) -Arguments (& $Run)
         [void]$script:Seen.Add($r.ExitCode)
         $r.ExitCode | Should -Be $Code -Because "$($r.Out)`n$($r.Err -join "`n")"
         if ($ErrLike) { $r.Err[0] | Should -BeLike $ErrLike }

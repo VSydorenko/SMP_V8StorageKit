@@ -620,7 +620,7 @@ function Invoke-KitSync {
         }
         Write-KitAlignStops -Steps $alignSteps.ToArray()
     }
-    # Після ЗУПИНКА і після винятку рядка немає (D3, Р4): finally вище його не друкує.
+    # Після ЗУПИНКА і після винятку рядка немає (ADR-0014): finally вище його не друкує.
     Write-KitNextStepLine
     [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 4 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }

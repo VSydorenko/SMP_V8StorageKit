@@ -1,6 +1,6 @@
-// Тести ядра git (спека #51 D5, план T3, §7 «байти порівняння й хешування») на справжньому git і
+// Тести ядра git (ADR-0014; «байти порівняння й хешування») на справжньому git і
 // синтетичному репозиторії: кирилиця й пробіл у шляху, бінарний блоб 262 байти з невалідним UTF-8,
-// CRLF з BOM (вимір П2).
+// CRLF з BOM (вимір байтів).
 
 use kit::git::{self, GitError};
 use std::path::PathBuf;
@@ -115,7 +115,7 @@ fn failure_contract() {
 #[test]
 fn failure_stderr_is_byte_exact() {
     let (_tmp, repo) = fixture("fail-bytes");
-    // Псевдонім-оболонка git друкує в stderr байти, що не є UTF-8: помилка несе їх дослівно (D4).
+    // Псевдонім-оболонка git друкує в stderr байти, що не є UTF-8: помилка несе їх дослівно.
     let args = ["-c", "alias.bad=!printf '\\377\\376збій' >&2; exit 3", "bad"];
     match git::run(&repo, &args, None, false) {
         Err(GitError::Failed { code, stderr, .. }) => {

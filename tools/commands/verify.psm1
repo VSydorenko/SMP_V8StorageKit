@@ -214,7 +214,7 @@ function Invoke-KitVerify {
                 }
 
                 # Крок звірочного коміту — у next: лише без -Apply: з -Apply злиття виконується нижче, і наступний
-                # крок — вирівнювання (push), а не повтор verify (D3, Р4).
+                # крок — вирівнювання (push), а не повтор verify (ADR-0014).
                 switch ($verdict) {
                     'equal'         { Write-Host "  Вердикт: equal — '$ref' ≡ сховище (версія $ver)." -ForegroundColor Green }
                     'storage-ahead' { Write-Host "  Вердикт: storage-ahead — у сховищі є версії повз '$ref'. Звірочний коміт: kit verify -Ref $ref -Apply" -ForegroundColor Yellow; if (-not $Apply) { Register-KitNextStep -Step "kit verify -Ref $ref -Apply" }; $anyAction = $true }

@@ -9,7 +9,7 @@ Describe 'kit session-check — сигнал без платформи' {
         $r.Output | Should -BeLike '*- Alpha_SMB:*1 *не злит*main*kit verify*'
     }
 
-    It 'next: (D3, Р4) — є крок: останній рядок next: дорівнює першому надрукованому кроку' {
+    It 'next: — є крок: останній рядок next: дорівнює першому надрукованому кроку' {
         $s = New-FakeStorage -Name 'next-step' -ObjectsWrite $script:Old -DbWrite $script:Old
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'next-step' -StoragePath $s -MirrorDate $script:New)
         $r.ExitCode | Should -Be 4
@@ -18,7 +18,7 @@ Describe 'kit session-check — сигнал без платформи' {
         $lines[-1] | Should -BeExactly 'next: kit verify -Apply'
     }
 
-    It 'next: (D3, Р4) — код 0 без кроку: рядка next: немає' {
+    It 'next: — код 0 без кроку: рядка next: немає' {
         $r = Invoke-SessionCheck -Repo (New-Repo -Name 'next-none' -StoragePath (Join-Path $TestDrive 'nope-next') -MirrorDate $script:Old -Merge)
         $r.ExitCode | Should -Be 0
         @($r.Output -split "`r?`n" | Where-Object { $_ -like 'next:*' }) | Should -HaveCount 0

@@ -9,7 +9,7 @@ build = "build.rs"
 name = "kit"
 path = "src/main.rs"
 
-# Залежності — мінімум, кожна з обґрунтуванням (спека #51 D0, план §3): serde_json — JSON-масив
+# Залежності — мінімум, кожна з обґрунтуванням: serde_json — JSON-масив
 # KIT_ARGV для диспетчера, далі профіль, файл сесій і JSON хука.
 [dependencies]
 serde_json = "1"
