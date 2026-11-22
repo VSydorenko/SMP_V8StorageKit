@@ -261,19 +261,19 @@ Describe 'Контракт кодів — кожен код справжньою
     BeforeAll {
         . (Join-Path $PSScriptRoot 'fixtures/SessionCheckSetup.ps1')
         $script:Seen = [System.Collections.Generic.HashSet[int]]::new()
-        $script:Plain = Join-Path $TestDrive 'd3-plain'
+        $script:Plain = Join-Path $TestDrive 'codes-plain'
         New-Item -ItemType Directory -Path $script:Plain -Force | Out-Null
-        $script:NoProfile = Join-Path $TestDrive 'd3-no-profile'
+        $script:NoProfile = Join-Path $TestDrive 'codes-no-profile'
         New-Item -ItemType Directory -Path $script:NoProfile -Force | Out-Null
         git -C $script:NoProfile init -q 2>$null
-        $script:Good = New-KitFakeRepo -Root (Join-Path $TestDrive 'd3-good') -WithHooks -WithGitattributes -WithGitignore
-        $s = New-FakeStorage -Name 'd3-unmerged' -ObjectsWrite $script:Old -DbWrite $script:Old
-        $script:Unmerged = New-Repo -Name 'd3-unmerged-repo' -StoragePath $s -MirrorDate $script:New
+        $script:Good = New-KitFakeRepo -Root (Join-Path $TestDrive 'codes-good') -WithHooks -WithGitattributes -WithGitignore
+        $s = New-FakeStorage -Name 'codes-unmerged' -ObjectsWrite $script:Old -DbWrite $script:Old
+        $script:Unmerged = New-Repo -Name 'codes-unmerged-repo' -StoragePath $s -MirrorDate $script:New
         $script:Machine = @('-InstalledPluginsPath', (New-KitFakeUnicaRegistry), '-RunnerPath', (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd'))
 
         function script:Invoke-CodeContract {
             param([string]$Cwd, [string[]]$Arguments)
-            $errFile = Join-Path $TestDrive "d3-err-$([guid]::NewGuid()).txt"
+            $errFile = Join-Path $TestDrive "codes-err-$([guid]::NewGuid()).txt"
             Push-Location $Cwd
             try { $out = & pwsh -NoProfile -File $script:Kit @Arguments 2>$errFile; $code = $LASTEXITCODE }
             finally { Pop-Location }
