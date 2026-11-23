@@ -28,8 +28,8 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
 | --- | --- | --- | --- |
 | B1 Конфігурація | модуль `config` крейта: читання YAML (ADR-0018), маніфест і накладка, `v8project.yaml` і `v8project.local.yaml`, база агента воркспейсу, розбір рядка підключення, префлайт (суворий і поблажливий) зі знахідками, прихована підкоманда префлайту без секретів (§5.1) | тести паритету на кожній фікстурі маніфесту й на зразках `templates/v8storagekit*.example` зелені: контекст без секретів і знахідки Rust-префлайту дорівнюють PowerShell-префлайту; помилка на кожен клас неправильного файла має тест, що червоніє без перевірки; маркерні тести всіх класів §6 зелені для модуля `config` і підкоманди префлайту | — |
 | B2 Раннер і Уніка | модуль `runner` — єдине місце запуску раннера (ADR-0019): установлена Уніка з реєстру плагінів, вердикти версій Уніки й раннера, запуск, конверт раннера; приховані підкоманди для PowerShell; `Runner.psm1` і `check-environment.ps1` переходять на них (§5.2) | запобіжник «раннер запускається лише в модулі `runner`» має влучення й контроль, що вміє впасти; тести `Runner` і `Environment` зелені, а `check-environment.ps1` на фальшивому реєстрі друкує ті самі вердикти, що до зміни; лапкування — тест на аргументах із пробілом, лапкою й кінцевим `\` | — |
-| B3 `kit check` | команда `check` у Rust: усі перевірки §5.3, вивід і коди як зараз; `kit.exe` виконує `check` сам, без передачі диспетчеру; `commands/check.psm1` видалено за ADR-0014 п. 7 | усі Pester-файли `Check.*` і ті `Describe` файла `Secrets`, що запускають команду підпроцесом, зелені проти `kit.exe` (фікстура `Invoke-KitCommand` кличе `kit.exe check`); еталон виводу PowerShell на фікстурах знято на цільовому коміті `main` (§5.0) до видалення модуля й звірено; маркерні тести всіх класів §6 зелені для `check`; тест падає на будь-якому правилі allow для `kit.exe` із шаблоном (`:*`, `*`) у `.claude/settings.json` і `templates/settings.json` | B1 (`config`), B2 (`runner`, `unica`), злиття гілки `feature/onboarding-target-state` (вона змінює `StorageBranch.psm1`, на якому стоїть перевірка `storage-branch`) |
-| B4 `kit session-check` і хук | команда `session-check` у Rust (§5.4); хук `session-start` кличе `kit.exe session-check` дочірнім процесом замість передачі PowerShell; `commands/session-check.psm1` видалено за ADR-0014 п. 7 | усі `SessionCheck.*` і `SessionStartHook` зелені проти `kit.exe`; у репозиторії з маніфестом хук не запускає `pwsh` (тест фальшивим `pwsh.exe`, що лишає маркер); стеля часу й текст «НЕВІДОМИЙ» — як зараз; еталон знято на цільовому коміті `main` (§5.0); маркерні тести всіх класів §6 зелені для `session-check` і для контексту сесії, який друкує хук | B3 (`check` як функція), злиття гілки `feature/onboarding-target-state` (вона змінює `session-check.psm1` і `StorageBranch.psm1`) |
+| B3 `kit check` | команда `check` у Rust: усі перевірки §5.3, вивід і коди як зараз; `kit.exe` виконує `check` сам, без передачі диспетчеру; `commands/check.psm1` видалено за ADR-0014 п. 7 | усі Pester-файли `Check.*` і ті `Describe` файла `Secrets`, що запускають команду підпроцесом, зелені проти `kit.exe` (фікстура `Invoke-KitCommand` кличе `kit.exe check`); еталон виводу PowerShell на фікстурах знято на цільовому коміті `main` (§5.0) до видалення модуля й звірено; маркерні тести всіх класів §6 зелені для `check`; тест падає на будь-якому правилі allow для `kit.exe` із шаблоном (`:*`, `*`) у `.claude/settings.json` і `templates/settings.json` | B1 (`config`), B2 (`runner`, `unica`) |
+| B4 `kit session-check` і хук | команда `session-check` у Rust (§5.4); хук `session-start` кличе `kit.exe session-check` дочірнім процесом замість передачі PowerShell; `commands/session-check.psm1` видалено за ADR-0014 п. 7 | усі `SessionCheck.*` і `SessionStartHook` зелені проти `kit.exe`; у репозиторії з маніфестом хук не запускає `pwsh` (тест фальшивим `pwsh.exe`, що лишає маркер); стеля часу й текст «НЕВІДОМИЙ» — як зараз; еталон знято на цільовому коміті `main` (§5.0); маркерні тести всіх класів §6 зелені для `session-check` і для контексту сесії, який друкує хук | B3 (`check` як функція) |
 
 ## 4. Interfaces
 
@@ -54,15 +54,16 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
 - **Порядок переносу** — ADR-0014 п. 7: Rust-команда → наявні Pester-тести команди зелені проти `kit.exe`
   як чорна скринька → еталон виводу PowerShell на фікстурах знято до видалення модуля → модуль команди
   прибрано. Байти, які kit порівнює чи хешує, не змінюються.
-- **Цільова поведінка** `check` і `session-check` — поведінка PowerShell-версії на **цільовому коміті** `main`:
-  першому коміті після злиття гілки `feature/onboarding-target-state`. План B3/B4 називає цей коміт; еталон і
-  приймальні тести беруться з нього. Зміна PowerShell-версії після цільового коміту — задача 0 відповідного плану.
+- **Цільова поведінка** `check` і `session-check` — поведінка PowerShell-версії на **цільовому коміті** `main`
+  `e25ae14` (злиття гілки `feature/onboarding-target-state`, PR #105); еталон і приймальні тести беруться з
+  нього. Зміна PowerShell-версії після цільового коміту — задача 0 відповідного плану.
 - **Спільні функції.** Функцію, яку кличе ще й PowerShell-команда, що лишається після фази, переносять у Rust, а
   її PowerShell-копію лишають, доки її кличе хоч одна така команда. Перелік на дату спеки (неповнота переліку —
   не дозвіл: авторитетний — `grep -rlw <функція> tools/commands tools/lib`):
   `Select-KitSources`, `Resolve-KitAgentBase`, `New-KitAgentBaseMissingMessage`, `Find-KitAgentBaseCollisions`,
   `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitOnMainBranch`, `Test-KitBranchExists`,
-  `Get-KitStorageBranchLastVersion`, `Get-KitStorageActivity`, `Get-KitOriginGap`, `Test-GitTextPolicy`,
+  `Get-KitStorageBranchLastVersion`, `Test-KitRemoteOnlyMirror`, `Get-KitRestoreMirrorStep`,
+  `Get-KitStorageActivity`, `Get-KitOriginGap`, `Test-GitTextPolicy`,
   `Get-KitTreePaths`, `Get-KitCaseCollisions`, `Get-KitSupplyState`, `Get-KitSupplyRecipe`, `Test-KitSupplyDescribed`,
   `Get-KitSupplyRelativePath`, `Get-V8CredentialsRecipe`, `Test-KitGitHooks`, `Test-KitLegacySessionHook`,
   `Invoke-KitGitProcess`, `Reset-KitNextStep`, `Register-KitNextStep`, `Write-KitNextStepLine`, `Invoke-KitPreflight`
@@ -96,7 +97,8 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
   джерел і знахідок у виводі.
 - **Маніфест `v8storagekit.yaml` і накладка `v8storagekit.local.yaml`** — власні типи з тими самими правилами,
   що `Read-KitManifest` і `Read-KitLocalOverlay`: обов'язкові ключі, форма шляху сховища, невідомий ключ —
-  помилка, старий рядок `kitVersion:` — помилка з рецептом.
+  помилка. Старий рядок `kitVersion:` — залежно від режиму префлайту (нижче): у суворому й поблажливому —
+  помилка з рецептом, у режимі `check` — окрема знахідка, а решта маніфесту розбирається.
 - **`v8project.yaml` і `v8project.local.yaml`** — деревом (ADR-0018 п. 2): kit бере лише source-set-и (ім'я, тип,
   шлях), запис `infobases.origin` (`connection`, `user`, `password`, `dbms`) і поля своєї політики.
   Політику `Get-V8ProjectConfigProblems` (стара `infobase:`, `providers` = `designer`, форма `infobases`)
@@ -106,11 +108,14 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
   перетини баз і пам'яті раннера між воркспейсами (`Find-KitAgentBaseCollisions`, канонічні шляхи).
 - **Рядок підключення** (`ConvertFrom-V8Connection`): `File=`/`Srvr=`+`Ref=`, облікові дані; пароль із
   лапкою — відмова (`Assert-V8SecretQuoteFree`). Помилки розбору не містять значень (правило §6).
-- **Префлайт**: суворий (перша помилка — зупинка з кодом 1) і поблажливий (`-Lenient`: усі помилки стають
-  знахідками, контекст — наскільки вдалося зібрати; так його кличуть `check` і `session-check`). Вибір джерел
-  за `-Workspace`/`-Source`/`-Truth` — як `Select-KitSources`.
-- **Тест паритету**: на кожній фікстурі `tools/tests/fixtures/manifest-*.yaml`, на зразках
-  `templates/v8storagekit.yaml.example` і `templates/v8storagekit.local.yaml.example` і на синтетичних
+- **Префлайт** — три режими, як `Invoke-KitPreflight -Mode`: `Strict` (перша помилка — зупинка з кодом 1;
+  команди сховища), `Lenient` (усі помилки стають знахідками, контекст — наскільки вдалося зібрати;
+  `kitVersion` у маніфесті — зупинка на знахідці `manifest`; так його кличе `session-check`) і `Check` (як
+  `Lenient`, але `kitVersion` — окрема знахідка error `kit-version`, а решта маніфесту розбирається; так його
+  кличе `check`). Вибір джерел за `-Workspace`/`-Source`/`-Truth` — як `Select-KitSources`.
+- **Тест паритету** (у кожному з трьох режимів): на кожній фікстурі `tools/tests/fixtures/manifest-*.yaml`, на
+  зразках `templates/v8storagekit.yaml.example`, `templates/v8storagekit.local.yaml.example` і
+  `templates/v8project.yaml.example` і на синтетичних
   репозиторіях `New-KitFakeRepo` контекст і знахідки Rust-префлайту дорівнюють PowerShell-префлайту.
   Rust-бік — прихована підкоманда префлайту: JSON із контекстом і знахідками, у якому кожне поле пароля
   (сховища, бази агента) замінено ознакою «задано / не задано», а кожен рядок підключення виводиться лише
@@ -142,7 +147,7 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
 
 - **Параметри** як зараз: `-RepoRoot`, `-Workspace`, `-Source`, `-Quiet`, `-InstalledPluginsPath`, `-RunnerPath`;
   форма виклику й коди — ADR-0014 п. 4.
-- **Перевірки** — той самий набір і ті самі ідентифікатори у виводі: `manifest`, `overlay`, `workspace`, `source`,
+- **Перевірки** — той самий набір і ті самі ідентифікатори у виводі: `manifest`, `kit-version`, `overlay`, `workspace`, `source`,
   `unica-version`, `runner-version`, `agent-base-required`, `main-branch`, `unique-keys`, `overlay-ignored`,
   `overlay-connection`, `gitattributes`, `case-collision`, `gitignore`, `supply`, `storage-path`, `storage-branch`,
   `dump-from`, `config-name`, `undeclared-source`, `build-artifacts`, `local-ignored`, `local-audit`, `hooks`,
@@ -156,10 +161,11 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
 
 ### 5.4 B4 `kit session-check` і хук
 
-- **Поведінка** як зараз (з урахуванням гілки `feature/onboarding-target-state`, від якої блок залежить):
-  спершу `check` як функція; помилка `check` — код 1 без сигналів; далі на кожне джерело `truth: storage` —
-  дзеркало `storage/<ключ>`, активність сховища (`1cv8ddb.1CD`, `data/objects`, `data/pack`), відбиток сховища,
-  відставання від `origin` без мережі; коди 0/1/4, рядок `next:` за ADR-0014 п. 4. Параметри як зараз:
+- **Поведінка** — на цільовому коміті (§5.0): спершу `check` як функція; помилка `check` — код 1 без сигналів;
+  далі на кожне джерело `truth: storage` — дзеркало `storage/<ключ>`, активність сховища (`1cv8ddb.1CD`,
+  `data/objects`, `data/pack`), відбиток сховища, відставання від `origin` без мережі; дзеркало лише на `origin`
+  (локальної гілки немає, `origin/<гілка>` є) — сигнал `remote-only` з кодом 4 і кроком відновлення гілки
+  (`Get-KitRestoreMirrorStep`) незалежно від доступності сховища; коди 0/1/4, рядок `next:` за ADR-0014 п. 4. Параметри як зараз:
   `-RepoRoot`, `-Workspace`, `-Source`, `-AsJson`, `-InstalledPluginsPath`, `-RunnerPath`. `-AsJson` — одна форма
   верхнього рівня і на успіху, і на помилці; звіряється з еталоном розібраними значеннями (ADR-0014 п. 7),
   текстовий вивід — побайтно.
