@@ -20,15 +20,22 @@
 - Відомо `git status` проєкту; запиши незакомічені файли інших сесій — ти їх ніколи не чіпаєш.
 - `kit-scan` у корені проєкту (лише читання; `-Json` — для машинного розбору) → збережи таблицю (вона
   основа звіту). Він починає з розриву версії та його кроків оновлення, далі перелічує дублікати й
-  прототипи, посилання на superpowers, файли пам'яті про процедури, які тепер робить kit, журнали
-  виконання (`.superpowers/sdd/`, `.agents/sdd/`), скіли поза плагіном і місця поза репозиторієм.
-  Розділи виводу: `Kit version`, `Duplicates and prototypes`, `Superpowers references`,
+  прототипи, застарілі імена, посилання на superpowers, файли пам'яті про процедури, які тепер робить kit,
+  журнали виконання (`.superpowers/sdd/`, `.agents/sdd/`), скіли поза плагіном і місця поза репозиторієм.
+  Розділи виводу: `Kit version`, `Duplicates and prototypes`, `Obsolete names` (рядок на збіг: файл, стара
+  назва, заміна; джерело — `tools/assets/obsolete-names.json` плагіна), `Superpowers references`,
   `Superpowers plugin`, `Superpowers files`, `Journals`, `Memory` (і `Memory index`, коли в індексі є
   прогалини), `Skills outside the plugin`, `Places outside the repo`; ключі `-Json` — `kitVersion`,
-  `duplicates`, `superpowers`, `superpowersPlugin`, `superpowersDocs`, `journals`, `memory`, `skills`,
+  `duplicates`, `obsoleteNames`, `superpowers`, `superpowersPlugin`, `superpowersDocs`, `journals`, `memory`, `skills`,
   `places`. Вивід розходиться з цим переліком — вір виводу й скажи про розбіжність у звіті.
-- `Kit version`: актуально, перше підключення чи відставання з кроками `V1…Vn` → оновлення, [upgrades.md](upgrades.md).
-- `kit-setup -DryRun` показує різниці налаштувань, `.gitignore` і профілю → збережи.
+- `Kit version`: актуально; `connected-before` (профілю чи `kit.version` немає, у маніфесті є `kitVersion:`) —
+  підключено раніше: `kit check -RepoRoot .` і чеклісти версій, новіших за версію з маніфесту; `no-version`
+  (профіль без `kit.version`, `kitVersion:` немає) — нормальний стан до останнього коміту PR, його запише
+  `kit-setup -SetVersion`, кроків оновлення немає; відставання з кроками `V1…Vn` → оновлення,
+  [upgrades.md](upgrades.md). Проєкт, підключений раніше, іде порядком із `SKILL.md`, розділ 5.
+- `kit-setup -DryRun` показує різниці `.gitignore` і профілю та **звіт про `.claude/settings.json`** відносно
+  `templates/settings.json` (лише читання; `-Json` — для агента, розділ `permissions`) → збережи. Версію
+  плагіна, яку друкує `kit-setup`, теж запиши: повторний скан — коли на застосуванні вона інша.
 - Код: вхід — Уніка (`unica.view {}`); `v8project.yaml` на місці й профіль його не дублює. Уніки на
   машині немає → запиши це як факт для звіту (агенти шукатимуть `git grep`).
 - Залишки superpowers: `docs/superpowers/*` (спеки, плани, handoff), `.superpowers/sdd/` (журнали —
@@ -52,6 +59,7 @@
 | --- | --- |
 | дублікат / прототип | **remove** (те саме, що частина kit) · **keep-knowledge** (тримає знання проєкту, напр. предметні критерії рев'ю: перенеси в проєктний файл, який читає kit — поле профілю `review.criteria` — а решту прибери; назви ціль) · **keep + kit issue** (робить те, чого kit не робить: лиши й відкрий `gh issue create -R VSydorenko/SMP_V8StorageKit --label pattern` із доказом) |
 | посилання на superpowers | **replace** частиною kit, яку називає `kit-scan` · **remove** (частини kit немає за рішенням власника, напр. налагодження) · **keep** (частину kit заплановано — назви її issue). Позначка «planned» не завжди означає keep: planned лише одна з альтернатив заміни, а інша є (`v8storagekit:task-finish` є, `pr-gate` planned) → **replace** наявною; planned частина, без якої заміни немає → **keep** з issue |
+| застаріла назва (`Obsolete names`) | **replace** назвою з колонки заміни (скіл — з префіксом `v8storagekit:`; `tools/kit.ps1` → `kit`; прибрана команда збірки → `unica.run` з `"op":"make"`) · **remove** (інструмент Уніки, якого в Уніці 0.16 немає: заміни немає, правило прибирають) · **keep** (збіг у тексті, що не є викликом — цитата історії); перелік імен — лише в `tools/assets/obsolete-names.json`, не копіюй його у звіт цілим |
 | плагін superpowers у `enabledPlugins` (`Superpowers plugin`) | **disable** — вимкнути в `.claude/settings.json` проєкту, коли всі посилання замінено; рядок того самого звіту |
 | документи й журнали superpowers (`docs/superpowers/*`, `.superpowers/sdd/`) | **read-in-place** (журнали читаються на місці, не переносяться; `close-block` їх прибере разом із блоком) · **keep** (спека, план чи handoff, що ще живе: лишається, шлях у `docs.specs` / `docs.plans` профілю) · **delete** (завершений план: через `v8storagekit:close-block`, а не тут) |
 | файл пам'яті | **pointer** (механіка тепер в інструменті: скороти до одного рядка «→ інструмент / поле профілю» плюс політика, що лишається) · **delete** (хибний, застарілий, дубль) · **keep-as-history** · **move-to-profile** (факт, потрібний інструменту: команда, назва середовища, шлях) |
@@ -95,6 +103,11 @@
 - кожен рядок **move** з його командою `mv` і тим, що тримає тека (розмір, дата найновішого файла);
   рядки worktree названо **leave**;
 - JSON профілю, питання власнику позначено; вивід `kit-setup -DryRun`;
+- звіт `kit-setup` про `.claude/settings.json`: кожен клас (відсутні правила шаблону, правила на токен, що в
+  проєкті має `ask`/`deny`, застарілі імена Уніки, `unica_apply` в `allow`, старий шим хука, широкі правила,
+  відсутні `pr-gate open|ready|land`) — рядок звіту власнику з пропозицією, що додати чи прибрати; права
+  kit не пише, тож кожна правка — окремим питанням і лише за згодою (скіл `update-config` або Edit з повторним
+  читанням JSON);
 - **дослівно** новий текст кожної правки кореневих правил (`CLAUDE.md`, проєктні команди): спеки за скілом
   `v8storagekit:spec`; віхи лише в GitHub (`v8storagekit:track`); один рядок «план — `v8storagekit:plan`,
   виконання — `v8storagekit:execute`, PR — `pr-gate`, спека — `doc <файл> §N`, терміни — глосарій, рішення —
@@ -106,7 +119,11 @@
 ## 5. Застосуй після схвалення
 
 В одній гілці й одному PR проєкту (відкриває `pr-gate open`, зливає власник):
-- `kit-setup` (налаштування, `.gitignore`, скелет профілю) і заповнений профіль;
+- `kit-setup` (`.gitignore`, скелет профілю без `kit.version`, `.worktreeinclude`) і заповнений профіль;
+  правки `.claude/settings.json` — лише ті, які людина схвалила за звітом `kit-setup`, штатними засобами Claude
+  Code (старий шим хука разом із `git rm .claude/hooks/session-start.ps1`);
+- якщо за час онбордингу з'явився `v8project.yaml` — повторний `kit-setup` (правила Уніки в `allow` шаблону
+  звіт пропонує лише в репозиторії 1С);
 - видалення й переноси keep-knowledge точно як схвалено;
 - переміщення тек точно як схвалено — вони поза git, тож роби їх після коміту `kit-setup`, що кладе
   `.agents/private/` у `.gitignore`; перед кожним `mv` знову `session-board` і дата найновішого файла;
@@ -115,8 +132,9 @@
 - глосарій, ADR і переписування спек як схвалено — один коміт на спеку (крок 6, частина «пиши»);
 - пам'ять: pointer, видалення, переноси як схвалено; `MEMORY.md` оновлюй у тому ж кроці;
 - рядки оновлення `V1…Vn`;
-- **останній коміт** виставляє `"kit": { "version": "<версія плагіна>" }` у `.agents/kit.profile.json`, коли
-  закрито кожен рядок `V`; `kit-scan` тоді каже `up to date`.
+- **останній коміт** — `kit-setup -SetVersion` (запише `kit.version` = версії плагіна в наявний профіль, решту не
+  чіпає), коли закрито кожен рядок `V`; версія плагіна у виводі `kit-setup` — та сама, що у звіті, інакше спершу
+  повторний `kit-scan`. `kit-scan` тоді каже `up to date`.
 
 ## 6. Глосарій і ADR
 

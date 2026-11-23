@@ -119,7 +119,10 @@ Claude Code: робоча копія задачі — `pr-gate start` (`.worktre
   лише друкує базу, користувача й ціль.
 - **Ліцензія 1С.** Підрядки `лиценз`, `ліценз`, `license`, `HASP` у виводі платформи — зупинка й
   доповідь; служби, реєстр, `nethasp.ini` не чіпати.
-- **`git push`, `gh pr create` — лише за явним проханням** (у `.claude/settings.json` — `ask`).
+- **Push, PR і злиття — через `pr-gate` (`open`, `ready`, `land`) без запиту**: код `pr-gate` пушить
+  лише поточну гілку в однойменну звичайним push, ніколи головну чи `storage/*`, і зливає лише PR цього репозиторію
+  на голові, яку прочитав. **Голі `git push`, `gh pr create`, `gh pr merge` і `gh release` — лише за явним
+  проханням** (у `.claude/settings.json` — `ask`); force push — лише за явним проханням.
 
 ## Дозволи
 
@@ -129,5 +132,8 @@ Claude Code: робоча копія задачі — `pr-gate start` (`.worktre
 Хук `SessionStart` поставляє сам плагін. Команди kit (`kit sync|verify|…`) — з підтвердженням
 (правила дозволів працюють за префіксом, і дозвіл на прев'ю дозволив би `-Apply`). Команди
 процесу, що лише читають чи пишуть у `.agents/` і тимчасові дерева, — без запиту, кожна у двох
-формах, `Bash(…)` і `PowerShell(…)` (перелік — `permissions.allow`); дії назовні (GitHub: PR, злиття,
-issue) і сам `kit-setup` — з запитом.
+формах, `Bash(…)` і `PowerShell(…)` (перелік — `permissions.allow`); дії назовні — лише `pr-gate open`,
+`pr-gate ready` і `pr-gate land` без запиту (межу тримає код `pr-gate`, а не префікс дозволу); голі
+`git push`, `gh pr create`, `gh pr merge`, `gh release` і сам `kit-setup` — з запитом.
+Права не автоматизуються: `kit-setup` лише звітує про відхилення `.claude/settings.json` від цільового стану
+плагіна (`templates/settings.json`), а правки робить людина чи агент за її згодою штатними засобами Claude Code.
