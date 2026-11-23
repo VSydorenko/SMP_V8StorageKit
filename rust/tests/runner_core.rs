@@ -147,6 +147,26 @@ fn missing_runner_is_not_found() {
     assert_eq!(err.to_string(), "Раннер не знайдено: C:\\немає\\v8-runner.exe");
 }
 
+/// Голе ім'я раннера: запускається той файл, що перевірений (в поточній теці), а не знайдений у PATH.
+#[test]
+fn bare_runner_name_runs_the_checked_file_not_the_path_one() {
+    let a = TempDir::new("bare-a");
+    let b = TempDir::new("bare-b");
+    for (dir, version) in [(&a, "1.1.1"), (&b, "2.2.2")] {
+        std::fs::copy(FAKE, dir.0.join("v8-runner.exe")).unwrap();
+        std::fs::write(dir.0.join("version.txt"), version).unwrap();
+    }
+    let mut paths = vec![b.0.clone()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let out = Command::new(KIT)
+        .current_dir(&a.0)
+        .env("PATH", std::env::join_paths(paths).unwrap())
+        .args(["runner-exec", "v8-runner.exe", ".", "--version"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "v8-runner 1.1.1", "{}", String::from_utf8_lossy(&out.stderr));
+}
+
 #[test]
 fn version_is_parsed_from_the_version_line() {
     let tmp = TempDir::new("ver");

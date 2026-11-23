@@ -81,15 +81,22 @@ impl fmt::Display for RunError {
 
 impl std::error::Error for RunError {}
 
-/// Єдине місце, де будується процес раннера: програма, робоча тека, аргументи дослівно.
-fn runner_command<I, S>(runner: &Path, cwd: &Path, args: I) -> Command
+/// Єдине місце, де будується процес раннера: перевірка наявності й програма. Шлях без теки (голе ім'я)
+/// `Command::new` на Windows шукав би в PATH, теці `kit.exe` і системних теках, а `is_file()` дивився б у
+/// поточну теку: перевірявся б один файл, запускався інший. Тож шлях стає абсолютним до перевірки, і
+/// запускається саме той файл, що перевірений. Помилка `NotFound` несе шлях, як його передав викликач.
+fn runner_command<I, S>(runner: &Path, cwd: &Path, args: I) -> Result<Command, RunError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut cmd = Command::new(runner);
+    let absolute = std::path::absolute(runner).unwrap_or_else(|_| runner.to_path_buf());
+    if !absolute.is_file() {
+        return Err(RunError::NotFound(runner.display().to_string()));
+    }
+    let mut cmd = Command::new(absolute);
     cmd.args(args).current_dir(cwd);
-    cmd
+    Ok(cmd)
 }
 
 /// Шлях раннера в установленій Уніці (`Get-KitRunnerPath`): єдине місце, що будує його з `install_path`.
@@ -128,10 +135,7 @@ fn describe(args: &[&OsStr]) -> String {
 /// Сирий запуск без `--config`: stdin закритий, stdout і stderr читаються потоками до очікування (без
 /// дедлоку на великому виводі). Стеля часу — `proc::kill_tree` і `RunError::Timeout`.
 pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration>) -> Result<RawOutput, RunError> {
-    if !runner.is_file() {
-        return Err(RunError::NotFound(runner.display().to_string()));
-    }
-    let mut cmd = runner_command(runner, cwd, args);
+    let mut cmd = runner_command(runner, cwd, args)?;
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
@@ -169,10 +173,7 @@ pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration
 /// Запуск з успадкованими stdin, stdout і stderr (`kit runner-exec`): байти йдуть без перетворень, код —
 /// код раннера.
 pub fn exec_inherit(runner: &Path, cwd: &Path, args: &[OsString]) -> Result<i32, RunError> {
-    if !runner.is_file() {
-        return Err(RunError::NotFound(runner.display().to_string()));
-    }
-    let mut cmd = runner_command(runner, cwd, args);
+    let mut cmd = runner_command(runner, cwd, args)?;
     cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     let status = cmd
         .status()
