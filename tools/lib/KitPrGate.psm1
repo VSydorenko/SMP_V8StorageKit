@@ -568,7 +568,9 @@ function Invoke-PgArgv {
 function Get-PrGateReviewedAfterMerge {
     <#
         pr.afterMerge, яку land виконує: лише з проєктного профілю (.agents/kit.profile.json) на коміті головної
-        гілки, який назвав сам origin (ls-remote --symref), тобто зрев'юєний текст. land дозволено без запиту (ADR-0017), а
+        гілки, який назвав сам origin (ls-remote --symref) — туди потрапляє лише злите через PR. Свідома межа:
+        підміна самого origin у конфігурації git (remote set-url, url.*.insteadOf) не ловиться — хто пише
+        .git/config, той і так виконує довільне через core.hooksPath чи alias.* у будь-якій команді git. land дозволено без запиту (ADR-0017), а
         argv з afterMerge — це довільна команда; локальний і машинний шари профілю й робоче дерево гілки задачі
         агент пише сам, тож звідти afterMerge не береться. Повертає @{ Entries; Ref; Ignored } — Ignored, коли
         шари профілю дають інше значення, ніж головна гілка.
