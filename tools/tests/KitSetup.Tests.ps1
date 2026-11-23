@@ -291,6 +291,94 @@ Describe 'kit-setup — підключення проєкту' {
         @(Get-ChildItem -LiteralPath (Join-Path $repo '.claude') -Force).Count | Should -Be 1 -Because 'тимчасових файлів не лишилось'
     }
 
+    It 'профіль без kit.version; kit-scan — no-version; -SetVersion пише лише kit.version, без локального шару; зламаний профіль — код 3 (тест (5))' {
+        $plugin = (Get-Content -LiteralPath (Join-Path (Split-Path (Split-Path $script:Kit -Parent) -Parent) '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json).version
+        $note = 'kit\.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
+        $repo = New-Repo 'ver'
+        $profilePath = Join-Path $repo '.agents/kit.profile.json'
+        $r = Invoke-Setup $repo -Arguments @('-NoPermissions')
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match "плагін $([regex]::Escape($plugin))" -Because 'вивід kit-setup називає версію плагіна'
+        $r.Out | Should -Match $note -Because $r.Out
+        $created = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json -AsHashtable
+        $created.Contains('kit') | Should -BeFalse -Because 'новий профіль — без kit.version'
+        ((Invoke-Setup $repo -Arguments @('-Json', '-NoPermissions')).Out | ConvertFrom-Json).plugin | Should -Be $plugin
+        # kit-scan на тому самому профілі — стан no-version (D6), без кроків від 0.1.0; kit-setup — той самий текст.
+        Push-Location $repo
+        try { $scan = & pwsh -NoProfile -File $script:KitProcess kit-scan -Json 2>&1 | Out-String } finally { Pop-Location }
+        $kv = ($scan | ConvertFrom-Json).kitVersion
+        $kv.status | Should -Be 'no-version' -Because $scan
+        $kv.steps | Should -Be 0
+        (Invoke-Setup $repo -Arguments @('-NoPermissions')).Out | Should -Match "kit\.profile\.json: уже є, не змінено; $note"
+
+        # Межа шарів (D7): локальний шар з pr.afterMerge і власні поля проєктного профілю.
+        $data = [ordered]@{ pr = [ordered]@{ base = 'main'; mergeMethod = 'squash' }; workspace = [ordered]@{ mode = 'worktree' }; tests = [ordered]@{ levels = @('unit') }; own = @(1, 'x', $null, [ordered]@{ deep = $true }) }
+        [System.IO.File]::WriteAllText($profilePath, (ConvertTo-Json -InputObject $data -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText((Join-Path $repo '.agents/kit.profile.local.json'), '{ "pr": { "afterMerge": ["pwsh", "-c", "evil"] }, "workspace": { "mode": "shared" } }', [System.Text.UTF8Encoding]::new($false))
+        $hash = Get-Sha $profilePath
+        $dry = Invoke-Setup $repo -Arguments @('-SetVersion', '-DryRun')
+        $dry.Code | Should -Be 0 -Because $dry.Out
+        Get-Sha $profilePath | Should -Be $hash -Because '-DryRun не пише'
+        $dry.Out | Should -Match ('(?m)^\+\s+"version": "' + [regex]::Escape($plugin) + '"')
+        $set = Invoke-Setup $repo -Arguments @('-SetVersion')
+        $set.Code | Should -Be 0 -Because $set.Out
+        $after = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json -AsHashtable
+        $after['kit']['version'] | Should -Be $plugin
+        $after['pr'].Contains('afterMerge') | Should -BeFalse -Because 'pr.afterMerge локального шару не переноситься в проєктний профіль'
+        # Змінився лише kit.version: решта — ті самі дані (порівняння даних, не байтів).
+        $after['kit'].Count | Should -Be 1
+        $after.Remove('kit')
+        (ConvertTo-Json -InputObject $after -Depth 10 -Compress) | Should -BeExactly (ConvertTo-Json -InputObject $data -Depth 10 -Compress)
+        $again = Get-Sha $profilePath
+        (Invoke-Setup $repo -Arguments @('-SetVersion')).Out | Should -Match 'kit\.version уже'
+        Get-Sha $profilePath | Should -Be $again
+        # Окремий режим: з іншим прапорцем — код 2, файл той самий.
+        $mix = Invoke-Setup $repo -Arguments @('-SetVersion', '-Json')
+        $mix.Code | Should -Be 2 -Because $mix.Out
+        Get-Sha $profilePath | Should -Be $again
+
+        # Профілю немає — код 1 «спершу kit-setup», профіль не створено.
+        $none = New-Repo 'ver-none'
+        $rn = Invoke-Setup $none -Arguments @('-SetVersion')
+        $rn.Code | Should -Be 1 -Because $rn.Out
+        $rn.Out | Should -Match 'спершу kit-setup'
+        Test-Path -LiteralPath (Join-Path $none '.agents/kit.profile.json') | Should -BeFalse
+        # Зламаний профіль (і не JSON-об'єкт) — код 3, файл байт-у-байт той самий, тимчасових файлів немає.
+        foreach ($case in @(@{ Name = 'ver-broken'; Text = "{ `"pr`": { `"base`": `"main`",`n" }, @{ Name = 'ver-array'; Text = "[ 1 ]`n" })) {
+            $b = New-Repo $case.Name
+            New-Item -ItemType Directory -Path (Join-Path $b '.agents') | Out-Null
+            $bp = Join-Path $b '.agents/kit.profile.json'
+            [System.IO.File]::WriteAllText($bp, $case.Text, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText((Join-Path $b '.agents/kit.profile.local.json'), '{ "pr": { "afterMerge": ["pwsh"] } }', [System.Text.UTF8Encoding]::new($false))
+            $bh = Get-Sha $bp
+            $rb = Invoke-Setup $b -Arguments @('-SetVersion')
+            $rb.Code | Should -Be 3 -Because "$($case.Name): $($rb.Out)"
+            $rb.Out | Should -Match 'не записано нічого' -Because $rb.Out
+            Get-Sha $bp | Should -Be $bh -Because $case.Name
+            @(Get-ChildItem -LiteralPath (Join-Path $b '.agents') -Force).Count | Should -Be 2 -Because 'тимчасових файлів не лишилось'
+        }
+    }
+
+    It 'новий профіль без знайдених docs.specs/docs.plans — без поля й без TODO для них; pr.base/pr.mergeMethod — TODO (тест (6))' {
+        $repo = New-Repo 'nodocs'
+        $r = Invoke-Setup $repo -Arguments @('-NoPermissions')
+        $r.Code | Should -Be 0 -Because $r.Out
+        $p = Get-Content -LiteralPath (Join-Path $repo '.agents/kit.profile.json') -Raw | ConvertFrom-Json -AsHashtable
+        $p.Contains('docs') | Should -BeFalse -Because 'docs/ немає — і поля docs немає'
+        $r.Out | Should -Not -Match 'docs\.(specs|plans)' -Because $r.Out
+        $p['pr']['base'] | Should -Match '^TODO'
+        $p['pr']['mergeMethod'] | Should -Match '^TODO'
+        $r.Out | Should -Match 'TODO-полів: pr\.base, pr\.mergeMethod'
+        # Контроль, що вміє впасти: знайдена тека дає поле.
+        $repo2 = New-Repo 'withdocs'
+        New-Item -ItemType Directory -Path (Join-Path $repo2 'docs/specs') -Force | Out-Null
+        $r2 = Invoke-Setup $repo2 -Arguments @('-NoPermissions')
+        $r2.Code | Should -Be 0 -Because $r2.Out
+        $p2 = Get-Content -LiteralPath (Join-Path $repo2 '.agents/kit.profile.json') -Raw | ConvertFrom-Json -AsHashtable
+        $p2['docs']['specs'] | Should -Be 'docs/specs'
+        $p2['docs'].Contains('plans') | Should -BeFalse
+    }
+
     It '-DryRun нічого не пише й друкує diff' {
         $repo = New-Repo 'dry'
         $r = Invoke-Setup $repo -Arguments @('-DryRun')

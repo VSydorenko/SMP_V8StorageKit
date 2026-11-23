@@ -13,7 +13,8 @@ Set-StrictMode -Version Latest
     команда, D12); широкі правила pr-gate:*, track:*, git branch:*; відсутні pr-gate open|ready|land. Додає чи
     прибирає правила людина або агент за її згодою штатними засобами Claude Code.
 
-    Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює.
+    Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює. Новий профіль — без kit.version:
+    поле пише окремий режим -SetVersion останнім комітом PR (D7), читаючи лише сирий проєктний профіль.
 
     Ідемпотентно: другий запуск нічого не змінює. -DryRun друкує точний diff кожного файла (власним
     кодом, без зовнішнього diff) і нічого не пише. Запис — один помічник Write-SetupFiles: JSON-результат
@@ -56,6 +57,8 @@ $script:ProfileRel = '.agents/kit.profile.json'
 $script:LocalProfileRel = '.agents/kit.profile.local.json'
 $script:IncludeFile = '.worktreeinclude'
 $script:IncludeLines = @('.claude/settings.local.json', '.agents/kit.profile.local.json')
+# Профіль без kit.version: той самий текст, що стан no-version kit-scan (D6).
+$script:SetVersionNote = 'kit.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
 $script:DefaultWorktreesRoot = '.worktrees'
 $script:DefaultPrivateDir = '.agents/private'
 # Згенеровані платформою файли вивантаження: без шуму в рев'ю (джерела — у звіті задачі).
@@ -63,6 +66,7 @@ $script:ReviewExclude1C = @('**/ConfigDumpInfo.xml', '**/DumpFilesIndex.txt')
 
 $script:Usage = @"
 kit-setup [-DryRun] [-Json] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInclude]
+kit-setup -SetVersion [-DryRun]
 
 Разове підключення поточного репозиторію до процесу v8storagekit й оновлення після нової версії
 плагіна. Ідемпотентно: другий запуск нічого не змінює.
@@ -80,18 +84,24 @@ kit-setup [-DryRun] [-Json] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWor
                  - відсутні pr-gate open|ready|land (ADR-0017)
   gitignore    дописати .agents/out/, .agents/sdd/, <private.dir>/, .agents/briefs/,
                $script:LocalProfileRel; у режимі worktree ще й <worktrees.root>/
-  profile      створити $script:ProfileRel зі знайденими значеннями й TODO-маркерами, лише якщо його
-               немає; новий профіль отримує kit.version = версія плагіна. Наявний профіль не
-               змінюється: нижчу kit.version команда називає (оновлення — /v8storagekit:onboarding)
+  profile      створити $script:ProfileRel зі знайденими значеннями й TODO-маркерами обов'язкових
+               полів, лише якщо його немає; docs.specs/docs.plans без знайденої теки — без поля. Новий
+               профіль — БЕЗ kit.version: її пише -SetVersion останнім комітом PR. Наявний профіль не
+               змінюється: відсутню чи нижчу kit.version команда називає (оновлення — /v8storagekit:onboarding)
   worktreeinclude  лише в режимі worktree: дописати $($script:IncludeLines -join ', ') до
                $script:IncludeFile (гітігноровані файли, що копіюються в кожен новий worktree)
   -DryRun      надрукувати точний diff кожного файла, нічого не писати
   -Json        вивести результат одним JSON-об'єктом (для агента): файли й звіт permissions
   -NoPermissions  без звіту про $script:SettingsFile (і без розділу permissions у -Json)
+  -SetVersion  окремий режим: kit.version у наявному $script:ProfileRel = версія плагіна, решта
+               профілю без змін; читає лише сам цей файл (не $script:LocalProfileRel і не машинний шар).
+               З ним — лише -DryRun. Профілю немає — код 1 (спершу kit-setup); профіль не JSON-об'єкт —
+               код 3, не записано; kit.version новіша за плагін — код 1 (онови плагін)
 
 Режим workspace.mode: з наявного профілю; інакше shared, якщо в корені є v8storagekit.yaml або будь-де
 v8project.yaml, інакше worktree.
-Вихід: 0 готово (або нічого міняти); 2 помилка виклику; 3 не git-репозиторій, файл проєкту чи
+Вихід: 0 готово (або нічого міняти); 1 -SetVersion не виконано (профілю немає, kit.version новіша за
+плагін, репозиторій самого плагіна); 2 помилка виклику; 3 не git-репозиторій, файл проєкту чи
 плагіна (шаблон, застарілі імена) не читається або результат не розбирається (зокрема невалідний
 $($script:SettingsFile): звіт не перевірено) — тоді не записано нічого.
 "@
@@ -138,6 +148,15 @@ function ConvertFrom-SetupJson {
     $p = @{ AsHashtable = $true; ErrorAction = 'Stop' }
     if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $p['DateKind'] = 'String' }
     $Text | ConvertFrom-Json @p
+}
+
+function Get-SetupJsonText {
+    <# Текст JSON-файла kit-setup: LF, кінцевий перевід рядка; кінці рядків наявного файла (CRLF) зберігаються. #>
+    param([Parameter(Mandatory)]$Data, [AllowNull()][string]$Before)
+    # ConvertTo-Json пише Environment.NewLine (на Windows — CRLF): спершу до LF, потім — кінці рядків файла.
+    $text = ((ConvertTo-Json -InputObject $Data -Depth 50 -EscapeHandling Default) -replace "`r`n", "`n") + "`n"
+    if ((Get-SetupNewline $Before) -eq "`r`n") { $text = $text -replace "`n", "`r`n" }
+    $text
 }
 
 # ---------- diff ----------
@@ -469,19 +488,19 @@ function Get-SetupWorktreeIncludePlan {
 function Get-SetupProfileSkeleton {
     <# Каркас профілю: лише знайдені значення, решта — явні TODO. Повертає Text і Todo. #>
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Mode)
+    # Без kit.version: поле пише окремий виклик kit-setup -SetVersion останнім комітом PR (§5.2, D7).
     $profile = [ordered]@{}
-    # Новий профіль — перше підключення за поточним плагіном: оновлювати нічого. Сам плагін версії проєкту не має.
-    if (-not (Test-KitPluginRepo -Root $Root)) { $profile['kit'] = [ordered]@{ version = (Get-KitPluginInfo).Version } }
     $base = Get-SetupDefaultBranch -Root $Root
     $profile['pr'] = [ordered]@{ base = $(if ($base) { $base } else { 'TODO: головна гілка' }); mergeMethod = 'TODO: squash або merge' }
     $profile['workspace'] = [ordered]@{ mode = $Mode }
+    # docs.specs/docs.plans — необов'язкові: без знайденої теки поля немає (діє типове значення скілу), не TODO.
     $docs = [ordered]@{}
     foreach ($kind in 'specs', 'plans') {
         $found = @("docs/superpowers/$kind", "docs/$kind") | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) -PathType Container } | Select-Object -First 1
-        $docs[$kind] = if ($found) { $found } else { "TODO: теку $kind не знайдено" }
+        if ($found) { $docs[$kind] = $found }
     }
     if (Test-Path -LiteralPath (Join-Path $Root 'docs') -PathType Container) { $docs['docs'] = 'docs' }
-    $profile['docs'] = $docs
+    if ($docs.Count) { $profile['docs'] = $docs }
     # Корпус документів: лише те, що є в репо.
     $corpus = @('AGENTS.md', 'CLAUDE.md', 'README.md') | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf }
     $corpus = @($corpus)
@@ -489,8 +508,7 @@ function Get-SetupProfileSkeleton {
     foreach ($d in '.agents/skills', '.claude/skills') { if (Test-Path -LiteralPath (Join-Path $Root $d) -PathType Container) { $corpus += "$d/*/SKILL.md" } }
     if ($corpus.Count) { $profile['research'] = [ordered]@{ corpus = [object[]]$corpus } }
     if (Test-SetupIs1C -Root $Root) { $profile['review'] = [ordered]@{ exclude = [object[]]$script:ReviewExclude1C } }
-    $text = (ConvertTo-Json -InputObject $profile -Depth 20 -EscapeHandling Default) + "`n"
-    @{ Text = $text; Todo = @(Get-SetupTodoFields $profile) }
+    @{ Text = (Get-SetupJsonText -Data $profile -Before $null); Todo = @(Get-SetupTodoFields $profile) }
 }
 
 function Get-SetupTodoFields {
@@ -503,14 +521,18 @@ function Get-SetupTodoFields {
 }
 
 function Get-SetupVersionNote {
-    <# Наявний профіль із нижчою kit.version: команда його не міняє, версію виставляє скіл onboarding. #>
+    <#
+        Примітка про версію наявного профілю: команда його не міняє. Без kit.version — той самий текст, що стан
+        no-version kit-scan (D6), без кроків від 0.1.0; нижча kit.version — оновлення скілом onboarding.
+    #>
     param([Parameter(Mandatory)][string]$Root)
     if (Test-KitPluginRepo -Root $Root) { return '' }
     $p = Get-KitProjectVersion -Root $Root
     if ($p.Source -eq 'invalid') { return "; $($p.Error)" }
+    if ($p.Source -eq 'default') { return "; $script:SetVersionNote" }
     $plugin = (Get-KitPluginInfo).Version
     if (-not $p.Version -or (Compare-KitVersion -A $p.Version -B $plugin) -ge 0) { return '' }
-    "; kit.version $($p.Version)$(if ($p.Source -eq 'default') { ' (поля немає)' }) < плагін $plugin — оновлення: /v8storagekit:onboarding (kit-scan покаже кроки)"
+    "; kit.version $($p.Version) < плагін $plugin — оновлення: /v8storagekit:onboarding (kit-scan покаже кроки)"
 }
 
 function Get-SetupProfilePlan {
@@ -521,7 +543,53 @@ function Get-SetupProfilePlan {
         return @{ Path = $path; Rel = $script:ProfileRel; Before = $before; After = $before; Note = "уже є, не змінено$(Get-SetupVersionNote -Root $Root)" }
     }
     $sk = Get-SetupProfileSkeleton -Root $Root -Mode $Mode
-    @{ Path = $path; Rel = $script:ProfileRel; Before = $null; After = $sk.Text; Json = $true; Note = "створено каркас — заповни $($sk.Todo.Count) TODO-полів: $($sk.Todo -join ', ')" }
+    $version = if (Test-KitPluginRepo -Root $Root) { '' } else { "; $script:SetVersionNote" }
+    @{ Path = $path; Rel = $script:ProfileRel; Before = $null; After = $sk.Text; Json = $true; Note = "створено каркас — заповни $($sk.Todo.Count) TODO-полів: $($sk.Todo -join ', ')$version" }
+}
+
+function Invoke-SetupSetVersion {
+    <#
+        kit-setup -SetVersion (D7): kit.version наявного проєктного профілю = версія плагіна; решта властивостей —
+        ті самі дані. Читає й розбирає ЛИШЕ сирий .agents/kit.profile.json — не Get-KitProfile і не злиті шари:
+        локальний і машинний профілі пише агент, і їхній pr.afterMerge, перенесений у проєктний файл, pr-gate land
+        виконав би без запиту (межа — Get-PrGateReviewedAfterMerge, tools/lib/KitPrGate.psm1). Профілю немає —
+        код 1; не розбирається як JSON-об'єкт — код 3 без запису (не Get-SetupProfileData, що ковтає помилку).
+    #>
+    param([Parameter(Mandatory)][string]$Root, [bool]$Dry)
+    $rel = $script:ProfileRel
+    if (Test-KitPluginRepo -Root $Root) { throw (New-KitRefusal "це сам репозиторій плагіна — версії проєкту немає, $rel не змінено") }
+    $path = Join-Path $Root $rel
+    $before = Read-SetupText $path
+    if ($null -eq $before) { throw (New-KitRefusal "$rel немає — спершу kit-setup (створить профіль), kit.version — останнім комітом PR") }
+    try { $data = ConvertFrom-SetupJson $before }
+    catch { throw (New-KitNotChecked "$rel не розбирається як JSON — не записано нічого: $(Get-SetupErrorText $_)") }
+    if (-not ($data -is [System.Collections.IDictionary])) { throw (New-KitNotChecked "$rel не JSON-об'єкт — не записано нічого") }
+    if ($data.Contains('kit') -and -not ($data['kit'] -is [System.Collections.IDictionary])) {
+        throw (New-KitNotChecked "$rel`: поле kit не об'єкт — не записано нічого")
+    }
+    $plugin = (Get-KitPluginInfo).Version
+    $old = if ($data.Contains('kit') -and $data['kit'].Contains('version')) { $data['kit']['version'] } else { $null }
+    if ($null -ne $old -and [string]$old -ceq $plugin) {
+        Write-KitLine "kit-setup -SetVersion: $rel`: kit.version уже $plugin (плагін $plugin) — нічого міняти"
+        return 0
+    }
+    if ((ConvertTo-KitVersion $old) -and (Compare-KitVersion -A ([string]$old) -B $plugin) -gt 0) {
+        throw (New-KitRefusal "$rel`: kit.version $old новіша за плагін $plugin — не понижую; онови плагін (claude plugin update v8storagekit)")
+    }
+    if ($data.Contains('kit')) { $data['kit']['version'] = $plugin }
+    else {
+        # Поле kit — першим, як у каркасі; решта ключів — у тому самому порядку й з тими самими значеннями.
+        $new = [ordered]@{ kit = [ordered]@{ version = $plugin } }
+        foreach ($k in $data.Keys) { $new[$k] = $data[$k] }
+        $data = $new
+    }
+    $after = Get-SetupJsonText -Data $data -Before $before
+    $plan = @{ Path = $path; Rel = $rel; Before = $before; After = $after; Json = $true }
+    if ($Dry) { Write-KitLine (Get-SetupUnifiedDiff -Rel $rel -Before $before -After $after) }
+    else { Write-SetupFiles -Plans @($plan) }
+    $was = if ($null -eq $old) { 'немає' } else { [string]$old }
+    Write-KitLine "kit-setup -SetVersion$(if ($Dry) { ' -DryRun (нічого не записано)' }): $rel`: kit.version $was → $plugin (плагін $plugin); решта профілю без змін"
+    return 0
 }
 
 # ---------- запис ----------
@@ -605,12 +673,20 @@ function Invoke-KitKitSetup {
     param([AllowEmptyCollection()][string[]]$Arguments = @(), [Parameter(Mandatory)][string]$RepoRoot)
     $a = ConvertFrom-KitArguments -Arguments $Arguments -Spec @{
         DryRun = 'switch'; Json = 'switch'; NoPermissions = 'switch'; NoGitignore = 'switch'; NoProfile = 'switch'; NoWorktreeInclude = 'switch'
+        SetVersion = 'switch'
     }
     if ($a.Help) { Write-KitLine $script:Usage; return 0 }
     if ($a.Positional.Count) { throw (New-KitUsageError "неочікуваний аргумент '$($a.Positional[0])'") }
-    $root = Get-KitCheckoutRoot -Path $RepoRoot
     $dry = [bool]$a.Named['DryRun']
+    if ($a.Named['SetVersion']) {
+        # Окремий режим (D7): з ним — лише -DryRun.
+        $other = @($a.Named.Keys | Where-Object { $_ -notin 'SetVersion', 'DryRun' -and $a.Named[$_] } | Sort-Object)
+        if ($other) { throw (New-KitUsageError "-SetVersion — окремий режим, з ним лише -DryRun (зайве: $(($other | ForEach-Object { "-$_" }) -join ', '))") }
+        return (Invoke-SetupSetVersion -Root (Get-KitCheckoutRoot -Path $RepoRoot) -Dry $dry)
+    }
+    $root = Get-KitCheckoutRoot -Path $RepoRoot
     $asJson = [bool]$a.Named['Json']
+    $plugin = (Get-KitPluginInfo).Version
 
     $data = Get-SetupProfileData -Root $root
     $mode = Get-SetupMode -Root $root -Data $data
@@ -629,7 +705,7 @@ function Invoke-KitKitSetup {
     if (-not $dry -and $changed) { Write-SetupFiles -Plans $changed }
     if ($asJson) {
         $o = [ordered]@{
-            root = $root; mode = $mode; dryRun = $dry
+            root = $root; plugin = $plugin; mode = $mode; dryRun = $dry
             files = @(foreach ($p in $plans) { [ordered]@{ path = $p.Rel; changed = ($p.After -cne $p.Before); note = $p.Note } })
         }
         if ($report) {
@@ -643,7 +719,7 @@ function Invoke-KitKitSetup {
         return 0
     }
     if ($dry) { foreach ($p in $changed) { Write-KitLine (Get-SetupUnifiedDiff -Rel $p.Rel -Before $p.Before -After $p.After) } }
-    Write-KitLine "kit-setup$(if ($dry) { ' -DryRun (нічого не записано)' }): $root; режим $mode"
+    Write-KitLine "kit-setup$(if ($dry) { ' -DryRun (нічого не записано)' }): $root; плагін $plugin; режим $mode"
     foreach ($p in $plans) { Write-KitLine "  $($p.Rel): $($p.Note)" }
     if ($report) { foreach ($l in (Format-SetupPermissionReport $report)) { Write-KitLine $l } }
     if (-not $changed) { Write-KitLine 'нічого міняти у файлах' }
