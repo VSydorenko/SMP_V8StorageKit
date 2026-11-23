@@ -137,7 +137,7 @@ Describe 'kit-scan — скан підключення' -Tag 'Docs' {
         $r2 = Invoke-Scan $repo2
         $r2.Out | Should -Match 'v8storagekit\.version немає — запише `kit-setup -SetVersion` останнім комітом PR' -Because $r2.Out
         $r2.Out | Should -Not -Match 'V\d+ Крок' -Because 'перелік кроків від 0.1.0 не друкується'
-        # ADR-0018: kit.version agent-kit (0.x) — не версія v8storagekit; v8storagekit.version переважає над ним.
+        # ADR-0020: kit.version agent-kit (0.x) — не версія v8storagekit; v8storagekit.version переважає над ним.
         Set-Content -LiteralPath (Join-Path $repo2 '.agents/kit.profile.json') -Value '{ "kit": { "version": "0.4.2" } }' -Encoding utf8NoBOM
         ((Invoke-Scan $repo2 -Arguments @('-Json')).Out | ConvertFrom-Json).kitVersion.status | Should -Be 'no-version'
         Set-Content -LiteralPath (Join-Path $repo2 '.agents/kit.profile.json') -Value '{ "kit": { "version": "0.4.2" }, "v8storagekit": { "version": "1.7.0" } }' -Encoding utf8NoBOM

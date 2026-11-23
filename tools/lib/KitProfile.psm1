@@ -70,7 +70,7 @@ function Merge-KitProfileData {
 
 function Resolve-KitProfileNamespace {
     <#
-        Простір імен v8storagekit (ADR-0018): у профілі, який v8storagekit ділить з agent-kit, наявна секція першого
+        Простір імен v8storagekit (ADR-0020): у профілі, який v8storagekit ділить з agent-kit, наявна секція першого
         рівня `v8storagekit.<секція>` заміняє верхню `<секцію>` ЦІЛКОМ, без злиття (інакше `v8storagekit.tests` без
         `levels` пропустив би рівні тестів іншої зони). `v8storagekit.version` — версія проєкту, не секція. Ключі —
         без урахування регістру, як у хештаблиці. Та сама функція — для злитих шарів (Get-KitProfile) і для одного
@@ -109,7 +109,7 @@ function Get-KitProfile {
     $shared = if (Test-Path -LiteralPath $sharedPath) { Read-KitProfileJson $sharedPath } else { $null }
     $local = if (Test-Path -LiteralPath $localPath) { Read-KitProfileJson $localPath } else { $null }
     $data = Merge-KitProfileData -Base (Merge-KitProfileData -Base ($machine ?? @{}) -Over ($shared ?? @{})) -Over ($local ?? @{})
-    # Спершу шари, потім простір імен v8storagekit (ADR-0018).
+    # Спершу шари, потім простір імен v8storagekit (ADR-0020).
     $data = Resolve-KitProfileNamespace $data
     [pscustomobject]@{
         Root     = $root

@@ -6,8 +6,9 @@
       версія плагіна  — .claude-plugin/plugin.json, поле version;
       версія проєкту  — v8storagekit.version у .agents/kit.profile.json (поля немає — 0.1.0);
       що зробити при оновленні — чекліст запису в CHANGELOG.md у корені плагіна.
-    Тут єдиний розбір формату для kit-setup, kit-scan і перевірок; хук старту сесії читає той самий
-    формат власним мінімальним кодом (він навмисно без модулів) — міняючи формат, міняй обидва.
+    Тут єдиний розбір формату для kit-setup, kit-scan і перевірок. Rust-пара Get-KitProjectVersion —
+    kit::profile::project_version (rust/src/profile.rs), її кличе хук старту сесії; міняючи правило версії
+    (ADR-0020), міняй обидві.
 
     Функції чисті: нічого не друкують, помилки форми журналу повертають списком Problems.
 #>
@@ -155,7 +156,7 @@ function Get-KitProjectVersion {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Version = $null; Source = 'none'; Error = $null } }
     try { $data = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
     catch { return [pscustomobject]@{ Version = $null; Source = 'invalid'; Error = "не читається ${script:ProfileFile}: $($_.Exception.Message)" } }
-    # ADR-0018: версія v8storagekit — `v8storagekit.version`; `kit.version` належить agent-kit. Тимчасово (до
+    # ADR-0020: версія v8storagekit — `v8storagekit.version`; `kit.version` належить agent-kit. Тимчасово (до
     # перенесення кроком оновлення 1.6.14) `kit.version` береться, лише коли він ≥ 1.0.0: agent-kit на лінії 0.x,
     # v8storagekit — 1.x. Невалідний чи 0.x `kit.version` — чужий: «версію не задано», не помилка.
     $section = { param($name) if ($data -is [System.Collections.IDictionary]) { $k = @($data.Keys | Where-Object { [string]$_ -ieq $name }) | Select-Object -First 1; if ($null -ne $k) { $data[$k] } } }

@@ -564,7 +564,7 @@ function Invoke-SetupSetVersion {
     try { $data = ConvertFrom-SetupJson $before }
     catch { throw (New-KitNotChecked "$rel не розбирається як JSON — не записано нічого: $(Get-SetupErrorText $_)") }
     if (-not ($data -is [System.Collections.IDictionary])) { throw (New-KitNotChecked "$rel не JSON-об'єкт — не записано нічого") }
-    # ADR-0018: версію v8storagekit пише лише `v8storagekit.version`; `kit.version` (agent-kit) не чіпає.
+    # ADR-0020: версію v8storagekit пише лише `v8storagekit.version`; `kit.version` (agent-kit) не чіпає.
     $ns = @($data.Keys | Where-Object { [string]$_ -ieq 'v8storagekit' }) | Select-Object -First 1
     if ($null -ne $ns -and -not ($data[$ns] -is [System.Collections.IDictionary])) {
         throw (New-KitNotChecked "$rel`: поле v8storagekit не об'єкт — не записано нічого")

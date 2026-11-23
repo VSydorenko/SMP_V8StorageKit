@@ -129,7 +129,7 @@ fn read_text(path: &Path) -> std::io::Result<String> {
 }
 
 /// Профіль процесу: None — файла немає; Ok — читається (версія проєкту, типово 0.1.0); Bad — не JSON
-/// або v8storagekit.version не x.y.z (ADR-0018; чужий kit.version не Bad).
+/// або v8storagekit.version не x.y.z (ADR-0020; чужий kit.version не Bad).
 enum Profile {
     None,
     Ok(String),
@@ -150,7 +150,7 @@ fn read_profile(git_root: &Path) -> Profile {
         return Profile::Ok("0.1.0".to_string());
     }
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Profile::Bad };
-    // Версія — за єдиним правилом profile::project_version (ADR-0018): v8storagekit.version, тимчасово kit.version ≥ 1.0.0.
+    // Версія — за єдиним правилом profile::project_version (ADR-0020): v8storagekit.version, тимчасово kit.version ≥ 1.0.0.
     match kit::profile::project_version(&json) {
         kit::profile::ProjectVersion::Unset => Profile::Ok("0.1.0".to_string()),
         kit::profile::ProjectVersion::Set(s) => Profile::Ok(s),

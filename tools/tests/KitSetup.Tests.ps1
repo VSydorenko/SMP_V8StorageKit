@@ -313,7 +313,7 @@ Describe 'kit-setup — підключення проєкту' {
         (Invoke-Setup $repo -Arguments @('-NoPermissions')).Out | Should -Match "kit\.profile\.json: уже є, не змінено; $note"
 
         # Межа шарів (D7): локальний шар з pr.afterMerge і власні поля проєктного профілю.
-        # kit.version — agent-kit (ADR-0018): лишається як був.
+        # kit.version — agent-kit (ADR-0020): лишається як був.
         $data = [ordered]@{ kit = [ordered]@{ version = '0.4.2' }; pr = [ordered]@{ base = 'main'; mergeMethod = 'squash' }; workspace = [ordered]@{ mode = 'worktree' }; tests = [ordered]@{ levels = @('unit') }; own = @(1, 'x', $null, [ordered]@{ deep = $true }) }
         [System.IO.File]::WriteAllText($profilePath, (ConvertTo-Json -InputObject $data -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
         [System.IO.File]::WriteAllText((Join-Path $repo '.agents/kit.profile.local.json'), '{ "pr": { "afterMerge": ["pwsh", "-c", "evil"] }, "workspace": { "mode": "shared" } }', [System.Text.UTF8Encoding]::new($false))

@@ -44,12 +44,12 @@ impl Profile {
                 data = merge(data, read_layer(path)?);
             }
         }
-        // Спершу шари, потім простір імен v8storagekit (ADR-0018).
+        // Спершу шари, потім простір імен v8storagekit (ADR-0020).
         Ok(Profile { data: apply_namespace(data) })
     }
 }
 
-/// Простір імен `v8storagekit` (ADR-0018): у репозиторії, де профіль ділять v8storagekit і agent-kit, наявна
+/// Простір імен `v8storagekit` (ADR-0020): у репозиторії, де профіль ділять v8storagekit і agent-kit, наявна
 /// секція першого рівня `v8storagekit.<секція>` заміняє верхню `<секцію>` ЦІЛКОМ, без злиття (інакше
 /// `v8storagekit.tests` без `levels` пропустив би рівні тестів іншої зони). `v8storagekit.version` — не
 /// секція, а версія проєкту (`project_version`). Ключі вже в нижньому регістрі (`lower_keys`).
@@ -65,7 +65,7 @@ pub fn apply_namespace(data: Value) -> Value {
     Value::Object(top)
 }
 
-/// Версія проєкту для v8storagekit (ADR-0018).
+/// Версія проєкту для v8storagekit (ADR-0020).
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProjectVersion {
     /// Версію не задано: поля немає (або лише чужий `kit.version` < 1.0.0 — agent-kit). Хук рахує від 0.1.0.

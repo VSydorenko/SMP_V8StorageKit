@@ -294,7 +294,7 @@ Describe 'pr-gate — запобіжники' {
         @(git -C $r.Dir tag --list 'am-ran') | Should -Be @('am-ran')
     }
 
-    It 'land: v8storagekit.pr на головній гілці заміняє pr цілком — виконується afterMerge простору імен, не верхній (ADR-0018)' {
+    It 'land: v8storagekit.pr на головній гілці заміняє pr цілком — виконується afterMerge простору імен, не верхній (ADR-0020)' {
         $prof = [ordered]@{
             workspace = @{ mode = 'shared' }
             pr = [ordered]@{ mergeMethod = 'squash'; afterMerge = @(@{ paths = @('**'); run = @('git', 'tag', 'top-ran') }) }
