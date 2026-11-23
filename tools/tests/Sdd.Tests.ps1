@@ -192,6 +192,17 @@ Second.
         (Read-Ledger $repo) | Should -BeExactly $before -Because 'відмова не закриває вікно'
     }
 
+    It 'close у worktree, де теки журналів порожні (журнал — у головному checkout), — код 0, рядок pr-gate cleanup і report (#103)' {
+        $repo = New-SddRepo 'repo-wt-close'
+        $wt = Join-Path $TestDrive 'repo-wt-close-wt'
+        Invoke-G $repo.Dir @('worktree', 'add', '-q', '-b', 'blk', $wt) | Out-Null
+        Invoke-Sdd $wt @('init', 'docs/plans/sub.md') | Out-Null
+        $r = Invoke-Sdd $wt @('close')
+        $r.ExitCode | Should -Be 0 -Because ($r.Err -join "`n")
+        ($r.Out -join "`n") | Should -Match 'pr-gate cleanup .* видалить: нічого'
+        ($r.Out -join "`n") | Should -Match '(?m)^report: '
+    }
+
     It 'після close dispatch каже, що журнал закрито, а не що план не прив''язано' {
         $repo = New-SddRepo 'repo-closed'
         Invoke-Sdd $repo.Dir @('init', 'docs/plans/sub.md') | Out-Null
