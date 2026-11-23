@@ -1,6 +1,6 @@
 ---
 name: auditor
-description: Аудитор лише для читання: спека або план реалізації крізь одну лінзу з брифу; повертає знахідки з упевненістю від 80 — місце, збій, виправлення. Кличуть скіли spec, plan і передстарт execute; модель задає викликач.
+description: "Аудитор лише для читання: спека або план реалізації крізь одну лінзу з брифу; повертає знахідки з упевненістю від 80 — місце, збій, виправлення. Кличуть скіли spec, plan і передстарт execute; модель задає викликач."
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 omitClaudeMd: true
