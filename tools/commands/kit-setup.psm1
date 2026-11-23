@@ -11,15 +11,16 @@ Set-StrictMode -Version Latest
     kit-setup — теж.
 
     Злиття settings.json (спека §5.2 (а)–(г)): (а) правило шаблону додається до списку, якщо його немає
-    в ТОМУ САМОМУ списку проєкту; до allow — лише якщо його не ПОКРИВАЄ правило ask чи deny проєкту чи
-    шаблону (строгіше рішення перемагає; D13 за рев'ю безпеки — Test-SetupRuleCovered: форма-близнюк
-    Bash ≡ PowerShell, префікс на межі слова, :* ≡ " *", ціле ім'я інструмента); правила Уніки з allow
-    шаблону — лише в репозиторії 1С, ask і deny — завжди; (б) з allow і ask прибираються правила, що ТОЧНО
-    (з урахуванням регістру) збігаються з застарілими іменами Уніки (tools/assets/obsolete-names.json);
-    (в) unica_apply з allow переходить в ask; (г) з hooks.SessionStart[].hooks[] прибирається елемент
-    старого шима kit — шлях .claude/hooks/session-start.ps1 окремим токеном, перед ним лише початок,
-    пробіл, лапка, ./ чи $CLAUDE_PROJECT_DIR/ (не хук рівня користувача і не складена команда); група,
-    SessionStart і hooks — лише коли спорожніли.
+    в ТОМУ САМОМУ списку проєкту. Інваріант: kit-setup додає в allow лише правило, про яке доведено, що
+    жодне ask/deny проєкту його не зачіпає; прибирає лише хук, що дослівно є шимом kit. Правило оболонки
+    шаблону не йде в allow, якщо ВХІДНІ (до злиття) ask чи deny проєкту мають правило оболонки (Bash ≡
+    PowerShell) на той самий перший токен команди, маску на нього чи невідомої форми (Get-SetupAllowBlock,
+    D13 перебудовано за рев'ю безпеки); пропущені названо рядком «не додано» на кожен токен. Правила Уніки
+    з allow шаблону — лише в репозиторії 1С, ask і deny — завжди; (б) з allow і ask прибираються правила,
+    що ТОЧНО (з урахуванням регістру) збігаються з застарілими іменами Уніки
+    (tools/assets/obsolete-names.json); (в) unica_apply з allow переходить в ask; (г) з
+    hooks.SessionStart[].hooks[] прибирається елемент, уся команда якого — дослівно шим kit
+    (pwsh -NoProfile -File <шлях шима>); група, SessionStart і hooks — лише коли спорожніли.
     deny проєкту не змінюється ніколи, крім дописування; власні правила й хуки проєкту лишаються. Широкі
     правила першого покоління (pr-gate:*, track:*, git branch:*) не прибираються — команда називає, чим
     їх замінити. Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює.
@@ -43,14 +44,12 @@ $script:PermLists = @('allow', 'ask', 'deny')
 $script:UnicaRulePrefix = 'mcp__plugin_unica_unica__'
 # (в): шаблон тримає unica_apply в ask; з allow проєкту він переходить туди ж.
 $script:UnicaApply = 'mcp__plugin_unica_unica__unica_apply'
-# (г): шим kit за історію мав одну форму (pwsh -NoProfile -File .claude/hooks/session-start.ps1). Шлях —
-# окремим токеном (після заміни \ на /): перед ним лише початок, пробіл чи лапка з необов'язковим ./ або
-# $CLAUDE_PROJECT_DIR/ (${…}, у лапках чи без); після — кінець, пробіл чи лапка. Довільний / перед шляхом
-# (~/.claude/…, $HOME/…, абсолютні шляхи — хуки рівня користувача чи чужого дерева) — не збіг. Навмисно
-# вужче за Test-KitLegacySessionHook (D12).
-$script:ShimPattern = '(?<=^|[\s"''])(?:\./|"?\$\{?CLAUDE_PROJECT_DIR\}?"?/)?\.claude/hooks/session-start\.ps1(?=$|[\s"''])'
-# Складена команда (&&, ;, |, &, новий рядок) — невідома форма: не прибираємо, навіть зі шимом усередині.
-$script:CompoundPattern = '[;&|\r\n]'
+# (г): шим kit за історію мав одну форму — pwsh -NoProfile -File .claude/hooks/session-start.ps1. Збіг — уся
+# команда (після обрізання пробілів по краях), заякорена з обох боків: шлях з / чи \, з необов'язковим ./ або
+# $CLAUDE_PROJECT_DIR/ (${…}), сам шлях у лапках "…"/'…' чи без, або лапки лише навколо змінної. Будь-яка
+# інша команда (інша програма, інші прапорці, складена, хук рівня користувача) — не шим kit, лишається.
+# Навмисно вужче за Test-KitLegacySessionHook (D12).
+$script:ShimPattern = '\Apwsh -NoProfile -File (?:(?<q>["'']?)(?:\.[/\\]|\$(?:CLAUDE_PROJECT_DIR|\{CLAUDE_PROJECT_DIR\})[/\\])?\.claude[/\\]hooks[/\\]session-start\.ps1\k<q>|"\$(?:CLAUDE_PROJECT_DIR|\{CLAUDE_PROJECT_DIR\})"[/\\]\.claude[/\\]hooks[/\\]session-start\.ps1)\z'
 # Широкі правила старих налаштувань: дозволяють більше, ніж треба, без питання. Не прибираємо
 # (прибирання — лише точні застарілі імена Уніки й шим) — кажемо власнику, чим замінити. Значення —
 # порада повністю: вона різна для правила, вузької заміни якого шаблон не має.
@@ -80,14 +79,16 @@ kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInc
 
   permissions  злити $script:SettingsFile з цільовим станом — $script:TemplateRel плагіна:
                (а) дописати правила шаблону, яких немає в тому самому списку (allow, ask, deny);
-                   в allow — лише те, чого не покриває ask чи deny проєкту чи шаблону: Bash(X) і
-                   PowerShell(X) — одне правило, p:* покриває «p» і «p …» (не «pX»), :* = " *",
-                   голе Bash чи PowerShell — увесь інструмент; правила Уніки в allow — лише в
-                   репозиторії 1С (v8storagekit.yaml чи v8project.yaml);
+                   правило оболонки в allow — лише коли вхідні ask і deny проєкту не мають правила
+                   Bash чи PowerShell на той самий перший токен команди (git, pr-gate, …), маски на
+                   нього (pr-gate*, *) чи цілого інструмента; пропущене — рядок «не додано» на токен
+                   (додай сам, якщо згоден); правила Уніки в allow — лише в репозиторії 1С
+                   (v8storagekit.yaml чи v8project.yaml) і лише без того самого рядка в ask чи deny;
                (б) прибрати з allow і ask точні застарілі імена Уніки (tools/assets/obsolete-names.json);
                (в) перенести unica_apply з allow в ask;
-               (г) прибрати з hooks.SessionStart елемент старого шима .claude/hooks/session-start.ps1
-                   (файл шима не видаляється; хуки рівня користувача й складені команди не чіпаються).
+               (г) прибрати з hooks.SessionStart елемент, уся команда якого — шим kit
+                   pwsh -NoProfile -File .claude/hooks/session-start.ps1 (файл шима не видаляється;
+                   будь-яка інша команда не чіпається).
                deny проєкту й власні правила й хуки не прибираються. Без питання — локальні команди
                процесу й pr-gate open|ready|land; git push, gh pr create|merge, gh release,
                track spec|milestone і kit-setup — з питанням. Широкі правила pr-gate:*, track:* і
@@ -275,48 +276,47 @@ function Test-SetupHasRule {
     $false
 }
 
-function ConvertTo-SetupRuleShape {
+function Get-SetupShellToken {
     <#
-        Розбір правила для покриття (D13): Shell — Bash чи PowerShell (форми-близнюки) або $null; Whole — ціле
-        ім'я інструмента без дужок чи (*); Prefix — команда правила з суфіксом :* чи " *" (без суфікса);
-        Exact — тіло правила без такого суфікса. Не оболонка — лише рядок (точний збіг).
+        Перший токен команди правила оболонки (D13, перебудовано за рев'ю безпеки). $null — не правило оболонки
+        (MCP тощо). Bash і PowerShell — одна оболонка; ім'я інструмента — без урахування регістру (у разі сумніву —
+        оболонка). Перший токен — тіло до першого пробілу чи «:». Ціле ім'я інструмента, порожнє чи «*» тіло й
+        тіло, що не розбирається, дають «*» — маску на будь-яку команду.
     #>
     param([Parameter(Mandatory)][string]$Rule)
-    $m = [regex]::Match($Rule, '^(?<tool>Bash|PowerShell)(?:\((?<body>.*)\))?$')
-    if (-not $m.Success) { return [pscustomobject]@{ Shell = $null; Whole = $false; Prefix = $null; Exact = $null } }
-    $shape = [pscustomobject]@{ Shell = 'shell'; Whole = $false; Prefix = $null; Exact = $null }
-    if (-not $m.Groups['body'].Success -or $m.Groups['body'].Value -ceq '*') { $shape.Whole = $true; return $shape }
-    $body = $m.Groups['body'].Value
-    if ($body.EndsWith(':*', [System.StringComparison]::Ordinal) -or $body.EndsWith(' *', [System.StringComparison]::Ordinal)) {
-        $shape.Prefix = $body.Substring(0, $body.Length - 2)
-    } else { $shape.Exact = $body }
-    $shape
+    if ($Rule -notmatch '^\s*(?:bash|powershell)(?![A-Za-z0-9_])') { return $null }
+    $m = [regex]::Match($Rule, '\A(?i:bash|powershell)\((?<body>.*)\)\z', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $m.Success) { return '*' }
+    $tok = [regex]::Match($m.Groups['body'].Value.Trim(), '\A[^\s:]*').Value
+    if ($tok -eq '') { return '*' }
+    $tok
 }
 
-function Test-SetupRuleCovered {
+function Get-SetupAllowBlock {
     <#
-        Чи покриває правило з $By (ask чи deny проєкту або шаблону) правило $Rule — тоді воно в allow не йде
-        (D13, уточнено за рев'ю безпеки). Форма-близнюк: Bash(X) ≡ PowerShell(X). Ціле ім'я Bash/PowerShell (чи
-        (*)) покриває все обох форм. Префікс на межі слова: p:* покриває q (q — префікс чи точне тіло $Rule),
-        коли q == p або q починається з «p ». Правило без суфікса покриває лише точне тіло. Не оболонка — точний
-        рядок. Регістр — як у Claude Code: враховується.
+        Чи зачіпає правило шаблону $Rule якесь правило $By — ВХІДНИХ ask і deny проєкту (D13, перебудовано за
+        рев'ю безпеки; у разі сумніву — блокувати). Повертає ключ групи рядка «не додано» (перший токен
+        команди; для не-оболонки — саме правило) або $null — тоді правило можна додати в allow.
+        Правило оболонки блокує будь-яке правило оболонки проєкту (Bash ≡ PowerShell), чий перший токен
+        (1) — маска «*» (ціле ім'я, порожнє тіло, не розбирається), (2) містить «*», і частина до «*» —
+        посимвольний префікс токена правила шаблону (pr-gate*, pr*), або (3) без «*» дорівнює йому, незалежно
+        від решти тіла. Порівняння токенів — без урахування регістру (ширше блокує). Не оболонка — лише
+        точний рядок.
     #>
     param([Parameter(Mandatory)][string]$Rule, $By)
-    $r = ConvertTo-SetupRuleShape $Rule
+    $t = Get-SetupShellToken $Rule
+    $ic = [System.StringComparison]::OrdinalIgnoreCase
     foreach ($c in $By) {
         if ($c -isnot [string]) { continue }
-        if ($c -ceq $Rule) { return $true }
-        if (-not $r.Shell) { continue }
-        $s = ConvertTo-SetupRuleShape $c
-        if (-not $s.Shell) { continue }
-        if ($s.Whole) { return $true }
-        if ($r.Whole) { continue }
-        $q = if ($null -ne $r.Prefix) { $r.Prefix } else { $r.Exact }
-        if ($null -ne $s.Prefix) {
-            if ($q -ceq $s.Prefix -or $q.StartsWith($s.Prefix + ' ', [System.StringComparison]::Ordinal)) { return $true }
-        } elseif ($null -ne $r.Exact -and $r.Exact -ceq $s.Exact) { return $true }
+        if ($null -eq $t) { if ($c -ceq $Rule) { return $Rule }; continue }
+        $s = Get-SetupShellToken $c
+        if ($null -eq $s) { continue }
+        if ($t.Contains('*')) { return $t }
+        $star = $s.IndexOf('*')
+        if ($star -ge 0) { if ($t.StartsWith($s.Substring(0, $star), $ic)) { return $t } }
+        elseif ($t.Equals($s, $ic)) { return $t }
     }
-    $false
+    $null
 }
 
 function Get-SetupTemplateRules {
@@ -346,12 +346,10 @@ function Get-SetupTemplateRules {
 }
 
 function Test-SetupShimHook {
-    <# Елемент hooks[] — старий шим kit: команда-рядок із шляхом шима окремим токеном (D12). #>
+    <# Елемент hooks[] — старий шим kit: уся команда (без пробілів по краях) дослівно — форма шима (D12). #>
     param($Hook)
     if (-not ($Hook -is [System.Collections.IDictionary]) -or -not $Hook.Contains('command') -or $Hook['command'] -isnot [string]) { return $false }
-    $cmd = $Hook['command']
-    if ($cmd -match $script:CompoundPattern) { return $false }
-    ($cmd -replace '\\', '/') -cmatch $script:ShimPattern
+    $Hook['command'].Trim() -cmatch $script:ShimPattern
 }
 
 function Remove-SetupShimHook {
@@ -412,6 +410,9 @@ function Get-SetupSettingsPlan {
         $cur[$l] = [System.Collections.Generic.List[object]]::new()
         if ($null -ne $v) { foreach ($x in $v) { $cur[$l].Add($x) } }
     }
+    # Вхідні ask і deny проєкту — до (б), (в) і дописування шаблону: лише з ними звіряється allow (а).
+    # Не злитий стан: ask шаблону (git push) інакше закрив би allow шаблону (git status) у кожному репо.
+    $inputStricter = @($cur['ask']) + @($cur['deny'])
     $tpl = Get-SetupTemplateRules -Is1C (Test-SetupIs1C -Root $Root)
     $obsolete = [string[]]@((Get-KitObsoleteNames).UnicaTools)
 
@@ -430,18 +431,28 @@ function Get-SetupSettingsPlan {
         $cur['allow'] = $kept
         if (-not (Test-SetupHasRule $cur['ask'] $script:UnicaApply)) { $cur['ask'].Add($script:UnicaApply) }
     }
-    # (а) Правила шаблону, яких немає в тому самому списку; в allow — лише те, чого не покриває ask чи
-    # deny ні проєкту, ні шаблону (строгіше рішення перемагає; D13 — Test-SetupRuleCovered).
+    # (а) Правила шаблону, яких немає в тому самому списку; в allow — лише те, чого не зачіпає жодне вхідне
+    # ask чи deny проєкту (D13 — Get-SetupAllowBlock). Пропущене — не мовчки: рядок на перший токен.
     $added = [ordered]@{ allow = 0; ask = 0; deny = 0 }
-    $stricter = @($cur['ask']) + @($cur['deny']) + @($tpl['ask']) + @($tpl['deny'])
+    $skipped = [ordered]@{}
     foreach ($l in 'deny', 'ask', 'allow') {
         foreach ($r in $tpl[$l]) {
             if (Test-SetupHasRule $cur[$l] $r) { continue }
-            if ($l -eq 'allow' -and (Test-SetupRuleCovered -Rule $r -By $stricter)) { continue }
+            if ($l -eq 'allow') {
+                $key = Get-SetupAllowBlock -Rule $r -By $inputStricter
+                if ($null -ne $key) {
+                    if (-not $skipped.Contains($key)) { $skipped[$key] = [System.Collections.Generic.List[string]]::new() }
+                    $skipped[$key].Add($r)
+                    continue
+                }
+            }
             $cur[$l].Add($r)
             $added[$l]++
         }
     }
+    $skipNote = (@(foreach ($k in $skipped.Keys) {
+                "`n  не додано $($skipped[$k].Count) правил на ``$k`` (проєкт має ask/deny на ``$k``): $($skipped[$k] -join ', ') — додай сам, якщо згоден"
+            }) -join '')
     # (г) Елемент старого шима в hooks.SessionStart.
     $shim = Remove-SetupShimHook -Data $data
 
@@ -449,7 +460,7 @@ function Get-SetupSettingsPlan {
     $warn = (@($script:BroadOld.Keys | Where-Object { @($cur['allow']) -contains $_ } | ForEach-Object {
                 "`n  власнику: $_ ширше за потрібне — $($script:BroadOld[$_])"
             }) -join '')
-    $plan = @{ Path = $path; Rel = $script:SettingsFile; Before = $before; After = $before; Json = $true; Note = "дозволи вже за шаблоном$warn" }
+    $plan = @{ Path = $path; Rel = $script:SettingsFile; Before = $before; After = $before; Json = $true; Note = "дозволи вже за шаблоном$warn$skipNote" }
     $addedTotal = $added['allow'] + $added['ask'] + $added['deny']
     if (-not ($addedTotal -or $dropped -or $moved -or $shim)) { return $plan }
 
@@ -464,7 +475,7 @@ function Get-SetupSettingsPlan {
         if ($moved) { 'unica_apply: allow → ask' }
         if ($shim) { "−$shim елемент(и) старого шима в hooks.SessionStart (файл .claude/hooks/session-start.ps1 — прибрати з git окремо)" }
     )
-    $plan.Note = "$($parts -join '; ') — власнику: перегляньте цей diff (правила allow агенти виконують без питання)$warn"
+    $plan.Note = "$($parts -join '; ') — власнику: перегляньте цей diff (правила allow агенти виконують без питання)$warn$skipNote"
     $plan
 }
 
