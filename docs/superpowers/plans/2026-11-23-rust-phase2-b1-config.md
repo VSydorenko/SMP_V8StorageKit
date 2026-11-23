@@ -11,6 +11,9 @@
 - **Заборони:** файли B2 не чіпати (`rust/src/runner*`, `rust/src/unica*`, `tools/lib/Runner.psm1`,
   `tools/check-environment.ps1`). PowerShell-код не змінюється (спека §5.0); новий Pester-файл паритету — єдина
   нова PowerShell-частина, її вимагає сама спека §5.1. Запису накладки немає.
+- **Спільні з B2 файли:** `rust/src/main.rs`, `rust/src/lib.rs`, `rust/Cargo.toml`, `rust/Cargo.lock`, `bin/kit.exe`.
+  Блок, що зливається другим, вливає `origin/main` у свою гілку (merge, без rebase), розв'язує конфлікт у
+  джерелах, перезбирає `bin/kit.exe` збіркою поставки й комітить його разом із розв'язанням.
 
 ## 2. Мета / Архітектура / Спека
 
@@ -37,11 +40,19 @@
 - Еталон поведінки — PowerShell на поточному `origin/main` (рішення 1). Тест паритету кличе живу
   PowerShell-копію в дереві, тож еталон завжди той, що поруч.
 - Розбір не панікує на жодному вході (`panic = "abort"` у релізі: паніка — текст у stderr, а хук вклеює stderr
-  у контекст сесії). `unwrap`/`expect`/індексація на даних із файлів заборонені.
+  у контекст сесії; повідомлення паніки цитує дані — зріз рядка не на межі символу друкує сам рядок). Модуль
+  `config` несе `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing,
+  clippy::string_slice, clippy::panic)]`; `cargo clippy` без попереджень цих лінтів — частина перевірки кожної
+  задачі (інваріант §6).
 - Модуль `config` не запускає зовнішніх процесів (git, раннер, `pwsh`): запобіжник `git_guard.rs` лишається
   зеленим без нових записів `ALLOWED_DYNAMIC`.
-- Шляхи — лексично абсолютні, як `[IO.Path]::GetFullPath`; `fs::canonicalize` не вживати (префікс `\\?\`).
-  BOM на початку файла відкидається, як `Get-Content -Encoding UTF8`.
+- Шляхи у виводі й контексті — як `[IO.Path]::GetFullPath` (лексично); перетини баз і пам'яті раннера — лише
+  через канонічну форму, як `Get-KitCanonicalPath`: розкриття junction/symlink по компонентах (`fs::read_link`,
+  ліміт стрибків той самий), зняття `\\?\`, `\\?\UNC\`, `\??\`, fail-closed на нечитаному атрибуті.
+  `fs::canonicalize` не вживати. BOM на початку файла відкидається, як `Get-Content -Encoding UTF8`.
+- Ключі YAML-мап і значення `truth` порівнюються без регістру: PowerShell тримає дерево в
+  `OrderedDictionary` (вимір 2026-11-23: `Contains("version")` на `Version:` — `True`), а `-notcontains`,
+  `switch` і `-eq` нечутливі до регістру. Там, де PowerShell пише `-cne`/`-ceq`, — з регістром.
 - Наявні тести лишаються зеленими: `cargo test` і `-Only` змінених зон.
 
 ## 4. Рішення
@@ -50,9 +61,9 @@
 |---|---|---|
 | 1 | Еталон для двох текстів `kitVersion` — поточний `main` (після #109: `v8storagekit.version`), а не `e25ae14` (`kit.version`). Решта поведінки B1 на `e25ae14` і на `3aaa0fd` однакова (`git diff e25ae14..origin/main -- tools/lib`). | §5.0: одне речення в задачі 0 |
 | 2 | Файли читаються деревом `serde_yaml::Value` і перевіряються вручну; власні типи будуються з дерева. Помилка `serde_yaml` дає лише місце (`location()`: рядок, колонка), текст помилки не передається. | немає (§5.1, §6 так і кажуть) |
-| 3 | Секрети — типом: пароль — `Secret`, сирий рядок підключення — `RawConnection`; обидва без `Display`, `Debug` друкує лише ознаку «задано». Сирий текст дістає лише явний метод доступу, який кличе код, що передає значення далі (фаза 3, `kit step`), не форматування. | немає |
+| 3 | Секрети — типом: пароль — `Secret`, сирий рядок підключення — `RawConnection`, піддерево `infobases.origin.dbms` (облікові дані СУБД) — непрозорий `SecretTree`; усі три без `Display`, `Debug` друкує лише ознаку «задано». У JSON підкоманди `dbms` — лише ознака «задано». Сирий текст дістає лише явний метод доступу, який кличе код, що передає значення далі (фаза 3, `kit step`), не форматування. | немає |
 | 4 | Прихована підкоманда `config-preflight` друкує, крім контексту й знахідок, базу агента кожного воркспейсу й перетини баз (замасковано тим самим правилом): так тест паритету покриває `Resolve-KitAgentBase` і `Find-KitAgentBaseCollisions`, і окремих тестів їм не треба. | §5.1: уточнення складу JSON у задачі 0 |
-| 5 | Класи неправильних файлів перевіряє той самий тест паритету на корпусі неправильних файлів tools/tests/fixtures/config-bad (створює задача 4): Rust-текст мусить дорівнювати PowerShell-тексту, тож вирізана в Rust перевірка дає червоне без переписаних у тест очікувань. Винятки — класи, де PowerShell вклеює текст YamlDotNet (YAML не розбирається, дубль ключа): їх перевіряє Rust-тест форми повідомлення (ім'я файла й місце, без тексту парсера). | §5.1: уточнення в задачі 0 |
+| 5 | Класи неправильних файлів перевіряє той самий тест паритету на корпусі неправильних файлів tools/tests/fixtures/config-bad (створює задача 4): Rust-текст мусить дорівнювати PowerShell-тексту, тож вирізана в Rust перевірка дає червоне без переписаних у тест очікувань. Кожна фікстура корпусу несе в метаданих очікувані перевірку (`manifest`, `overlay`, `workspace`, `source`) і початок тексту; тест спершу стверджує їх на PowerShell-боці — фікстура, яку PowerShell приймає чи відхиляє іншим класом, дає червоне, а не «покритий клас». Винятки — класи, де PowerShell вклеює текст YamlDotNet (YAML не розбирається, дубль ключа): їх перевіряє Rust-тест форми повідомлення (ім'я файла й місце, без тексту парсера). | §5.1: уточнення в задачі 0 |
 | 6 | Корінь YAML не мапа — текст з іменем типу .NET, як зараз. Вимір 2026-11-23 (`Read-KitYaml`): список → `List`1`, рядок → `String`, ціле → `Int32`, булеве → `Boolean`. Решту виконавець міряє тим самим способом і додає у відповідність; невиміряний вид — корпус паритету покаже розбіжність. | немає |
 | 7 | Скаляр → рядок — одна функція з правилами PowerShell `[string]` (ціле без крапки, `True`/`False`, `null` → порожньо); її поведінку тримає паритет на корпусі. | немає |
 | 8 | Обидва режими поблажливого префлайту й суворий — одна функція з `Mode`; суворий режим повертає першу знахідку error як зупинку (`Err`), поблажливі — повний контекст. | немає |
@@ -65,10 +76,13 @@
 - `config::Mode { Strict, Lenient, Check }`.
 - `config::Finding { level: Level, check: String, message: String }`, `Level { Error, Warn, Info }` — як
   `New-KitFinding`.
-- `config::preflight(repo_root: &Path, mode: Mode) -> Result<Context, Finding>`: `Err` — лише в `Strict`
-  (перша помилка); `Lenient`/`Check` завжди `Ok`, `Context.ok` і `Context.findings` — як `$ctx.Ok`/`Findings`.
-- `Context`: корінь, шлях маніфесту й накладки, `Manifest`, `Option<Overlay>`, вид і мітка продукту, головна
-  гілка, `Vec<Workspace>`; `Workspace`: шлях, повний шлях, `V8Project` (source-set-и, `workPath`, `providers`
+- `config::preflight(repo_root: &Path, mode: Mode) -> Result<Context, PreflightStop>`: у всіх режимах `Err` —
+  корінь не існує чи не git-репозиторій (`Resolve-V8RepoRoot`, поза `$fail` і в PowerShell, текст як зараз); у
+  `Strict` ще й перша помилка; інакше `Lenient`/`Check` — `Ok`, `Context.ok` і `Context.findings` — як
+  `$ctx.Ok`/`Findings`. `PreflightStop { check: Option<String>, message }`: `check` порожній для кореня.
+- `Context`: корінь, шлях маніфесту й накладки, `Option<Manifest>` (немає, коли маніфест не прочитано — як
+  `$null` у PowerShell), `Option<Overlay>`, вид і мітка продукту (`Option`), головна гілка (типово `main`),
+  `Vec<Workspace>`; `Workspace`: шлях, повний шлях, `V8Project` (source-set-и, `workPath`, `providers`
   як дерево), `Vec<Source>`; `Source`: ключ, `truth`, тип, воркспейс, шляхи, шлях сховища, користувач,
   `Secret` пароля, `dump.from`, гілка `storage/<ключ>`.
 - `config::select_sources(&Context, workspace: Option<&str>, source: Option<&str>, truth: &[Truth]) ->
@@ -76,15 +90,20 @@
 - `config::agent_base(&Context, &Workspace) -> Result<Option<AgentBase>, String>` — як `Resolve-KitAgentBase`;
   `agent_base_collisions(&Context, &Workspace)`, `workspace_needs_agent_base(&Workspace)`,
   `agent_base_missing_message(ws: &str)` — як однойменні PowerShell-функції.
+- `config::local_has_dev_infobase_line(workspace: &Workspace) -> bool` — лише ознака: у
+  `v8project.local.yaml` є рядок, що починається з `devInfobase:` (сирий текст, не YAML). Знахідку `local-audit`
+  з її умовою (`check.psm1`, гілка `elseif` після перевірки «база агента й накладка») формує B3, не B1.
 - `config::connection::parse(&RawConnection) -> Result<Connection, ConnectionError>` — як
   `ConvertFrom-V8Connection`; `assert_secret_quote_free(&Secret, origin: &str)`.
 - Читання накладки віддає типи, з яких фаза 3 зможе записати базу агента; сам запис у B1 не реалізується.
 
 **Прихована підкоманда** `kit.exe config-preflight -RepoRoot <тека> -Mode Strict|Lenient|Check
-[-Workspace w] [-Source s] [-Truth t,…]` (розбір — `cli::parse`; не в `-Help`). Код 0, коли JSON надруковано (і
-на зупинці `Strict`: тоді в JSON поле зупинки з перевіркою й текстом); 2 — помилка виклику. JSON: контекст,
+[-Workspace w] [-Source s] [-Truth t [-Truth t2]]` (розбір — `cli::parse`, `-Truth` — `Kind::List`, повтором, без
+розбиття за комою; не в `-Help`). Код 0, коли JSON надруковано (і на зупинці: тоді в JSON поле зупинки з
+перевіркою й текстом); 2 — помилка виклику. JSON: контекст,
 знахідки, вибрані джерела, база агента й перетини кожного воркспейсу. Маска (§5.1, §6): кожен пароль —
-ознака «задано / не задано»; кожен рядок підключення — розібрана форма (вид, `File` або `Srvr`+`Ref`, ознака
+ознака «задано / не задано» плюс нейтральний свідок для паритету (довжина й вид скаляра YAML: рядок, число,
+булеве; не хеш — хеш слабкого пароля підбирається); піддерево `dbms` — лише «задано»; кожен рядок підключення — розібрана форма (вид, `File` або `Srvr`+`Ref`, ознака
 облікових даних) чи ознака «не розбирається»; сирим текстом — ніколи. Підкоманда живе, доки живе
 PowerShell-копія префлайту.
 
@@ -94,10 +113,12 @@ PowerShell-копія префлайту.
 
 | Інваріант | Перевірка, що ловить дефект |
 |---|---|
-| Пароль (накладка `storages.*.password`, `v8project.local.yaml` `infobases.origin.password`) не з'являється у виводі, знахідках, помилках, JSON підкоманди. | Маркерний тест (задача 4): маркер у полі пароля → немає ні в stdout, ні в stderr підкоманди, ні в `Display`/`Debug` знахідок і помилок модуля. Червоніє, якщо `Secret` отримає `Display`, а `Debug` друкує значення, чи підкоманда серіалізує пароль. |
+| Пароль (накладка `storages.*.password`, `v8project.local.yaml` `infobases.origin.password`) і піддерево `infobases.origin.dbms` (ключі й значення) не з'являються у виводі, знахідках, помилках, JSON підкоманди. | Маркерний тест (задача 4): маркер у полі пароля → немає ні в stdout, ні в stderr підкоманди, ні в `Display`/`Debug` знахідок і помилок модуля. Червоніє, якщо `Secret` отримає `Display`, а `Debug` друкує значення, чи підкоманда серіалізує пароль. |
 | Рядок підключення не друкується сирим текстом, лише компоненти без облікових даних або «не розбирається». | Маркер у значенні компонента (`Pwd=`, `Usr=`, значення `File=` з пропущеною `;`) → немає в обох каналах. Червоніє, якщо помилка розбору цитує значення чи маска падає назад на сирий рядок. |
 | Ключ чи значення YAML-мапи, що не пройшли перевірку (невідомий ключ, запис без значення, дубль, рядок замість мапи, неправильна форма шляху сховища), не друкуються. | Маркер у позиції такого ключа чи значення в накладці й `v8project.local.yaml` для кожного класу §6 → немає в обох каналах. Червоніє, якщо в помилку потрапить текст `serde_yaml` (`unknown field`, `duplicate entry`, `invalid type: string "…"`). |
 | Вкладені якорі не зависають і не панікують. | Фікстура «мільярд сміхів» (вкладені якорі й посилання): розбір завершується помилкою з іменем файла за стелю часу тесту; код процесу — не паніка. Червоніє, якщо обмеження `serde_yaml` обійти (напр. власним розгортанням якорів). |
+| Розбір не панікує (паніка цитує дані в stderr, хук вклеює stderr у контекст сесії). | `#![deny(...)]` модуля `config` (§3) і `cargo clippy` у перевірці кожної задачі: `unwrap`, `expect`, індексація чи зріз рядка в модулі — помилка збірки лінтів. Плюс маркери з багатобайтовими символами біля роздільників (`;`, `=`, лапка). |
+| Перетин бази агента з базою людини не пропускається через junction/symlink (принцип «kit ніколи не пише в базу людини»). | Фікстура паритету: тека воркспейсу B — junction на теку з дев-базою людини; PowerShell дає перетин і помилку, Rust — те саме. Червоніє на лексичному порівнянні шляхів. |
 | Модуль `config` не запускає процесів. | `rust/tests/git_guard.rs` без нових записів `ALLOWED_DYNAMIC`. |
 
 ## 7. Частини
@@ -109,10 +130,10 @@ PowerShell-копія префлайту.
 | # | Задача | Файли | Готово, коли | Після | Перевірка |
 |---|---|---|---|---|---|
 | 0 | Звірка якорів і поправки спеки | спека §5.0, §5.1 | `doc anchors` плану й спеки без зламаних якорів; у §5.0 — рішення 1, у §5.1 — склад JSON (рішення 4) і корпус класів (рішення 5); стара формула не лишилась (пошук `kit.version` у спеці) | — | тести `Docs` |
-| 1 | Читання YAML, маніфест, накладка | `Cargo.toml`, `Cargo.lock`, `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `-Only KitExe` |
-| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, знахідка `local-audit` — сирим текстом (рядок `devInfobase:`), `ConvertFrom-V8Connection`, `Assert-V8SecretQuoteFree`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `-Only KitExe` |
-| 3 | Префлайт і прихована підкоманда | створити rust/src/config/preflight.rs; `main.rs` | `preflight` у трьох режимах і `select_sources` як `Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена | 2 | `cargo test`; `-Only KitExe` |
-| 4 | Паритет, класи, маркери, якорі | створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs | «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути) | 3 | `-Only ConfigParity,KitExe`; `cargo test`; фінал — `-Full` |
+| 1 | Читання YAML, маніфест, накладка | `Cargo.toml`, `Cargo.lock`, `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection`, `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 3 | Префлайт і прихована підкоманда | створити rust/src/config/preflight.rs; `main.rs` | `preflight` у трьох режимах і `select_sources` як `Resolve-V8RepoRoot`/`Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена | 2 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 4 | Паритет, класи, маркери, якорі | створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs | «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути) | 3 | `-Only ConfigParity,KitExe`; `cargo test`; `cargo clippy`; фінал — `-Full` |
 
 **«Готово, коли» блоку** (спека §3, дослівно): тести паритету на кожній фікстурі маніфесту й на зразках
 `templates/v8storagekit*.example` зелені: контекст без секретів і знахідки Rust-префлайту дорівнюють
@@ -120,19 +141,35 @@ PowerShell-префлайту; помилка на кожен клас непр�
 тести всіх класів §6 зелені для модуля `config` і підкоманди префлайту. Плюс з §6 «Межі довіри»: фікстура
 вкладених якорів завершується помилкою, а не зависанням. Розгорнуто для задачі 4:
 
+- **Репозиторії паритету.** Кожен випадок — репозиторій з `.git`, зібраний `New-KitFakeRepo`: маніфест
+  (`-ManifestText`) з фікстури, воркспейси й `v8project.yaml` (`-Workspaces`) за її `workspaces`/`sources`
+  (`tools/tests/fixtures/v8project-*.yaml` там, де підходять), накладка (`-OverlayText`) з
+  `tools/tests/fixtures/overlay-sample.yaml` чи зразка, база агента — `Set-KitFakeAgentBase`. Голий файл
+  фікстури поза репозиторієм дає на обох боках ту саму помилку кореня й нічого не перевіряє. Rust-бік —
+  `bin/kit.exe` дерева, не `kit` з `PATH`.
 - **Паритет** — у кожному з трьох режимів: `tools/tests/fixtures/manifest-*.yaml`, `templates/v8storagekit.yaml.example`,
-  `templates/v8storagekit.local.yaml.example`, `templates/v8project.yaml.example`, синтетичні репозиторії
-  `New-KitFakeRepo` (зокрема з `kitVersion` у маніфесті — три режими дають три різні результати), корпус
-  `config-bad/`. PowerShell-бік: `Invoke-KitPreflight` + `Select-KitSources` + функції бази агента,
-  серіалізовані в тесті тим самим правилом маски; порівняння — розібраними значеннями.
+  `templates/v8storagekit.local.yaml.example`, `templates/v8project.yaml.example`, `New-KitFakeRepo` з `kitVersion`
+  у маніфесті (три режими — три різні результати), корпус `config-bad/`, фікстура скалярів-пасток у несекретних
+  полях, що порівнюються повністю (`label`, шлях, `user`, гілка, ключі джерел: `0123`, `1e3`, `yes`, `on`, `~`,
+  `null`, `1_000`, `0x10`), фікстура ключів і `truth` в іншому регістрі, фікстура junction (§6). PowerShell-бік:
+  `Invoke-KitPreflight` + `Select-KitSources` + функції бази агента, серіалізовані узагальнено (обхід усіх
+  властивостей, маска за переліком секретних імен); порівняння — розібраними значеннями, і множина ключів
+  кожного об'єкта рівна з обох боків (нове поле з одного боку — червоне). Нижня межа кількості випадків
+  стверджується в тесті: порожнє розгортання — червоне. На добрих фікстурах PowerShell-бік стверджує `Ok` і
+  відсутність знахідок `manifest`/`workspace`.
 - **Класи** — корпус `config-bad/` покриває кожен `throw` `Read-KitYaml`, `Read-KitManifest`,
   `Read-KitLocalOverlay`, `Read-V8Project`, `Get-V8ProjectConfigProblems`, `ConvertFrom-V8Connection`,
-  `Assert-V8SecretQuoteFree`; перелік класів виконавець звіряє з `grep -n 'throw' <файли>` без обрізання й
-  кладе у звіт задачі. Класи з текстом парсера (рішення 5) — Rust-тест форми.
+  `Assert-V8SecretQuoteFree`; метадані фікстури — рішення 5. Перелік класів виконавець звіряє з
+  `grep -n 'throw' <файли>` без обрізання й кладе у звіт задачі. Класи з текстом парсера (рішення 5) — Rust-тест
+  форми.
 - **Маркери** — класи §6 у накладці й `v8project.local.yaml`: рядок замість мапи, дубль ключа, невідомий ключ,
-  запис без значення, неправильний рядок підключення, плюс пароль сховища й бази агента. Канали: `Display` і
-  `Debug` помилок і знахідок модуля; stdout і stderr `kit.exe config-preflight` (`CARGO_BIN_EXE_kit`). Контроль:
-  тест, що бачить маркер у файлі-джерелі, — інакше маркерний тест зелений через порожній вхід.
+  запис без значення, неправильний рядок підключення, пароль сховища й бази агента, ключ і значення в `dbms`.
+  Маркер — ASCII без спецсимволів JSON (інакше JSON друкує `\uXXXX` і пошук підрядка сліпий), плюс варіанти з
+  `"` (шукати алфавітну частину; так маркер доходить до `Assert-V8SecretQuoteFree`) і з багатобайтовими
+  символами біля роздільників. Канали: `Display` і `Debug` помилок і знахідок модуля; stdout і stderr
+  `kit.exe config-preflight` (`CARGO_BIN_EXE_kit`). Контроль — позитивний двійник кожного маркерного випадку:
+  той самий вхід дає очікувану знахідку чи помилку свого класу, а пароль — ознаку «задано» в JSON (маркер
+  пройшов шлях, що його вивів би). Самої присутності маркера у файлі мало: префлайт міг зупинитись раніше.
 
 ## 9. Задача 0
 

@@ -12,6 +12,9 @@
   `bin/kit.exe` свого дерева.
 - **Заборони:** файли B1 не чіпати (модуль `config`, його створює B1). PowerShell змінюється лише в `tools/lib/Runner.psm1`
   (функція запуску) і `tools/check-environment.ps1` (вердикти), спека §5.0. Справжній раннер не запускати.
+- **Спільні з B1 файли:** `rust/src/main.rs`, `rust/src/lib.rs`, `rust/Cargo.toml`, `rust/Cargo.lock`, `bin/kit.exe`.
+  Блок, що зливається другим, вливає `origin/main` у свою гілку (merge, без rebase), розв'язує конфлікт у
+  джерелах, перезбирає `bin/kit.exe` збіркою поставки й комітить його разом із розв'язанням.
 
 ## 2. Мета / Архітектура / Спека
 
@@ -37,7 +40,12 @@ ADR-0019. Глосарій: «конверт раннера».
   домашню теку виконавець бере так само, як її бачить `$HOME` у `pwsh` на Windows (виміряти, не припускати).
 - Код раннера, `ok` і `error` конверта kit не перетлумачує; вивід раннера не маскує (§6).
 - Тексти вердиктів і помилок — ті самі, що в `Get-UnicaInstallation`, `Get-KitUnicaVersionVerdict`,
-  `Get-KitRunnerPath`, `Get-KitRunnerVersion`, `Get-KitRunnerVerdict` (дослівно).
+  `Get-KitRunnerPath`, `Get-KitRunnerVersion`, `Get-KitRunnerVerdict` (дослівно). Виняток — причина «реєстр не
+  читається як JSON»: префікс до двокрапки той самий, а текст розбору .NET у Rust не відтворюється (відома
+  відмінність за ADR-0014 п. 7; базова лінія задачі 0 знімає й цей стан).
+- Семантика реєстру — як у PowerShell: ім'я плагіна до `@` порівнюється без регістру (`-eq`); значення запису —
+  і одиночний об'єкт, і масив (`@($entry.Value)`, береться перший); BOM на початку файла відкидається
+  (`Get-Content -Encoding utf8`); регекс версії раннера — `(?m)^v8-runner\s+(?<v>\d+(?:\.\d+)+\S*)\s*$`.
 - Решта `Runner.psm1` — без змін логіки (ADR-0019 п. 2); `Invoke-KitRunner` лишається точкою моку тестів.
 - Наявні тести лишаються зеленими: `cargo test`, `-Only Runner,Environment,KitExe`.
 
@@ -49,9 +57,10 @@ ADR-0019. Глосарій: «конверт раннера».
 | 2 | `Start-KitRunnerProcess` кличе `kit.exe runner-exec` свого дерева через `System.Diagnostics.ProcessStartInfo.ArgumentList` (.NET лапкує кожен аргумент сам) з асинхронним читанням stdout і stderr (UTF-8) — без власного рядка аргументів. `ConvertTo-KitRunnerArgLine` зникає: копії правил `CommandLineToArgvW` у PowerShell більше немає (ADR-0019, «Why»). Перевірка `Test-Path` шляху раннера й форма результату `{ExitCode; Stdout; Stderr}` лишаються. | немає |
 | 3 | Підкоманда вердиктів — `kit.exe tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p]` (`cli::parse`) → один JSON: `unica` (поля `Get-UnicaInstallation` + `level`, `message` вердикту), `runner` (`level`, `message`, `version`). Код 0, коли JSON надруковано, і на вердикті `error`; 2 — помилка виклику. `check-environment.ps1` кличе `bin/kit.exe` свого дерева й не імпортує більше `Runner.psm1` для вердиктів. | немає |
 | 4 | Реєстр плагінів читається з порядком записів файла: «перший запис `unica@…`» — як `Select-Object -First 1` у PowerShell. Без `preserve_order` — потоковим розбором об'єкта `plugins` у вектор пар. | немає |
-| 5 | Тест лапкування — на справжньому PE, що друкує свій argv (тестова ціль cargo, не `.cmd`: для пакетних файлів `std::process::Command` лапкує за правилами `cmd.exe`, і тест виміряв би не те). Ціль у `bin/` не потрапляє. Фальшивий раннер Pester `tools/tests/fixtures/runner/v8-runner.cmd` лишається для тестів `Runner`/`Environment`. | немає |
+| 5 | Тест лапкування — на справжньому PE, що друкує свій argv (тестова ціль cargo, не `.cmd`: для пакетних файлів `std::process::Command` лапкує за правилами `cmd.exe`, і тест виміряв би не те). Луна розбирає argv через `std::env::args_os` свідомо: справжній раннер — Rust-бінарник (`v8-runner-rust`), тож розбирає так само; ланку PowerShell → `kit.exe` (.NET `ArgumentList` → розбір `main.rs`) перевіряє окремий Pester-тест задачі 2. Ціль у `bin/` не потрапляє. Фальшивий раннер Pester `tools/tests/fixtures/runner/v8-runner.cmd` лишається для тестів `Runner`/`Environment`. | немає |
 | 6 | Стеля часу — параметр виклику API (`Option<Duration>`); на стелі — `proc::kill_tree` і помилка «стеля часу» з тим виводом, що встиг прийти. Підкоманда `runner-exec` стелі не має: PowerShell-викликачі її не мають і зараз. | немає |
-| 7 | Протестовані мінори Уніки (`0.16`) і раннера (`0.18`) у Rust — лише в модулі `unica`. PowerShell-копії (`Environment.psm1`, `Runner.psm1`) лишаються до B3: їх кличе `commands/check.psm1`. Однаковість до B3 тримає порівняння вердиктів задачі 2. | немає; нотатка для B3 |
+| 7 | Протестовані мінори Уніки (`0.16`) і раннера (`0.18`) у Rust — лише в модулі `unica`. PowerShell-копії (`Environment.psm1`, `Runner.psm1`) лишаються до B3: їх кличе `commands/check.psm1`. Однаковість до B3 тримає Rust-тест задачі 1 з тими самими таблицями рядків і дослівними текстами `message`, що в Pester (`Get-KitUnicaVersionVerdict` в `Environment.Tests.ps1`, `Get-KitRunnerVerdict` у `Runner.Tests.ps1`); порівняння задачі 2 покриває лише стани `check-environment.ps1`. | немає; нотатка для B3 |
+| 8 | Запобіжник — окремий виняток модуля `runner` у `scan_crate`, як для git: файли `src/runner.rs` / `src/runner/**` з правила виключено, з власним лічильником влучень для позитивного двійника; запису в `ALLOWED_DYNAMIC` модуль не має (інакше перевірка «застарілий запис» червона). Винятки `git` і `runner` — окремі гілки, не один спільний `continue`. Предикат імені — власний: літерал, останній сегмент шляху якого (після `/` чи `\`) дорівнює без регістру `v8-runner` чи `v8-runner.exe`; плюс правило рядка оболонки — слово `v8-runner` у літералі всередині `.arg(`, `.args(`, `Command::new(`. Тексти вердиктів (`"Раннер v8-runner {v}."`) і сегмент `v8-runner-windows-x86_64` влучень не дають. | немає |
 
 ## 5. Інтерфейси
 
@@ -72,6 +81,8 @@ ADR-0019. Глосарій: «конверт раннера».
 - `runner::exec(runner, cwd, args, timeout) -> Result<RawOutput { exit_code, stdout, stderr }, RunError>` — сирий
   запуск без `--config` (для `--version` і для тестів).
 - `runner::version(runner: &Path) -> Result<String, String>` — як `Get-KitRunnerVersion`.
+- `runner::exec_inherit(runner: &Path, cwd: &Path, args: &[OsString]) -> Result<i32, RunError>` — запуск з
+  успадкованими stdin, stdout і stderr для `runner-exec`; `main.rs` лише кличе її й процесу сам не запускає.
 - Приховані підкоманди `runner-exec`, `tool-verdicts` — рішення 1 і 3; не в `-Help`.
 
 **Бере:** `proc::kill_tree` (наявний). Від B1 — нічого.
@@ -80,9 +91,9 @@ ADR-0019. Глосарій: «конверт раннера».
 
 | Інваріант | Перевірка, що ловить дефект |
 |---|---|
-| Поза модулем `runner` Rust-код раннер не запускає. | Правило в `git_guard.rs`: поза `src/runner.rs` / `src/runner/**` — влучення на літерал `v8-runner` (без регістру, з `.exe` і шляхом); динамічний `Command::new` модуля `runner` — новий запис `ALLOWED_DYNAMIC`. Позитивний двійник: у модулі `runner` правило дає влучення. Контроль, що вміє впасти: синтетичне джерело з `Command::new("v8-runner.exe")` поза модулем — червоне. |
-| Шлях раннера не береться з оточення, маніфесту чи накладки. | Тест: змінна оточення з іншим шляхом раннера й маніфест із полем шляху не змінюють вибраного шляху (`installed_runner` на фальшивому реєстрі). Червоніє, якщо код почне читати оточення. |
-| Аргументи доходять до раннера дослівно. | Тест лапкування (рішення 5): аргументи з пробілом, лапкою, кінцевим `\` і `\` перед лапкою, порожній аргумент → argv-луна повертає їх без змін; і через API, і через `runner-exec`. Червоніє на ручному склеюванні рядка без лапкування. |
+| Поза модулем `runner` Rust-код раннер не запускає. | Правило в `git_guard.rs` за рішенням 8. Позитивний двійник: у модулі `runner` правило дає влучення (свій лічильник). Контролі, що вміють впасти, — синтетичні джерела поза модулем, кожне червоне: `Command::new("v8-runner.exe")`, `r"C:\U\V8-Runner.EXE"`, `const R: &str = "v8-runner";` з `Command::new(R)`, `format!("{d}\\v8-runner.exe")`, `.args(["/c", "v8-runner --version"])` для `cmd`, `Command` через псевдонім. Нехибні: текст вердикту з `v8-runner 0.18.x` поза `.arg(` — не влучення. |
+| Шлях раннера не береться з оточення, маніфесту чи накладки. | Лексична перевірка в дусі `git_guard.rs`: у `src/unica*` і `src/runner*` немає `env::var`, `var_os`, `vars`, `vars_os`, крім одного дозволеного місця — домашньої теки в `default_registry`; застарілий дозвіл теж червоний. Контроль: синтетичне джерело з `env::var("X")` у модулі — червоне. Маніфест і накладку модулі не читають за сигнатурою (§5). |
+| Аргументи доходять до раннера дослівно. | Тест лапкування (рішення 5): аргументи з пробілом, лапкою, кінцевим `\`, `\` перед лапкою, порожній аргумент → argv-луна повертає їх без змін, порівнюється вміст; через API (задача 1) і через `Start-KitRunnerProcess` → `kit.exe runner-exec` (Pester, задача 2). Контроль — у звіті задачі: ручне склеювання рядка без лапкування дає червоне. |
 
 ## 7. Частини
 
@@ -92,9 +103,9 @@ ADR-0019. Глосарій: «конверт раннера».
 
 | # | Задача | Файли | Готово, коли | Після | Перевірка |
 |---|---|---|---|---|---|
-| 0 | Звірка якорів і базова лінія | — (вивід у `.agents/out/`) | `doc anchors` плану без зламаних якорів; вивід `check-environment.ps1` на фальшивих реєстрах чотирьох станів (`Environment.Tests.ps1`, Describe `check-environment.ps1: Уніка й раннер…`: Уніки немає; 0.15.2; 0.16.0 + фальшивий раннер 0.18.1, і 0.17.0; раннера немає) знято на `origin/main` і збережено | — | — |
-| 1 | Модулі `unica` і `runner`, підкоманди, запобіжник | `rust/src/{unica,runner}.rs` (або теки), `lib.rs`, `main.rs`, `rust/tests/git_guard.rs`, тест лапкування й argv-луна | API за §5; `runner-exec`, `tool-verdicts` за рішеннями 1 і 3; правило запобіжника з двійником і контролем; тест лапкування зелений; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `-Only KitExe` |
-| 2 | PowerShell на `kit.exe` | `tools/lib/Runner.psm1` (лише `Start-KitRunnerProcess`, прибрати `ConvertTo-KitRunnerArgLine`), `tools/check-environment.ps1` | `Runner.Tests` і `Environment.Tests` зелені; рядки Уніки й раннера `check-environment.ps1` на чотирьох станах задачі 0 дослівно дорівнюють базовій лінії; `grep -rn 'Start-Process' tools/lib/Runner.psm1` без влучень | 1 | `-Only Runner,Environment,KitExe`; фінал — `-Full` |
+| 0 | Звірка якорів і базова лінія | — (вивід у `.agents/out/`) | `doc anchors` плану без зламаних якорів; вивід `check-environment.ps1` на фальшивих реєстрах станів (`Environment.Tests.ps1`, Describe `check-environment.ps1: Уніка й раннер…`: Уніки немає; 0.15.2; 0.16.0 + фальшивий раннер 0.18.1, і 0.17.0; раннера немає) плюс реєстр зі зіпсованим JSON, реєстр з BOM і ключ `Unica@…` знято на `origin/main` і збережено | — | — |
+| 1 | Модулі `unica` і `runner`, підкоманди, запобіжник | `rust/src/{unica,runner}.rs` (або теки), `lib.rs`, `main.rs`, `rust/tests/git_guard.rs`, тест лапкування й argv-луна | API за §5; `runner-exec`, `tool-verdicts` за рішеннями 1 і 3; правило запобіжника з двійником і контролями; лексична перевірка оточення; тест лапкування зелений; таблиці вердиктів (рішення 7) і семантика реєстру (§3: регістр імені, одиночний запис і масив, BOM) мають Rust-тести; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `-Only KitExe` |
+| 2 | PowerShell на `kit.exe` | `tools/lib/Runner.psm1` (лише `Start-KitRunnerProcess`, прибрати `ConvertTo-KitRunnerArgLine`), `tools/check-environment.ps1`, Pester-тест лапкування | `Runner.Tests` і `Environment.Tests` зелені; рядки Уніки й раннера `check-environment.ps1` на станах задачі 0 дослівно дорівнюють базовій лінії; Pester-тест лапкування (§6) зелений; один підпроцесний тест із фальшивим `.cmd` у теці з пробілом і кирилицею зелений; `grep -rn 'Start-Process' tools/lib/Runner.psm1` без влучень | 1 | `-Only` — тести змінених модулів і файлів, що кличуть змінені функції (`grep -rln 'Start-KitRunnerProcess\|Get-KitRunnerVersion\|Get-KitRunnerVerdict\|Invoke-KitRunner\|Get-KitAgentPlatform\|Invoke-KitAgentRelease\|RunnerPath' tools/tests`, зокрема `Check.*`, `SessionCheck.*`, `SessionStartHook`); фінал — `-Full` |
 
 **«Готово, коли» блоку** (спека §3, дослівно): запобіжник «раннер запускається лише в модулі `runner`» має
 влучення й контроль, що вміє впасти; тести `Runner` і `Environment` зелені, а `check-environment.ps1` на
