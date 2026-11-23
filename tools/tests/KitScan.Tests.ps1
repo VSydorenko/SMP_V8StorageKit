@@ -113,4 +113,51 @@ Describe 'kit-scan — скан підключення' -Tag 'Docs' {
         $steps[0] | Should -Match '^- \[ \] V1 Крок сім-нуль'
         $r.Out | Should -Not -Match 'Крок п-' -Because 'кроки 1.5.0 проєкт уже пройшов'
     }
+
+    It 'Kit version: маніфест з kitVersion без профілю — connected-before; профіль без kit.version і без kitVersion — no-version' {
+        $repo = New-Repo 'before'
+        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value "kitVersion: `"1.4.0`" # старий`nname: x`n" -Encoding utf8NoBOM
+        $r = Invoke-Scan $repo
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'підключено раніше \(1\.4\.0\), профілю немає' -Because $r.Out
+        $r.Out | Should -Match 'kit check -RepoRoot \.' -Because $r.Out
+        $r.Out | Should -Match 'V1 Крок п-один' -Because 'версії, новіші за 1.4.0, — усі'
+        $r.Out | Should -Match 'V3 Крок сім-нуль' -Because $r.Out
+        $r.Out | Should -Not -Match 'перше підключення' -Because $r.Out
+        $json = (Invoke-Scan $repo -Arguments @('-Json')).Out | ConvertFrom-Json
+        $json.kitVersion.status | Should -Be 'connected-before'
+        # Профіль з kit.version переважає над маніфестом.
+        New-Item -ItemType Directory -Path (Join-Path $repo '.agents') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.agents/kit.profile.json') -Value '{ "kit": { "version": "1.7.0" } }' -Encoding utf8NoBOM
+        (Invoke-Scan $repo -Arguments @('-Json')).Out | ConvertFrom-Json | ForEach-Object { $_.kitVersion.status } | Should -Be 'current'
+        # D6: профіль без kit.version, маніфесту з kitVersion немає — без переліку кроків від 0.1.0.
+        $repo2 = New-Repo 'nover'
+        New-Item -ItemType Directory -Path (Join-Path $repo2 '.agents') | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo2 '.agents/kit.profile.json') -Value '{ "pr": { "base": "main" } }' -Encoding utf8NoBOM
+        $r2 = Invoke-Scan $repo2
+        $r2.Out | Should -Match 'kit\.version немає — запише `kit-setup -SetVersion` останнім комітом PR' -Because $r2.Out
+        $r2.Out | Should -Not -Match 'V\d+ Крок' -Because 'перелік кроків від 0.1.0 не друкується'
+        ((Invoke-Scan $repo2 -Arguments @('-Json')).Out | ConvertFrom-Json).kitVersion.status | Should -Be 'no-version'
+    }
+
+    It 'Obsolete names: рядок на кожну стару назву із заміною; kit sync, голе dump і чинне storage-sync рядка не дають' {
+        $repo = New-Repo 'obsolete'
+        Set-Content -LiteralPath (Join-Path $repo 'CLAUDE.md') -Encoding utf8NoBOM -Value @'
+# Правила
+Скіл V8StorageKit:Reconcile для приймання.
+Запуск: /v8storagekit:sync і pwsh tools/kit.ps1 check.
+Контроль: kit sync, dump бази, v8storagekit:storage-sync, tools/kit.ps1x.
+'@
+        New-Item -ItemType Directory -Path (Join-Path $repo '.agents/out') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $repo '.agents/out/x.md') -Value 'v8storagekit:reconcile' -Encoding utf8NoBOM
+        $r = Invoke-Scan $repo -Arguments @('-Json')
+        $r.Code | Should -Be 0 -Because $r.Out
+        $rows = @(($r.Out | ConvertFrom-Json).obsoleteNames)
+        $rows.Count | Should -Be 3 -Because $r.Out
+        ($rows | Where-Object { $_.item -eq 'CLAUDE.md:2' }).replacement | Should -Be 'v8storagekit:storage-adopt'
+        ($rows | Where-Object { $_.item -eq 'CLAUDE.md:3' -and $_.old -eq 'v8storagekit:sync' }).replacement | Should -Be 'v8storagekit:storage-sync'
+        ($rows | Where-Object { $_.item -eq 'CLAUDE.md:3' -and $_.old -eq 'tools/kit.ps1' }).replacement | Should -Be 'kit'
+        $md = (Invoke-Scan $repo).Out
+        $md | Should -Match '(?m)^\| O\d+ \| `CLAUDE\.md:2` \| `v8storagekit:reconcile` \| v8storagekit:storage-adopt' -Because $md
+    }
 }

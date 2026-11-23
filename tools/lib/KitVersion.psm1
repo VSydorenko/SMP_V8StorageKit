@@ -166,6 +166,42 @@ function Get-KitProjectVersion {
     [pscustomobject]@{ Version = [string]$v; Source = 'profile'; Error = $null }
 }
 
+function Get-KitManifestVersion {
+    <#
+    .SYNOPSIS
+        Рядок kitVersion верхнього рівня v8storagekit.yaml без YAML-модуля (ADR-0002): Present, Value.
+    .DESCRIPTION
+        Present — ключ є (навіть порожній). Value — значення без лапок і коментаря. Маніфесту немає — Present = $false.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+    $path = Join-Path $Root 'v8storagekit.yaml'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Present = $false; Value = $null } }
+    $text = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    $m = [regex]::Match($text, '(?m)^kitVersion[ \t]*:[ \t]*(?<v>[^\r\n]*)')
+    if (-not $m.Success) { return [pscustomobject]@{ Present = $false; Value = $null } }
+    $v = [regex]::Replace($m.Groups['v'].Value, '(^|\s)#.*$', '').Trim()
+    if ($v.Length -ge 2 -and (($v.StartsWith('"') -and $v.EndsWith('"')) -or ($v.StartsWith("'") -and $v.EndsWith("'")))) { $v = $v.Substring(1, $v.Length - 2) }
+    [pscustomobject]@{ Present = $true; Value = $v }
+}
+
+function Get-KitObsoleteNames {
+    <#
+    .SYNOPSIS
+        Застарілі імена з tools/assets/obsolete-names.json: Skills, Commands (старе → заміна), UnicaTools (імена).
+    .DESCRIPTION
+        Файл читається від кореня плагіна. Немає чи не читається — «не перевірено».
+    #>
+    param([string]$PluginRoot = (Get-KitPluginRoot))
+    $path = Join-Path $PluginRoot 'tools/assets/obsolete-names.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw (New-KitNotChecked "немає tools/assets/obsolete-names.json у $PluginRoot") }
+    try { $d = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+    catch { throw (New-KitNotChecked "не читається ${path}: $($_.Exception.Message)") }
+    foreach ($k in 'skills', 'commands', 'unicaTools') {
+        if (-not ($d -is [System.Collections.IDictionary]) -or -not $d.Contains($k)) { throw (New-KitNotChecked "у $path немає поля $k") }
+    }
+    [pscustomobject]@{ Skills = $d['skills']; Commands = $d['commands']; UnicaTools = @($d['unicaTools']) }
+}
+
 function Get-KitPendingEntries {
     <# Записи з версіями в (From, To], від старшого до новішого — порядок виконання. #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Entries, [Parameter(Mandatory)][string]$From, [Parameter(Mandatory)][string]$To)
@@ -186,4 +222,4 @@ function Test-KitPluginRepo {
 }
 
 Export-ModuleMember -Function ConvertTo-KitVersion, Compare-KitVersion, Get-KitBumpKind, Get-KitPluginRoot,
-    Read-KitChangelog, Get-KitPluginInfo, Get-KitProjectVersion, Get-KitPendingEntries, Test-KitPluginRepo
+    Read-KitChangelog, Get-KitPluginInfo, Get-KitProjectVersion, Get-KitManifestVersion, Get-KitObsoleteNames, Get-KitPendingEntries, Test-KitPluginRepo
