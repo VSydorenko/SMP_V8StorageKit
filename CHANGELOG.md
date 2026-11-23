@@ -50,6 +50,7 @@
 - [ ] `kit check -RepoRoot .` (якщо є `v8storagekit.yaml`): виконати дію кожної знахідки, зокрема прибрати рядок `kitVersion:` з `v8storagekit.yaml`.
 - [ ] `kit-scan`, розділ `Obsolete names`: замінити кожну стару назву на нову в названому файлі.
 - [ ] `kit-setup -DryRun`: показати людині звіт про `.claude/settings.json` і внести погоджені правки штатними засобами Claude Code (kit цей файл не пише).
+- [ ] Якщо `pr.afterMerge` задано лише в `.agents/kit.profile.local.json` чи машинному профілі: перенести його в `.agents/kit.profile.json` і злити в головну гілку — `pr-gate land` тепер бере його лише звідти.
 - [ ] `kit-setup -SetVersion` — останнім комітом PR оновлення.
 
 ## 1.6.12 — 2026-11-22
