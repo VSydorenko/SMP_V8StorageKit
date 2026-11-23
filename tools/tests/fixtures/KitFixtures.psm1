@@ -401,7 +401,7 @@ function New-KitFakeUnicaRegistry {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $path = Join-Path $dir 'installed_plugins.json'
     Set-Content -LiteralPath $path -Encoding UTF8 -Value (
-        @{ plugins = @{ 'unica@unica' = @(@{ version = $Version; installPath = $dir }) } } | ConvertTo-Json -Depth 5)
+        @{ plugins = @{ 'unica@unica' = @(@{ scope = 'user'; version = $Version; installPath = $dir }) } } | ConvertTo-Json -Depth 5)
     $path
 }
 function Set-KitFakeAgentBase {

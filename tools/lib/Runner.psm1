@@ -1,6 +1,6 @@
 # Раннер Уніки (v8-runner) як інструмент kit.
-# Єдине місце, де kit запускає v8-runner: Start-KitRunnerProcess — єдиний запуск процесу, а
-# Invoke-KitRunner — єдина точка моку для тестів. Фальшивий раннер у тестах-підпроцесах
+# Процес раннера запускає лише модуль `runner` крейта kit (ADR-0019): Start-KitRunnerProcess — обгортка
+# над `kit.exe runner-exec`, а Invoke-KitRunner — єдина точка моку для тестів. Фальшивий раннер у тестах-підпроцесах
 # підміняється явним параметром -RunnerPath, не змінною оточення: production не читає нічого
 # заради тестів, а типове значення беремо з реєстру плагінів.
 
@@ -39,51 +39,55 @@ function Get-KitRunnerPath {
     $runner
 }
 
-function ConvertTo-KitRunnerArgLine {
-    param([Parameter(Mandatory)][string[]]$Arguments)
-    ($Arguments | ForEach-Object {
-        # Правила CommandLineToArgvW: бекслеші перед лапкою подвоюються разом з екрануванням
-        # лапки, а бекслеші наприкінці аргументу — перед закривальною лапкою.
-        if ($_ -match '[\s"]' -or $_ -eq '') {
-            $escaped = $_ -replace '(\\*)"', '$1$1\"'
-            $escaped = $escaped -replace '(\\+)$', '$1$1'
-            '"{0}"' -f $escaped
-        } else { $_ }
-    }) -join ' '
-}
-
 function Start-KitRunnerProcess {
-    # Єдиний запуск процесу раннера. Вивід — у файли, а не в пайпи: синхронне читання пайпа
-    # на великому виводі дає дедлок. Файл — що завгодно, що запускає CreateProcess (.exe, .cmd).
+    # Єдиний запуск раннера з PowerShell: через bin/kit.exe свого дерева (runner-exec), який у Rust
+    # лапкує аргументи правилами CommandLineToArgvW. Аргументи йдуть у ProcessStartInfo.ArgumentList
+    # (платформа сама лапкує їх для kit.exe), вивід читається асинхронно — дедлоку на великому виводі немає.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RunnerPath,
-        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments,
         [Parameter(Mandatory)][string]$WorkingDirectory
     )
 
     if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf)) {
         throw "Раннер не знайдено: $RunnerPath"
     }
+    if (-not (Test-Path -LiteralPath $WorkingDirectory -PathType Container)) {
+        throw "Робочої теки раннера немає: $WorkingDirectory"
+    }
+    # Відносні шляхи PowerShell розв'язує від $PWD, а kit.exe — від теки свого процесу: передаємо абсолютні.
+    $RunnerPath = (Resolve-Path -LiteralPath $RunnerPath).ProviderPath
+    $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).ProviderPath
+    # kit.exe — від розташування модуля (tools/lib -> ../../bin), не з PATH: PATH сесії може вести в чужу копію.
+    $kitExe = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($PSScriptRoot, '..', '..', 'bin', 'kit.exe'))
+    if (-not (Test-Path -LiteralPath $kitExe -PathType Leaf)) {
+        throw "kit.exe не знайдено: $kitExe"
+    }
 
-    $stamp = [guid]::NewGuid().ToString('N')
-    $outFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "v8runner-$stamp.out")
-    $errFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "v8runner-$stamp.err")
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($kitExe)
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $psi.CreateNoWindow = $true
+    foreach ($token in @('runner-exec', $RunnerPath, $WorkingDirectory) + $Arguments) {
+        $psi.ArgumentList.Add([string]$token)
+    }
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
     try {
-        $proc = Start-Process -FilePath $RunnerPath `
-            -ArgumentList (ConvertTo-KitRunnerArgLine -Arguments $Arguments) `
-            -WorkingDirectory $WorkingDirectory `
-            -Wait -NoNewWindow -PassThru `
-            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-        $stdout = if (Test-Path -LiteralPath $outFile) { (Get-Content -LiteralPath $outFile -Raw -Encoding UTF8) } else { '' }
-        $stderr = if (Test-Path -LiteralPath $errFile) { (Get-Content -LiteralPath $errFile -Raw -Encoding UTF8) } else { '' }
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        $proc.WaitForExit()
         [pscustomobject]@{
             ExitCode = $proc.ExitCode
-            Stdout   = [string]$stdout
-            Stderr   = [string]$stderr
+            Stdout   = [string]$outTask.GetAwaiter().GetResult()
+            Stderr   = [string]$errTask.GetAwaiter().GetResult()
         }
     } finally {
-        Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+        $proc.Dispose()
     }
 }
 
@@ -125,6 +129,9 @@ function Invoke-KitRunner {
     $run = Start-KitRunnerProcess -RunnerPath $RunnerPath -Arguments $all -WorkingDirectory $WorkingDirectory
 
     try {
+        # Порожній stdout (раннер не запустився: причина лише в stderr kit.exe) — та сама помилка, що й нерозбірний:
+        # ConvertFrom-Json на порожньому рядку в pwsh 7.5 не кидає, а повертає $null.
+        if ([string]::IsNullOrWhiteSpace($run.Stdout)) { throw 'порожній вивід' }
         $response = $run.Stdout | ConvertFrom-Json -ErrorAction Stop
     } catch {
         throw "Раннер на '$($Arguments -join ' ')' відповів не JSON-ом: код виходу $($run.ExitCode), вивід: $($run.Stdout.Trim()) $($run.Stderr.Trim())"

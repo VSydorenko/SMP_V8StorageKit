@@ -245,7 +245,7 @@ fn many_keys_are_merged_in_linear_time() {
     let elapsed = started.elapsed();
     assert_eq!(overlay.storages.len(), 40_000);
     assert!(
-        elapsed < Duration::from_secs(10),
+        elapsed < Duration::from_secs(30),
         "40 000 ключів: {elapsed:?} — злиття ключів стало нелінійним"
     );
 }

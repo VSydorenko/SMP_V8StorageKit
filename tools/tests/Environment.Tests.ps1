@@ -225,6 +225,47 @@ Describe 'check-environment.ps1: Уніка й раннер — обов''язк
     }
 }
 
+Describe 'check-environment.ps1: Уніка зі scope project цього репозиторію' {
+    BeforeAll {
+        $script:RunInDir = {
+            param([string]$Dir, [string]$Registry)
+            $psi = [System.Diagnostics.ProcessStartInfo]::new('pwsh')
+            foreach ($t in @('-NoProfile', '-File', $script:CheckScript, '-InstalledPluginsPath', $Registry)) { $psi.ArgumentList.Add($t) }
+            $psi.WorkingDirectory = $Dir
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $err = $p.StandardError.ReadToEndAsync()
+            $out = $p.StandardOutput.ReadToEnd()
+            $p.WaitForExit()
+            $out
+        }
+        $script:Repo = Join-Path $TestDrive 'repo-env'
+        $script:Outside = Join-Path $TestDrive 'outside-env'
+        New-Item -ItemType Directory -Path $script:Repo, $script:Outside | Out-Null
+        & git -C $script:Repo init -q
+        $install = Join-Path $TestDrive 'unica-project-install'
+        New-Item -ItemType Directory -Path $install | Out-Null
+        $script:Reg = Join-Path $TestDrive 'project-scope.json'
+        $topLevel = (& git -C $script:Repo rev-parse --show-toplevel).Trim()
+        script:New-Registry -Path $script:Reg -Plugins @{
+            'unica@unica' = @(@{ scope = 'project'; projectPath = $topLevel; version = '0.16.0'; installPath = $install })
+        }
+    }
+
+    It 'робоча тека в репозиторії — запис project знайдено: [+]' {
+        $out = & $script:RunInDir $script:Repo $script:Reg
+        $out | Should -BeLike '*[[]+] Плагін unica 0.16*' -Because $out
+    }
+
+    It 'контроль: робоча тека поза репозиторієм — той самий реєстр дає [-]' {
+        $out = & $script:RunInDir $script:Outside $script:Reg
+        $out | Should -BeLike '*[[]-] Плагін unica 0.16*' -Because $out
+    }
+}
+
 Describe 'Get-KitUnicaVersionVerdict' {
     BeforeAll { Import-Module (Resolve-Path "$PSScriptRoot/../lib/Environment.psm1").Path -Force }
     It '<V> → <Level>' -ForEach @(

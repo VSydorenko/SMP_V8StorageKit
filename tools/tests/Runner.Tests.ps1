@@ -43,6 +43,21 @@ Describe 'Get-KitAgentPlatform: відповідь раннера (мок Invoke
     }
 }
 
+Describe 'Invoke-KitRunner: раннер не запустився' {
+    It 'файл-сміття замість раннера: виняток містить причину зі stderr kit.exe, а не «без поля ok»' {
+        $junk = Join-Path $TestDrive 'junk-runner.exe'
+        Set-Content -LiteralPath $junk -Value 'це не виконуваний файл'
+        $ws = New-Workspace -WithLocal
+
+        $err = $null
+        try { Get-KitAgentPlatform -Project $ws -RunnerPath $junk } catch { $err = $_.Exception.Message }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err | Should -BeLike '*відповів не JSON-ом*'
+        $err | Should -BeLike '*runner-exec: ERROR*'
+    }
+}
+
 Describe 'Get-KitRunnerPath: немає Уніки чи раннера' {
     It 'на реєстрі без плагіна кидає виняток і не звертається до Get-V8Path' {
         Mock Get-V8Path { 'C:\не\має\викликатись\1cv8.exe' } -ModuleName Runner
@@ -57,7 +72,7 @@ Describe 'Get-KitRunnerPath: немає Уніки чи раннера' {
         $install = Join-Path $TestDrive 'unica-install'
         New-Item -ItemType Directory -Path $install | Out-Null
         $reg = Join-Path $TestDrive 'installed_plugins2.json'
-        @{ version = 2; plugins = @{ 'unica@unica' = @(@{ version = '0.16.0'; installPath = $install }) } } |
+        @{ version = 2; plugins = @{ 'unica@unica' = @(@{ scope = 'user'; version = '0.16.0'; installPath = $install }) } } |
             ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reg -Encoding UTF8
 
         { Get-KitRunnerPath -InstalledPluginsPath $reg } | Should -Throw -ExpectedMessage '*v8-runner.exe*'
@@ -129,5 +144,67 @@ Describe 'Get-KitRunnerVerdict: версія раннера' {
         $reg = Join-Path $TestDrive 'verdict-empty.json'
         '{"version":2,"plugins":{}}' | Set-Content -LiteralPath $reg -Encoding UTF8
         (Get-KitRunnerVerdict -InstalledPluginsPath $reg).Level | Should -Be 'error'
+    }
+}
+
+Describe 'Start-KitRunnerProcess: аргументи доходять до раннера дослівно (через bin/kit.exe runner-exec)' {
+    BeforeAll {
+        # Раннером слугує сам kit.exe: source-fingerprint <токен> повертає токен у тексті помилки
+        # «відбиток <токен> не обчислено» (stderr), тож вивід показує, що саме отримав процес.
+        $script:KitExe = (Resolve-Path "$PSScriptRoot/../../bin/kit.exe").Path
+    }
+    It 'токен <Token> у виводі дослівно' -ForEach @(
+        @{ Token = 'a b' }
+        @{ Token = 'q"uote' }
+        @{ Token = 'trailing\' }
+        @{ Token = 'back\"slash' }
+        @{ Token = 'кирилиця з пробілом' }
+        @{ Token = 'C:\my dir\' }
+        @{ Token = 'a b\\' }
+    ) {
+        $kit = $script:KitExe; $cwd = "$TestDrive"; $tok = $Token
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd; Tok = $tok } {
+            param($Kit, $Cwd, $Tok)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', $Tok)
+        }
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -BeLike "*відбиток $Token не обчислено*"
+    }
+    It 'порожній токен лишається окремим порожнім аргументом (не зникає й не зсуває позицій)' {
+        $kit = $script:KitExe; $cwd = "$TestDrive"
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd } {
+            param($Kit, $Cwd)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', '')
+        }
+        # Порожній аргумент зник би — тоді код 0 без помилки; два пробіли — токен порожній, а не склеєний.
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -BeLike 'source-fingerprint: ERROR відбиток  не обчислено:*'
+    }
+    It 'токен з пробілом не розпадається на два аргументи (код 1, а не 2 «очікувалась одна тека крейта»)' {
+        $kit = $script:KitExe; $cwd = "$TestDrive"
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd } {
+            param($Kit, $Cwd)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', 'C:\my dir\')
+        }
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -Not -BeLike '*очікувалась одна тека крейта*'
+    }
+    It 'відносні -RunnerPath і $PWD: раннер знаходиться від теки PowerShell, а не процесу kit.exe' {
+        $dir = Join-Path $TestDrive 'rel-runner'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        Copy-Item -Path (Join-Path $script:FixDir '*') -Destination $dir -Recurse
+        $before = (Get-Location).ProviderPath
+        try {
+            Set-Location -LiteralPath $dir
+            Get-KitRunnerVersion -RunnerPath '.\v8-runner.cmd' | Should -BeExactly '0.18.1'
+        } finally {
+            Set-Location -LiteralPath $before
+        }
+    }
+    It 'фальшивий .cmd у теці з пробілом і кирилицею запускається' {
+        $dir = Join-Path $TestDrive 'тека з пробілом'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        Copy-Item -Path (Join-Path $script:FixDir '*') -Destination $dir -Recurse
+        Get-KitRunnerVersion -RunnerPath (Join-Path $dir 'v8-runner.cmd') | Should -BeExactly '0.18.1'
     }
 }
