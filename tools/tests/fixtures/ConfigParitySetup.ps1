@@ -182,7 +182,8 @@ function script:Sort-RustOverlay($Tree) {
 
 # Один прогін паритету: повертає перелік розбіжностей (порожній — зелено).
 # Порядок перелічених імен (DT-INF, «Є: …») PowerShell бере з Sort-Object за культурою машини — для кириличних імен
-# Rust його не відтворює (відома відмінність): з -OrderInsensitive переліки порівнюються як множини.
+# Rust сортує за точним правилом без культури (відома відмінність, рішення архітектора 2026-11-24; порядок — Rust-тест):
+# з -OrderInsensitive переліки порівнюються як множини без регістру.
 function script:Edit-ParityStrings($Tree, [scriptblock]$Fn) {
     if ($Tree -is [string]) { return & $Fn $Tree }
     if ($Tree -is [System.Collections.IDictionary]) { foreach ($k in @($Tree.Keys)) { $Tree[$k] = Edit-ParityStrings $Tree[$k] $Fn }; return $Tree }
@@ -190,7 +191,7 @@ function script:Edit-ParityStrings($Tree, [scriptblock]$Fn) {
     $Tree
 }
 function script:ConvertTo-UnorderedLists([string]$Text) {
-    $sort = { param($m) $a = [string[]]@($m.Groups[1].Value -split ', '); [Array]::Sort($a, [StringComparer]::Ordinal); $a -join ', ' }
+    $sort = { param($m) $a = [string[]]@($m.Groups[1].Value.ToLowerInvariant() -split ', '); [Array]::Sort($a, [StringComparer]::Ordinal); $a -join ', ' }
     $Text = [regex]::Replace($Text, '(?<=Є: )(.*)(?=\.$)', $sort)
     [regex]::Replace($Text, '(?<=не підтримує \()(.*?)(?=\): перетворіть)', $sort)
 }

@@ -4,7 +4,7 @@
 // Ім'я невідомого ключа й запис без значення не друкуються ніколи (спека §6): у flow-мапі запис без `:`
 // стає ключем цілком, і секрет опиняється в ньому. Друкуємо шлях до мапи, дозволені ключі й підказку.
 
-use super::yaml::{Emptiness, contains, eq_ci, get, get_string, keys, ps_string, read_yaml};
+use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, ps_string, read_yaml};
 use super::{ConfigError, TRUTH_VALUES, Truth};
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
@@ -142,6 +142,7 @@ pub fn read_manifest(path: &Path, allow_kit_version: bool) -> Result<Manifest, C
     }
     assert_keys(&m, &["version", "product", "client", "mainBranch", "workspaces"], &["version", "workspaces"], &where_)?;
 
+    assert_scalar(&m, "version", &where_, "version")?;
     let version = get_string(&m, "version");
     if version != "1" {
         return Err(ConfigError::new(format!("{where_} — version: {version} не підтримується; kit знає лише version: 1.")));
@@ -153,13 +154,16 @@ pub fn read_manifest(path: &Path, allow_kit_version: bool) -> Result<Manifest, C
         let state = if has_product { "вказано обидва" } else { "не вказано жодного" };
         return Err(ConfigError::new(format!("{where_} — має бути рівно один із ключів product: або client: ({state}).")));
     }
-    let label = get_string(&m, if has_product { "product" } else { "client" });
+    let label_key = if has_product { "product" } else { "client" };
+    assert_scalar(&m, label_key, &where_, label_key)?;
+    let label = get_string(&m, label_key);
     if is_blank(&label) {
         return Err(ConfigError::new(format!("{where_} — значення product:/client: порожнє.")));
     }
 
     let mut main_branch = DEFAULT_MAIN_BRANCH.to_string();
     if contains(&m, "mainBranch") {
+        assert_scalar(&m, "mainBranch", &where_, "mainBranch")?;
         main_branch = get_string(&m, "mainBranch");
         if is_blank(&main_branch) || main_branch.chars().any(char::is_whitespace) || main_branch.starts_with("storage/") {
             return Err(ConfigError::new(format!(
@@ -179,6 +183,7 @@ pub fn read_manifest(path: &Path, allow_kit_version: bool) -> Result<Manifest, C
     let mut seen: Vec<String> = Vec::new();
     for ws in ws_raw {
         let ws_map = assert_map_keys(ws, &["path", "sources"], &["path", "sources"], &format!("{where_}, елемент workspaces"))?;
+        assert_scalar(ws_map, "path", &format!("{where_}, елемент workspaces"), "path")?;
         let ws_path = get_string(ws_map, "path").trim().to_string();
         if ws_path.is_empty() || ws_path.contains(['\\', '/']) || ws_path == "." || ws_path == ".." {
             return Err(ConfigError::new(format!(
@@ -224,6 +229,7 @@ pub fn read_manifest(path: &Path, allow_kit_version: bool) -> Result<Manifest, C
 }
 
 fn read_source(src: &Mapping, key: String, swhere: &str) -> Result<ManifestSource, ConfigError> {
+    assert_scalar(src, "truth", swhere, "truth")?;
     let truth_text = get_string(src, "truth");
     let Some(truth) = Truth::parse(&truth_text) else {
         return Err(ConfigError::new(format!("{swhere} — truth: '{truth_text}' невідомий. Дозволені: {}.", TRUTH_VALUES.join(", "))));
@@ -238,6 +244,8 @@ fn read_source(src: &Mapping, key: String, swhere: &str) -> Result<ManifestSourc
                 return Err(ConfigError::new(format!("{swhere} — truth: storage не поєднується з dump:.")));
             }
             let st = assert_map_keys(storage, &["path", "user"], &["path"], &format!("{swhere}, storage"))?;
+            assert_scalar(st, "path", &format!("{swhere}, storage"), "path")?;
+            assert_scalar(st, "user", &format!("{swhere}, storage"), "user")?;
             let path = get_string(st, "path");
             if is_blank(&path) {
                 return Err(ConfigError::new(format!("{swhere} — storage.path порожній.")));
@@ -257,6 +265,7 @@ fn read_source(src: &Mapping, key: String, swhere: &str) -> Result<ManifestSourc
                 return Err(ConfigError::new(format!("{swhere} — truth: {truth_text} не поєднується зі storage:.")));
             }
             let d = assert_map_keys(dump, &["from"], &["from"], &format!("{swhere}, dump"))?;
+            assert_scalar(d, "from", &format!("{swhere}, dump"), "from")?;
             let from = get_string(d, "from");
             if is_blank(&from) {
                 return Err(ConfigError::new(format!("{swhere} — dump.from порожній.")));

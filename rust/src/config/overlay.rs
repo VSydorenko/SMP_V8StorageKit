@@ -6,7 +6,7 @@
 // друкує лише ознаку «задано»). Ключі й значення, що не пройшли перевірку, у помилки не потрапляють (спека §6).
 
 use super::manifest::{assert_entry_has_value, assert_keys, assert_map_keys, assert_storage_path_form, is_blank};
-use super::yaml::{Emptiness, contains, eq_ci, get, get_string, ps_string, read_yaml};
+use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, ps_string, read_yaml};
 use super::{ConfigError, RawConnection, Secret};
 use serde_yaml::Value;
 use std::path::{Path, PathBuf};
@@ -73,6 +73,9 @@ pub fn read_overlay(path: &Path) -> Result<Overlay, ConfigError> {
             let name = ps_string(name);
             assert_entry_has_value(ib, idx.saturating_add(1), &format!("{where_}, infobases"))?;
             let ib = assert_map_keys(ib, &["connection", "user"], &["connection"], &format!("{where_}, infobases.{name}"))?;
+            let ib_where = format!("{where_}, infobases.{name}");
+            assert_scalar(ib, "connection", &ib_where, "connection")?;
+            assert_scalar(ib, "user", &ib_where, "user")?;
             let conn = get_string(ib, "connection");
             if is_blank(&conn) {
                 return Err(ConfigError::new(format!("{where_} — infobases.{name}.connection порожній.")));
@@ -98,6 +101,7 @@ pub fn read_overlay(path: &Path) -> Result<Overlay, ConfigError> {
                     return Err(ConfigError::new(format!("{where_} — storages.{key} порожній: вкажіть path, user або password.")));
                 }
                 for k in ["path", "user", "password"] {
+                    assert_scalar(vm, k, &format!("{where_}, storages.{key}"), k)?;
                     let text = get_string(vm, k);
                     if is_blank(&text) {
                         continue;
@@ -112,6 +116,11 @@ pub fn read_overlay(path: &Path) -> Result<Overlay, ConfigError> {
                     }
                 }
             } else {
+                if matches!(v, Value::Sequence(_)) {
+                    return Err(ConfigError::new(format!(
+                        "{where_}, storages.{key} — має бути шляхом (скалярне значення) чи мапою {{ path, user, password }}, а не списком (значення не друкується)."
+                    )));
+                }
                 let p = ps_string(v);
                 if is_blank(&p) {
                     return Err(ConfigError::new(format!("{where_} — storages.{key} порожній.")));
@@ -135,6 +144,7 @@ pub fn read_overlay(path: &Path) -> Result<Overlay, ConfigError> {
             if let Some(base) = get(ws, "agentBase") {
                 let base = assert_map_keys(base, &["template"], &[], &format!("{where_}, workspaces.{ws_path}.agentBase"))?;
                 if contains(base, "template") {
+                    assert_scalar(base, "template", &format!("{where_}, workspaces.{ws_path}.agentBase"), "template")?;
                     let t = get_string(base, "template");
                     // Порожній шаблон — помилка конфігу, а не «шаблону немає»; значення в текст не потрапляє.
                     if is_blank(&t) {

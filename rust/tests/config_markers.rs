@@ -35,6 +35,8 @@ enum Expect {
     BaseError(&'static str),
     /// Значення за JSON-вказівником.
     Is(&'static str, Value),
+    /// Два значення за JSON-вказівниками (друге доводить, що вхід пройшов розбір).
+    IsBoth(&'static str, Value, &'static str, Value),
 }
 
 struct Case {
@@ -342,9 +344,11 @@ fn cases() -> Vec<Case> {
             "local dbms: рядком",
             Local,
             "infobases:\n  origin: { connection: 'File=build/ib', dbms: '{M}' }\n",
-            Expect::Is(
+            Expect::IsBoth(
                 "/context/workspaces/0/agentBase/base/dbmsSet",
                 Value::Bool(false),
+                "/context/workspaces/0/agentBase/base/connection/parses",
+                Value::Bool(true),
             ),
         ),
     ]
@@ -444,6 +448,7 @@ fn expectation_holds(v: &Value, expect: &Expect) -> bool {
                 .any(|e| e.as_str().is_some_and(|m| m.contains(part)))
         }
         Expect::Is(pointer, want) => v.pointer(pointer) == Some(want),
+        Expect::IsBoth(p1, w1, p2, w2) => v.pointer(p1) == Some(w1) && v.pointer(p2) == Some(w2),
     }
 }
 

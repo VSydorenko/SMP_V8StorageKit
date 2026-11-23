@@ -74,6 +74,15 @@ Describe 'Rust-префлайт проти PowerShell-префлайту (пар
     Context 'зразки, фікстури маніфесту, накладки, junction' {
         It '<Name>' -ForEach $cases {
             $repo = New-ParityRepo -Spec $Spec -Root (Get-RunRoot)
+            # Добрий випадок: PowerShell-бік САМ стверджує Ok і відсутність знахідок error — без цього «однакова помилка
+            # з обох боків» давала б зелене (паритет не доводить, що вхід добрий).
+            $good = if ($Expect.ContainsKey('Good')) { [bool]$Expect.Good } else { -not $Spec.NoManifest }
+            if ($good) {
+                $psCtx = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
+                $bad = @($psCtx.Findings | Where-Object { $_.Level -eq 'error' } | ForEach-Object { "$($_.Check): $($_.Message)" })
+                $bad | Should -BeNullOrEmpty -Because 'добрий випадок не мусить мати знахідок error (manifest/workspace/overlay/source)'
+                $psCtx.Ok | Should -BeTrue
+            }
             @(Invoke-ParityAllModes $repo @{ OrderInsensitive = [bool]$Expect.OrderInsensitive }) | Should -BeNullOrEmpty
             foreach ($sel in $Selects) { @(Invoke-ParityAllModes $repo $sel) | Should -BeNullOrEmpty }
 

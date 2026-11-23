@@ -10,10 +10,12 @@
 // форма чи «не розбирається», сирим текстом — ніколи. Секрети тут — типи `Secret`/`SecretTree`/`RawConnection`
 // без `Display`; текст дістається лише розібраною формою (`connection::parse`) чи ознакою.
 //
-// Відомі відмінності від PowerShell (ADR-0014 п. 7): немає нових поверх задач 1–2. Невиміряне наближення:
-// впорядкування знахідки `DT-INF` і переліку ключів у помилці `Select-KitSources` (`Sort-Object` у культурі
-// людини) відтворено таблицею розділових знаків ICU й нечутливістю до регістру; рівні без регістру лишаються
-// в порядку входу, `-Unique` лишає перший (виміряно) — паритет на корпусі це покаже.
+// Відома відмінність від PowerShell (ADR-0014 п. 7, рішення архітектора 2026-11-24): порядок імен у знахідці `DT-INF`
+// і в переліку «Є: …» помилки `Select-KitSources`. PowerShell сортує `Sort-Object` за культурою машини (кирилиця
+// раніше латиниці, `ё` після `е`) — результат залежить від машини, це дефект. Rust сортує незалежно від культури, правило
+// точне: спершу ординальне порівняння рядків у нижньому регістрі (`to_lowercase`, далі за кодами символів), при рівності —
+// ординальне порівняння вихідних рядків; `-Unique` лишає перший без регістру (ординально менший). Паритет на цих
+// переліках — множиною.
 
 use super::agent_base::{
     AgentBase, AgentBaseCollision, InfobaseKind, WorkspaceRef,
@@ -157,28 +159,14 @@ fn resolve_root(path: &str) -> Result<String, PreflightStop> {
     Ok(resolved)
 }
 
-/// Порядок `Sort-Object` для рядків: нечутливо до регістру, розділові знаки раніше цифр, цифри раніше літер
-/// (таблиця ICU); рівні без регістру лишаються в порядку входу (стабільне сортування, виміряно).
-fn ps_compare(a: &str, b: &str) -> Ordering {
-    const PUNCT: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-    let primary = |c: char| -> (u8, u32) {
-        let lower = c.to_lowercase().next().unwrap_or(c);
-        if let Some(i) = PUNCT.chars().position(|p| p == lower) {
-            return (0, u32::try_from(i).unwrap_or(0));
-        }
-        if lower.is_numeric() {
-            (1, u32::from(lower))
-        } else if lower.is_alphabetic() {
-            (2, u32::from(lower))
-        } else {
-            (0, u32::from(lower).saturating_add(1000))
-        }
-    };
-    a.chars().map(primary).cmp(b.chars().map(primary))
+/// Порядок імен у переліках (знахідка `DT-INF`, «Є: …»): не залежить від культури машини. Спершу ординальне
+/// порівняння рядків у нижньому регістрі (за кодами символів), при рівності — ординальне порівняння вихідних рядків.
+fn name_order(a: &str, b: &str) -> Ordering {
+    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
 }
 
 fn sort_unique(mut items: Vec<String>) -> Vec<String> {
-    items.sort_by(|a, b| ps_compare(a, b));
+    items.sort_by(|a, b| name_order(a, b));
     items.dedup_by(|a, b| eq_ci(a, b));
     items
 }
@@ -225,7 +213,7 @@ fn dt_inf_found(root: &str) -> Vec<String> {
             }
         }
     }
-    found.sort_by(|a, b| ps_compare(a, b));
+    found.sort_by(|a, b| name_order(a, b));
     found
 }
 
@@ -922,17 +910,30 @@ mod tests {
         assert_eq!(agent["base"]["connection"]["parses"], true);
     }
 
-    // `Sort-Object`: рівні без регістру лишаються в порядку входу; `-Unique` лишає перший.
+    // Порядок імен (шапка модуля): нижній регістр ординально, при рівності — вихідні рядки ординально.
     #[test]
-    fn sort_keeps_input_order_of_case_equal_items() {
+    fn name_order_is_culture_independent_and_exact() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        assert_eq!(sort_unique(s(&["B", "b"])), s(&["B"]));
+        let sorted = |v: &[&str]| {
+            let mut items = s(v);
+            items.sort_by(|a, b| name_order(a, b));
+            items
+        };
+        // Латиниця: регістр не рахується, рівні — вихідні рядки (велика раніше малої), вхідний порядок неважливий.
+        assert_eq!(sorted(&["b", "B", "a", "C"]), s(&["a", "B", "b", "C"]));
+        assert_eq!(sorted(&["B", "b"]), sorted(&["b", "B"]));
+        // Розділові знаки, цифри, `_` — за кодами символів.
+        assert_eq!(
+            sorted(&["a_b", "a-b", "a b", "a.b", "a1"]),
+            s(&["a b", "a-b", "a.b", "a1", "a_b"])
+        );
+        // Кирилиця — за кодами, після латиниці; `ё` (U+0451) після `я` (U+044F); великі й малі рівні без регістру.
+        assert_eq!(
+            sorted(&["ёж", "Ядро", "Адаптация", "alpha", "ежик"]),
+            s(&["alpha", "Адаптация", "ежик", "Ядро", "ёж"])
+        );
+        assert_eq!(sorted(&["ёж", "Ёж"]), s(&["Ёж", "ёж"]));
+        assert_eq!(sort_unique(s(&["b", "B", "ext"])), s(&["B", "ext"]));
         assert_eq!(sort_unique(s(&["CF", "cf", "ext"])), s(&["CF", "ext"]));
-        let mut plain = s(&["B", "b"]);
-        plain.sort_by(|a, b| ps_compare(a, b));
-        assert_eq!(plain, s(&["B", "b"]));
-        let mut plain = s(&["b", "B"]);
-        plain.sort_by(|a, b| ps_compare(a, b));
-        assert_eq!(plain, s(&["b", "B"]));
     }
 }

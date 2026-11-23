@@ -227,3 +227,25 @@ fn deep_nesting_ends_with_error_not_crash() {
         "{stdout}"
     );
 }
+
+// Злиття ключів мап без регістру лінійне: 40 000 ключів у `storages:` розбираються за секунди. Квадратична версія
+// (лінійний пошук по вже прочитаних ключах) на цьому вході тримається десятки секунд — стеля щедра, щоб не залежати
+// від машини, але такої версії не пропускає.
+#[test]
+fn many_keys_are_merged_in_linear_time() {
+    let d = tmp("many-keys");
+    let p = d.join("v8storagekit.local.yaml");
+    let mut text = String::from("storages:\n");
+    for i in 0..40_000 {
+        text.push_str(&format!("  k{i}: 'C:\\st'\n"));
+    }
+    std::fs::write(&p, &text).unwrap();
+    let started = Instant::now();
+    let overlay = read_overlay(&p).unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(overlay.storages.len(), 40_000);
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "40 000 ключів: {elapsed:?} — злиття ключів стало нелінійним"
+    );
+}

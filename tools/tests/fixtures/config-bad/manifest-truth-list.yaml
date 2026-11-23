@@ -1,6 +1,8 @@
 #@ target: manifest
 #@ check: manifest
+#@ parity: class
 #@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' — truth: 'git dump' невідомий. Дозволені: storage, dump, vendor, git.
+#@ rust-starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' — truth: має бути скалярним значенням
 version: 1
 product: Fake
 workspaces:

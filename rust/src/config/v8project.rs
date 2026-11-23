@@ -7,7 +7,7 @@
 // що й решта конфігурації (рішення 7 плану), — пароль не має окремого шляху.
 
 use super::manifest::is_blank;
-use super::yaml::{Emptiness, contains, eq_ci, get, get_string, keys, read_yaml, read_yaml_or_none};
+use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, read_yaml, read_yaml_or_none};
 use super::{ConfigError, RawConnection, Secret, SecretTree};
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
@@ -94,6 +94,7 @@ pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
             return Err(ConfigError::new(format!("Елемент source-set у {shown} не є мапою з ключами name/type/path.")));
         };
         for key in ["name", "type", "path"] {
+            assert_scalar(item, key, &format!("У source-set файлу {shown}"), key)?;
             if !contains(item, key) || is_blank(&get_string(item, key)) {
                 return Err(ConfigError::new(format!("У source-set файлу {shown} бракує ключа '{key}'.")));
             }
@@ -120,6 +121,7 @@ pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
         });
     }
 
+    assert_scalar(&data, "workPath", &format!("У {shown}"), "workPath")?;
     let work_path = match get(&data, "workPath") {
         Some(_) if !is_blank(&get_string(&data, "workPath")) => get_string(&data, "workPath"),
         _ => "build".to_string(),
@@ -144,6 +146,10 @@ pub fn read_local_infobase(path: &Path) -> Result<Option<LocalInfobase>, ConfigE
     let Some(Value::Mapping(origin)) = get(ibs, "origin") else {
         return Ok(None);
     };
+    let local_where = format!("У {}", path.display());
+    for field in ["connection", "user", "password"] {
+        assert_scalar(origin, field, &local_where, &format!("infobases.origin.{field}"))?;
+    }
     let connection = get_string(origin, "connection");
     if is_blank(&connection) {
         return Ok(None);
@@ -227,9 +233,16 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
                 continue;
             };
             for op in ["push", "pull", "download"] {
-                let v = if contains(providers, op) { get_string(providers, op) } else { String::new() };
+                let scalar = !matches!(get(providers, op), Some(Value::Sequence(_) | Value::Mapping(_)));
+                let v = if contains(providers, op) && scalar { get_string(providers, op) } else { String::new() };
                 if !eq_ci(&v, "designer") {
-                    let shown = if v.is_empty() { "відсутній".to_string() } else { format!("'{v}'") };
+                    let shown = if !scalar {
+                        "не скаляр".to_string()
+                    } else if v.is_empty() {
+                        "відсутній".to_string()
+                    } else {
+                        format!("'{v}'")
+                    };
                     problems.push(format!(
                         "{p}: providers.{op} — {shown}, потрібно designer (агентський режим раннера на Windows не заміряний, #429)."
                     ));

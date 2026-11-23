@@ -1,0 +1,7 @@
+#@ target: overlay
+#@ check: none
+#@ parity: class
+#@ rust-check: overlay
+#@ rust-starts: Накладка {path}, storages.Alpha_SMB — path: має бути скалярним значенням
+storages:
+  Alpha_SMB: { path: ['R:\x'] }

@@ -1,0 +1,13 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ rust-check: manifest
+#@ rust-starts: Маніфест {path} — mainBranch: має бути скалярним значенням
+version: 1
+product: Fake
+mainBranch: [develop]
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

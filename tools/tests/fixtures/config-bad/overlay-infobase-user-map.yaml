@@ -1,0 +1,7 @@
+#@ target: overlay
+#@ check: none
+#@ parity: class
+#@ rust-check: overlay
+#@ rust-starts: Накладка {path}, infobases.dev — user: має бути скалярним значенням
+infobases:
+  dev: { connection: 'File=C:\h', user: { a: 1 } }

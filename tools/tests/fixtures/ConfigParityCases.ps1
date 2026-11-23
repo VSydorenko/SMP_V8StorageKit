@@ -69,12 +69,18 @@ function script:Get-ConfigParityCases {
     $lEx = [System.IO.File]::ReadAllText((Join-Path $script:TemplatesDir 'v8storagekit.local.yaml.example'))
     $pEx = [System.IO.File]::ReadAllText((Join-Path $script:TemplatesDir 'v8project.yaml.example'))
     $simple = "version: 1`nproduct: Fake`nworkspaces:`n  - path: Alpha_SMB`n    sources:`n      base: { truth: vendor, dump: { from: devUNF } }`n      'ІмʼяРозширення': { truth: git }`n"
-    Add-Case 'templates/v8storagekit.yaml.example як є' @{ Manifest = $mEx } @()
+    Add-Case 'templates/v8storagekit.yaml.example як є (плейсхолдери — воркспейс не існує)' @{ Manifest = $mEx } @() @{ Good = $false }
+    $mFilled = $mEx.Replace('<Воркспейс_UA>', 'Alpha_UA').Replace('<ІмʼяРозширення>', 'ExtName').Replace('<НазваПродукту>', 'Prod').Replace('<Сховище>', 'Stor')
+    $exWs = [ordered]@{
+        'Alpha_UA' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }, (& $ext 'ExtName' 'cfe/src')) }
+        'epf'      = @{ Sets = @(@{ Name = 'external-processors'; Type = 'EXTERNAL_DATA_PROCESSORS'; Path = 'src' }) }
+    }
+    Add-Case 'templates/v8storagekit.yaml.example з підставленими іменами' @{ Manifest = $mFilled; Workspaces = $exWs } @()
     Add-Case 'templates/v8storagekit.local.yaml.example як накладка' @{ Manifest = $simple; Overlay = $lEx; Projects = @{ Alpha_SMB = $pEx } } @()
     Add-Case 'templates/v8project.yaml.example як v8project.yaml' @{ Manifest = $simple; Projects = @{ Alpha_SMB = $pEx } } @()
 
     # --- kitVersion у маніфесті: три режими — три різні результати ---
-    Add-Case 'kitVersion у добре сформованому маніфесті' @{ Manifest = "kitVersion: 1`nversion: 1`nproduct: Fake`nworkspaces:`n  - path: Alpha_SMB`n    sources:`n      base: { truth: vendor, dump: { from: dev } }`n      Alpha_SMB: { truth: git }`n" } @() @{ ModesDiffer = $true }
+    Add-Case 'kitVersion у добре сформованому маніфесті' @{ Manifest = "kitVersion: 1`nversion: 1`nproduct: Fake`nworkspaces:`n  - path: Alpha_SMB`n    sources:`n      base: { truth: vendor, dump: { from: dev } }`n      Alpha_SMB: { truth: git }`n" } @() @{ ModesDiffer = $true; Good = $false }
 
     # --- Регістр ключів і truth ---
     Add-Case 'ключі й truth в іншому регістрі (маніфест, накладка, v8project)' @{
@@ -108,19 +114,19 @@ function script:Get-ConfigParityCases {
     # --- Корінь, DT-INF, відсутній маніфест ---
     Add-Case 'без маніфесту' @{ NoManifest = $true } @()
     Add-Case 'без маніфесту, DT-INF у корені' @{ NoManifest = $true; Dirs = @('DT-INF') } @()
-    Add-Case 'без маніфесту, DT-INF на двох рівнях, змішані латинські імена (порядок Sort-Object)' @{
+    Add-Case 'без маніфесту, DT-INF на двох рівнях, змішані латинські імена (порядок — множина: правило Rust не залежить від культури)' @{
         NoManifest = $true; Dirs = @('zeta/DT-INF', 'Alpha/DT-INF', 'a_b/DT-INF', 'a-b/DT-INF', 'a b/DT-INF', 'a.b/DT-INF', 'B/DT-INF', 'b/DT-INF', '1x/DT-INF', 'q/w/DT-INF', 'a/b/c/DT-INF')
-    } @()
-    Add-Case 'без маніфесту, DT-INF із кириличними іменами (порядок за культурою — множина)' @{ NoManifest = $true; Dirs = @('Ядро/DT-INF', 'Адаптация/x/DT-INF', 'ёж/DT-INF', 'Ёж/DT-INF') } @() @{ OrderInsensitive = $true }
+    } @() @{ OrderInsensitive = $true }
+    Add-Case 'без маніфесту, DT-INF із кириличними іменами (множина: порядок PowerShell залежить від культури)' @{ NoManifest = $true; Dirs = @('Ядро/DT-INF', 'Адаптация/x/DT-INF', 'ёж/DT-INF', 'Ёж/DT-INF') } @() @{ OrderInsensitive = $true }
     Add-Case 'без маніфесту, DT-INF лише на третьому рівні' @{ NoManifest = $true; Dirs = @('a/b/c/DT-INF') } @()
     Add-Case 'без маніфесту, DT-INF у прихованій теці' @{ NoManifest = $true; Dirs = @('hid/DT-INF') ; Hidden = @('hid') } @()
 
     # --- Вибір джерел: порядок переліку «Є: …», ключі, що різняться регістром, у двох воркспейсах ---
     $twoWs = [ordered]@{
-        'W1' = @{ Sets = @((& $ext 'Ключ' 'a'), (& $ext 'ключ' 'b'), (& $ext 'Яблуко' 'c'), (& $ext 'Alpha' 'd'), (& $ext 'a_b' 'e'), (& $ext 'a-b' 'f')) }
+        'W1' = @{ Sets = @((& $ext 'Ключ' 'a'), (& $ext 'Яблуко' 'c'), (& $ext 'Alpha' 'd'), (& $ext 'a_b' 'e'), (& $ext 'a-b' 'f')) }
         'W2' = @{ Sets = @((& $ext 'КЛЮЧ' 'a'), (& $ext 'alpha' 'b'), (& $ext 'beta' 'c')) }
     }
-    $twoMan = "version: 1`nproduct: Fake`nworkspaces:`n  - path: W1`n    sources:`n      'Ключ': { truth: git }`n      'ключ': { truth: git }`n      'Яблуко': { truth: git }`n      Alpha: { truth: git }`n      a_b: { truth: git }`n      a-b: { truth: git }`n  - path: W2`n    sources:`n      'КЛЮЧ': { truth: git }`n      alpha: { truth: git }`n      beta: { truth: git }`n"
+    $twoMan = "version: 1`nproduct: Fake`nworkspaces:`n  - path: W1`n    sources:`n      'Ключ': { truth: git }`n      'Яблуко': { truth: git }`n      Alpha: { truth: git }`n      a_b: { truth: git }`n      a-b: { truth: git }`n  - path: W2`n    sources:`n      'КЛЮЧ': { truth: git }`n      alpha: { truth: git }`n      beta: { truth: git }`n"
     Add-Case 'два воркспейси: кириличні ключі й ключі, що різняться регістром' @{ Manifest = $twoMan; Workspaces = $twoWs } @(@{ Source = 'нема'; OrderInsensitive = $true }, @{ Source = 'нема'; Workspace = 'W1'; OrderInsensitive = $true }, @{ Source = 'ключ' }, @{ Source = 'alpha' }, @{ Source = 'beta' }, @{ Workspace = 'W3' })
 
     # --- База агента: перетини ---

@@ -20,6 +20,7 @@
 // ім'я й значення — останній; вимір 2026-11-24: `A: 1` і `a: 2` дають ключ `a`, задача 4). Пошук за ключем — без регістру. Тег (`!x`) у значенні — помилка розбору.
 
 use super::ConfigError;
+use std::collections::HashMap;
 use serde::Deserialize;
 use serde::de::{DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_yaml::{Mapping, Number, Value};
@@ -240,13 +241,17 @@ fn normalize(value: Value) -> Option<Value> {
             // `OrderedDictionary` у PowerShell: ключ без регістру — одне місце (де вперше з'явився), а ім'я й значення
             // — з останнього запису (вимір 2026-11-24: `Alpha_SMB:` і `ALPHA_SMB:` дають ключ `ALPHA_SMB`).
             let mut entries: Vec<(String, Value)> = Vec::new();
+            let mut index: HashMap<String, usize> = HashMap::new();
             for (k, v) in map {
                 let key = key_text(&k)?;
                 let v = normalize(v)?;
                 let folded = key.to_lowercase();
-                match entries.iter_mut().find(|(name, _)| name.to_lowercase() == folded) {
+                match index.get(&folded).copied().and_then(|i| entries.get_mut(i)) {
                     Some(slot) => *slot = (key, v),
-                    None => entries.push((key, v)),
+                    None => {
+                        index.insert(folded, entries.len());
+                        entries.push((key, v));
+                    }
                 }
             }
             let mut out = Mapping::new();
@@ -287,6 +292,20 @@ pub fn contains(map: &Mapping, key: &str) -> bool {
 /// Ключі мапи в порядку файла (після нормалізації всі — рядки).
 pub fn keys(map: &Mapping) -> Vec<String> {
     map.iter().filter_map(|(k, _)| k.as_str().map(str::to_string)).collect()
+}
+
+/// Скалярне поле: список чи мапа на його місці — відмова без значення (відома відмінність, рішення архітектора
+/// 2026-11-24: PowerShell кастить `[string]` без перевірки й тихо отримує «a b» чи ім'я типу). `where_` — початок
+/// повідомлення («Маніфест … — » тощо), `field` — ім'я поля для людини.
+pub fn assert_scalar(map: &Mapping, key: &str, where_: &str, field: &str) -> Result<(), ConfigError> {
+    match get(map, key) {
+        Some(Value::Sequence(_) | Value::Mapping(_)) => Err(ConfigError::new(if key == "version" {
+            format!("{where_} — {field}: має бути числом (значення не друкується).")
+        } else {
+            format!("{where_} — {field}: має бути скалярним значенням (рядок чи число), а не списком чи мапою (значення не друкується).")
+        })),
+        _ => Ok(()),
+    }
 }
 
 /// `[string]$map[$key]`; ключа немає — порожній рядок (`$null`).

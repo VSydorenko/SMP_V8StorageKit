@@ -1,0 +1,11 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ rust-check: manifest
+#@ rust-starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base', dump — from: має бути скалярним значенням
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: dump, dump: { from: [d] } }

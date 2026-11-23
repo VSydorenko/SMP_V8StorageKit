@@ -1,0 +1,10 @@
+#@ target: project
+#@ check: none
+#@ parity: class
+#@ rust-check: workspace
+#@ rust-starts: У {path} — workPath: має бути скалярним значенням
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }
+  - { name: Alpha_SMB, type: EXTENSION, path: cfe/src }
+workPath: [out]
