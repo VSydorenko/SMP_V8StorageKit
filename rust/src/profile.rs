@@ -93,10 +93,10 @@ pub fn project_version(json: &Value) -> ProjectVersion {
     }
     if let Some(v) = field("kit") {
         let s = ps_string(v);
-        if let Some((major, _, _)) = parse_version(&s).filter(|_| is_version(&s)) {
-            if major >= 1 {
-                return ProjectVersion::Set(s);
-            }
+        if let Some((major, _, _)) = parse_version(&s).filter(|_| is_version(&s))
+            && major >= 1
+        {
+            return ProjectVersion::Set(s);
         }
     }
     ProjectVersion::Unset

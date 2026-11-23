@@ -13,13 +13,18 @@
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
-// `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С.
+// `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С;
+// `runner-exec <шлях раннера> <робоча тека> <аргумент>…` — запуск раннера Уніки для PowerShell до фази 3
+// (ADR-0019): аргументи раннера дослівно, без розбору `cli::parse`, потоки успадковані, код — код раннера;
+// `tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p]` — вердикти версій Уніки й раннера одним JSON
+// для `check-environment.ps1`.
 
 mod fingerprint;
 mod session_start;
 mod subagent_start;
 
-use kit::{cli, session_board};
+use kit::{cli, runner, session_board, unica};
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
@@ -104,9 +109,76 @@ fn dispatch(root: &Path, tokens: &[String]) -> i32 {
     }
 }
 
+/// Прихована підкоманда запуску раннера: два позиційні токени, далі аргументи раннера дослівно (вони можуть
+/// бути `--config`, `--json-message`, `--version`, які `cli::parse` відхилив би). Код — код раннера; власна
+/// помилка (раннера немає, не запустився) — `runner-exec: ERROR …` і код 1.
+const RUNNER_EXEC_COMMAND: &str = "runner-exec";
+
+fn runner_exec(args: &[OsString]) -> i32 {
+    let [runner_path, cwd, rest @ ..] = args else {
+        fail(RUNNER_EXEC_COMMAND, "очікувалось: <шлях раннера> <робоча тека> [аргумент…]", 2);
+    };
+    match runner::exec_inherit(Path::new(runner_path), Path::new(cwd), rest) {
+        Ok(code) => code,
+        Err(e) => fail(RUNNER_EXEC_COMMAND, &e.to_string(), 1),
+    }
+}
+
+const VERDICTS_COMMAND: &str = "tool-verdicts";
+
+/// `kit tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p]`: один JSON з установленою Унікою й
+/// вердиктами Уніки та раннера (лише записи `scope: user`: репозиторію тут немає). Код 0, коли JSON
+/// надруковано, зокрема на вердикті `error`.
+fn tool_verdicts(args: &[String]) -> i32 {
+    let spec = [("InstalledPluginsPath", cli::Kind::Str), ("RunnerPath", cli::Kind::Str)];
+    let parsed = cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(VERDICTS_COMMAND, &m, 2));
+    if parsed.help {
+        println!("usage: kit tool-verdicts [-InstalledPluginsPath <реєстр>] [-RunnerPath <раннер>]");
+        return 0;
+    }
+    if !parsed.positional.is_empty() {
+        fail(VERDICTS_COMMAND, "позиційних аргументів немає", 2);
+    }
+    let named = |n: &str| match parsed.named.get(n) {
+        Some(cli::Value::Str(s)) if !s.is_empty() => Some(s.clone()),
+        _ => None,
+    };
+    let registry = named("InstalledPluginsPath")
+        .map(PathBuf::from)
+        .or_else(unica::default_registry)
+        .unwrap_or_else(|| fail(VERDICTS_COMMAND, "домашню теку не визначено: вкажіть -InstalledPluginsPath", 2));
+    let installation = unica::installation(&registry, None);
+    let unica_verdict = unica::unica_verdict(&installation);
+    let runner_path = named("RunnerPath").map(PathBuf::from);
+    let runner_verdict = unica::runner_verdict(runner_path.as_deref(), &registry, None);
+    let json = serde_json::json!({
+        "unica": {
+            "Installed": installation.installed,
+            "Version": installation.version,
+            "InstallPath": installation.install_path,
+            "PathExists": installation.path_exists,
+            "Reason": installation.reason,
+            "Level": unica_verdict.level.as_str(),
+            "Message": unica_verdict.message,
+        },
+        "runner": {
+            "Level": runner_verdict.level.as_str(),
+            "Message": runner_verdict.message,
+            "Version": runner_verdict.version,
+        },
+    });
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{json}").and_then(|_| stdout.flush());
+    0
+}
+
 fn main() {
+    let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if raw.first().is_some_and(|a| a == RUNNER_EXEC_COMMAND) {
+        exit(runner_exec(&raw[1..]));
+    }
     let mut tokens = Vec::new();
-    for a in std::env::args_os().skip(1) {
+    for a in raw {
         match a.into_string() {
             Ok(s) => tokens.push(s),
             Err(raw) => fail("kit", &format!("аргумент {raw:?} — не коректний Unicode"), 2),
@@ -117,6 +189,9 @@ fn main() {
     };
     if command == FINGERPRINT_COMMAND {
         exit(source_fingerprint(&tokens[1..]));
+    }
+    if command == VERDICTS_COMMAND {
+        exit(tool_verdicts(&tokens[1..]));
     }
     if command == session_start::COMMAND {
         // Хук старту сесії (ADR-0014): код 0 завжди, вивід — одним записом або жодного.

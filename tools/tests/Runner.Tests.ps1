@@ -57,7 +57,7 @@ Describe 'Get-KitRunnerPath: немає Уніки чи раннера' {
         $install = Join-Path $TestDrive 'unica-install'
         New-Item -ItemType Directory -Path $install | Out-Null
         $reg = Join-Path $TestDrive 'installed_plugins2.json'
-        @{ version = 2; plugins = @{ 'unica@unica' = @(@{ version = '0.16.0'; installPath = $install }) } } |
+        @{ version = 2; plugins = @{ 'unica@unica' = @(@{ scope = 'user'; version = '0.16.0'; installPath = $install }) } } |
             ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reg -Encoding UTF8
 
         { Get-KitRunnerPath -InstalledPluginsPath $reg } | Should -Throw -ExpectedMessage '*v8-runner.exe*'

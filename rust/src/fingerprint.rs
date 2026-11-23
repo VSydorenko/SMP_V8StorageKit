@@ -9,11 +9,12 @@
 // CRLF там, де індекс — LF. Алгоритм — FNV-1a 64: мета — помітити застарілий bin/kit.exe, а не
 // протидіяти підробці, тож криптографічний хеш (і залежність) не потрібен.
 
+/// Файли входу відбитка (відносний шлях, повний шлях) і обійдені теки.
+pub type FingerprintInputs = (Vec<(String, std::path::PathBuf)>, Vec<std::path::PathBuf>);
+
 /// Вхід відбитка: файли (відносний шлях з `/`, повний шлях) у порядку хешування і теки, які обійдено
 /// (включно з коренем). build.rs стежить саме за цим переліком (rerun-if-changed).
-pub fn fingerprint_inputs(
-    root: &std::path::Path,
-) -> std::io::Result<(Vec<(String, std::path::PathBuf)>, Vec<std::path::PathBuf>)> {
+pub fn fingerprint_inputs(root: &std::path::Path) -> std::io::Result<FingerprintInputs> {
     let mut files = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
     fingerprint_collect(root, "", &mut files, &mut dirs)?;
