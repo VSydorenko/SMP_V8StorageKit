@@ -11,19 +11,23 @@ Set-StrictMode -Version Latest
     kit-setup — теж.
 
     Злиття settings.json (спека §5.2 (а)–(г)): (а) правило шаблону додається до списку, якщо його немає
-    в ТОМУ САМОМУ списку проєкту; до allow — лише якщо його немає ще й в ask чи deny проєкту чи шаблону
-    (строгіше рішення перемагає); правила Уніки з allow шаблону — лише в репозиторії 1С, ask і deny —
-    завжди; (б) з allow і ask прибираються правила, що ТОЧНО (з урахуванням регістру) збігаються з
-    застарілими іменами Уніки (tools/assets/obsolete-names.json); (в) unica_apply з allow переходить в ask;
-    (г) з hooks.SessionStart[].hooks[] прибирається елемент старого шима kit — шлях
-    .claude/hooks/session-start.ps1 окремим токеном; група, SessionStart і hooks — лише коли спорожніли.
+    в ТОМУ САМОМУ списку проєкту; до allow — лише якщо його не ПОКРИВАЄ правило ask чи deny проєкту чи
+    шаблону (строгіше рішення перемагає; D13 за рев'ю безпеки — Test-SetupRuleCovered: форма-близнюк
+    Bash ≡ PowerShell, префікс на межі слова, :* ≡ " *", ціле ім'я інструмента); правила Уніки з allow
+    шаблону — лише в репозиторії 1С, ask і deny — завжди; (б) з allow і ask прибираються правила, що ТОЧНО
+    (з урахуванням регістру) збігаються з застарілими іменами Уніки (tools/assets/obsolete-names.json);
+    (в) unica_apply з allow переходить в ask; (г) з hooks.SessionStart[].hooks[] прибирається елемент
+    старого шима kit — шлях .claude/hooks/session-start.ps1 окремим токеном, перед ним лише початок,
+    пробіл, лапка, ./ чи $CLAUDE_PROJECT_DIR/ (не хук рівня користувача і не складена команда); група,
+    SessionStart і hooks — лише коли спорожніли.
     deny проєкту не змінюється ніколи, крім дописування; власні правила й хуки проєкту лишаються. Широкі
     правила першого покоління (pr-gate:*, track:*, git branch:*) не прибираються — команда називає, чим
     їх замінити. Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює.
 
     Ідемпотентно: другий запуск нічого не змінює. -DryRun друкує точний diff кожного файла (власним
     кодом, без зовнішнього diff) і нічого не пише. Запис — один помічник Write-SetupFiles: JSON-результат
-    розбирається в пам'яті, кожен файл пишеться в тимчасовий поруч і лише потім атомарно замінює ціль.
+    розбирається в пам'яті, можливість запису всіх цілей перевіряється до першої заміни, кожен файл
+    пишеться в тимчасовий поруч і лише потім атомарно замінює ціль.
 
     Змін проти оригіналу: параметри PowerShell-стилем; кожне правило дозволу у двох формах — Bash(…) і
     PowerShell(…) (виміряно 2026-11-20 у Claude Code 2.1.329: PowerShell(session-cost:*) пропускає виклик
@@ -39,18 +43,24 @@ $script:PermLists = @('allow', 'ask', 'deny')
 $script:UnicaRulePrefix = 'mcp__plugin_unica_unica__'
 # (в): шаблон тримає unica_apply в ask; з allow проєкту він переходить туди ж.
 $script:UnicaApply = 'mcp__plugin_unica_unica__unica_apply'
-# (г): шлях шима окремим токеном (після заміни \ на /) — перед ним початок, пробіл, лапка чи /
-# (зокрема ./), після — кінець, пробіл чи лапка. Навмисно вужче за Test-KitLegacySessionHook (D12).
-$script:ShimPattern = '(?<=^|[\s"''/])\.claude/hooks/session-start\.ps1(?=$|[\s"''])'
+# (г): шим kit за історію мав одну форму (pwsh -NoProfile -File .claude/hooks/session-start.ps1). Шлях —
+# окремим токеном (після заміни \ на /): перед ним лише початок, пробіл чи лапка з необов'язковим ./ або
+# $CLAUDE_PROJECT_DIR/ (${…}, у лапках чи без); після — кінець, пробіл чи лапка. Довільний / перед шляхом
+# (~/.claude/…, $HOME/…, абсолютні шляхи — хуки рівня користувача чи чужого дерева) — не збіг. Навмисно
+# вужче за Test-KitLegacySessionHook (D12).
+$script:ShimPattern = '(?<=^|[\s"''])(?:\./|"?\$\{?CLAUDE_PROJECT_DIR\}?"?/)?\.claude/hooks/session-start\.ps1(?=$|[\s"''])'
+# Складена команда (&&, ;, |, &, новий рядок) — невідома форма: не прибираємо, навіть зі шимом усередині.
+$script:CompoundPattern = '[;&|\r\n]'
 # Широкі правила старих налаштувань: дозволяють більше, ніж треба, без питання. Не прибираємо
-# (прибирання — лише точні застарілі імена Уніки й шим) — кажемо власнику, чим замінити.
+# (прибирання — лише точні застарілі імена Уніки й шим) — кажемо власнику, чим замінити. Значення —
+# порада повністю: вона різна для правила, вузької заміни якого шаблон не має.
 $script:BroadOld = [ordered]@{
-    'Bash(pr-gate:*)'          = 'дозволяє й майбутні підкоманди pr-gate без рішення; заміни на Bash(pr-gate start:*), Bash(pr-gate cleanup:*), Bash(pr-gate scratch:*), Bash(pr-gate open:*), Bash(pr-gate ready:*), Bash(pr-gate land:*)'
-    'PowerShell(pr-gate:*)'    = 'дозволяє й майбутні підкоманди pr-gate без рішення; заміни на PowerShell(pr-gate start:*), PowerShell(pr-gate cleanup:*), PowerShell(pr-gate scratch:*), PowerShell(pr-gate open:*), PowerShell(pr-gate ready:*), PowerShell(pr-gate land:*)'
-    'Bash(track:*)'            = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на Bash(track status:*)'
-    'PowerShell(track:*)'      = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на PowerShell(track status:*)'
-    'Bash(git branch:*)'       = 'пропускає й git branch -D/-f, зокрема на storage/*; заміни на Bash(git branch --list:*), Bash(git branch --show-current)'
-    'PowerShell(git branch:*)' = 'пропускає й git branch -D/-f, зокрема на storage/*; заміни на PowerShell(git branch --list:*), PowerShell(git branch --show-current)'
+    'Bash(pr-gate:*)'          = 'дозволяє й майбутні підкоманди pr-gate без рішення; заміни на Bash(pr-gate start:*), Bash(pr-gate cleanup:*), Bash(pr-gate scratch:*), Bash(pr-gate open:*), Bash(pr-gate ready:*), Bash(pr-gate land:*); прибери вручну (вузькі правила покривають безпечні кроки)'
+    'PowerShell(pr-gate:*)'    = 'дозволяє й майбутні підкоманди pr-gate без рішення; заміни на PowerShell(pr-gate start:*), PowerShell(pr-gate cleanup:*), PowerShell(pr-gate scratch:*), PowerShell(pr-gate open:*), PowerShell(pr-gate ready:*), PowerShell(pr-gate land:*); прибери вручну (вузькі правила покривають безпечні кроки)'
+    'Bash(track:*)'            = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на Bash(track status:*); прибери вручну (вузькі правила покривають безпечні кроки)'
+    'PowerShell(track:*)'      = 'дозволяє й track spec|milestone (GitHub) без питання; заміни на PowerShell(track status:*); прибери вручну (вузькі правила покривають безпечні кроки)'
+    'Bash(git branch:*)'       = 'пропускає й git branch -D/-f, зокрема на storage/*; заміни на Bash(git branch --list:*), Bash(git branch --show-current); прибери вручну (вузькі правила покривають безпечні кроки)'
+    'PowerShell(git branch:*)' = 'пропускає й git branch -D/-f, зокрема на storage/*; прибери вручну. Вузької PowerShell-форми шаблон не має (читальні git-правила — лише Bash): після цього читання гілок інструментом PowerShell піде з питанням, а без питання — через Bash(git branch --list:*), Bash(git branch --show-current)'
 }
 $script:SettingsFile = '.claude/settings.json'
 $script:ProfileRel = '.agents/kit.profile.json'
@@ -70,12 +80,14 @@ kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInc
 
   permissions  злити $script:SettingsFile з цільовим станом — $script:TemplateRel плагіна:
                (а) дописати правила шаблону, яких немає в тому самому списку (allow, ask, deny);
-                   в allow — лише те, чого немає в ask чи deny; правила Уніки в allow — лише в
+                   в allow — лише те, чого не покриває ask чи deny проєкту чи шаблону: Bash(X) і
+                   PowerShell(X) — одне правило, p:* покриває «p» і «p …» (не «pX»), :* = " *",
+                   голе Bash чи PowerShell — увесь інструмент; правила Уніки в allow — лише в
                    репозиторії 1С (v8storagekit.yaml чи v8project.yaml);
                (б) прибрати з allow і ask точні застарілі імена Уніки (tools/assets/obsolete-names.json);
                (в) перенести unica_apply з allow в ask;
                (г) прибрати з hooks.SessionStart елемент старого шима .claude/hooks/session-start.ps1
-                   (файл шима не видаляється).
+                   (файл шима не видаляється; хуки рівня користувача й складені команди не чіпаються).
                deny проєкту й власні правила й хуки не прибираються. Без питання — локальні команди
                процесу й pr-gate open|ready|land; git push, gh pr create|merge, gh release,
                track spec|milestone і kit-setup — з питанням. Широкі правила pr-gate:*, track:* і
@@ -263,6 +275,50 @@ function Test-SetupHasRule {
     $false
 }
 
+function ConvertTo-SetupRuleShape {
+    <#
+        Розбір правила для покриття (D13): Shell — Bash чи PowerShell (форми-близнюки) або $null; Whole — ціле
+        ім'я інструмента без дужок чи (*); Prefix — команда правила з суфіксом :* чи " *" (без суфікса);
+        Exact — тіло правила без такого суфікса. Не оболонка — лише рядок (точний збіг).
+    #>
+    param([Parameter(Mandatory)][string]$Rule)
+    $m = [regex]::Match($Rule, '^(?<tool>Bash|PowerShell)(?:\((?<body>.*)\))?$')
+    if (-not $m.Success) { return [pscustomobject]@{ Shell = $null; Whole = $false; Prefix = $null; Exact = $null } }
+    $shape = [pscustomobject]@{ Shell = 'shell'; Whole = $false; Prefix = $null; Exact = $null }
+    if (-not $m.Groups['body'].Success -or $m.Groups['body'].Value -ceq '*') { $shape.Whole = $true; return $shape }
+    $body = $m.Groups['body'].Value
+    if ($body.EndsWith(':*', [System.StringComparison]::Ordinal) -or $body.EndsWith(' *', [System.StringComparison]::Ordinal)) {
+        $shape.Prefix = $body.Substring(0, $body.Length - 2)
+    } else { $shape.Exact = $body }
+    $shape
+}
+
+function Test-SetupRuleCovered {
+    <#
+        Чи покриває правило з $By (ask чи deny проєкту або шаблону) правило $Rule — тоді воно в allow не йде
+        (D13, уточнено за рев'ю безпеки). Форма-близнюк: Bash(X) ≡ PowerShell(X). Ціле ім'я Bash/PowerShell (чи
+        (*)) покриває все обох форм. Префікс на межі слова: p:* покриває q (q — префікс чи точне тіло $Rule),
+        коли q == p або q починається з «p ». Правило без суфікса покриває лише точне тіло. Не оболонка — точний
+        рядок. Регістр — як у Claude Code: враховується.
+    #>
+    param([Parameter(Mandatory)][string]$Rule, $By)
+    $r = ConvertTo-SetupRuleShape $Rule
+    foreach ($c in $By) {
+        if ($c -isnot [string]) { continue }
+        if ($c -ceq $Rule) { return $true }
+        if (-not $r.Shell) { continue }
+        $s = ConvertTo-SetupRuleShape $c
+        if (-not $s.Shell) { continue }
+        if ($s.Whole) { return $true }
+        if ($r.Whole) { continue }
+        $q = if ($null -ne $r.Prefix) { $r.Prefix } else { $r.Exact }
+        if ($null -ne $s.Prefix) {
+            if ($q -ceq $s.Prefix -or $q.StartsWith($s.Prefix + ' ', [System.StringComparison]::Ordinal)) { return $true }
+        } elseif ($null -ne $r.Exact -and $r.Exact -ceq $s.Exact) { return $true }
+    }
+    $false
+}
+
 function Get-SetupTemplateRules {
     <#
         Цільові правила — permissions шаблону templates/settings.json плагіна (D8): allow, ask, deny.
@@ -293,7 +349,9 @@ function Test-SetupShimHook {
     <# Елемент hooks[] — старий шим kit: команда-рядок із шляхом шима окремим токеном (D12). #>
     param($Hook)
     if (-not ($Hook -is [System.Collections.IDictionary]) -or -not $Hook.Contains('command') -or $Hook['command'] -isnot [string]) { return $false }
-    ($Hook['command'] -replace '\\', '/') -cmatch $script:ShimPattern
+    $cmd = $Hook['command']
+    if ($cmd -match $script:CompoundPattern) { return $false }
+    ($cmd -replace '\\', '/') -cmatch $script:ShimPattern
 }
 
 function Remove-SetupShimHook {
@@ -372,14 +430,14 @@ function Get-SetupSettingsPlan {
         $cur['allow'] = $kept
         if (-not (Test-SetupHasRule $cur['ask'] $script:UnicaApply)) { $cur['ask'].Add($script:UnicaApply) }
     }
-    # (а) Правила шаблону, яких немає в тому самому списку; в allow — лише те, чого немає в ask чи deny
-    # ні проєкту, ні шаблону (строгіше рішення перемагає).
+    # (а) Правила шаблону, яких немає в тому самому списку; в allow — лише те, чого не покриває ask чи
+    # deny ні проєкту, ні шаблону (строгіше рішення перемагає; D13 — Test-SetupRuleCovered).
     $added = [ordered]@{ allow = 0; ask = 0; deny = 0 }
+    $stricter = @($cur['ask']) + @($cur['deny']) + @($tpl['ask']) + @($tpl['deny'])
     foreach ($l in 'deny', 'ask', 'allow') {
         foreach ($r in $tpl[$l]) {
             if (Test-SetupHasRule $cur[$l] $r) { continue }
-            if ($l -eq 'allow' -and ((Test-SetupHasRule $cur['ask'] $r) -or (Test-SetupHasRule $cur['deny'] $r) -or
-                    ($tpl['ask'] -ccontains $r) -or ($tpl['deny'] -ccontains $r))) { continue }
+            if ($l -eq 'allow' -and (Test-SetupRuleCovered -Rule $r -By $stricter)) { continue }
             $cur[$l].Add($r)
             $added[$l]++
         }
@@ -389,7 +447,7 @@ function Get-SetupSettingsPlan {
 
     # Попередження — без урахування регістру: тут ширше безпечніше (нічого не прибирається).
     $warn = (@($script:BroadOld.Keys | Where-Object { @($cur['allow']) -contains $_ } | ForEach-Object {
-                "`n  власнику: $_ ширше за потрібне — $($script:BroadOld[$_]); прибери вручну (вузькі правила покривають безпечні кроки)"
+                "`n  власнику: $_ ширше за потрібне — $($script:BroadOld[$_])"
             }) -join '')
     $plan = @{ Path = $path; Rel = $script:SettingsFile; Before = $before; After = $before; Json = $true; Note = "дозволи вже за шаблоном$warn" }
     $addedTotal = $added['allow'] + $added['ask'] + $added['deny']
@@ -499,32 +557,76 @@ function Get-SetupProfilePlan {
 
 # ---------- запис ----------
 
+function Get-SetupErrorText {
+    <# Один рядок причини збою вводу-виводу: без обгортки виклику методу й без стеку. #>
+    param([Parameter(Mandatory)]$ErrorRecord)
+    $e = $ErrorRecord.Exception
+    if ($e -is [System.Management.Automation.MethodInvocationException] -and $e.InnerException) { $e = $e.InnerException }
+    $e.Message
+}
+
 function Write-SetupFiles {
     <#
-        Єдиний запис файлів kit-setup (D13). Спершу кожен файл готується: JSON-результат (Json = $true)
-        розбирається з пам'яті, текст пишеться в тимчасовий файл поруч із ціллю. Збій на цьому етапі —
-        тимчасові файли прибрано, жодну ціль не змінено, виняток «не перевірено». Потім кожен тимчасовий
-        файл замінює ціль перейменуванням у тій самій теці (File.Move з overwrite: MoveFileEx
-        REPLACE_EXISTING — атомарно в межах тому); недописаного файла-цілі не буває.
+        Єдиний запис файлів kit-setup (D13). Етапи — від дешевого до незворотного:
+          1) JSON-результат (Json = $true) розбирається з пам'яті;
+          2) кожна наявна ціль відкривається на запис (read-only, права, чуже блокування) — до першої заміни;
+          3) текст кожного файла пишеться в тимчасовий поруч із ціллю (теки, яких не було, запам'ятовуються);
+          4) кожен тимчасовий файл замінює ціль перейменуванням у тій самій теці (File.Move з overwrite:
+             MoveFileEx REPLACE_EXISTING — атомарно в межах тому); недописаного файла-цілі не буває.
+        Збій на етапах 1–3 — жодну ціль не змінено. Збій на етапі 4 (ціль змінилась після перевірки) — у тексті
+        перелік уже записаних і незаписаних файлів; повторний kit-setup допише решту (він ідемпотентний). Будь-який
+        збій — «не перевірено» (код 3) одним рядком причини, без сирого винятку .NET; тимчасові файли й порожні
+        створені теки прибрано.
     #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Plans)
+    foreach ($p in $Plans) {
+        if ($p.ContainsKey('Json') -and $p.Json) {
+            try { $null = ConvertFrom-SetupJson $p.After }
+            catch { throw (New-KitNotChecked "$($p.Rel): результат не розбирається як JSON — не записано нічого: $(Get-SetupErrorText $_)") }
+        }
+    }
+    foreach ($p in $Plans) {
+        if (-not (Test-Path -LiteralPath $p.Path -PathType Leaf)) { continue }
+        try { [System.IO.File]::Open($p.Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None).Dispose() }
+        catch { throw (New-KitNotChecked "$($p.Rel) недоступний для запису — не записано нічого: $(Get-SetupErrorText $_)") }
+    }
     $staged = [System.Collections.Generic.List[object]]::new()
+    $madeDirs = [System.Collections.Generic.List[string]]::new()
+    $done = [System.Collections.Generic.List[string]]::new()
+    $ok = $false
     try {
         foreach ($p in $Plans) {
-            if ($p.ContainsKey('Json') -and $p.Json) {
-                try { $null = ConvertFrom-SetupJson $p.After }
-                catch { throw (New-KitNotChecked "$($p.Rel): результат не розбирається як JSON — не записано нічого: $($_.Exception.Message)") }
-            }
             $dir = Split-Path -Parent $p.Path
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            $tmp = Join-Path $dir ".$(Split-Path -Leaf $p.Path).kit-setup-$([guid]::NewGuid().ToString('N')).tmp"
-            $staged.Add(@($tmp, $p.Path))
-            [System.IO.File]::WriteAllText($tmp, $p.After, [System.Text.UTF8Encoding]::new($false))
+            try {
+                $d = $dir
+                while ($d -and -not (Test-Path -LiteralPath $d -PathType Container)) { $madeDirs.Add($d); $d = Split-Path -Parent $d }
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                $tmp = Join-Path $dir ".$(Split-Path -Leaf $p.Path).kit-setup-$([guid]::NewGuid().ToString('N')).tmp"
+                $staged.Add(@($tmp, $p.Path, $p.Rel))
+                [System.IO.File]::WriteAllText($tmp, $p.After, [System.Text.UTF8Encoding]::new($false))
+            } catch { throw (New-KitNotChecked "$($p.Rel): тимчасовий файл не записано — не записано нічого: $(Get-SetupErrorText $_)") }
         }
-        foreach ($s in $staged) { [System.IO.File]::Move($s[0], $s[1], $true) }
+        for ($i = 0; $i -lt $staged.Count; $i++) {
+            $s = $staged[$i]
+            try { [System.IO.File]::Move($s[0], $s[1], $true) }
+            catch {
+                $rest = @(for ($k = $i; $k -lt $staged.Count; $k++) { $staged[$k][2] })
+                $written = if ($done.Count) { $done -join ', ' } else { 'нічого' }
+                throw (New-KitNotChecked "запис перервано на $($s[2]): $(Get-SetupErrorText $_). Уже записано: $written; не записано: $($rest -join ', '). Повторний kit-setup допише решту")
+            }
+            $done.Add($s[2])
+        }
+        $ok = $true
     } finally {
-        # Після успіху тимчасових файлів уже немає; після збою — прибираємо те, що лишилось.
+        # Після успіху тимчасових файлів уже немає; після збою — прибираємо їх і порожні теки, створені тут.
         foreach ($s in $staged) { if (Test-Path -LiteralPath $s[0]) { Remove-Item -LiteralPath $s[0] -Force -ErrorAction SilentlyContinue } }
+        if (-not $ok) {
+            foreach ($d in $madeDirs) {
+                if ((Test-Path -LiteralPath $d -PathType Container) -and -not @(Get-ChildItem -LiteralPath $d -Force).Count) {
+                    Remove-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 }
 

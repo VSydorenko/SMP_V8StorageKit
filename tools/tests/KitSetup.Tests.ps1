@@ -52,7 +52,7 @@ Describe 'kit-setup — підключення проєкту' {
         $settings = Join-Path $repo '.claude/settings.json'
         Set-Content -LiteralPath $settings -Encoding utf8NoBOM -Value ([ordered]@{
                 attribution = @{ commit = '' }
-                permissions = [ordered]@{ deny = @('Bash(rm:*)'); allow = @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)') }
+                permissions = [ordered]@{ deny = @('Bash(rm:*)'); allow = @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)', 'PowerShell(git branch:*)') }
                 env         = @{ A = '1' }
             } | ConvertTo-Json -Depth 5)
         $r = Invoke-Setup $repo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
@@ -60,7 +60,7 @@ Describe 'kit-setup — підключення проєкту' {
         $s = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json -AsHashtable
         @($s.Keys) | Should -Be @('attribution', 'permissions', 'env')
         @($s.permissions.Keys) | Should -Be @('deny', 'allow', 'ask')
-        @($s.permissions.allow)[0..2] | Should -Be @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)')
+        @($s.permissions.allow)[0..3] | Should -Be @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)', 'PowerShell(git branch:*)')
         $s.permissions.allow | Should -Contain 'PowerShell(session-cost:*)'
         $s.permissions.allow | Should -Contain 'Bash(session-cost:*)'
         $s.permissions.allow | Should -Contain 'Bash(pr-gate open:*)'
@@ -68,6 +68,9 @@ Describe 'kit-setup — підключення проєкту' {
         # Широкі правила названо рядками-попередженнями (§5.3, D14), а не прибрано.
         $r.Out | Should -Match 'Bash\(pr-gate:\*\) ширше за потрібне — дозволяє й майбутні підкоманди pr-gate без рішення; заміни на [^\r\n]*Bash\(pr-gate open:\*\), Bash\(pr-gate ready:\*\), Bash\(pr-gate land:\*\)'
         $r.Out | Should -Match 'Bash\(git branch:\*\) ширше за потрібне — пропускає й git branch -D/-f[^\r\n]*заміни на Bash\(git branch --list:\*\), Bash\(git branch --show-current\)'
+        # PowerShell-форма: вузької заміни шаблон не має — порада не обіцяє PowerShell(git branch --list:*).
+        $r.Out | Should -Match 'PowerShell\(git branch:\*\) ширше за потрібне — [^\r\n]*Вузької PowerShell-форми шаблон не має'
+        $r.Out | Should -Not -Match 'PowerShell\(git branch --list'
         Test-Path -LiteralPath (Join-Path $repo '.gitignore') | Should -BeFalse
     }
 
@@ -80,15 +83,22 @@ Describe 'kit-setup — підключення проєкту' {
             }
             $script:ShimCmd = 'pwsh -NoProfile -File .claude\hooks\session-start.ps1'
             $script:OwnHook = @{ type = 'command'; command = 'pwsh -NoProfile -File tools/own-start.ps1' }
+            # Окрема група: власні хуки, .custom, хук рівня користувача й складена команда зі шимом — не шим kit.
             $script:OtherGroup = [ordered]@{ hooks = @(
                     [ordered]@{ type = 'command'; command = 'echo own-group' },
-                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File .claude/hooks/session-start.ps1.custom' }
+                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File .claude/hooks/session-start.ps1.custom' },
+                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File ~/.claude/hooks/session-start.ps1' },
+                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File .claude/hooks/session-start.ps1 && pwsh -File tools/own.ps1' }
                 ) }
             # unica_view і власне правило — не останні в allow: інакше зміна коми дала б рядок «-» і без дефекту.
+            # ask (D13 за рев'ю безпеки): Bash(pr-gate land:*) — форма-близнюк закриває й PowerShell-форму;
+            # Bash(pr:*) — контроль межі слова (pr-gate open/ready лишаються в allow); Bash(session-cost *) —
+            # суфікс « *» ≡ «:*».
             $script:InputPerms = [ordered]@{
                 allow = @($script:Obsolete.Allow, 'mcp__plugin_unica_unica__unica_view', 'Bash(make test:*)',
                     'mcp__plugin_unica_unica__unica_apply', 'Bash(git push:*)')
-                ask   = @($script:Obsolete.Ask, 'mcp__plugin_unica_unica__unica_run', 'Bash(pr-gate land:*)', 'PowerShell(git push:*)')
+                ask   = @($script:Obsolete.Ask, 'mcp__plugin_unica_unica__unica_run', 'Bash(pr-gate land:*)', 'PowerShell(git push:*)',
+                    'Bash(pr:*)', 'Bash(session-cost *)')
                 deny  = @($script:Obsolete.Deny, 'Bash(rm -rf:*)', 'Bash(gitsync:*)', 'Bash(oscript:*)')
             }
             $script:MergeRepo = New-Repo 'merge'
@@ -109,6 +119,17 @@ Describe 'kit-setup — підключення проєкту' {
             $script:Real = Invoke-Setup $script:MergeRepo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
             $script:After = Get-Content -LiteralPath $script:MergeSettings -Raw | ConvertFrom-Json -AsHashtable
             $script:Diff = @($script:Dry.Out -split '\r?\n')
+            # Ще два входи того самого тесту: широке ask Bash(pr-gate:*) і ціле ім'я інструмента в deny.
+            $script:Covered = foreach ($case in @(
+                    @{ Name = 'merge-broad'; Perms = [ordered]@{ ask = @('Bash(pr-gate:*)') } },
+                    @{ Name = 'merge-whole'; Perms = [ordered]@{ deny = @('PowerShell') } })) {
+                $repo = New-Repo $case.Name
+                New-Item -ItemType Directory -Path (Join-Path $repo '.claude') | Out-Null
+                $f = Join-Path $repo '.claude/settings.json'
+                [System.IO.File]::WriteAllText($f, ([ordered]@{ permissions = $case.Perms } | ConvertTo-Json -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
+                $r = Invoke-Setup $repo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
+                [pscustomobject]@{ Name = $case.Name; Run = $r; Allow = @((Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -AsHashtable).permissions.allow) }
+            }
             function script:Get-Count {
                 param($List, [string]$Rule)
                 @(@($List) | Where-Object { $_ -ceq $Rule }).Count
@@ -144,21 +165,39 @@ Describe 'kit-setup — підключення проєкту' {
             Get-Count $script:After.permissions.allow 'Bash(make test:*)' | Should -Be 1
         }
 
-        It 'ask лишається: unica_run і Bash(pr-gate land:*) в ask, а Bash(pr-gate land:*) не з''явився в allow' {
+        It 'ask лишається й покриває обидві форми: Bash(pr-gate land:*) в ask — жодної форми pr-gate land в allow' {
             Get-Count $script:After.permissions.ask 'mcp__plugin_unica_unica__unica_run' | Should -Be 1
             Get-Count $script:After.permissions.ask 'Bash(pr-gate land:*)' | Should -Be 1
-            Get-Count $script:After.permissions.allow 'Bash(pr-gate land:*)' | Should -Be 0
             Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_run' | Should -Be 0
-            @($script:Diff | Where-Object { $_ -cmatch '^\+.*"Bash\(pr-gate land:\*\)"' }) | Should -BeNullOrEmpty
+            foreach ($rule in 'Bash(pr-gate land:*)', 'PowerShell(pr-gate land:*)') {
+                Get-Count $script:After.permissions.allow $rule | Should -Be 0 -Because "$rule — форма-близнюк правила ask проєкту"
+                Test-DiffLine '+' $rule | Should -BeFalse -Because $rule
+            }
         }
 
-        It 'unica_apply лише в ask; правила pr-gate open/ready/land з шаблону додано в allow' {
-            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_apply' | Should -Be 0
-            Get-Count $script:After.permissions.ask 'mcp__plugin_unica_unica__unica_apply' | Should -Be 1
-            foreach ($rule in 'Bash(pr-gate open:*)', 'PowerShell(pr-gate open:*)', 'Bash(pr-gate ready:*)', 'PowerShell(pr-gate ready:*)', 'PowerShell(pr-gate land:*)') {
-                Get-Count $script:After.permissions.allow $rule | Should -Be 1 -Because $rule
+        It 'покриття — префікс на межі слова й « *» ≡ «:*»: Bash(pr:*) не закриває pr-gate open/ready, Bash(session-cost *) закриває session-cost' {
+            foreach ($rule in 'Bash(pr-gate open:*)', 'PowerShell(pr-gate open:*)', 'Bash(pr-gate ready:*)', 'PowerShell(pr-gate ready:*)') {
+                Get-Count $script:After.permissions.allow $rule | Should -Be 1 -Because "${rule}: pr:* не покриває pr-gate (межа слова)"
                 Test-DiffLine '+' $rule | Should -BeTrue -Because $rule
             }
+            foreach ($rule in 'Bash(session-cost:*)', 'PowerShell(session-cost:*)') {
+                Get-Count $script:After.permissions.allow $rule | Should -Be 0 -Because "${rule}: Bash(session-cost *) в ask проєкту"
+            }
+            Get-Count $script:After.permissions.allow 'PowerShell(sdd:*)' | Should -Be 1 -Because 'контроль: непокрите правило шаблону додано'
+        }
+
+        It 'покриття ширшим правилом: ask Bash(pr-gate:*) — жодної форми pr-gate в allow; deny PowerShell — жодного правила оболонки' {
+            foreach ($c in $script:Covered) { $c.Run.Code | Should -Be 0 -Because "$($c.Name): $($c.Run.Out)" }
+            $broad = $script:Covered | Where-Object Name -eq 'merge-broad'
+            @($broad.Allow | Where-Object { $_ -cmatch '^(Bash|PowerShell)\(pr-gate ' }) | Should -BeNullOrEmpty -Because ($broad.Allow -join ', ')
+            $broad.Allow | Should -Contain 'Bash(sdd:*)' -Because 'контроль: решта правил шаблону додана'
+            $whole = $script:Covered | Where-Object Name -eq 'merge-whole'
+            @($whole.Allow | Where-Object { $_ -cmatch '^(Bash|PowerShell)\b' }) | Should -BeNullOrEmpty -Because ($whole.Allow -join ', ')
+        }
+
+        It 'unica_apply лише в ask; без ознак 1С правил Уніки з allow шаблону немає' {
+            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_apply' | Should -Be 0
+            Get-Count $script:After.permissions.ask 'mcp__plugin_unica_unica__unica_apply' | Should -Be 1
             # Без ознак 1С правила Уніки з allow шаблону не додаються (D9).
             Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_search' | Should -Be 0
         }
