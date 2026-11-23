@@ -32,6 +32,12 @@
       "PowerShell(pr-gate cleanup:*)",
       "Bash(pr-gate scratch:*)",
       "PowerShell(pr-gate scratch:*)",
+      "Bash(pr-gate open:*)",
+      "PowerShell(pr-gate open:*)",
+      "Bash(pr-gate ready:*)",
+      "PowerShell(pr-gate ready:*)",
+      "Bash(pr-gate land:*)",
+      "PowerShell(pr-gate land:*)",
       "mcp__plugin_unica_unica__unica_view",
       "mcp__plugin_unica_unica__unica_search",
       "mcp__plugin_unica_unica__unica_resolve",
@@ -42,8 +48,13 @@
     ],
     "ask": [
       "Bash(git push:*)",
+      "PowerShell(git push:*)",
       "Bash(gh pr create:*)",
+      "PowerShell(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "PowerShell(gh pr merge:*)",
       "Bash(gh release:*)",
+      "PowerShell(gh release:*)",
       "mcp__plugin_unica_unica__unica_apply"
     ],
     "deny": [

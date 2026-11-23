@@ -284,15 +284,23 @@ function Get-PgConflictNext {
 
 function Get-PgProtectedBranches {
     <#
-        Захищені гілки: main, base профілю, base цього виклику (-Extra: -Base, baseRefName PR) і ціль
-        origin/HEAD. Їх pr-gate не пушить і не видаляє ніде (віддалено чи локально). Порівнювати —
-        лише -ccontains: на регістрочутливих ФС Main і main — різні гілки.
+        Захищені гілки: main, base профілю, base цього виклику (-Extra: -Base, baseRefName PR), ціль
+        origin/HEAD і кожне дзеркало сховища storage/* (локальне чи на origin). Їх pr-gate не пушить і
+        не видаляє ніде (віддалено чи локально). Дзеркало після kit sync завжди вміщене в головну гілку,
+        тож без захисту prune видаляв би його першим же land, а непушнуті версії дзеркала — назавжди;
+        гілки storage/* пише лише kit sync. Порівнювати — лише -ccontains: на регістрочутливих ФС Main
+        і main — різні гілки.
     #>
     param($Ctx, [string[]]$Extra = @())
     $set = [System.Collections.Generic.List[string]]::new()
     foreach ($b in (@('main', $Ctx.Base) + @($Extra))) { if ($b) { $set.Add([string]$b) } }
     $head = Invoke-PgGit -GitArgs @('symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') -Cwd $Ctx.MainRoot
     if ($head.Ok -and $head.Out -cmatch '^refs/remotes/origin/(.+)$') { $set.Add($Matches[1]) }
+    $mirrors = Invoke-PgGit -GitArgs @('for-each-ref', '--format=%(refname)', 'refs/heads/storage/', 'refs/remotes/origin/storage/') -Cwd $Ctx.MainRoot
+    if (-not $mirrors.Ok) { throw "pr-gate: не прочитано дзеркала storage/*: $($mirrors.Err)" }
+    foreach ($ref in (@($mirrors.Out) -split "\r?\n")) {
+        if ($ref -cmatch '^refs/(?:heads|remotes/origin)/(storage/.+)$') { $set.Add($Matches[1]) }
+    }
     $set.ToArray()
 }
 
@@ -341,9 +349,11 @@ function Invoke-PrGateOpen {
     $target = if ($Base) { $Base } else { $Ctx.Base }
     # Агенти пушать гілки блоків без питання (рішення власника): тому base і main pr-gate не пушить
     # ніколи, навіть із -Base іншої гілки.
-    if ((Get-PgProtectedBranches -Ctx $Ctx -Extra @($Base)) -ccontains $branch) {
-        throw (New-KitUsageError "на $branch`: pr-gate ніколи не пушить захищену гілку (main, base, ціль origin/HEAD); відкривай PR із гілки задачі")
+    if ((Get-PgProtectedBranches -Ctx $Ctx -Extra @($Base)) -ccontains $branch -or $branch -clike 'storage/*') {
+        throw (New-KitUsageError "на $branch`: pr-gate ніколи не пушить захищену гілку (main, base, ціль origin/HEAD, дзеркало storage/*); відкривай PR із гілки задачі")
     }
+    # Дзеркало сховища лише дописує kit sync; PR у нього — злиття задачі в дзеркало (StorageBranch.psm1).
+    if ($target -clike 'storage/*') { throw (New-KitUsageError "-Base $target`: PR у дзеркало сховища не відкривається; base — головна гілка чи гілка задачі") }
     # Лише звичайний push і явний refspec у гілку з тим самим іменем: worktree від origin/main має
     # upstream origin/main, і push.default=upstream інакше пішов би в main. Force не існує.
     $null = Get-PgGit -GitArgs @('push', '-u', 'origin', "refs/heads/${branch}:refs/heads/${branch}") -Cwd $Ctx.Root
@@ -404,6 +414,11 @@ function Invoke-PgMergeChecked {
     $p = $State
     $fail = { param($why, $hint) throw (New-KitRefusal ("НЕ ЗЛИТО #$($p.number): $why" + $(if ($hint) { "`n$hint" } else { '' }))) }
     if ($p.state -ne 'OPEN') { & $fail "стан $($p.state)" }
+    # land дозволено без запиту (ADR-0017), тож межа — тут: лише PR з цього репозиторію і ніколи в чи з дзеркала.
+    if ($p.isCrossRepository) { & $fail 'PR з форка: pr-gate такі не зливає' 'злий сам після рев''ю: gh pr merge' }
+    if ([string]$p.baseRefName -clike 'storage/*' -or [string]$p.headRefName -clike 'storage/*') {
+        & $fail "base $($p.baseRefName), head $($p.headRefName): дзеркало сховища storage/* дописує лише kit sync" $null
+    }
     if ($p.isDraft) { & $fail 'draft' "pr-gate ready $($p.number) (або pr-gate land $($p.number) сам позначить готовим)" }
     if ($p.Conflict) { & $fail "PR у конфлікті з $($p.baseRefName)" (Get-PgConflictNext -Ctx $Ctx -Branch $p.headRefName -Base $p.baseRefName -Then "pr-gate land $($p.number)") }
     # UNKNOWN — GitHub ще рахує; це «не перевірено», а не провал.
@@ -548,6 +563,44 @@ function Invoke-PgArgv {
             Tail = @(($text -split "\r?\n") | Where-Object { $_ } | Select-Object -Last 10)
         }
     } finally { $proc.Dispose() }
+}
+
+function Get-PrGateReviewedAfterMerge {
+    <#
+        pr.afterMerge, яку land виконує: лише з проєктного профілю (.agents/kit.profile.json) на коміті головної
+        гілки, який назвав сам origin (ls-remote --symref) — туди потрапляє лише злите через PR. Свідома межа:
+        підміна самого origin у конфігурації git (remote set-url, url.*.insteadOf) не ловиться — хто пише
+        .git/config, той і так виконує довільне через core.hooksPath чи alias.* у будь-якій команді git. land дозволено без запиту (ADR-0017), а
+        argv з afterMerge — це довільна команда; локальний і машинний шари профілю й робоче дерево гілки задачі
+        агент пише сам, тож звідти afterMerge не береться. Повертає @{ Entries; Ref; Ignored } — Ignored, коли
+        шари профілю дають інше значення, ніж головна гілка.
+    #>
+    param([Parameter(Mandatory)][string]$MainRoot, $Layered)
+    # Головна гілка й її коміт — з самого origin (ls-remote), не з локальних refs/remotes/origin/*: ті агент
+    # переписує сам (`remote set-head`, `update-ref`), і межа б не трималась. Збій — «не перевірено», не порожньо.
+    $ls = Invoke-PgGit -GitArgs @('ls-remote', '--symref', 'origin', 'HEAD') -Cwd $MainRoot
+    if (-not $ls.Ok) { throw (New-KitNotChecked "pr.afterMerge: головну гілку origin не прочитано (git ls-remote): $($ls.Err)") }
+    $ref = $null; $sha = $null
+    foreach ($line in ($ls.Out -split "\r?\n")) {
+        if ($line -cmatch '^ref: refs/heads/(\S+)\s+HEAD$') { $ref = $Matches[1] }
+        elseif ($line -cmatch '^([0-9a-f]{40,64})\s+HEAD$') { $sha = $Matches[1] }
+    }
+    if (-not $ref -or -not $sha) { throw (New-KitNotChecked "pr.afterMerge: origin не назвав головної гілки (git ls-remote --symref origin HEAD)") }
+    $fetch = Invoke-PgGit -GitArgs @('fetch', '-q', 'origin', "refs/heads/$ref") -Cwd $MainRoot
+    if (-not $fetch.Ok -or -not (Invoke-PgGit -GitArgs @('cat-file', '-e', "$sha^{commit}") -Cwd $MainRoot).Ok) {
+        throw (New-KitNotChecked "pr.afterMerge: коміт $($sha.Substring(0, 7)) головної гілки origin/$ref не отримано: $($fetch.Err)")
+    }
+    $entries = @()
+    $show = Invoke-PgGit -GitArgs @('show', "${sha}:.agents/kit.profile.json") -Cwd $MainRoot
+    if ($show.Ok -and $show.Raw.Trim()) {
+        try { $j = $show.Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+        catch { throw (New-KitNotChecked "профіль .agents/kit.profile.json на origin/$ref не JSON: $($_.Exception.Message)") }
+        if ($j -is [System.Collections.IDictionary] -and $j['pr'] -is [System.Collections.IDictionary] -and $j['pr'].Contains('afterMerge')) {
+            $entries = $j['pr']['afterMerge']
+        }
+    }
+    $norm = { param($v) if ($null -eq $v -or @($v).Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject $v -Depth 10 -Compress } }
+    [pscustomobject]@{ Entries = $entries; Ref = "origin/$ref"; Ignored = ((& $norm $Layered) -cne (& $norm $entries)) }
 }
 
 function Invoke-PgAfterMergeCommands {
@@ -722,7 +775,11 @@ function Remove-PgMergedBranch {
     $tip = Invoke-PgGit -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$Branch") -Cwd $root
     if (-not $tip.Ok) { & $Say "гілка ${Branch}: локальної немає"; return }
     $holder = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -ceq $Branch } | Select-Object -First 1
-    if ($holder) { & $Say "гілку $Branch лишено: її тримає worktree $($holder.Path)"; return }
+    if ($holder) {
+        if (Test-PgSamePath $holder.Path $root) { & $Say "гілку $Branch лишено: на ній головний checkout $root; після git switch $($Ctx.Base): git -C $root branch -d $Branch" }
+        else { & $Say "гілку $Branch лишено: її тримає worktree $($holder.Path)" }
+        return
+    }
     $baseRef = "origin/$($Ctx.Base)"
     $null = Invoke-PgGit -GitArgs @('fetch', '-q', 'origin') -Cwd $root
     $reason = $null
@@ -868,6 +925,11 @@ function Invoke-PrGateLand {
 
     $fields = $script:MergeFields + @('mergeCommit')
     $p = Get-PgPr -Ctx $Ctx -Pr $Pr -Fields $fields
+    # Межі злиття (форк, storage/*) — до будь-якої дії над PR, зокрема до позначки ready.
+    if ($p.state -eq 'OPEN' -and ($p.isCrossRepository -or [string]$p.baseRefName -clike 'storage/*' -or [string]$p.headRefName -clike 'storage/*')) {
+        $why = if ($p.isCrossRepository) { 'PR з форка: pr-gate такі не зливає; злий сам після рев''ю: gh pr merge' } else { "base $($p.baseRefName), head $($p.headRefName): дзеркало сховища storage/* дописує лише kit sync" }
+        throw (New-KitRefusal "НЕ ЗЛИТО #$($p.number): $why")
+    }
     try {
         # 1. Draft: land робить його ready і мерджить (CI немає, окремого очікування нема).
         if ($p.state -eq 'OPEN' -and $p.isDraft) {
@@ -918,7 +980,10 @@ function Invoke-PrGateLand {
         $null = Get-PgGit -GitArgs @('fetch', '-q', 'origin') -Cwd $root
         if ($shared) {
             & $stepSay "пропущено: workspace.mode = shared, головне дерево $root спільне, HEAD не зсуваємо"
-            $left.Add($ff)
+            # Гілка PR у самому головному дереві (shared): людині — повернутись на base і прибрати гілку.
+            $cur = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
+            if ($cur -ceq $p.headRefName) { $left.Add("git -C $root switch $base && $ff && git -C $root branch -d $($p.headRefName)") }
+            else { $left.Add($ff) }
         } else {
             $cur = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
             $dirty = Get-PgGit -GitArgs @('status', '--porcelain', '--untracked-files=no') -Cwd $root
@@ -1025,4 +1090,4 @@ function Invoke-PrGateLand {
 Export-ModuleMember -Function Get-PrGateUsage, Get-PrGateDetailUsage, Get-PrGateProfileUsage, New-PrGateContext,
     Assert-PrGateWorkspaceMode, Get-PrGateSlug, Invoke-PrGateOpen, Invoke-PrGateReady,
     Invoke-PrGateStart, Invoke-PrGateCleanup,
-    Invoke-PrGateScratchAdd, Invoke-PrGateScratchRm, Invoke-PrGateLand
+    Invoke-PrGateScratchAdd, Invoke-PrGateScratchRm, Invoke-PrGateLand, Get-PrGateReviewedAfterMerge

@@ -811,8 +811,10 @@ function Invoke-SddHandoff {
 
 function Get-SddFileList {
     param([string]$Dir)
-    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return @() }
-    @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force)
+    # Кома: завжди масив і для 0/1 файла — PowerShell розгортає повернений масив, і під StrictMode
+    # `.Count` на $null чи одному FileInfo кидав (#103).
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return , @() }
+    , @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Force)
 }
 
 function Invoke-SddClose {

@@ -142,24 +142,6 @@ function Test-KitGitHooks {
 $script:SessionHookRel = '.claude/hooks/session-start.ps1'
 $script:SettingsRel    = '.claude/settings.json'
 
-function Install-KitSettings {
-    <#
-    .SYNOPSIS
-        Кладе шаблон .claude/settings.json (дозволи), якщо файла ще немає. Наявний не чіпає.
-    .DESCRIPTION
-        Хука старту сесії тут немає: його поставляє сам плагін (hooks/hooks.json),
-        а споживач не несе ні шима, ні розділу hooks у settings.json.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RepoRoot, [string]$TemplatesDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../templates')))
-    $settingsDst = Join-Path $RepoRoot $script:SettingsRel
-    if (Test-Path -LiteralPath $settingsDst -PathType Leaf) { return @() }
-    New-Item -ItemType Directory -Path (Split-Path -Parent $settingsDst) -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $TemplatesDir 'settings.json') -Destination $settingsDst -Force
-    # Без коми: викликачі (install-hooks) загортають у @(…).
-    $settingsDst
-}
-
 function Test-KitLegacySessionHook {
     <#
     .SYNOPSIS
@@ -204,4 +186,4 @@ function Test-KitLegacySessionHook {
     $findings.ToArray()
 }
 
-Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Install-KitSettings, Test-KitLegacySessionHook
+Export-ModuleMember -Function Get-KitHookNames, Install-KitGitHooks, Test-KitGitHooks, Test-KitLegacySessionHook

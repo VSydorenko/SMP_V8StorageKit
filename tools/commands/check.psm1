@@ -369,7 +369,9 @@ function Invoke-KitCheck {
                     & $add warn undeclared-source (
                         "$($ws.Path): source-set '$($set.Name)' ($($set.Type)) оголошено у $($ws.Path)/v8project.yaml, " +
                         'але його немає в маніфесті — kit про це джерело не знає, і sync його не дзеркалить. ' +
-                        'Додайте його в v8storagekit.yaml (зразок: templates/v8storagekit.yaml.example) або приберіть source-set.')
+                        'Заявіть його в v8storagekit.yaml з truth (зразок: templates/v8storagekit.yaml.example) або приберіть source-set. ' +
+                        "Для truth: git/storage знадобиться рядок '$($set.Path)/** -text' у .gitattributes, " +
+                        "для truth: vendor — '$($set.Path)/**' у .gitignore.")
                 }
             }
 

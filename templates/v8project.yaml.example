@@ -1,0 +1,31 @@
+# v8project.yaml — воркспейс Уніки 0.16 (файл у теці воркспейсу, безпосередньо під коренем репозиторію).
+# Кладе й заповнює скіл v8storagekit:onboarding. Кожне правило нижче перевіряє `kit check`.
+# База агента тут НЕ описується: вона машинна й може нести пароль — infobases.origin живе в
+# гітігнорованому v8project.local.yaml поруч (скіл v8storagekit:infobase-agent). Старого блоку
+# infobase: у цьому файлі немає і бути не може — kit зупиняється на ньому.
+
+# Один виконавець на запис і завантаження бази агента (дефект раннера #459; агентський режим
+# раннера на Windows не заміряний, #429). Кожна з трьох операцій — designer, інакше kit зупиняється.
+providers:
+  push: designer
+  pull: designer
+  download: designer
+
+# Робоча тека Уніки (артефакти make, тимчасове). Необов'язково, типово build. Гітігнорується;
+# artifacts збірки лежать лише під нею (інакше check попереджає build-artifacts).
+# workPath: build
+
+# Набори вихідників. Кожен — name, type, path (усі три обов'язкові).
+#   name — унікальне в файлі; для EXTENSION збігається з <Name> у Configuration.xml
+#          і з ключем джерела в v8storagekit.yaml;
+#   type — CONFIGURATION | EXTENSION | EXTERNAL_DATA_PROCESSORS (інших kit не знає);
+#   path — тека дерева відносно цього файлу. Рядок '<path>/** -text' у .gitattributes
+#          потрібен кожному дереву з truth: git/storage, а для truth: vendor — '<path>/**' у .gitignore.
+# Кожен source-set мусить мати ключ у v8storagekit.yaml (інакше check попереджає undeclared-source).
+source-set:
+  - name: base
+    type: CONFIGURATION
+    path: cf/src
+  - name: ІмʼяРозширення
+    type: EXTENSION
+    path: cfe/src

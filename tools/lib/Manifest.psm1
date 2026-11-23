@@ -79,13 +79,25 @@ function Read-KitManifest {
         з name: source-set-ів — робота Invoke-KitPreflight, не цього модуля.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        # Режим check: kitVersion не кидає, а лише виставляє HasKitVersion (за тією самою умовою — наявністю
+        # ключа, незалежно від значення); решту маніфесту розбирає як завжди.
+        [switch]$AllowKitVersion
+    )
 
     $m = Read-KitYaml -Path $Path
     $where = "Маніфест $Path"
+    $hasKitVersion = $false
     if ($m -is [System.Collections.IDictionary] -and $m.Contains('kitVersion')) {
-        throw ("$where — поле kitVersion прибрано: версію проєкту тримає .agents/kit.profile.json (kit.version); " +
-               'видаліть рядок і запустіть /v8storagekit:onboarding.')
+        if (-not $AllowKitVersion) {
+            throw ("$where — поле kitVersion прибрано: версію проєкту тримає .agents/kit.profile.json (kit.version); " +
+                   'видаліть рядок і запустіть /v8storagekit:onboarding.')
+        }
+        $hasKitVersion = $true
+        $rest = [ordered]@{}
+        foreach ($k in @($m.Keys)) { if ([string]$k -cne 'kitVersion') { $rest[$k] = $m[$k] } }
+        $m = $rest
     }
     Assert-KitMapKeys -Map $m -Allowed @('version', 'product', 'client', 'mainBranch', 'workspaces') `
         -Required @('version', 'workspaces') -Where $where
@@ -189,6 +201,7 @@ function Read-KitManifest {
         Label      = $label
         MainBranch = $mainBranch
         Workspaces = $workspaces.ToArray()
+        HasKitVersion = $hasKitVersion
     }
 }
 
