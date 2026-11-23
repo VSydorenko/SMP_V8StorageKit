@@ -446,7 +446,11 @@ function Get-ScanObsolete {
         $targets.Add(@{ Old = "v8storagekit:$k"; New = [string]$names.Skills[$k]; Rx = "(?<![\w-])v8storagekit:$([regex]::Escape($k))(?![\w-])" })
     }
     foreach ($k in $names.Commands.Keys) {
-        $targets.Add(@{ Old = $k; New = [string]$names.Commands[$k]; Rx = "(?<![\w./-])$([regex]::Escape($k))(?![\w-])" })
+        # Шлях зі скісною рискою (tools/kit.ps1) — це старий виклик і з префіксом шляху (`./tools/kit.ps1`, `C:/p/tools/kit.ps1`),
+        # і з `\`: перед ним лише літера, цифра чи дефіс не дозволені. Команда без `/` (kit build) — ціле слово.
+        $esc = [regex]::Escape($k)
+        $rx = if ($k.Contains('/')) { "(?<![\w-])$($esc.Replace('/', '[/\\]'))(?![\w-])" } else { "(?<![\w./-])${esc}(?![\w-])" }
+        $targets.Add(@{ Old = $k; New = [string]$names.Commands[$k]; Rx = $rx })
     }
     foreach ($k in $names.UnicaTools) {
         $targets.Add(@{ Old = $k; New = 'прибрати: інструмента немає в Уніці 0.16'; Rx = "(?<![\w])$([regex]::Escape($k))(?![\w])" })

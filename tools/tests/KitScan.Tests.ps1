@@ -147,13 +147,17 @@ Describe 'kit-scan — скан підключення' -Tag 'Docs' {
 Скіл V8StorageKit:Reconcile для приймання.
 Запуск: /v8storagekit:sync і pwsh tools/kit.ps1 check.
 Контроль: kit sync, dump бази, v8storagekit:storage-sync, tools/kit.ps1x.
+Форми шляху: pwsh -File ./tools/kit.ps1 sync
+pwsh -NoProfile -File C:/p/tools/kit.ps1 check
+pwsh -File C:\p\tools\kit.ps1 check
 '@
         New-Item -ItemType Directory -Path (Join-Path $repo '.agents/out') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $repo '.agents/out/x.md') -Value 'v8storagekit:reconcile' -Encoding utf8NoBOM
         $r = Invoke-Scan $repo -Arguments @('-Json')
         $r.Code | Should -Be 0 -Because $r.Out
         $rows = @(($r.Out | ConvertFrom-Json).obsoleteNames)
-        $rows.Count | Should -Be 3 -Because $r.Out
+        $rows.Count | Should -Be 6 -Because $r.Out
+        foreach ($n in 5, 6, 7) { @($rows | Where-Object { $_.item -eq "CLAUDE.md:$n" -and $_.old -eq 'tools/kit.ps1' }).Count | Should -Be 1 -Because "рядок $n`: $($r.Out)" }
         ($rows | Where-Object { $_.item -eq 'CLAUDE.md:2' }).replacement | Should -Be 'v8storagekit:storage-adopt'
         ($rows | Where-Object { $_.item -eq 'CLAUDE.md:3' -and $_.old -eq 'v8storagekit:sync' }).replacement | Should -Be 'v8storagekit:storage-sync'
         ($rows | Where-Object { $_.item -eq 'CLAUDE.md:3' -and $_.old -eq 'tools/kit.ps1' }).replacement | Should -Be 'kit'
