@@ -37,6 +37,9 @@
 - `serde_yaml` — точно `=0.9.34` (у `Cargo.lock` `0.9.34+deprecated` поверх `unsafe-libyaml 0.2.11`, ADR-0018);
   інших нових залежностей немає. `serde_json` — без фічі `preserve_order`: вона змінила б порядок ключів у
   наявному JSON-виводі крейта.
+- Дефект PowerShell, знайдений під час переносу, Rust виправляє, а не відтворює (правило власника 2026-11-23,
+  ADR-0014 п. 7). Кожен такий випадок — рядок «відома відмінність» у цьому плані й у тілі PR; паритет на ньому —
+  класом, не текстом. Сумнів, чи це дефект, — розвилка архітектору.
 - Еталон поведінки — PowerShell на поточному `origin/main` (рішення 1). Тест паритету кличе живу
   PowerShell-копію в дереві, тож еталон завжди той, що поруч.
 - Розбір не панікує на жодному вході (`panic = "abort"` у релізі: паніка — текст у stderr, а хук вклеює stderr
@@ -72,7 +75,7 @@
 | 6 | Корінь YAML не мапа — текст з іменем типу .NET, як зараз. Вимір 2026-11-23 (`Read-KitYaml`): список → `List`1`, рядок → `String`, ціле → `Int32`, булеве → `Boolean`. Решту виконавець міряє тим самим способом і додає у відповідність; невиміряний вид — корпус паритету покаже розбіжність. | немає |
 | 7 | Значення YAML → рядок — одна функція з правилами PowerShell `[string]` для кожного виду `serde_yaml::Value`: ціле без крапки, `True`/`False`, `null` → порожньо, список — елементи через пробіл (`$OFS`), мапа — ім'я типу .NET (виконавець міряє `[string]` на `OrderedDictionary` і вкладених списках і кладе вимір у звіт). PowerShell кастить без перевірки на скаляр (`storages.*` не-мапа, `name`/`type`/`path` source-set, `version`), тож корпус несе й ці випадки (список і мапа на місці рядка). | немає |
 | 8 | Обидва режими поблажливого префлайту й суворий — одна функція з `Mode`; суворий режим повертає першу знахідку error як зупинку (`Err`), поблажливі — повний контекст. | немає |
-| 9 | Помилки рядка підключення — побайтний паритет із `ConvertFrom-V8Connection`, і порядок перевірок — частина контракту (рішення архітектора 2026-11-23): частини зліва направо, перша помилка зупиняє, `usr`/`pwd` відмовляють раніше за «невідомий ключ». Так хвіст пароля в позицію ключа не потрапляє (замір архітектора: `Srvr=a;Ref=b;Pwd=pa;ss=word` → помилка на `'Pwd'`). Корпус несе ці три рядки замірів. | немає |
+| 9 | **Відома відмінність (ADR-0014 п. 7, рішення архітектора 2026-11-23).** Ім'я ключа рядка підключення Rust друкує лише з відомого переліку (`srvr`, `ref`, `file`, `usr`, `pwd`); інакше — без імені: «Рядок підключення містить невідомий ключ (ім'я не друкується). Дозволені ключі: Srvr, Ref, File.», так само для «'=' у значенні», «порожнє значення» й «двічі» на невідомому ключі. PowerShell друкує будь-яке ім'я з сирого рядка (`Srvr=a;Ref=pa;ss=word` → «невідомий ключ 'ss'»), а Rust цей дефект виправляє. Порядок перевірок — контракт: частини зліва направо, перша помилка зупиняє, `usr`/`pwd` відмовляють раніше за «невідомий ключ». PowerShell-копія не змінюється (§5.0). Паритет на цьому класі — розібраним класом і перевіркою, не текстом; відмінність записано в шапці модуля `connection` і в тілі PR. | §6 (б): внесено в PR плану |
 | 10 | Хук паніки (`set_hook`, §3) діє на весь `kit.exe`, не лише на `config`: невиловлена паніка будь-якої команди друкує сталий текст замість повідомлення паніки. Це зміна поведінки лише на дефекті (паніка й так завершує процес з `abort`), тож у межах ADR-0014 п. 7. Крок clippy у `tools/build-kit-exe.ps1` — зміна рецепта збірки, не PowerShell-коду kit (§5.0 його не заморожує). | §5.0: речення про `tools/build-kit-exe.ps1` (внесено в PR плану) |
 
 ## 5. Інтерфейси
@@ -140,7 +143,7 @@ PowerShell-копія префлайту.
 |---|---|---|---|---|---|
 | 0 | Звірка якорів і поправки спеки | спека §5.0, §5.1 | `doc anchors` плану й спеки без зламаних якорів; у §5.0 — рішення 1, у §5.1 — склад JSON (рішення 4) і корпус класів (рішення 5); стара формула не лишилась (пошук `kit.version` у спеці) | — | тести `Docs` |
 | 1 | Читання YAML, маніфест, накладка; хук паніки й clippy | `Cargo.toml`, `Cargo.lock`, `rust/rust-toolchain.toml`, `tools/build-kit-exe.ps1` (лише крок clippy), `main.rs` (`set_hook`), `rust/src/profile.rs`, `rust/src/session_board.rs`, `rust/src/fingerprint.rs` (механічне прибирання наявних попереджень clippy без зміни поведінки — **до** ввімкнення кроку clippy), `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | `cargo clippy --all-targets -- -D warnings` зелений на всьому крейті (на `3aaa0fd` падає з кодом 101: 3 «this `if` statement can be collapsed», 2 «very complex type used» — замір архітектора й автора 2026-11-23), і лише тоді крок clippy у `build-kit-exe.ps1`; контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `cargo clippy`; `-Only KitExe` |
-| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection`, `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Test-KitCanonicalPathsOverlap` (єдиний предикат перетину для обох гілок), `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection` (з відомою відмінністю рішення 9 у шапці модуля `connection`), `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Test-KitCanonicalPathsOverlap` (єдиний предикат перетину для обох гілок), `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `cargo clippy`; `-Only KitExe` |
 | 3 | Префлайт і прихована підкоманда | створити rust/src/config/preflight.rs; `main.rs` | `preflight` у трьох режимах і `select_sources` як `Resolve-V8RepoRoot`/`Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена | 2 | `cargo test`; `cargo clippy`; `-Only KitExe` |
 | 4 | Паритет, класи, маркери, якорі | створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs | «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути) | 3 | `-Only ConfigParity,KitExe`; `cargo test`; `cargo clippy`; фінал — `-Full` |
 
@@ -172,7 +175,8 @@ PowerShell-префлайту; помилка на кожен клас непр�
   `grep -n 'throw' <файли>` без обрізання й кладе у звіт задачі. Класи з текстом парсера (рішення 5) — Rust-тест
   форми.
 - **Маркери** — класи §6 у накладці й `v8project.local.yaml`: рядок замість мапи, дубль ключа, невідомий ключ,
-  запис без значення, неправильний рядок підключення, пароль сховища й бази агента, ключ і значення в `dbms`.
+  запис без значення, неправильний рядок підключення, пароль сховища й бази агента, ключ і значення в `dbms`,
+  маркер у позиції ключа рядка підключення після дозволеного ключа (`Srvr=a;Ref=b;MARKER=x`, рішення 9).
   Маркер — ASCII без спецсимволів JSON (інакше JSON друкує `\uXXXX` і пошук підрядка сліпий), плюс варіанти з
   `"` (шукати алфавітну частину; так маркер доходить до `Assert-V8SecretQuoteFree`) і з багатобайтовими
   символами біля роздільників. Канали: `Display` і `Debug` помилок і знахідок модуля; stdout і stderr
@@ -206,6 +210,7 @@ production — production не читає нічого заради тестів
 лінти — другий рівень; плюс друга junction-фікстура й `Test-KitCanonicalPathsOverlap`. Codex (тригер — security
 major Opus): 5 знахідок, звірено з кодом — підтверджено 2 (`Test-KitCanonicalPathsOverlap`; `[string]` списків і
 мап), спростовано 2 (імена користувачів, шляхи сховищ, ключі джерел і дев-баз — законні значення за §6), 1 —
-розвилка архітектору про ім'я ключа рядка підключення: рішення — паритет із PowerShell і порядок перевірок як
-контракт (рішення 9). Лишилось: вузький раунд на перепроєктування паніки (`daa63aa`) не проводився — пропоную
-архітектору як наступний крок, якщо він потрібен до приймання.
+розвилка архітектору про ім'я ключа рядка підключення: рішення — Rust не друкує невідомого імені (виправлений
+дефект PowerShell, відома відмінність), порядок перевірок — контракт (рішення 9). Вузький раунд на
+перепроєктування паніки (`daa63aa`) не проводився: архітектор перевірив його сам і прийняв без раунду. Лишилось:
+нічого.
