@@ -126,14 +126,18 @@ fn runner_exec(args: &[OsString]) -> i32 {
 
 const VERDICTS_COMMAND: &str = "tool-verdicts";
 
-/// `kit tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p]`: один JSON з установленою Унікою й
-/// вердиктами Уніки та раннера (лише записи `scope: user`: репозиторію тут немає). Код 0, коли JSON
+/// `kit tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p] [-RepoRoot p]`: один JSON з установленою Унікою й
+/// вердиктами Уніки та раннера (без `-RepoRoot` — лише записи `scope: user`). Код 0, коли JSON
 /// надруковано, зокрема на вердикті `error`.
 fn tool_verdicts(args: &[String]) -> i32 {
-    let spec = [("InstalledPluginsPath", cli::Kind::Str), ("RunnerPath", cli::Kind::Str)];
+    let spec = [
+        ("InstalledPluginsPath", cli::Kind::Str),
+        ("RunnerPath", cli::Kind::Str),
+        ("RepoRoot", cli::Kind::Str),
+    ];
     let parsed = cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(VERDICTS_COMMAND, &m, 2));
     if parsed.help {
-        println!("usage: kit tool-verdicts [-InstalledPluginsPath <реєстр>] [-RunnerPath <раннер>]");
+        println!("usage: kit tool-verdicts [-InstalledPluginsPath <реєстр>] [-RunnerPath <раннер>] [-RepoRoot <корінь репозиторію>]");
         return 0;
     }
     if !parsed.positional.is_empty() {
@@ -147,10 +151,11 @@ fn tool_verdicts(args: &[String]) -> i32 {
         .map(PathBuf::from)
         .or_else(unica::default_registry)
         .unwrap_or_else(|| fail(VERDICTS_COMMAND, "домашню теку не визначено: вкажіть -InstalledPluginsPath", 2));
-    let installation = unica::installation(&registry, None);
+    let repo_root = named("RepoRoot").map(PathBuf::from);
+    let installation = unica::installation(&registry, repo_root.as_deref());
     let unica_verdict = unica::unica_verdict(&installation);
     let runner_path = named("RunnerPath").map(PathBuf::from);
-    let runner_verdict = unica::runner_verdict(runner_path.as_deref(), &registry, None);
+    let runner_verdict = unica::runner_verdict(runner_path.as_deref(), &registry, repo_root.as_deref());
     let json = serde_json::json!({
         "unica": {
             "Installed": installation.installed,

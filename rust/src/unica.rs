@@ -100,6 +100,12 @@ pub fn default_registry() -> Option<PathBuf> {
 
 /// Шлях для порівняння: розділювачі `/`, без кінцевих, без регістру (Windows).
 fn norm_path(p: &str) -> String {
+    // Префікс розширеного шляху (`fs::canonicalize` на Windows) знімається: `\\?\UNC\` → `\\`, `\\?\` → ``.
+    let p = if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else {
+        p.strip_prefix(r"\\?\").unwrap_or(p).to_string()
+    };
     p.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
 

@@ -129,6 +129,9 @@ function Invoke-KitRunner {
     $run = Start-KitRunnerProcess -RunnerPath $RunnerPath -Arguments $all -WorkingDirectory $WorkingDirectory
 
     try {
+        # Порожній stdout (раннер не запустився: причина лише в stderr kit.exe) — та сама помилка, що й нерозбірний:
+        # ConvertFrom-Json на порожньому рядку в pwsh 7.5 не кидає, а повертає $null.
+        if ([string]::IsNullOrWhiteSpace($run.Stdout)) { throw 'порожній вивід' }
         $response = $run.Stdout | ConvertFrom-Json -ErrorAction Stop
     } catch {
         throw "Раннер на '$($Arguments -join ' ')' відповів не JSON-ом: код виходу $($run.ExitCode), вивід: $($run.Stdout.Trim()) $($run.Stderr.Trim())"

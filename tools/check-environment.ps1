@@ -105,6 +105,13 @@ if (-not (Test-Path -LiteralPath $kitExe -PathType Leaf)) {
     $psi.CreateNoWindow = $true
     foreach ($token in @('tool-verdicts', '-InstalledPluginsPath', $InstalledPluginsPath)) { $psi.ArgumentList.Add($token) }
     if ($RunnerPath) { foreach ($token in @('-RunnerPath', $RunnerPath)) { $psi.ArgumentList.Add($token) } }
+    # Корінь git поточної теки (тихо): записи Уніки scope project/local цього репозиторію теж кандидати.
+    # Без git у PATH (рядок «git» вище вже [-]) корінь не шукаємо: лише записи user.
+    $repoTop = $null
+    if ($git.Available) { $repoTop = (& git rev-parse --show-toplevel 2>$null) }
+    if ($repoTop -and $LASTEXITCODE -eq 0) {
+        foreach ($token in @('-RepoRoot', ([string]$repoTop).Trim())) { $psi.ArgumentList.Add($token) }
+    }
     $verdictProc = [System.Diagnostics.Process]::Start($psi)
     try {
         $verdictOut = $verdictProc.StandardOutput.ReadToEndAsync()

@@ -43,6 +43,21 @@ Describe 'Get-KitAgentPlatform: відповідь раннера (мок Invoke
     }
 }
 
+Describe 'Invoke-KitRunner: раннер не запустився' {
+    It 'файл-сміття замість раннера: виняток містить причину зі stderr kit.exe, а не «без поля ok»' {
+        $junk = Join-Path $TestDrive 'junk-runner.exe'
+        Set-Content -LiteralPath $junk -Value 'це не виконуваний файл'
+        $ws = New-Workspace -WithLocal
+
+        $err = $null
+        try { Get-KitAgentPlatform -Project $ws -RunnerPath $junk } catch { $err = $_.Exception.Message }
+
+        $err | Should -Not -BeNullOrEmpty
+        $err | Should -BeLike '*відповів не JSON-ом*'
+        $err | Should -BeLike '*runner-exec: ERROR*'
+    }
+}
+
 Describe 'Get-KitRunnerPath: немає Уніки чи раннера' {
     It 'на реєстрі без плагіна кидає виняток і не звертається до Get-V8Path' {
         Mock Get-V8Path { 'C:\не\має\викликатись\1cv8.exe' } -ModuleName Runner

@@ -139,6 +139,23 @@ fn only_foreign_project_entry_means_not_installed() {
     assert!(!i.installed && i.candidates.is_empty());
 }
 
+/// Канонізований корінь (`\\?\C:\…`) збігається з `projectPath` без префікса; контроль — чужий корінь з префіксом.
+#[test]
+fn extended_length_prefix_on_repo_root_is_ignored() {
+    let tmp = TempDir::new("verbatim");
+    let install = tmp.dir("install");
+    let project = PathBuf::from(r"C:\x\repo");
+    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&project), "0.16.1", &install)]})));
+    let i = unica::installation(&reg, Some(Path::new(r"\\?\C:\x\repo")));
+    assert!(i.installed, "{}", i.reason);
+    let i = unica::installation(&reg, Some(Path::new(r"\\?\C:\x\other")));
+    assert!(!i.installed);
+    // UNC: `\\?\UNC\srv\share\repo` ≡ `\\srv\share\repo`.
+    let unc = PathBuf::from(r"\\srv\share\repo");
+    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&unc), "0.16.1", &install)]})));
+    assert!(unica::installation(&reg, Some(Path::new(r"\\?\UNC\srv\share\repo"))).installed);
+}
+
 #[test]
 fn own_project_entry_and_ancestor_project_path_are_candidates() {
     let tmp = TempDir::new("own");
