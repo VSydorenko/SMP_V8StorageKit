@@ -210,6 +210,71 @@ Describe 'pr-gate — запобіжники' {
         $res.Out | Should -Not -Match 'storage/'
     }
 
+    It 'open на гілці storage/* і з -Base storage/* — відмова, push не відбувся; контроль: гілка задачі пушиться' {
+        $r = New-PgRepo -Name 'openmirror' -Profile @{ workspace = @{ mode = 'shared' } }
+        $rules = @(@{ prefix = @('pr', 'list'); stdout = '[]' }, @{ prefix = @('pr', 'create'); stdout = 'https://github.com/acme/app/pull/7' })
+        git -C $r.Dir switch -q -c 'storage/base'
+        $m = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('open') -Rules $rules
+        $m.Code | Should -Not -Be 0
+        $m.Err | Should -Match 'storage/\*'
+        git -C $r.Dir switch -q -c 'task-1'
+        $b = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('open', '-Base', 'storage/base') -Rules $rules
+        $b.Code | Should -Not -Be 0
+        $b.Err | Should -Match 'дзеркало сховища'
+        Get-PgOriginBranches $r.Origin | Should -Not -Contain 'storage/base'
+        Get-PgOriginBranches $r.Origin | Should -Not -Contain 'task-1'
+        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('open') -Rules $rules
+        $ok.Code | Should -Be 0 -Because $ok.Err
+        Get-PgOriginBranches $r.Origin | Should -Contain 'task-1'
+    }
+
+    It 'land: PR з форка, у storage/* чи зі storage/* — відмова без ready і merge; контроль: звичайний PR зливається' {
+        $r = New-PgRepo -Name 'landguard' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
+        foreach ($over in @(@{ isCrossRepository = $true; isDraft = $true }, @{ baseRefName = 'storage/base' }, @{ headRefName = 'storage/base' })) {
+            $res = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules @(@{ prefix = @('pr', 'view'); stdout = (New-PrJson $over) }, @{ prefix = @('pr') }, @{ prefix = @('api') })
+            $res.Code | Should -Be 1 -Because ($over | ConvertTo-Json -Compress)
+            $res.Err | Should -Match 'НЕ ЗЛИТО #5'
+            @($res.Calls | Where-Object { $_ -like 'pr merge*' -or $_ -like 'pr ready*' }) | Should -BeNullOrEmpty
+        }
+        $okRules = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('pr', 'list'); stdout = '[]' }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }
+            @{ prefix = @('api') }
+        )
+        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $okRules
+        $ok.Code | Should -Be 0 -Because $ok.Err
+        @($ok.Calls | Where-Object { $_ -like 'pr merge*' }).Count | Should -Be 1
+    }
+
+    It 'land: pr.afterMerge з профілю робочого дерева не виконується; контроль: той самий з профілю на origin/main — виконується' {
+        $am = @(@{ paths = @('**'); run = @('git', 'tag', 'am-ran') })
+        $r = New-PgRepo -Name 'aftermerge' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash'; afterMerge = $am } }
+        $rules = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('pr', 'list'); stdout = '[]' }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }
+            @{ prefix = @('api') }
+        )
+        $bad = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $bad.Code | Should -Be 0 -Because $bad.Err
+        @(git -C $r.Dir tag --list 'am-ran') | Should -BeNullOrEmpty
+        $bad.Out | Should -Match 'pr\.afterMerge береться лише з .agents/kit\.profile\.json на origin/main'
+
+        # Контроль: профіль закомічено й запушено в main — той самий argv виконується.
+        git -C $r.Dir add -f .agents/kit.profile.json
+        git -C $r.Dir commit -q -m profile
+        git -C $r.Dir push -q origin main
+        Remove-Item -LiteralPath (Join-Path $r.Dir '.agents/out') -Recurse -Force -ErrorAction SilentlyContinue   # позначка after-merge
+        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $ok.Code | Should -Be 0 -Because $ok.Err
+        @(git -C $r.Dir tag --list 'am-ran') | Should -Be @('am-ran')
+    }
+
     It 'land у shared, головний checkout на гілці PR: next — switch на base, ff і branch -d; не «тримає worktree»' {
         $r = New-PgRepo -Name 'sharedhead' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         git -C $r.Dir switch -q -c feat
