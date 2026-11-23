@@ -114,6 +114,14 @@ Describe 'kit.exe subagent-start — хук SubagentStart плагіна' -Tag '
         Assert-Context (Invoke-Hook (New-HookInput 'v8storagekit:implementer' $repo))
     }
 
+    It 'дерево самого kit — не репозиторій 1С: production-хук у його корені мовчить' {
+        # Шаблон чи зразок з ім'ям v8project.yaml у корені kit чи в теці першого рівня (templates/, docs/…)
+        # зробив би kit «репозиторієм 1С» для цього хука, для Test-SetupIs1C і для пошуку воркспейсів Уніки —
+        # агенти процесу kit отримали б специфіку 1С. Зразки воркспейсу звуться *.example.
+        $kitRepo = (Resolve-Path "$PSScriptRoot/../..").Path
+        Assert-Silent (Invoke-Hook (New-HookInput 'v8storagekit:implementer' $kitRepo))
+    }
+
     It 'hooks/hooks.json плагіна кличе subagent-start на SubagentStart з matcher ^v8storagekit:' {
         $kitRepo = (Resolve-Path "$PSScriptRoot/../..").Path
         $h = Get-Content -LiteralPath (Join-Path $kitRepo 'hooks/hooks.json') -Raw | ConvertFrom-Json

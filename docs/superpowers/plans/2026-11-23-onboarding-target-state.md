@@ -76,7 +76,7 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 | --- | --- | --- | --- |
 | знахідка `check` `kit-version` | T1 | T6 (текст) | `error` (маркер `[-]`); дія — «видалити рядок `kitVersion:` з `v8storagekit.yaml`; версію проєкту тримає `.agents/kit.profile.json`»; решта перевірок триває; код `check` — 1 |
 | режим префлайту `Check` | T1 | — | лише для `check`; для решти команд `kitVersion` — зупинка з тією самою дією |
-| `templates/v8project.yaml` | T2 | T6, споживачі | форма воркспейсу Уніки 0.16; кожне правило шаблону перевіряє `check` |
+| `templates/v8project.yaml.example` | T2 | T6, споживачі | форма воркспейсу Уніки 0.16; кожне правило шаблону перевіряє `check` |
 | дія `warn undeclared-source` | T2 | T6 | називає рядок `.gitattributes` (`<шлях>/** -text`) для `git`/`storage` і рядок `.gitignore` (`<шлях>/**`) для `vendor` |
 | `tools/assets/obsolete-names.json` + `Get-KitObsoleteNames` | T3 | T4 (`unicaTools`), T6 (`skills/onboarding/references/upgrades.md` посилається) | D3 |
 | стан `connected-before` / `no-version` у `Kit version` `kit-scan` (текст і `-Json`) | T3 | T5, T6 | D5, D6; для `connected-before` — `kit check -RepoRoot .` і чеклісти версій, новіших за версію з маніфесту |
@@ -138,7 +138,7 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 
 ### Задача 2 (T2) — шаблон `v8project.yaml` і дія `undeclared-source` (B1, §5.1)
 
-Файли: `templates/v8project.yaml` (новий),
+Файли: `templates/v8project.yaml.example` (новий),
 `templates/README.md`, `tools/commands/check.psm1`, `Check.Manifest.Tests.ps1` (поруч із наявним тестом
 `undeclared-source`). Done when: тест (3) — незаявлений source-set → `warn undeclared-source`, код 0, дія називає
 рядок `<шлях>/** -text` для `git`/`storage` і `<шлях>/**` у `.gitignore` для `vendor`; контроль — заявлений set без

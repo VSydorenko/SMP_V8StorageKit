@@ -28,7 +28,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 
 | Block | Scope | Done when | Depends on |
 | --- | --- | --- | --- |
-| B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Preflight.psm1`, `tools/lib/Manifest.psm1`, диспетчер `tools/kit.ps1`): `kitVersion` — помилка без зупинки лише для `check`; шаблон `templates/v8project.yaml`; рядки `.gitattributes`/`.gitignore` під кожен source-set | тести-підпроцеси на синтетичному репозиторії (`New-KitFakeRepo`): (1) маніфест з `kitVersion` і старим блоком `infobase:` у `v8project.yaml` → `check` друкує **обидві** знахідки, код 1; (2) той самий репозиторій → `sync` і `session-check` зупиняються з дією «видалити `kitVersion`», наступний крок не відбувся; (3) source-set з `v8project.yaml`, якого немає в маніфесті, → наявна `warn undeclared-source` (код 0) тепер називає, який рядок `.gitattributes`/`.gitignore` випливе з кожного `truth`; контроль — заявлений set без рядка `-text` дає `error` з рядком `<шлях>/** -text` | — |
+| B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Preflight.psm1`, `tools/lib/Manifest.psm1`, диспетчер `tools/kit.ps1`): `kitVersion` — помилка без зупинки лише для `check`; шаблон `templates/v8project.yaml.example`; рядки `.gitattributes`/`.gitignore` під кожен source-set | тести-підпроцеси на синтетичному репозиторії (`New-KitFakeRepo`): (1) маніфест з `kitVersion` і старим блоком `infobase:` у `v8project.yaml` → `check` друкує **обидві** знахідки, код 1; (2) той самий репозиторій → `sync` і `session-check` зупиняються з дією «видалити `kitVersion`», наступний крок не відбувся; (3) source-set з `v8project.yaml`, якого немає в маніфесті, → наявна `warn undeclared-source` (код 0) тепер називає, який рядок `.gitattributes`/`.gitignore` випливе з кожного `truth`; контроль — заявлений set без рядка `-text` дає `error` з рядком `<шлях>/** -text` | — |
 | B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`), файл застарілих імен, `templates/settings.json` (ADR-0017) | тести-підпроцеси: (1) маніфест `kitVersion: 1.4.0`, без профілю → `kit-scan` каже «підключено раніше (1.4.0)», не «перше підключення»; (2) `CLAUDE.md` з `v8storagekit:reconcile`, `/v8storagekit:sync` і `tools/kit.ps1` → рядок на кожне з заміною; контроль — «kit sync», «dump» без префікса рядка не дають; (3) `settings.json` з застарілим правилом Уніки в `allow`, `unica_apply` в `allow`, власним правилом проєкту, власним `deny`, `git push` в `ask` і старим записом `hooks.SessionStart` поруч із власним → `kit-setup -DryRun` показує: прибрати застаріле, перенести `unica_apply` в `ask`, додати правила `pr-gate open/ready/land`, прибрати лише запис шима; `git push` в `ask`, власне правило, `deny` і власний хук — без змін; (4) невалідний JSON на вході → зупинка, файл байт-у-байт той самий; (5) новий профіль без `kit.version`, `kit-scan` показує розрив; явний крок записує версію; (6) профіль без знайдених `docs.specs`/`docs.plans` — без TODO для них; (7) зміст шаблону: `pr-gate open`, `ready`, `land` в `allow` в обох формах; `git push`, `gh pr create`, `gh pr merge` — в `ask`; широкого `pr-gate:*` немає | мала задача архітектора «pr-gate: межі злиття в коді» (§2, §5.3) |
 | B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `skills/storage-sync/SKILL.md`, `skills/storage-rules/SKILL.md`, `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md` у межах §5.4 | `Skills.Tests.ps1` і `KitScan.Tests.ps1` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» має рядок на кожен розділ версії; `templates/CLAUDE.md` каже «push, PR і злиття — через `pr-gate` без запиту; голі `git push`/`gh pr` — з запитом» | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`, файл застарілих імен, шаблон дозволів) |
 
@@ -38,7 +38,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 | --- | --- | --- | --- | --- |
 | знахідка `check` з тегом `kit-version` (error, перевірка триває) | вивід команди | B1 | B3 | §5.1 |
 | режим префлайту для `check`: `kitVersion` — знахідка, а не зупинка; для решти команд — зупинка | поведінка модуля | B1 | — | §5.1 |
-| `templates/v8project.yaml` | файл шаблону | B1 | B3 (посилається), споживачі | §5.1 |
+| `templates/v8project.yaml.example` | файл шаблону | B1 | B3 (посилається), споживачі | §5.1 |
 | стан «підключено раніше (<версія>)» у розділі `Kit version` `kit-scan` (текст і `-Json`) | вивід команди | B2 | B3 | §5.2 |
 | файл застарілих імен: старі імена → заміни | файл даних kit | B2 | B3 (`skills/onboarding/references/upgrades.md` посилається, не копіює) | §5.2 |
 | цільовий `settings.json` — `templates/settings.json` | файл шаблону | B2 | B3 (описує), споживачі | §5.3 |
@@ -54,10 +54,12 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   перевіряє все далі. Решта команд (`sync`, `verify`, `session-check`, `provision`, `dump`, `adopt`,
   `install-hooks` з прев'ю чи без) на `kitVersion` зупиняються, як тепер: працювати на маніфесті з невирішеним
   відхиленням не можна, а повний перелік дає `check`. Тримає: тести (1) і (2) рядка B1.
-- **Шаблон `v8project.yaml`.** `templates/v8project.yaml` — форма воркспейсу Уніки 0.16, яку kit очікує
+- **Шаблон `v8project.yaml`.** `templates/v8project.yaml.example` — форма воркспейсу Уніки 0.16, яку kit очікує
   (`providers`, набори `source-set` без старого блоку `infobase:`), з коментарем до кожного ключа kit. Джерело
   змісту — чинні перевірки `check`: кожне правило шаблону `check` перевіряє. `templates/README.md` має рядок
-  відповідності.
+  відповідності. Суфікс `.example` — як у сусідніх зразках: файл `v8project.yaml` у теці першого рівня робить сам
+  kit «репозиторієм 1С» для детекторів (хук SubagentStart, `kit-setup`, пошук воркспейсів Уніки; рішення
+  архітектора 2026-11-23); тримає тест хука на корені дерева kit.
 - **Рядки під фактичні шляхи.** Для заявленого source-set з `truth: git`/`storage` без рядка `.gitattributes`
   `check` дає `error` з рядком `<шлях>/** -text` (як тепер); з `truth: vendor` без рядка `.gitignore` — рядок
   `<шлях>/**`. Наявна `warn undeclared-source` для source-set з `v8project.yaml`, якого немає в маніфесті (типово
