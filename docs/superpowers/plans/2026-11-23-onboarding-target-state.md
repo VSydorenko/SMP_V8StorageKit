@@ -115,13 +115,19 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 
 ## 8. Задачі
 
-**T0 — звірка якорів і поправки до спеки.** Файли: спека, план. Звірити якорі спеки з кодом на HEAD гілки
+### Задача 0 (T0) — звірка якорів і поправки до спеки
+
+Файли: спека, план. Звірити якорі спеки з кодом на HEAD гілки
 (`doc anchors` спеки й плану); внести в спеку затверджені поправки D6, D9, D10, D11, D13, D14 (формулювання — з
-колонки «Вплив на спеку»). Done when: `doc anchors` обох файлів без зламаних, крім файлів, які створять T2/T3;
+колонки «Вплив на спеку») і уточнення ADR-0017 за D13 (рішення архітектора 2026-11-23): у Consequences «наявні `ask`
+проєкту не чіпаються» → «наявні `ask` на push/PR не чіпаються; з `ask` прибираються лише точні застарілі імена Уніки
+(§5.2 (б))» — уточнення, рішення не змінює. Done when: `doc anchors` обох файлів без зламаних, крім файлів, які створять T2/T3;
 поправки закомічено одним комітом зі згадкою D-номерів. Залежність: приймання плану. Перевірка: голий
 `Run-Tests.ps1` (тести `Docs`).
 
-**T1 — `kitVersion` у режимі `check` (B1, §5.1).** Файли: `tools/lib/Manifest.psm1`, `tools/lib/Preflight.psm1`,
+### Задача 1 (T1) — `kitVersion` у режимі `check` (B1, §5.1)
+
+Файли: `tools/lib/Manifest.psm1`, `tools/lib/Preflight.psm1`,
 `tools/kit.ps1`, тести `Check.Manifest.Tests.ps1`, `Manifest.Tests.ps1`, `Preflight.Tests.ps1` (виклики `-Lenient` →
 `-Mode Lenient`, одна перевірка `-Mode Check` на рівні модуля). Done when: тест (1) — маніфест з `kitVersion` і блоком
 `infobase:` у `v8project.yaml` → `check` друкує обидві знахідки, код 1; випадки «лише `kitVersion`» і «порожнє
@@ -130,7 +136,9 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 виняток). Залежність: T0. Перевірка: `-Only Check.Manifest,Manifest,Preflight,SessionCheck.Findings` + файли, що
 кличуть `Invoke-KitPreflight` (`grep -rln Invoke-KitPreflight tools/tests`).
 
-**T2 — шаблон `v8project.yaml` і дія `undeclared-source` (B1, §5.1).** Файли: `templates/v8project.yaml` (новий),
+### Задача 2 (T2) — шаблон `v8project.yaml` і дія `undeclared-source` (B1, §5.1)
+
+Файли: `templates/v8project.yaml` (новий),
 `templates/README.md`, `tools/commands/check.psm1`, `Check.Manifest.Tests.ps1` (поруч із наявним тестом
 `undeclared-source`). Done when: тест (3) — незаявлений source-set → `warn undeclared-source`, код 0, дія називає
 рядок `<шлях>/** -text` для `git`/`storage` і `<шлях>/**` у `.gitignore` для `vendor`; контроль — заявлений set без
@@ -139,7 +147,9 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 задачі, нового тесту немає). Залежність: T1 (той самий `check.psm1` і тест — послідовно). Перевірка:
 `-Only Check.Manifest,Check.GitPolicy,Templates`.
 
-**T3 — `kit-scan`: проєкт, підключений раніше, і застарілі імена (B2, §5.2).** Файли:
+### Задача 3 (T3) — `kit-scan`: проєкт, підключений раніше, і застарілі імена (B2, §5.2)
+
+Файли:
 `tools/assets/obsolete-names.json` (новий), `tools/lib/KitVersion.psm1`, `tools/commands/kit-scan.psm1`,
 `KitScan.Tests.ps1`. Done when: тест (1) — маніфест `kitVersion: 1.4.0` без профілю → «підключено раніше (1.4.0)»,
 `kit check -RepoRoot .` і чеклісти новіших версій; у `-Json` — `connected-before`; тест (2) — `CLAUDE.md` з
@@ -149,7 +159,9 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 `briefs`, `private.dir`) і корінь worktree пропускаються. Залежність: T0. Перевірка: `-Only KitScan` + викликачі
 `Get-KitProjectVersion` (`grep -rln Get-KitProjectVersion tools/tests`).
 
-**T4 — злиття `settings.json` і цільовий шаблон (B2, §5.2–§5.3).** Файли: `tools/commands/kit-setup.psm1`,
+### Задача 4 (T4) — злиття `settings.json` і цільовий шаблон (B2, §5.2–§5.3)
+
+Файли: `tools/commands/kit-setup.psm1`,
 `templates/settings.json`, `templates/README.md` (рядок `settings.json`), `KitSetup.Tests.ps1`, `Templates.Tests.ps1`.
 Done when: тест (3) на фікстурі розділу 6 — `kit-setup -DryRun` показує прибрати застаріле з `allow` і `ask`, перенести
 `unica_apply` в `ask`, додати `pr-gate open/ready/land` і `git push` в `ask`, прибрати лише шим; усі інваріанти розділу
@@ -159,7 +171,9 @@ Done when: тест (3) на фікстурі розділу 6 — `kit-setup -D
 контракт злиття. Залежність: T3 (`Get-KitObsoleteNames`). Перевірка: `-Only KitSetup,Templates,PrGate`. Рев'ю задачі —
 два рецензенти (безпекова зміна), один з них на лінзі розділу 6.
 
-**T5 — профіль: `kit.version` останнім (B2, §5.2).** Файли: `tools/commands/kit-setup.psm1`, `KitSetup.Tests.ps1`.
+### Задача 5 (T5) — профіль: `kit.version` останнім (B2, §5.2)
+
+Файли: `tools/commands/kit-setup.psm1`, `KitSetup.Tests.ps1`.
 Done when: тест (5) — новий профіль без `kit.version`; `kit-scan` показує стан за D6; `kit-setup -SetVersion`
 записує версію плагіна й більше нічого не змінює у файлі (і з локальним профілем поруч — розділ 6); зламаний
 профіль → код 3, файл той самий;
@@ -167,7 +181,9 @@ Done when: тест (5) — новий профіль без `kit.version`; `kit
 TODO, `pr.base`/`pr.mergeMethod` — TODO, як тепер; вивід `kit-setup` містить версію плагіна. Залежність: T4 (той самий
 файл). Перевірка: `-Only KitSetup,KitScan`.
 
-**T6 — текст онбордингу (B3, §5.4).** Файли: `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`,
+### Задача 6 (T6) — текст онбордингу (B3, §5.4)
+
+Файли: `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`,
 `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/CLAUDE.md`,
 `docs/unica-contract.md`, `skills/storage-sync/SKILL.md`, `skills/storage-rules/SKILL.md`,
 `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md`; згадки `kit-setup` у `README.md`. Done when:
@@ -182,7 +198,9 @@ TODO, `pr.base`/`pr.mergeMethod` — TODO, як тепер; вивід `kit-setu
 документах (`grep -rn` по `skills/ templates/ docs/ README.md`). Залежність: T2, T5. Перевірка: голий
 `Run-Tests.ps1` (тести `Docs`: `Skills`, `KitScan`, `Templates`).
 
-**T7 — журнал і фінал блоку.** Файли: `CHANGELOG.md` (запис 1.6.13), `skills/onboarding/references/upgrades.md`
+### Задача 7 (T7) — журнал і фінал блоку
+
+Файли: `CHANGELOG.md` (запис 1.6.13), `skills/onboarding/references/upgrades.md`
 (розділ `1.6.12 → 1.6.13`). Done when: запис 1.6.13 має пункти B1–B3 і чекліст для проєкту (прогнати
 `kit-scan`, `kit check`, `kit-setup -DryRun` → застосувати; `kit-setup -SetVersion` останнім комітом); `-Full`
 зелений; хеш верхівки передано архітектору. Залежність: T6. Перевірка: `-Full`.
