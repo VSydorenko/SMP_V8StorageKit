@@ -11,7 +11,8 @@
 //  (в) `Command::new` з нелітеральним аргументом (або без виклику — як значення функції) — лише з
 //      явного переліку дозволених місць ALLOWED_DYNAMIC;
 //  Правило (а) має явний перелік ALLOWED_LITERAL: слово `git`, що не є програмою (словник значень). Кожен запис
-//  мусить відповідати рівно одному літералу, застарілий запис — червоне, як в ALLOWED_DYNAMIC.
+//  мусить відповідати рівно одному літералу, застарілий запис — червоне, як в ALLOWED_DYNAMIC. Літерал в аргументах
+//  запуску (`.arg(`, `.args(`, `Command::new(`) перелік не гасить ніколи.
 //  (г) псевдонім типу `Command` (`Command as X`, `type X = …Command;`).
 // Позитивний двійник: у модулі `git` правило влучення ДАЄ — інакше сканер сліпий.
 
@@ -181,6 +182,8 @@ struct Hit {
     rule: &'static str,
     line: usize,
     detail: String,
+    /// Літерал стоїть в аргументах запуску (`.arg(`, `.args(`, `Command::new(`): перелік його не гасить.
+    in_launch_args: bool,
 }
 
 fn is_git_name(v: &str) -> bool {
@@ -252,18 +255,20 @@ fn scan_source(src: &str) -> (Vec<Hit>, Vec<(usize, String)>) {
     let mut dynamic = Vec::new();
     for (i, (t, line)) in toks.iter().enumerate() {
         match t {
-            Tok::Lit(v) if is_git_name(v) => hits.push(Hit { rule: "а", line: *line, detail: format!("{v:?}") }),
+            Tok::Lit(v) if is_git_name(v) => {
+                hits.push(Hit { rule: "а", line: *line, detail: format!("{v:?}"), in_launch_args: inside_launch_args(&toks, i) })
+            }
             Tok::Lit(v) if is_git_command_line(v) && inside_launch_args(&toks, i) => {
-                hits.push(Hit { rule: "б", line: *line, detail: format!("{v:?}") })
+                hits.push(Hit { rule: "б", line: *line, detail: format!("{v:?}"), in_launch_args: true })
             }
             Tok::Ident(s) if s == "Command" => {
                 if ident(toks.get(i + 1), "as") {
-                    hits.push(Hit { rule: "г", line: *line, detail: "Command as …".into() });
+                    hits.push(Hit { rule: "г", line: *line, detail: "Command as …".into(), in_launch_args: false });
                 }
                 if punct(toks.get(i + 1), ';') {
                     let start = toks[..i].iter().rposition(|(t, _)| matches!(t, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))).map_or(0, |p| p + 1);
                     if toks[start..i].iter().any(|(t, _)| matches!(t, Tok::Ident(s) if s == "type")) {
-                        hits.push(Hit { rule: "г", line: *line, detail: format!("type … = {};", text(&toks[start..=i])) });
+                        hits.push(Hit { rule: "г", line: *line, detail: format!("type … = {};", text(&toks[start..=i])), in_launch_args: false });
                     }
                 }
                 if is_command_new(&toks, i) {
@@ -359,7 +364,7 @@ fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)], allowed_literal: &[(&
             continue;
         }
         for h in hits {
-            if h.rule == "а" {
+            if h.rule == "а" && !h.in_launch_args {
                 let pos = unused_lit.iter().position(|(f, lit)| *f == rel && format!("{lit:?}") == h.detail);
                 if let Some(p) = pos {
                     unused_lit.remove(p);
@@ -489,6 +494,15 @@ fn allowed_literal_is_exact_and_stale_entries_fail() {
     // Застарілий запис: у файлі літерала немає.
     let stale = [("src/words.rs", "git", ""), ("src/other.rs", "git", ""), ("src/nowhere.rs", "git", "")];
     let r = scan_crate(&tmp, &[], &stale);
-    let _ = std::fs::remove_dir_all(&tmp);
     assert_eq!(r.violations, vec!["застарілий запис переліку дозволених літералів: src/nowhere.rs \"git\"".to_string()]);
+    // Дозволений файл із запуском замість оголошення — червоне: перелік не гасить літерал в аргументах запуску.
+    std::fs::write(tmp.join("src/words.rs"), r#"pub fn probe() { let _ = std::process::Command::new("git").arg("status").status(); }"#).unwrap();
+    std::fs::write(tmp.join("src/other.rs"), "").unwrap();
+    let r = scan_crate(&tmp, &[], &allowed);
+    assert!(r.violations.iter().any(|v| v.starts_with("src/words.rs:1 правило (а)")), "запуск у дозволеному файлі пройшов: {:?}", r.violations);
+    // Той самий файл лише з оголошенням — зелене.
+    std::fs::write(tmp.join("src/words.rs"), r#"const TRUTH_GIT: &str = "git";"#).unwrap();
+    let r = scan_crate(&tmp, &[], &allowed);
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert!(r.violations.is_empty(), "оголошення має проходити: {:?}", r.violations);
 }
