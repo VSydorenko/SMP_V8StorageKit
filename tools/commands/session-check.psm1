@@ -183,7 +183,11 @@ function Invoke-KitSessionCheck {
                     $parts.Add("шлях сховища доступний, але не схожий на сховище 1С ($($activity.Reason)) — перевірте storages: $($src.Key) у v8storagekit.local.yaml (чи сам шлях у v8storagekit.yaml)")
                 }
 
-                if (-not $mirror) {
+                if (-not $mirror -and (Test-KitRemoteOnlyMirror -RepoRoot $root -Branch $src.Branch)) {
+                    # Дзеркало лише на origin (#101): sync -Apply почав би реплей з нуля в другу історію.
+                    $parts.Add("локальної гілки $($src.Branch) немає, але є origin/$($src.Branch) — відновіть дзеркало: $(Get-KitRestoreMirrorStep -Branch $src.Branch)")
+                    $srcStep = Get-KitRestoreMirrorStep -Branch $src.Branch
+                } elseif (-not $mirror) {
                     $parts.Add("дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply")
                     $srcStep = "kit sync -Source $($src.Key) -Apply"
                 } elseif ($newInStorageReason -eq 'newer') {

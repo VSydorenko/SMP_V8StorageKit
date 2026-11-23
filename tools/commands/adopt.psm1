@@ -53,6 +53,9 @@ function Invoke-KitAdopt {
     foreach ($src in $sources) {
         $mirror = if ($Ref) { $Ref } else { $src.Branch }
         if (-not (Test-KitBranchExists -RepoRoot $root -Branch $mirror)) {
+            if (Test-KitRemoteOnlyMirror -RepoRoot $root -Branch $mirror) {
+                throw "Локальної гілки '$mirror' немає, але є origin/$mirror. Відновіть дзеркало: $(Get-KitRestoreMirrorStep -Branch $mirror), і повторіть adopt."
+            }
             throw "Гілки '$mirror' немає — дзеркало ще не створено. Спершу: kit sync -Source $($src.Key) -Apply."
         }
 
