@@ -28,7 +28,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 | --- | --- | --- | --- |
 | B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Manifest.psm1`): `kitVersion` — помилка без зупинки перевірки; шаблон `templates/v8project.yaml` і звірка форми `v8project.yaml` з ним; рядки `.gitattributes`/`.gitignore` під фактичні шляхи — у виводі готовими до вставки | підпроцес `kit check` на синтетичному репозиторії з `kitVersion` і ще однією розбіжністю (напр. старий блок `infobase:`) друкує **обидві** знахідки, код 1; `sync` на тому ж репозиторії зупиняється з дією «прибрати `kitVersion`» | — |
 | B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`): застарілий проєкт без профілю; `kit.version` — останнім; перелік застарілих імен і його пошук у текстах споживача; злиття `.claude/settings.json` з шаблоном; необов'язкові поля профілю без TODO; попередження про зміну версії плагіна | підпроцес `kit-scan` на синтетичному репозиторії з маніфестом `kitVersion: 1.4.0`, без профілю, з `CLAUDE.md`, що згадує `v8storagekit:reconcile` і `tools/kit.ps1`, і `settings.json` з `mcp__plugin_unica_unica__unica_project_map` у `allow` друкує: «підключено раніше (1.4.0)», рядок на кожне застаріле ім'я з заміною, рядок на кожен застарілий дозвіл; `kit-setup -DryRun` показує злиття `settings.json` без втрати власних правил проєкту | — |
-| B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `references/upgrades.md`, `references/process.md`, `references/storage.md`, `templates/settings.json`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `storage-sync`, `storage-rules`, `infobase-agent`, `infobase-dump` у межах §5.3 | `Skills.Tests.ps1` і `KitScan` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» покриває кожен розділ версії; `templates/settings.json` не має `git push`/`gh pr create` в `ask` | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`) |
+| B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/settings.json`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `storage-sync`, `storage-rules`, `infobase-agent`, `infobase-dump` у межах §5.3 | `Skills.Tests.ps1` і `KitScan` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» покриває кожен розділ версії; `templates/settings.json` не має `git push`/`gh pr create` в `ask` | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`) |
 
 ## 4. Interfaces
 
@@ -38,7 +38,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 | `Read-KitManifest` на `kitVersion` — виняток для всіх команд, крім `check` | поведінка модуля | B1 | B2 (не змінює) | §5.1 |
 | `templates/v8project.yaml` | файл шаблону | B1 | B3 (посилається), споживачі | §5.1 |
 | стан «підключено раніше (<версія>)» у розділі `Kit version` `kit-scan` (текст і `-Json`) | вивід команди | B2 | B3 | §5.2 |
-| перелік застарілих імен (стара назва → заміна) | файл даних kit | B2 | B3 (`upgrades.md` посилається, не копіює) | §5.2 |
+| перелік застарілих імен (стара назва → заміна) | файл даних kit | B2 | B3 (`skills/onboarding/references/upgrades.md` посилається, не копіює) | §5.2 |
 | цільовий `settings.json` — `templates/settings.json` | файл шаблону | B3 (зміст, ADR-0017) | B2 (злиття) | §5.2, §5.3 |
 
 ## 5. Blocks in detail
@@ -53,7 +53,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   Тримає: тест-підпроцес «дві знахідки, наступний крок не відбувся» за зразком `Check.*.Tests.ps1`.
 - **Шаблон `v8project.yaml`.** `templates/v8project.yaml` — форма воркспейсу Уніки 0.16, яку kit очікує:
   `providers`, набори `source-set` без старого блоку `infobase:`, коментарі до кожного ключа kit. Зміст —
-  з `upgrades.md` розділу «1.4.0 → 1.6.0» і чинних перевірок `check`; кожне правило шаблону `check` уже перевіряє
+  з `skills/onboarding/references/upgrades.md` розділу «1.4.0 → 1.6.0» і чинних перевірок `check`; кожне правило шаблону `check` уже перевіряє
   або перевіряє після цього блоку. `templates/README.md` має рядок відповідності.
 - **Рядки під фактичні шляхи.** Для кожного джерела `check` друкує відсутній рядок `.gitattributes`
   (`<шлях>/** -text`) чи `.gitignore` (vendor) готовим до вставки — це вже є для частини випадків; блок
@@ -72,7 +72,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   однаково (ADR-0016 п.4).
 - **Перелік застарілих імен.** Один файл даних kit (місце й формат — рішення плану; не всередині `.psm1`):
   рядок «стара назва → заміна» для старих імен скілів kit (до перейменувань 1.6.3 і пізніших: `using-v8storagekit`,
-  `v8storagekit:reconcile`, `:finish`, `:provision`, `:sync`, `:dump` тощо — повний перелік з `upgrades.md`),
+  `v8storagekit:reconcile`, `:finish`, `:provision`, `:sync`, `:dump` тощо — повний перелік з `skills/onboarding/references/upgrades.md`),
   викликів `tools/kit.ps1` → `kit`, прибраних команд (`kit build` → `unica.run` `make`), прибраних інструментів
   Уніки (`unica_project_map`, `unica_project_status`, `unica.project.status` …). `kit-scan` шукає їх у
   `CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.agents/**` (без вивід-тек), `.gitignore`, `.gitattributes` і друкує
@@ -93,7 +93,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 
 ### 5.3 B3 Текст онбордингу
 
-- **Рецепт кроку 9, база під `truth: storage`** (`upgrades.md`, розділ «1.4.0 → 1.6.0»):
+- **Рецепт кроку 9, база під `truth: storage`** (`skills/onboarding/references/upgrades.md`, розділ «1.4.0 → 1.6.0»):
   - тека `Ext/ParentConfigurations/` наперед **не** видаляється: `pull force` сам перезаписує `.cf` поставки
     (виміряно один раз, MamHub_UNF); видалення — лише як відповідь на `os error 5` при заміні теки;
   - закрити VS Code чи вимкнути Pylance і git-розширення — теж лише за тим самим симптомом;
@@ -102,9 +102,9 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
     `Ext/CommandInterface.xml`: прибраний `<GroupsOrder>` з нульовим GUID) — пропонує прийняти окремим комітом
     канонізації; будь-що інше — `kit verify` і зупинка. Рішення приймає людина, агент сам не комітить. Перелік
     класів — виміряний на одному проєкті, не повний (#41).
-- **`upgrades.md`.** Таблиця «Довідка по версіях» — рядок на кожен розділ версії. Розділ, що вимагає замін
+- **`skills/onboarding/references/upgrades.md`.** Таблиця «Довідка по версіях» — рядок на кожен розділ версії. Розділ, що вимагає замін
   імен, посилається на перелік застарілих імен (§5.2), а не копіює його.
-- **Онбординг проєкту, підключеного раніше** (`SKILL.md`, `process.md`): порядок — `kit-scan` → `kit check` →
+- **Онбординг проєкту, підключеного раніше** (`skills/onboarding/SKILL.md`, `skills/onboarding/references/process.md`): порядок — `kit-scan` → `kit check` →
   відхилення обох → кроки Уніки, яких інструменти не виявляють → `kit.version` останнім комітом.
 - **Дозволи споживача (ADR-0017).** `templates/settings.json`: `git push` і `gh pr create` — не в `ask`;
   злиття PR після рев'ю — без запиту; force push лишається з запитом. `templates/CLAUDE.md`: рядок «лише за явним
@@ -113,7 +113,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   - попередження в онбордингу про кириличні імена тек і шляхів (#69 п.1);
   - код 3 `session-check` — «є що робити», а не збій, у `storage-sync` і `storage-rules` (#65);
   - тривалість реплею версії — не голе число «20–40 хв», а умова виміру або «залежить від розміру; вимір —
-    у звіті команди» (#67), у `infobase-agent`, `infobase-dump`, `references/storage.md`;
+    у звіті команди» (#67), у `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md`, `skills/onboarding/references/storage.md`;
   - `docs/unica-contract.md`: рядки «Трекінг в апстрімі» для розбіжності `check`/`run` на прихованому наборі й
     `os error 5` при заміні теки (#63).
 
