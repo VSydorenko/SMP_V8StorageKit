@@ -40,10 +40,15 @@
 - Еталон поведінки — PowerShell на поточному `origin/main` (рішення 1). Тест паритету кличе живу
   PowerShell-копію в дереві, тож еталон завжди той, що поруч.
 - Розбір не панікує на жодному вході (`panic = "abort"` у релізі: паніка — текст у stderr, а хук вклеює stderr
-  у контекст сесії; повідомлення паніки цитує дані — зріз рядка не на межі символу друкує сам рядок). Модуль
-  `config` несе `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing,
-  clippy::string_slice, clippy::panic)]`; `cargo clippy` без попереджень цих лінтів — частина перевірки кожної
-  задачі (інваріант §6).
+  у контекст сесії; повідомлення паніки цитує дані — зріз рядка не на межі символу друкує сам рядок). Два рівні
+  (інваріант §6). Перший, на одному шляху для всього `kit.exe`: `std::panic::set_hook` на початку `main` друкує
+  сталий текст `kit: ERROR внутрішня помилка` без payload і місця. Другий, для модуля `config`:
+  `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::string_slice,
+  clippy::panic, clippy::unreachable, clippy::todo, clippy::unimplemented, clippy::arithmetic_side_effects)]`;
+  на даних із файлів не вживати й методів, що панікують поза лінтами (`str::split_at`, `String::insert`/`remove`/
+  `drain`/`split_off`, `Vec::remove`/`insert`/`swap`, `assert!`). `cargo clippy --all-targets -- -D warnings`
+  проганяє `tools/build-kit-exe.ps1` перед `cargo test` (той самий файл кличе CI), а `rust/rust-toolchain.toml`
+  отримує `components = ["clippy"]` — так лінти тримає кожна майбутня збірка поставки, а не лише виконавець B1.
 - Модуль `config` не запускає зовнішніх процесів (git, раннер, `pwsh`): запобіжник `git_guard.rs` лишається
   зеленим без нових записів `ALLOWED_DYNAMIC`.
 - Шляхи у виводі й контексті — як `[IO.Path]::GetFullPath` (лексично); перетини баз і пам'яті раннера — лише
@@ -65,8 +70,10 @@
 | 4 | Прихована підкоманда `config-preflight` друкує, крім контексту й знахідок, базу агента кожного воркспейсу й перетини баз (замасковано тим самим правилом): так тест паритету покриває `Resolve-KitAgentBase` і `Find-KitAgentBaseCollisions`, і окремих тестів їм не треба. | §5.1: уточнення складу JSON у задачі 0 |
 | 5 | Класи неправильних файлів перевіряє той самий тест паритету на корпусі неправильних файлів tools/tests/fixtures/config-bad (створює задача 4): Rust-текст мусить дорівнювати PowerShell-тексту, тож вирізана в Rust перевірка дає червоне без переписаних у тест очікувань. Кожна фікстура корпусу несе в метаданих очікувані перевірку (`manifest`, `overlay`, `workspace`, `source`) і початок тексту; тест спершу стверджує їх на PowerShell-боці — фікстура, яку PowerShell приймає чи відхиляє іншим класом, дає червоне, а не «покритий клас». Винятки — класи, де PowerShell вклеює текст YamlDotNet (YAML не розбирається, дубль ключа): їх перевіряє Rust-тест форми повідомлення (ім'я файла й місце, без тексту парсера). | §5.1: уточнення в задачі 0 |
 | 6 | Корінь YAML не мапа — текст з іменем типу .NET, як зараз. Вимір 2026-11-23 (`Read-KitYaml`): список → `List`1`, рядок → `String`, ціле → `Int32`, булеве → `Boolean`. Решту виконавець міряє тим самим способом і додає у відповідність; невиміряний вид — корпус паритету покаже розбіжність. | немає |
-| 7 | Скаляр → рядок — одна функція з правилами PowerShell `[string]` (ціле без крапки, `True`/`False`, `null` → порожньо); її поведінку тримає паритет на корпусі. | немає |
+| 7 | Значення YAML → рядок — одна функція з правилами PowerShell `[string]` для кожного виду `serde_yaml::Value`: ціле без крапки, `True`/`False`, `null` → порожньо, список — елементи через пробіл (`$OFS`), мапа — ім'я типу .NET (виконавець міряє `[string]` на `OrderedDictionary` і вкладених списках і кладе вимір у звіт). PowerShell кастить без перевірки на скаляр (`storages.*` не-мапа, `name`/`type`/`path` source-set, `version`), тож корпус несе й ці випадки (список і мапа на місці рядка). | немає |
 | 8 | Обидва режими поблажливого префлайту й суворий — одна функція з `Mode`; суворий режим повертає першу знахідку error як зупинку (`Err`), поблажливі — повний контекст. | немає |
+| 9 | Помилки рядка підключення — побайтний паритет із `ConvertFrom-V8Connection`, і порядок перевірок — частина контракту (рішення архітектора 2026-11-23): частини зліва направо, перша помилка зупиняє, `usr`/`pwd` відмовляють раніше за «невідомий ключ». Так хвіст пароля в позицію ключа не потрапляє (замір архітектора: `Srvr=a;Ref=b;Pwd=pa;ss=word` → помилка на `'Pwd'`). Корпус несе ці три рядки замірів. | немає |
+| 10 | Хук паніки (`set_hook`, §3) діє на весь `kit.exe`, не лише на `config`: невиловлена паніка будь-якої команди друкує сталий текст замість повідомлення паніки. Це зміна поведінки лише на дефекті (паніка й так завершує процес з `abort`), тож у межах ADR-0014 п. 7. Крок clippy у `tools/build-kit-exe.ps1` — зміна рецепта збірки, не PowerShell-коду kit (§5.0 його не заморожує). | §5.0: речення про `tools/build-kit-exe.ps1` (внесено в PR плану) |
 
 ## 5. Інтерфейси
 
@@ -102,8 +109,10 @@
 розбиття за комою; не в `-Help`). Код 0, коли JSON надруковано (і на зупинці: тоді в JSON поле зупинки з
 перевіркою й текстом); 2 — помилка виклику. JSON: контекст,
 знахідки, вибрані джерела, база агента й перетини кожного воркспейсу. Маска (§5.1, §6): кожен пароль —
-ознака «задано / не задано» плюс нейтральний свідок для паритету (довжина й вид скаляра YAML: рядок, число,
-булеве; не хеш — хеш слабкого пароля підбирається); піддерево `dbms` — лише «задано»; кожен рядок підключення — розібрана форма (вид, `File` або `Srvr`+`Ref`, ознака
+ознака «задано / не задано» і нічого більше (довжина чи вид скаляра звузили б перебір); піддерево `dbms` — лише
+«задано». Пароль перетворюється на рядок тією самою функцією рішення 7, що й решта полів, — її паритет тримає
+фікстура скалярів-пасток у несекретних полях, а Rust-тест стверджує, що пароль іде тим самим шляхом; кожен
+рядок підключення — розібрана форма (вид, `File` або `Srvr`+`Ref`, ознака
 облікових даних) чи ознака «не розбирається»; сирим текстом — ніколи. Підкоманда живе, доки живе
 PowerShell-копія префлайту.
 
@@ -117,8 +126,8 @@ PowerShell-копія префлайту.
 | Рядок підключення не друкується сирим текстом, лише компоненти без облікових даних або «не розбирається». | Маркер у значенні компонента (`Pwd=`, `Usr=`, значення `File=` з пропущеною `;`) → немає в обох каналах. Червоніє, якщо помилка розбору цитує значення чи маска падає назад на сирий рядок. |
 | Ключ чи значення YAML-мапи, що не пройшли перевірку (невідомий ключ, запис без значення, дубль, рядок замість мапи, неправильна форма шляху сховища), не друкуються. | Маркер у позиції такого ключа чи значення в накладці й `v8project.local.yaml` для кожного класу §6 → немає в обох каналах. Червоніє, якщо в помилку потрапить текст `serde_yaml` (`unknown field`, `duplicate entry`, `invalid type: string "…"`). |
 | Вкладені якорі не зависають і не панікують. | Фікстура «мільярд сміхів» (вкладені якорі й посилання): розбір завершується помилкою з іменем файла за стелю часу тесту; код процесу — не паніка. Червоніє, якщо обмеження `serde_yaml` обійти (напр. власним розгортанням якорів). |
-| Розбір не панікує (паніка цитує дані в stderr, хук вклеює stderr у контекст сесії). | `#![deny(...)]` модуля `config` (§3) і `cargo clippy` у перевірці кожної задачі: `unwrap`, `expect`, індексація чи зріз рядка в модулі — помилка збірки лінтів. Плюс маркери з багатобайтовими символами біля роздільників (`;`, `=`, лапка). |
-| Перетин бази агента з базою людини не пропускається через junction/symlink (принцип «kit ніколи не пише в базу людини»). | Фікстура паритету: тека воркспейсу B — junction на теку з дев-базою людини; PowerShell дає перетин і помилку, Rust — те саме. Червоніє на лексичному порівнянні шляхів. |
+| Невиловлена паніка не цитує даних (паніка цитує дані в stderr, хук вклеює stderr у контекст сесії). | Маркерний тест хука паніки: штучна паніка з маркером у payload (прихований тестовий шлях, лише під `cfg(test)` чи окремою тестовою ціллю) → маркера немає в stderr, є сталий текст. Червоніє без `set_hook`. Другий рівень — `#![deny(...)]` і `cargo clippy` у `build-kit-exe.ps1` (§3): `unwrap`, індексація чи зріз у `config` — червона збірка поставки. Плюс маркери з багатобайтовими символами біля роздільників (`;`, `=`, лапка). |
+| Перетин бази агента з базою людини й пам'яттю раннера не пропускається через junction/symlink (принцип «kit ніколи не пише в базу людини»). | Дві фікстури паритету: (1) база агента воркспейсу через junction лягає в теку дев-бази людини; (2) база агента воркспейсу A через junction лягає в `.local/infobases` воркспейсу B (гілка `Find-KitAgentBaseCollisions`). Кожна стверджує обидві умови: PowerShell дає перетин, а `GetFullPath`-форми двох шляхів лексично не перетинаються (`Test-KitCanonicalPathsOverlap` на нерозкритих формах — `$false`). Червоніє на лексичному порівнянні. |
 | Модуль `config` не запускає процесів. | `rust/tests/git_guard.rs` без нових записів `ALLOWED_DYNAMIC`. |
 
 ## 7. Частини
@@ -130,8 +139,8 @@ PowerShell-копія префлайту.
 | # | Задача | Файли | Готово, коли | Після | Перевірка |
 |---|---|---|---|---|---|
 | 0 | Звірка якорів і поправки спеки | спека §5.0, §5.1 | `doc anchors` плану й спеки без зламаних якорів; у §5.0 — рішення 1, у §5.1 — склад JSON (рішення 4) і корпус класів (рішення 5); стара формула не лишилась (пошук `kit.version` у спеці) | — | тести `Docs` |
-| 1 | Читання YAML, маніфест, накладка | `Cargo.toml`, `Cargo.lock`, `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `cargo clippy`; `-Only KitExe` |
-| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection`, `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 1 | Читання YAML, маніфест, накладка; хук паніки й clippy | `Cargo.toml`, `Cargo.lock`, `rust/rust-toolchain.toml`, `tools/build-kit-exe.ps1` (лише крок clippy), `main.rs` (`set_hook`), `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; `cargo clippy`; `-Only KitExe` |
+| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection`, `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Test-KitCanonicalPathsOverlap` (єдиний предикат перетину для обох гілок), `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; `cargo clippy`; `-Only KitExe` |
 | 3 | Префлайт і прихована підкоманда | створити rust/src/config/preflight.rs; `main.rs` | `preflight` у трьох режимах і `select_sources` як `Resolve-V8RepoRoot`/`Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена | 2 | `cargo test`; `cargo clippy`; `-Only KitExe` |
 | 4 | Паритет, класи, маркери, якорі | створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs | «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути) | 3 | `-Only ConfigParity,KitExe`; `cargo test`; `cargo clippy`; фінал — `-Full` |
 

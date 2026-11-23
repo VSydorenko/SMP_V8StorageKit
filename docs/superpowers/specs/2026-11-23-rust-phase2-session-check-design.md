@@ -77,6 +77,8 @@ Glossary: `docs/GLOSSARY.md` · ADR: ADR-0014, ADR-0018, ADR-0019 · Parent: —
 - **PowerShell заморожено** (ADR-0014 п. 7). У фазі змінюються лише: `Runner.psm1` (запуск через `kit.exe`),
   `check-environment.ps1` (вердикти через `kit.exe`), фікстура тестів `Invoke-KitCommand` (команди фази — через
   `kit.exe`), видалення модулів двох команд і їхніх рядків у `tools/lib/module-order.txt`, якщо вони там є.
+  Рецепт збірки `tools/build-kit-exe.ps1` — не код kit: B1 додає в нього крок `cargo clippy` перед `cargo test`,
+  щоб лінти проти паніки в модулі `config` тримала кожна збірка поставки (§6).
   Маршрут `check` і `session-check` у `kit.exe` — зміна Rust; диспетчер `tools/kit.ps1` цих команд більше не
   отримує. Префіксне правило дозволів `.claude/settings.json` на виклик `check` через диспетчер `tools/kit.ps1`
   власник прибрав 2026-11-23, ще до фази: префікс пропускав без запиту `-RunnerPath` і `-InstalledPluginsPath`
