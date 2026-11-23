@@ -140,13 +140,40 @@ PowerShell-копія префлайту.
 
 ## 8. Задачі
 
-| # | Задача | Файли | Готово, коли | Після | Перевірка |
-|---|---|---|---|---|---|
-| 0 | Звірка якорів і поправки спеки | спека §5.0, §5.1 | `doc anchors` плану й спеки без зламаних якорів; у §5.0 — рішення 1, у §5.1 — склад JSON (рішення 4) і корпус класів (рішення 5); стара формула не лишилась (пошук `kit.version` у спеці) | — | тести `Docs` |
-| 1 | Читання YAML, маніфест, накладка; хук паніки й clippy | `Cargo.toml`, `Cargo.lock`, `rust/rust-toolchain.toml`, `tools/build-kit-exe.ps1` (лише крок clippy), `main.rs` (`set_hook`), `rust/src/profile.rs`, `rust/src/session_board.rs`, `rust/src/fingerprint.rs` (механічне прибирання наявних попереджень clippy без зміни поведінки — **до** ввімкнення кроку clippy), `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs` | `cargo clippy --all-targets -- -D warnings` зелений на всьому крейті (на `3aaa0fd` падає з кодом 101: 3 «this `if` statement can be collapsed», 2 «very complex type used» — замір архітектора й автора 2026-11-23), і лише тоді крок clippy у `build-kit-exe.ps1`; контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом | 0 | `cargo test`; clippy `-D warnings`; `-Only KitExe` |
-| 2 | `v8project`, підключення, база агента | `rust/src/config/{v8project,connection,agent_base}.rs` | `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection` (з відомою відмінністю рішення 9 у шапці модуля `connection`), `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Test-KitCanonicalPathsOverlap` (єдиний предикат перетину для обох гілок), `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена | 1 | `cargo test`; clippy `-D warnings`; `-Only KitExe` |
-| 3 | Префлайт і прихована підкоманда | створити rust/src/config/preflight.rs; `main.rs` | `preflight` у трьох режимах і `select_sources` як `Resolve-V8RepoRoot`/`Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена | 2 | `cargo test`; clippy `-D warnings`; `-Only KitExe` |
-| 4 | Паритет, класи, маркери, якорі | створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs | «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути) | 3 | `-Only ConfigParity,KitExe`; `cargo test`; clippy `-D warnings`; фінал — `-Full` |
+### Задача 0 — Звірка якорів і поправки спеки
+
+- **Файли:** спека §5.0, §5.1
+- **Готово, коли:** `doc anchors` плану й спеки без зламаних якорів; у §5.0 — рішення 1, у §5.1 — склад JSON (рішення 4) і корпус класів (рішення 5); стара формула не лишилась (пошук `kit.version` у спеці)
+- **Після:** —
+- **Перевірка:** тести `Docs`
+
+### Задача 1 — Читання YAML, маніфест, накладка; хук паніки й clippy
+
+- **Файли:** `Cargo.toml`, `Cargo.lock`, `rust/rust-toolchain.toml`, `tools/build-kit-exe.ps1` (лише крок clippy), `main.rs` (`set_hook`), `rust/src/profile.rs`, `rust/src/session_board.rs`, `rust/src/fingerprint.rs` (механічне прибирання наявних попереджень clippy без зміни поведінки — **до** ввімкнення кроку clippy), `rust/src/config/{mod,yaml,manifest,overlay}.rs`, `lib.rs`
+- **Готово, коли:** `cargo clippy --all-targets -- -D warnings` зелений на всьому крейті (на `3aaa0fd` падає з кодом 101: 3 «this `if` statement can be collapsed», 2 «very complex type used» — замір архітектора й автора 2026-11-23), і лише тоді крок clippy у `build-kit-exe.ps1`; контракт `Read-KitYaml` (не розбирається / порожній обов'язковий / корінь не мапа / порожній дозволений → порожня мапа), порядок ключів збережено; усі правила `Read-KitManifest` (з `-AllowKitVersion`) і `Read-KitLocalOverlay` з тими самими текстами; `kitVersion` — ознака в типі маніфесту; збірка поставки закомічена разом із джерелом
+- **Після:** 0
+- **Перевірка:** `cargo test`; clippy `-D warnings`; `-Only KitExe`
+
+### Задача 2 — `v8project`, підключення, база агента
+
+- **Файли:** `rust/src/config/{v8project,connection,agent_base}.rs`
+- **Готово, коли:** `Read-V8Project`, `Read-V8ProjectLocalInfobase`, політика `Get-V8ProjectConfigProblems` на обох файлах, ознака `devInfobase:` сирим текстом (§5), `ConvertFrom-V8Connection` (з відомою відмінністю рішення 9 у шапці модуля `connection`), `Assert-V8SecretQuoteFree`, `Get-V8CredentialsRecipe`, `Resolve-V8AgentInfobase`, `Resolve-KitAgentBase` (з `Resolve-KitAgentInfobasePath`, `Test-KitInfobasesOverlap`), `Get-KitInfobaseCanonicalForm`, `Get-KitCanonicalPath`, `Test-KitCanonicalPathsOverlap` (єдиний предикат перетину для обох гілок), `Get-KitPathAncestry`, `Get-KitProtectedPaths`, `Find-KitProtectedCollisions`, `Find-KitAgentBaseCollisions`, `Test-KitPathsOverlap`, `Get-KitRunnerMemoryPath`, `Test-KitWorkspaceNeedsAgentBase`, `New-KitAgentBaseMissingMessage` — з тими самими текстами; збірка закомічена
+- **Після:** 1
+- **Перевірка:** `cargo test`; clippy `-D warnings`; `-Only KitExe`
+
+### Задача 3 — Префлайт і прихована підкоманда
+
+- **Файли:** створити rust/src/config/preflight.rs; `main.rs`
+- **Готово, коли:** `preflight` у трьох режимах і `select_sources` як `Resolve-V8RepoRoot`/`Invoke-KitPreflight`/`Select-KitSources` (зокрема пошук `DT-INF` на двох рівнях, порядок знахідок); `config-preflight` друкує JSON за §5 з маскою; збірка закомічена
+- **Після:** 2
+- **Перевірка:** `cargo test`; clippy `-D warnings`; `-Only KitExe`
+
+### Задача 4 — Паритет, класи, маркери, якорі
+
+- **Файли:** створити tools/tests/ConfigParity.Tests.ps1 (тег `Docs` не ставити), tools/tests/fixtures/config-bad, тести rust/tests/config_*.rs
+- **Готово, коли:** «готово, коли» B1 нижче виконано; контроль паритету, що вміє впасти: навмисно змінений у Rust текст однієї знахідки дає червоне (показати у звіті й повернути)
+- **Після:** 3
+- **Перевірка:** `-Only ConfigParity,KitExe`; `cargo test`; clippy `-D warnings`; фінал — `-Full`
 
 **«Готово, коли» блоку** (спека §3, дослівно): тести паритету на кожній фікстурі маніфесту й на зразках
 `templates/v8storagekit*.example` зелені: контекст без секретів і знахідки Rust-префлайту дорівнюють
