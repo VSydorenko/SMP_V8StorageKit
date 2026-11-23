@@ -12,7 +12,8 @@
 //
 // Відомі відмінності від PowerShell (ADR-0014 п. 7): немає нових поверх задач 1–2. Невиміряне наближення:
 // впорядкування знахідки `DT-INF` і переліку ключів у помилці `Select-KitSources` (`Sort-Object` у культурі
-// людини) відтворено таблицею розділових знаків ICU й нечутливістю до регістру — паритет на корпусі це покаже.
+// людини) відтворено таблицею розділових знаків ICU й нечутливістю до регістру; рівні без регістру лишаються
+// в порядку входу, `-Unique` лишає перший (виміряно) — паритет на корпусі це покаже.
 
 use super::agent_base::{
     AgentBase, AgentBaseCollision, InfobaseKind, WorkspaceRef,
@@ -157,7 +158,7 @@ fn resolve_root(path: &str) -> Result<String, PreflightStop> {
 }
 
 /// Порядок `Sort-Object` для рядків: нечутливо до регістру, розділові знаки раніше цифр, цифри раніше літер
-/// (таблиця ICU), при рівності — малі літери раніше великих.
+/// (таблиця ICU); рівні без регістру лишаються в порядку входу (стабільне сортування, виміряно).
 fn ps_compare(a: &str, b: &str) -> Ordering {
     const PUNCT: &str = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
     let primary = |c: char| -> (u8, u32) {
@@ -173,14 +174,7 @@ fn ps_compare(a: &str, b: &str) -> Ordering {
             (0, u32::from(lower).saturating_add(1000))
         }
     };
-    a.chars()
-        .map(primary)
-        .cmp(b.chars().map(primary))
-        .then_with(|| {
-            a.chars()
-                .map(char::is_uppercase)
-                .cmp(b.chars().map(char::is_uppercase))
-        })
+    a.chars().map(primary).cmp(b.chars().map(primary))
 }
 
 fn sort_unique(mut items: Vec<String>) -> Vec<String> {
@@ -892,10 +886,53 @@ mod tests {
         assert!(text.contains("\"parses\":false"), "{text}");
     }
 
-    // Контроль, що вміє впасти: без маски (`expose`) той самий маркер у виводі був би видно — тест маски не порожній.
+    // Контроль, що вміє впасти, йде через `report_json`: той самий маркер у НЕсекретному полі, яке друкується
+    // (`storages.cf.user`), у тексті є — отже перевірка «маркера немає» дивиться на справжній вивід.
     #[test]
-    fn mask_control_would_detect_a_leak() {
-        let leaky = format!("{{\"password\":\"{}\"}}", Secret::new("МАРКЕР7").expose());
-        assert!(leaky.contains("МАРКЕР7"));
+    fn mask_control_marker_in_printed_field_is_found_in_report() {
+        let d = repo("control", MANIFEST, Some(PROJECT));
+        let marker = "МАРКЕР-контроль";
+        std::fs::write(
+            d.join("v8storagekit.local.yaml"),
+            format!("storages:\n  cf: {{ user: {marker} }}\n"),
+        )
+        .unwrap();
+        let text = report_json(&d, Mode::Lenient, None, None, &[]).to_string();
+        assert!(text.contains(marker), "{text}");
+    }
+
+    // Шлях `mask_agent_base`: чинне підключення, маркер у `password` і в ключі та значенні `dbms` — у JSON
+    // сама база агента (не помилка) з ознаками, без маркера.
+    #[test]
+    fn json_masks_a_valid_agent_base() {
+        let d = repo("agentbase", MANIFEST, Some(PROJECT));
+        let marker = "МАРКЕР-база";
+        std::fs::write(
+            d.join("ws").join("v8project.local.yaml"),
+            format!("infobases:\n  origin:\n    connection: 'File=build/ib'\n    user: u\n    password: {marker}\n    dbms: {{ {marker}: {marker} }}\n"),
+        )
+        .unwrap();
+        let v = report_json(&d, Mode::Lenient, None, None, &[]);
+        let text = v.to_string();
+        assert!(!text.contains(marker), "{text}");
+        let agent = &v["context"]["workspaces"][0]["agentBase"];
+        assert!(agent["error"].is_null(), "{text}");
+        assert_eq!(agent["base"]["passwordSet"], true);
+        assert_eq!(agent["base"]["dbmsSet"], true);
+        assert_eq!(agent["base"]["connection"]["parses"], true);
+    }
+
+    // `Sort-Object`: рівні без регістру лишаються в порядку входу; `-Unique` лишає перший.
+    #[test]
+    fn sort_keeps_input_order_of_case_equal_items() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(sort_unique(s(&["B", "b"])), s(&["B"]));
+        assert_eq!(sort_unique(s(&["CF", "cf", "ext"])), s(&["CF", "ext"]));
+        let mut plain = s(&["B", "b"]);
+        plain.sort_by(|a, b| ps_compare(a, b));
+        assert_eq!(plain, s(&["B", "b"]));
+        let mut plain = s(&["b", "B"]);
+        plain.sort_by(|a, b| ps_compare(a, b));
+        assert_eq!(plain, s(&["b", "B"]));
     }
 }
