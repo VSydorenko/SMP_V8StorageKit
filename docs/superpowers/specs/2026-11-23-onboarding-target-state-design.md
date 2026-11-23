@@ -20,17 +20,16 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 - Порт `check`, `kit-scan`, `kit-setup` на Rust — фази #53/#55; цей блок міняє поведінку **до** порту (ADR-0014).
 - `pr-gate land` і дзеркала `storage/*`, frontmatter скілів (#95) — окрема мала задача архітектора в тій самій
   гілці, не блок цієї спеки.
-- Захист головної гілки від прямого push і `gh pr merge --admin` — захист гілки на GitHub, не kit (§6).
+- Хук git `pre-push` і дозвіл голого `git push` без запиту — відкинуто (ADR-0017).
 - Перелік класів шуму канонізації як повний — #41; тут лише той, що виміряно (§5.4).
 
 ## 3. Blocks
 
 | Block | Scope | Done when | Depends on |
 | --- | --- | --- | --- |
-| B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Preflight.psm1`, `tools/lib/Manifest.psm1`, диспетчер `tools/kit.ps1`): `kitVersion` — помилка без зупинки лише для `check`; шаблон `templates/v8project.yaml`; рядки `.gitattributes`/`.gitignore` під кожен source-set | тести-підпроцеси на синтетичному репозиторії (`New-KitFakeRepo`): (1) маніфест з `kitVersion` і старим блоком `infobase:` у `v8project.yaml` → `check` друкує **обидві** знахідки, код 1; (2) той самий репозиторій → `sync` і `session-check` зупиняються з дією «видалити `kitVersion`», наступний крок не відбувся; (3) source-set з `v8project.yaml`, якого немає в маніфесті, → знахідка з дією «заявити в маніфесті» і рядком для вставки, щойно truth відома; контроль — заявлений set без рядка `-text` дає рядок `<шлях>/** -text` | — |
-| B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`), файл застарілих імен, `templates/settings.json` (ADR-0017) | тести-підпроцеси: (1) маніфест `kitVersion: 1.4.0`, без профілю → `kit-scan` каже «підключено раніше (1.4.0)», не «перше підключення»; (2) `CLAUDE.md` з `v8storagekit:reconcile`, `/v8storagekit:sync` і `tools/kit.ps1` → рядок на кожне з заміною; контроль — «kit sync», «dump» без префікса рядка не дають; (3) `settings.json` з застарілим правилом Уніки в `allow`, `unica_apply` в `allow`, власним правилом проєкту, власним `deny` і `git push` в `ask` → `kit-setup -DryRun` показує: прибрати застаріле, перенести `unica_apply` в `ask`, `git push` — окремим рядком «розширення за ADR-0017 — потрібна згода»; власне правило й `deny` без змін; (4) невалідний JSON на вході → зупинка, файл байт-у-байт той самий; (5) новий профіль без `kit.version`, `kit-scan` показує розрив; явний крок записує версію; (6) профіль без знайдених `docs.specs`/`docs.plans` — без TODO для них | — |
-| B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `skills/storage-sync/SKILL.md`, `skills/storage-rules/SKILL.md`, `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md` у межах §5.4 | `Skills.Tests.ps1` і `KitScan.Tests.ps1` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» має рядок на кожен розділ версії; `templates/CLAUDE.md` не каже «push і PR лише за явним проханням» | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`, файл застарілих імен), B4 (хук) |
-| B4 Хук pre-push | `templates/githooks/pre-push`, `install-hooks` (`tools/commands/install-hooks.psm1`, `Get-KitHookNames`), перевірка хуків у `check` | тест-підпроцес на синтетичному репозиторії з bare-origin і встановленими хуками: `git push --force`, `git push origin +HEAD:storage/x`, `git push origin :storage/x` (видалення) і non-fast-forward у `storage/*` — відмова, ref на origin не змінився; контроль — звичайний fast-forward push гілки задачі проходить; `check` на репозиторії без `pre-push` дає знахідку | — |
+| B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Preflight.psm1`, `tools/lib/Manifest.psm1`, диспетчер `tools/kit.ps1`): `kitVersion` — помилка без зупинки лише для `check`; шаблон `templates/v8project.yaml`; рядки `.gitattributes`/`.gitignore` під кожен source-set | тести-підпроцеси на синтетичному репозиторії (`New-KitFakeRepo`): (1) маніфест з `kitVersion` і старим блоком `infobase:` у `v8project.yaml` → `check` друкує **обидві** знахідки, код 1; (2) той самий репозиторій → `sync` і `session-check` зупиняються з дією «видалити `kitVersion`», наступний крок не відбувся; (3) source-set з `v8project.yaml`, якого немає в маніфесті, → наявна `warn undeclared-source` (код 0) тепер називає, який рядок `.gitattributes`/`.gitignore` випливе з кожного `truth`; контроль — заявлений set без рядка `-text` дає `error` з рядком `<шлях>/** -text` | — |
+| B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`), файл застарілих імен, `templates/settings.json` (ADR-0017) | тести-підпроцеси: (1) маніфест `kitVersion: 1.4.0`, без профілю → `kit-scan` каже «підключено раніше (1.4.0)», не «перше підключення»; (2) `CLAUDE.md` з `v8storagekit:reconcile`, `/v8storagekit:sync` і `tools/kit.ps1` → рядок на кожне з заміною; контроль — «kit sync», «dump» без префікса рядка не дають; (3) `settings.json` з застарілим правилом Уніки в `allow`, `unica_apply` в `allow`, власним правилом проєкту, власним `deny`, `git push` в `ask` і старим записом `hooks.SessionStart` поруч із власним → `kit-setup -DryRun` показує: прибрати застаріле, перенести `unica_apply` в `ask`, додати правила `pr-gate open/ready/land`, прибрати лише запис шима; `git push` в `ask`, власне правило, `deny` і власний хук — без змін; (4) невалідний JSON на вході → зупинка, файл байт-у-байт той самий; (5) новий профіль без `kit.version`, `kit-scan` показує розрив; явний крок записує версію; (6) профіль без знайдених `docs.specs`/`docs.plans` — без TODO для них; (7) зміст шаблону: `pr-gate open`, `ready`, `land` в `allow` в обох формах; `git push`, `gh pr create`, `gh pr merge` — в `ask`; широкого `pr-gate:*` немає | — |
+| B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `skills/storage-sync/SKILL.md`, `skills/storage-rules/SKILL.md`, `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md` у межах §5.4 | `Skills.Tests.ps1` і `KitScan.Tests.ps1` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» має рядок на кожен розділ версії; `templates/CLAUDE.md` каже «push, PR і злиття — через `pr-gate` без запиту; голі `git push`/`gh pr` — з запитом» | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`, файл застарілих імен, шаблон дозволів) |
 
 ## 4. Interfaces
 
@@ -40,9 +39,8 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 | режим префлайту для `check`: `kitVersion` — знахідка, а не зупинка; для решти команд — зупинка | поведінка модуля | B1 | — | §5.1 |
 | `templates/v8project.yaml` | файл шаблону | B1 | B3 (посилається), споживачі | §5.1 |
 | стан «підключено раніше (<версія>)» у розділі `Kit version` `kit-scan` (текст і `-Json`) | вивід команди | B2 | B3 | §5.2 |
-| файл застарілих імен: старі імена → заміни; правила, зняті з шаблону | файл даних kit | B2 | B3 (`upgrades.md` посилається, не копіює) | §5.2 |
+| файл застарілих імен: старі імена → заміни | файл даних kit | B2 | B3 (`upgrades.md` посилається, не копіює) | §5.2 |
 | цільовий `settings.json` — `templates/settings.json` | файл шаблону | B2 | B3 (описує), споживачі | §5.3 |
-| `templates/githooks/pre-push` і його перелік відмов | файл шаблону | B4 | B3 (описує), B1 (`check` знає ім'я хука) | §5.5 |
 
 ## 5. Blocks in detail
 
@@ -59,11 +57,11 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   (`providers`, набори `source-set` без старого блоку `infobase:`), з коментарем до кожного ключа kit. Джерело
   змісту — чинні перевірки `check`: кожне правило шаблону `check` перевіряє. `templates/README.md` має рядок
   відповідності.
-- **Рядки під фактичні шляхи.** `check` іде по source-set **з `v8project.yaml`** кожного воркспейсу, а не лише по
-  джерелах маніфесту. Заявлений set з `truth: git`/`storage` без рядка `.gitattributes` → рядок
-  `<шлях>/** -text` готовим до вставки (як тепер); з `truth: vendor` без рядка `.gitignore` → рядок
-  `<шлях>/**`. Незаявлений set (типово тестовий, #11) → знахідка з дією «заявити в маніфесті з `truth`» і поясненням,
-  який рядок випливе з кожного `truth`. Тримає: тест (3) рядка B1.
+- **Рядки під фактичні шляхи.** Для заявленого source-set з `truth: git`/`storage` без рядка `.gitattributes`
+  `check` дає `error` з рядком `<шлях>/** -text` (як тепер); з `truth: vendor` без рядка `.gitignore` — рядок
+  `<шлях>/**`. Наявна `warn undeclared-source` для source-set з `v8project.yaml`, якого немає в маніфесті (типово
+  тестовий, #11), лишається `warn` з кодом 0, але її дія тепер каже: «заявіть у маніфесті з `truth`; для
+  `git`/`storage` знадобиться рядок `<шлях>/** -text`, для `vendor` — `<шлях>/**` у `.gitignore`». Тримає: тест (3).
 
 ### 5.2 B2 Процес за цільовим станом
 
@@ -82,28 +80,27 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   - виклики `tools/kit.ps1` → `kit`; прибрані команди (`kit build` → `unica.run` `"op":"make"`);
   - інструменти Уніки, яких немає в Уніці 0.16 (`mcp__plugin_unica_unica__unica_project_map` тощо): перелік
     складає автор плану порівнянням правил колишніх шаблонів із переліком інструментів установленої Уніки
-    (`skills/1c-unica/scripts/unica-call.ps1 --tools`);
-  - **правила, зняті з шаблону** з дією: `Bash(git push:*)`, `Bash(gh pr create:*)` в `ask` → розширення за ADR-0017.
+    (`skills/1c-unica/scripts/unica-call.ps1 --tools`).
 
   `kit-scan` шукає імена як цілі токени (голі слова `sync`, `dump` без префікса — ні) у `CLAUDE.md`, `AGENTS.md`,
   `.claude/**`, `.agents/**` (без вивід-тек), `.gitignore`, `.gitattributes`; регістр не враховується; рядок на
   збіг — файл, стара назва, заміна. Тримає: тест (2) рядка B2 з контролем, що вміє впасти.
-- **Злиття `.claude/settings.json`** (цільовий стан — `templates/settings.json`, §5.3). `kit-setup -DryRun`
-  показує, `kit-setup` застосовує:
+- **Злиття `.claude/settings.json`** (цільовий стан — `templates/settings.json`, §5.3). Контракт `kit-setup`
+  «нічого не видаляє й не перезаписує» для `settings.json` змінюється на перелічене нижче; довідка команди й
+  її тести оновлюються разом. `-NoPermissions` вимикає все злиття `settings.json`, включно з прибиранням.
+  `kit-setup -DryRun` показує, `kit-setup` застосовує:
   - (а) правила `allow`, `ask`, `deny` шаблону, яких у проєкті немає, — додати;
   - (б) правила, що **точно** збігаються з застарілими іменами Уніки з файлу застарілих імен, — прибрати, лише з
     `allow`/`ask`;
   - (в) `unica_apply` в `allow` проєкту → перенести в `ask` (шаблон тримає його в `ask`; `unica_run` шаблон
     свідомо тримає в `allow` — `docs/unica-contract.md`);
   - (г) запис `hooks.SessionStart`, команда якого веде на старий шим `.claude/hooks/session-start.ps1`, — прибрати;
-    інші записи `SessionStart` і власні хуки проєкту не чіпати;
-  - (д) правила, зняті з шаблону (файл застарілих імен), — окремими рядками «розширення за ADR-0017 — потрібна
-    згода людини»; застосовуються лише з явним прапорцем згоди, мовчки не прибираються.
+    інші записи `SessionStart` і власні хуки проєкту не чіпати.
 
-  Нічого з `deny` проєкту не прибирається ніколи; власні правила, яких немає ні в шаблоні, ні у файлі застарілих
-  імен, лишаються без змін; правило, яке шаблон тримає в `ask`, у `allow` не потрапляє. Запис — серіалізувати,
-  розібрати результат у пам'яті, записати тимчасовий файл і атомарно замінити; збій розбору на вході чи виході —
-  зупинка без запису. Тримає: тести (3) і (4) рядка B2.
+  Нічого з `deny` проєкту не прибирається ніколи; правила `ask` проєкту не прибираються й не переносяться в
+  `allow`; власні правила, яких немає ні в шаблоні, ні у файлі застарілих імен, лишаються без змін; правило, яке
+  шаблон тримає в `ask`, у `allow` не потрапляє. Запис — серіалізувати, розібрати результат у пам'яті, записати
+  тимчасовий файл і атомарно замінити; збій розбору на вході чи виході — зупинка без запису. Тримає: тести (3), (4).
 - **Необов'язкові поля профілю.** `docs.specs`, `docs.plans` без знайденої теки не отримують TODO: поле
   пропускається, діє типове значення скілу (`discuss` — `docs/specs/`). Обов'язкові поля (`pr.base`,
   `pr.mergeMethod`) — TODO, як тепер. Тримає: тест (6).
@@ -112,14 +109,15 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 
 ### 5.3 B2 Цільовий `settings.json` (ADR-0017)
 
-`templates/settings.json` дає ту саму форму, що й налаштування власника:
-
-- `allow`: `git push`, `gh pr create`, `gh pr merge` — у формах `Bash(… *)` і `PowerShell(… *)`;
-- `ask`: `git push --force`, `git push -f`, `git push --force-with-lease` (обидві форми), `gh release`;
+- `allow`: правила процесу, які `kit-setup` пише й тепер, плюс `pr-gate open`, `pr-gate ready`, `pr-gate land` — у
+  формах `Bash(pr-gate <підкоманда>:*)` і `PowerShell(pr-gate <підкоманда>:*)`. Широке `pr-gate:*` не
+  вживається: воно дозволило б і майбутні підкоманди без рішення (`kit-setup` і далі попереджає про нього).
+- `ask`: голі `git push`, `gh pr create`, `gh pr merge` — як тепер; `gh release`.
 - `deny`: як тепер.
 
-Префіксні правила не ловлять усіх форм примусового push (`git push origin -f`, `+ref`, видалення ref): цю межу
-тримає хук pre-push (B4), а не дозволи. `Templates.Tests.ps1` звіряє шаблон із тим, що пише `kit-setup`.
+Межа «лише гілка задачі, лише fast-forward, ніколи головна гілка й `storage/*`, злиття лише без конфлікту й на
+перевіреній голові» — це запобіжники `pr-gate` у коді (`tools/lib/KitPrGate.psm1`, тести `PrGate.Tests.ps1`), а
+не префікси дозволів. Тримає: тест (7) рядка B2 і `Templates.Tests.ps1` (шаблон ↔ вивід `kit-setup`).
 
 ### 5.4 B3 Текст онбордингу
 
@@ -139,7 +137,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   порядок — `kit-scan` → `kit check` → відхилення обох → кроки Уніки, яких інструменти не виявляють → `kit.version`
   останнім комітом; версія плагіна у звіті й на застосуванні — однакова, інакше повторний скан.
 - **Дозволи споживача.** `templates/CLAUDE.md`: рядок «`git push`, `gh pr create` — лише за явним проханням»
-  переписати за ADR-0017 і §5.3; згадати хук pre-push.
+  переписати за ADR-0017: push, PR і злиття — через `pr-gate` без запиту; голі `git push`/`gh pr` — з запитом.
 - **Дотичні тексти:**
   - попередження в онбордингу про кириличні імена тек і шляхів (#69 п.1);
   - код 3 `session-check` — «є що робити», а не збій, у `skills/storage-sync/SKILL.md` і `skills/storage-rules/SKILL.md` (#65);
@@ -148,28 +146,14 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
   - `docs/unica-contract.md`: рядки «Трекінг в апстрімі» для розбіжності `check`/`run` на прихованому наборі й
     `os error 5` при заміні теки (#63).
 
-### 5.5 B4 Хук pre-push
-
-`templates/githooks/pre-push` (sh, як сусідні хуки) читає зі stdin рядки `<local ref> <local sha> <remote ref>
-<remote sha>` і відмовляє (код ≠ 0, повідомлення з причиною), коли:
-
-- remote ref — `refs/heads/storage/*` і це видалення (`local sha` нульовий) або не fast-forward (`remote sha`
-  не предок `local sha`);
-- будь-який remote ref оновлюється не fast-forward (примусовий push), крім гілки, яку назвала змінна оточення
-  на один виклик (ім'я — рішення плану) — для свідомого перезапису людиною.
-
-`install-hooks` ставить `pre-push` разом із наявними; `check` повідомляє, коли його немає (як про інші хуки).
-Хук не знає про `-f` у командному рядку — він бачить лише результат; тому він і є межею, а не дозволи.
-
 ## 6. Security and data integrity
 
-- **Дозволи.** Розширення push/PR — рішення власника (ADR-0017). Примусовий push і видалення `storage/*` на
-  remote тримає хук pre-push (B4), бо префіксні правила `ask` всіх форм не ловлять. Прямий push у головну гілку
-  й `gh pr merge --admin` kit не тримає — це захист гілки на GitHub, поза блоком; текст `templates/CLAUDE.md`
-  називає цю межу.
-- **Злиття `settings.json`.** Ніколи не прибирає `deny`; не кладе в `allow` правило, яке шаблон тримає в `ask`;
-  не прибирає мовчки правил `ask` — зняті з шаблону йдуть лише з явною згодою (§5.2 (д)); прибирає лише точні
-  застарілі імена.
+- **Дозволи.** Без запиту — лише `pr-gate open/ready/land`, межі яких тримає код `pr-gate` (§5.3); голі `git push`,
+  `gh pr create`, `gh pr merge` лишаються з запитом, тож примусовий push, push у головну гілку, видалення
+  віддалених гілок і обхід хуків (`--no-verify`) без людини неможливі. `pr-gate land` не перевіряє схвалення
+  рев'ю на GitHub — «злиття після рев'ю» тримає процес (скіли `review`, `execute`), а не команда.
+- **Злиття `settings.json`.** Ніколи не прибирає `deny` і `ask`; не кладе в `allow` правило, яке шаблон тримає в
+  `ask`; прибирає лише точні застарілі імена й лише запис старого шима.
 - **Невалідний JSON.** Запис — атомарний, з розбором результату до заміни файлу; збій — зупинка, файл той самий.
 - **Поставка вендора.** Рецепт кроку 9 не видаляє гітігнорований `.cf` поставки наперед: з git він не
   відновлюється (сотні МБ).
