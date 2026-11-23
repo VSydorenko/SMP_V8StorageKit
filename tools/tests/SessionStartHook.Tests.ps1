@@ -173,7 +173,7 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Do
         }
 
         It 'лише профіль процесу: у контексті правила, «Стану сховищ» немає' {
-            $dir = New-ProfileProject -Name 'profile-only' -ProfileText '{ "kit": { "version": "0.1.0" } }'
+            $dir = New-ProfileProject -Name 'profile-only' -ProfileText '{ "v8storagekit": { "version": "0.1.0" } }'
             $r = Invoke-Hook -ProjectDir $dir
             $r.ExitCode | Should -Be 0
             $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
@@ -183,8 +183,7 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Do
         }
 
         It 'профіль <Name>, який читає ConvertFrom-Json, — профіль читається: правила в контексті' -ForEach @(
-            @{ Name = 'порожній'; Text = '' }
-            @{ Name = 'з коментарями'; Text = "// профіль`n{ `"kit`": /* версія */ { `"version`": `"0.1.0`" }, `"x`": `"a // b /* c */`" }" }
+            @{ Name = 'з коментарями'; Text = "// профіль`n{ `"v8storagekit`": /* версія */ { `"version`": `"0.1.0`" }, `"x`": `"a // b /* c */`" }" }
         ) {
             # Еталон — PowerShell-хук до переносу на Rust: він розбирав профіль ConvertFrom-Json (як і KitProfile.psm1).
             { $Text | ConvertFrom-Json } | Should -Not -Throw -Because 'еталон: ConvertFrom-Json приймає цей профіль'
@@ -193,6 +192,20 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Do
             $r.ExitCode | Should -Be 0
             $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
             $ctx | Should -BeLike '*ASD-STE100*'
+        }
+
+        It 'профіль agent-kit без версії v8storagekit і без маніфесту — тиша й код 0' {
+            $dir = New-ProfileProject -Name 'profile-agentkit' -ProfileText '{ "kit": { "version": "0.11.5" } }'
+            $r = Invoke-Hook -ProjectDir $dir
+            $r.ExitCode | Should -Be 0
+            $r.Output.Trim() | Should -BeNullOrEmpty
+        }
+
+        It 'профіль з v8storagekit.version без маніфесту — правила в контексті' {
+            $dir = New-ProfileProject -Name 'profile-v8k' -ProfileText '{ "v8storagekit": { "version": "1.2.3" } }'
+            $r = Invoke-Hook -ProjectDir $dir
+            $r.ExitCode | Should -Be 0
+            ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext | Should -BeLike '*ASD-STE100*'
         }
 
         It 'лише профіль, але зламаний JSON — тиша й код 0' {
