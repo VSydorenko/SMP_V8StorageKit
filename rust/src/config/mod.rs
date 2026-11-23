@@ -22,8 +22,11 @@
     clippy::arithmetic_side_effects
 )]
 
+pub mod agent_base;
+pub mod connection;
 pub mod manifest;
 pub mod overlay;
+pub mod v8project;
 pub mod yaml;
 
 use std::fmt;
@@ -64,11 +67,37 @@ impl Secret {
     pub fn expose(&self) -> &str {
         &self.0
     }
+
+    /// Чи пароль порожній (порожній рядок — «не задано»); довжина й вид скаляра назовні не віддаються.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl fmt::Debug for Secret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Secret(задано)")
+    }
+}
+
+/// Піддерево `infobases.origin.dbms` (облікові дані СУБД): ключі й значення — секрет, тому дерево непрозоре.
+/// Без `Display`, `Debug` друкує лише ознаку «задано»; сирий вміст дає тільки `expose`.
+#[derive(Clone, PartialEq)]
+pub struct SecretTree(serde_yaml::Mapping);
+
+impl SecretTree {
+    pub fn new(tree: serde_yaml::Mapping) -> Self {
+        SecretTree(tree)
+    }
+
+    pub fn expose(&self) -> &serde_yaml::Mapping {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretTree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SecretTree(задано)")
     }
 }
 
