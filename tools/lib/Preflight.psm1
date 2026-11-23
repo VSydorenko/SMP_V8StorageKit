@@ -30,14 +30,17 @@ function Invoke-KitPreflight {
     .SYNOPSIS
         Спільний префлайт усіх команд kit: маніфест, накладка, воркспейси,
         відповідність ключів джерел source-set-ам. Мілісекунди, без платформи й git-логу.
-    .PARAMETER Lenient
-        Не кидати, а збирати знахідки в Findings і виставити Ok=$false. Режим check.
+    .PARAMETER Mode
+        Strict (типово) — кидає на першій проблемі. Lenient — не кидає, а збирає знахідки в Findings і
+        виставляє Ok=$false (session-check); kitVersion у маніфесті там — зупинка на знахідці manifest.
+        Check — як Lenient, але kitVersion у маніфесті — окрема знахідка error kit-version, решта розбирається.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [switch]$Lenient
+        [ValidateSet('Strict', 'Lenient', 'Check')][string]$Mode = 'Strict'
     )
+    $Lenient = $Mode -ne 'Strict'
 
     $findings = [System.Collections.Generic.List[object]]::new()
     $ctx = [pscustomobject]@{
@@ -90,8 +93,12 @@ function Invoke-KitPreflight {
                             'і запустіть kit check ще раз. Далі — скіл v8storagekit:onboarding.')
         return $ctx
     }
-    try { $ctx.Manifest = Read-KitManifest -Path $ctx.ManifestPath }
+    try { $ctx.Manifest = Read-KitManifest -Path $ctx.ManifestPath -AllowKitVersion:($Mode -eq 'Check') }
     catch { & $fail 'manifest' $_.Exception.Message; return $ctx }
+    if ($ctx.Manifest.HasKitVersion) {
+        & $fail 'kit-version' ('У маніфесті є поле kitVersion — його прибрано: видаліть рядок kitVersion: з v8storagekit.yaml; ' +
+                               'версію проєкту тримає .agents/kit.profile.json (kit.version).')
+    }
     $ctx.Kind = $ctx.Manifest.Kind; $ctx.Label = $ctx.Manifest.Label; $ctx.MainBranch = $ctx.Manifest.MainBranch
 
     $overlayPath = Join-Path $root $script:OverlayFileName

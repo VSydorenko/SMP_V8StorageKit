@@ -58,7 +58,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         # "з теки плагіна" саме собою не каже, де та тека.
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*claude plugin list*'
 
-        $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient
+        $ctx = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
         $ctx.Ok | Should -BeFalse
         @($ctx.Findings | Where-Object Level -eq 'error').Count | Should -Be 1
         $ctx.Findings[0].Message | Should -BeLike '*v8storagekit.yaml*'
@@ -69,7 +69,7 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
         Remove-Item -LiteralPath (Join-Path $repo 'v8storagekit.yaml')
         New-Item -ItemType Directory -Path (Join-Path $repo 'cf/DT-INF') -Force | Out-Null
         { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*формат*EDT*cf/DT-INF*convert*'
-        $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient
+        $ctx = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
         $ctx.Ok | Should -BeFalse
         $ctx.Findings[0].Message | Should -BeLike '*cf/DT-INF*convert*'
     }
@@ -102,9 +102,25 @@ Describe 'Preflight.psm1 — контекст команди з маніфест
             '  - path: Ghost',     '    sources:', "      g: { truth: git }"
         ) -join "`n"
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'lenient') -ManifestText $text
-        $ctx = Invoke-KitPreflight -RepoRoot $repo -Lenient
+        $ctx = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
         $ctx.Ok | Should -BeFalse
         @($ctx.Findings | Where-Object Level -eq 'error').Count | Should -Be 2
+    }
+
+    It '-Mode Check: kitVersion — знахідка kit-version, решта розбирається; Lenient і Strict на ньому зупиняються' {
+        $text = "version: 1`nkitVersion: 1.0.1`nproduct: Fake`nworkspaces:`n  - path: Alpha_SMB`n    sources:`n      nope: { truth: git }"
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'kitversion') -ManifestText $text
+        $ctx = Invoke-KitPreflight -RepoRoot $repo -Mode Check
+        $ctx.Ok | Should -BeFalse
+        # Маніфест розібрано (Kind заповнено), а друга проблема (ключ sources) теж у знахідках.
+        $ctx.Kind | Should -Be 'product'
+        @($ctx.Findings | Where-Object Check -eq 'kit-version').Count | Should -Be 1
+        @($ctx.Findings | Where-Object Check -eq 'source').Count | Should -Be 1
+        $ctx.Findings[0].Message | Should -BeLike '*kitVersion*kit.profile.json*'
+        { Invoke-KitPreflight -RepoRoot $repo } | Should -Throw '*kitVersion прибрано*'
+        $len = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
+        $len.Kind | Should -BeNullOrEmpty
+        @($len.Findings | Where-Object Check -eq 'manifest').Count | Should -Be 1
     }
 
     Context 'Select-KitSources' {

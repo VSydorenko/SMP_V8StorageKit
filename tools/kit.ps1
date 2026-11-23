@@ -178,7 +178,8 @@ $repoRoot = if ($parsed.Named.ContainsKey('RepoRoot')) { [string]$parsed.Named['
 try {
     # check і session-check — діагностика: вони мусять ДОПОВІСТИ про суперечливий репозиторій, а не впасти на
     # ньому. Решта команд без чистого префлайту не має з чим працювати.
-    $context = Invoke-KitPreflight -RepoRoot $repoRoot -Lenient:($command -in @('check', 'session-check'))
+    $preflightMode = switch ($command) { 'check' { 'Check' } 'session-check' { 'Lenient' } default { 'Strict' } }
+    $context = Invoke-KitPreflight -RepoRoot $repoRoot -Mode $preflightMode
     # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream повертає лише
     # $null або {ExitCode; …}. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
     $result = & $functionName -Context $context @splat

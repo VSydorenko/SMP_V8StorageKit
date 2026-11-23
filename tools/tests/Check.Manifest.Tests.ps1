@@ -141,6 +141,51 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 }
 
+Describe 'kitVersion у маніфесті — знахідка check, зупинка решти команд' {
+    BeforeAll {
+        . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1')
+        function script:Add-KitVersionLine([string]$Repo, [string]$Line) {
+            $p = Join-Path $Repo 'v8storagekit.yaml'
+            $lines = @(Get-Content -LiteralPath $p -Encoding UTF8)
+            Set-Content -LiteralPath $p -Encoding UTF8 -Value (@($lines[0], $Line) + $lines[1..($lines.Count - 1)])
+        }
+    }
+
+    It 'check: kitVersion + стара форма infobase: — обидві знахідки, код 1; лише kitVersion і порожнє kitVersion: — теж код 1 і [-] з дією' {
+        $both = New-GoodRepo 'kv-both'
+        Add-KitVersionLine $both 'kitVersion: 1.0.1'
+        Add-Content -LiteralPath (Join-Path $both 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")
+        $r = Invoke-Check -Repo $both
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[[]-]*kitVersion*kit.profile.json*'
+        $r.Output | Should -BeLike "*стара форма 'infobase:'*"
+
+        # Контроль: чистий репозиторій без kitVersion — зелений, тож червоне нижче дає саме поле.
+        (Invoke-Check -Repo (New-GoodRepo 'kv-none')).ExitCode | Should -Be 0
+
+        foreach ($case in @(@('kv-only', 'kitVersion: 1.0.1'), @('kv-empty', 'kitVersion:'))) {
+            $repo = New-GoodRepo $case[0]
+            Add-KitVersionLine $repo $case[1]
+            $r = Invoke-Check -Repo $repo
+            $r.ExitCode | Should -Be 1 -Because $case[0]
+            $r.Output | Should -BeLike '*[[]-]*kitVersion*kit.profile.json*' -Because $case[0]
+        }
+    }
+
+    It 'sync і session-check на маніфесті з kitVersion — зупинка з дією, дзеркал storage/* не створено' {
+        $repo = New-GoodRepo 'kv-stop'
+        Add-KitVersionLine $repo 'kitVersion: 1.0.1'
+        $s = Invoke-KitCommand -Kit $script:Kit -Command 'sync' -Repo $repo
+        $s.ExitCode | Should -Be 1
+        $s.Output | Should -BeLike '*kitVersion прибрано*видаліть рядок*'
+        Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
+        @(git -C $repo branch --list 'storage/*').Count | Should -Be 0
+        $c = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo
+        $c.ExitCode | Should -Be 1
+        $c.Output | Should -BeLike '*kitVersion прибрано*'
+    }
+}
+
 Describe 'kit check і решта команд — застарілий конфіг Уніки зупиняє все' {
     BeforeAll { . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1') }
 
