@@ -213,10 +213,10 @@ fn top_level_keys(text: &str) -> Vec<String> {
                 }
                 if depth == 1 && expect_key {
                     let lit: String = c[start..(i + 1).min(c.len())].iter().collect();
-                    if let Ok(k) = serde_json::from_str::<String>(&lit) {
-                        if !keys.contains(&k) {
-                            keys.push(k);
-                        }
+                    if let Ok(k) = serde_json::from_str::<String>(&lit)
+                        && !keys.contains(&k)
+                    {
+                        keys.push(k);
                     }
                     expect_key = false;
                 }
@@ -288,11 +288,12 @@ fn get_state(cwd: &Path, reference: &str, base: &str) -> State {
     let range = format!("origin/{base}...{reference}");
     if let Some(counts) = sb_git(cwd, &["rev-list", "--left-right", "--count", &range]) {
         let parts: Vec<&str> = counts.split_whitespace().collect();
-        if let [b, a] = parts[..] {
-            if all_digits(b) && all_digits(a) {
-                s.behind = b.parse().ok();
-                s.ahead = a.parse().ok();
-            }
+        if let [b, a] = parts[..]
+            && all_digits(b)
+            && all_digits(a)
+        {
+            s.behind = b.parse().ok();
+            s.ahead = a.parse().ok();
         }
     }
     s

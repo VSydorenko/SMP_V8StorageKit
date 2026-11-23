@@ -7,7 +7,7 @@
     Збірку без них (rust-lld, xwin, голий `cargo build`) Windows Defender видаляв як ML-детекцію
     (docs/research/2026-11-21-defender-kit-exe.md), тож у коміт іде лише збірка поставки.
 
-      build-kit-exe.ps1 [-Out <файл>]     cargo test, ресурс, збірка, перевірка; результат — у -Out
+      build-kit-exe.ps1 [-Out <файл>]     cargo clippy -D warnings, cargo test, ресурс, збірка, перевірка; результат — у -Out
                                           (типово bin/kit.exe). Перевірку не пройдено — -Out не змінено.
       build-kit-exe.ps1 -Verify <файл>    лише перевірка форми збірки поставки (її кличе Pester).
 
@@ -99,6 +99,9 @@ try {
 
     Push-Location (Join-Path $repo 'rust')
     try {
+        # Лінти тримають і розбір у модулі config (#![deny] — спека §6): червоний clippy — червона збірка поставки.
+        & cargo clippy --all-targets --locked -- -D warnings
+        if ($LASTEXITCODE) { Fail "cargo clippy завершився кодом $LASTEXITCODE" }
         & cargo test --locked
         if ($LASTEXITCODE) { Fail "cargo test завершився кодом $LASTEXITCODE" }
         & cargo rustc --release --locked --bin kit -- -C "link-arg=$res"

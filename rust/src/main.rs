@@ -105,6 +105,7 @@ fn dispatch(root: &Path, tokens: &[String]) -> i32 {
 }
 
 fn main() {
+    kit::install_panic_hook();
     let mut tokens = Vec::new();
     for a in std::env::args_os().skip(1) {
         match a.into_string() {
