@@ -144,6 +144,8 @@ Describe 'Start-KitRunnerProcess: аргументи доходять до ра�
         @{ Token = 'trailing\' }
         @{ Token = 'back\"slash' }
         @{ Token = 'кирилиця з пробілом' }
+        @{ Token = 'C:\my dir\' }
+        @{ Token = 'a b\\' }
     ) {
         $kit = $script:KitExe; $cwd = "$TestDrive"; $tok = $Token
         $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd; Tok = $tok } {
@@ -152,6 +154,37 @@ Describe 'Start-KitRunnerProcess: аргументи доходять до ра�
         }
         $run.ExitCode | Should -Be 1
         $run.Stderr | Should -BeLike "*відбиток $Token не обчислено*"
+    }
+    It 'порожній токен лишається окремим порожнім аргументом (не зникає й не зсуває позицій)' {
+        $kit = $script:KitExe; $cwd = "$TestDrive"
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd } {
+            param($Kit, $Cwd)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', '')
+        }
+        # Порожній аргумент зник би — тоді код 0 без помилки; два пробіли — токен порожній, а не склеєний.
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -BeLike 'source-fingerprint: ERROR відбиток  не обчислено:*'
+    }
+    It 'токен з пробілом не розпадається на два аргументи (код 1, а не 2 «очікувалась одна тека крейта»)' {
+        $kit = $script:KitExe; $cwd = "$TestDrive"
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd } {
+            param($Kit, $Cwd)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', 'C:\my dir\')
+        }
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -Not -BeLike '*очікувалась одна тека крейта*'
+    }
+    It 'відносні -RunnerPath і $PWD: раннер знаходиться від теки PowerShell, а не процесу kit.exe' {
+        $dir = Join-Path $TestDrive 'rel-runner'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        Copy-Item -Path (Join-Path $script:FixDir '*') -Destination $dir -Recurse
+        $before = (Get-Location).ProviderPath
+        try {
+            Set-Location -LiteralPath $dir
+            Get-KitRunnerVersion -RunnerPath '.\v8-runner.cmd' | Should -BeExactly '0.18.1'
+        } finally {
+            Set-Location -LiteralPath $before
+        }
     }
     It 'фальшивий .cmd у теці з пробілом і кирилицею запускається' {
         $dir = Join-Path $TestDrive 'тека з пробілом'

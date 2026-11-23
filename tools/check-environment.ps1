@@ -87,24 +87,37 @@ $checks.Add((New-EnvironmentCheck -Name 'Pester 5+' -Category 'Розробка 
 
 # Вердикти Уніки й раннера дає bin/kit.exe tool-verdicts цього дерева (Rust, ADR-0014); порожній
 # -RunnerPath не передається — раннер тоді береться з реєстру.
-$kitExe = Join-Path $PSScriptRoot '../bin/kit.exe'
-$psi = [System.Diagnostics.ProcessStartInfo]::new($kitExe)
-$psi.UseShellExecute = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError = $true
-$psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-$psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-$psi.CreateNoWindow = $true
-foreach ($token in @('tool-verdicts', '-InstalledPluginsPath', $InstalledPluginsPath)) { $psi.ArgumentList.Add($token) }
-if ($RunnerPath) { foreach ($token in @('-RunnerPath', $RunnerPath)) { $psi.ArgumentList.Add($token) } }
-$verdictProc = [System.Diagnostics.Process]::Start($psi)
-$verdictOut = $verdictProc.StandardOutput.ReadToEndAsync()
-$verdictErr = $verdictProc.StandardError.ReadToEndAsync()
-$verdictProc.WaitForExit()
-if ($verdictProc.ExitCode -ne 0) {
-    throw "kit.exe tool-verdicts завершився з кодом $($verdictProc.ExitCode): $($verdictErr.GetAwaiter().GetResult().Trim())"
+$kitExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../bin/kit.exe'))
+if (-not (Test-Path -LiteralPath $kitExe -PathType Leaf)) {
+    # Без kit.exe вердиктів немає: обидві перевірки категорії «Конвеєр» — [-] з шляхом, без сирого винятку Process.Start.
+    $missing = "bin/kit.exe не знайдено: $kitExe — вердикт про Уніку й раннер неможливий"
+    $verdicts = [pscustomobject]@{
+        unica  = [pscustomobject]@{ Installed = $false; PathExists = $false; Level = 'error'; Message = $missing }
+        runner = [pscustomobject]@{ Level = 'error'; Message = $missing }
+    }
+} else {
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($kitExe)
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $psi.CreateNoWindow = $true
+    foreach ($token in @('tool-verdicts', '-InstalledPluginsPath', $InstalledPluginsPath)) { $psi.ArgumentList.Add($token) }
+    if ($RunnerPath) { foreach ($token in @('-RunnerPath', $RunnerPath)) { $psi.ArgumentList.Add($token) } }
+    $verdictProc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $verdictOut = $verdictProc.StandardOutput.ReadToEndAsync()
+        $verdictErr = $verdictProc.StandardError.ReadToEndAsync()
+        $verdictProc.WaitForExit()
+        if ($verdictProc.ExitCode -ne 0) {
+            throw "kit.exe tool-verdicts завершився з кодом $($verdictProc.ExitCode): $($verdictErr.GetAwaiter().GetResult().Trim())"
+        }
+        $verdicts = $verdictOut.GetAwaiter().GetResult() | ConvertFrom-Json
+    } finally {
+        $verdictProc.Dispose()
+    }
 }
-$verdicts = $verdictOut.GetAwaiter().GetResult() | ConvertFrom-Json
 $unica = $verdicts.unica
 $unicaVerdict = $unica
 $unicaOk = $unicaVerdict.Level -ne 'error'

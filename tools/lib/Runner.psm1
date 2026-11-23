@@ -46,13 +46,19 @@ function Start-KitRunnerProcess {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RunnerPath,
-        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments,
         [Parameter(Mandatory)][string]$WorkingDirectory
     )
 
     if (-not (Test-Path -LiteralPath $RunnerPath -PathType Leaf)) {
         throw "Раннер не знайдено: $RunnerPath"
     }
+    if (-not (Test-Path -LiteralPath $WorkingDirectory -PathType Container)) {
+        throw "Робочої теки раннера немає: $WorkingDirectory"
+    }
+    # Відносні шляхи PowerShell розв'язує від $PWD, а kit.exe — від теки свого процесу: передаємо абсолютні.
+    $RunnerPath = (Resolve-Path -LiteralPath $RunnerPath).ProviderPath
+    $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).ProviderPath
     # kit.exe — від розташування модуля (tools/lib -> ../../bin), не з PATH: PATH сесії може вести в чужу копію.
     $kitExe = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($PSScriptRoot, '..', '..', 'bin', 'kit.exe'))
     if (-not (Test-Path -LiteralPath $kitExe -PathType Leaf)) {
