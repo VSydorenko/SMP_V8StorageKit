@@ -91,7 +91,7 @@ function Read-KitManifest {
     $hasKitVersion = $false
     if ($m -is [System.Collections.IDictionary] -and $m.Contains('kitVersion')) {
         if (-not $AllowKitVersion) {
-            throw ("$where — поле kitVersion прибрано: версію проєкту тримає .agents/kit.profile.json (kit.version); " +
+            throw ("$where — поле kitVersion прибрано: версію проєкту тримає .agents/kit.profile.json (v8storagekit.version); " +
                    'видаліть рядок і запустіть /v8storagekit:onboarding.')
         }
         $hasKitVersion = $true

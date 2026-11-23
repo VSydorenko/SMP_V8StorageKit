@@ -68,6 +68,29 @@ function Merge-KitProfileData {
     $out
 }
 
+function Resolve-KitProfileNamespace {
+    <#
+        Простір імен v8storagekit (ADR-0020): у профілі, який v8storagekit ділить з agent-kit, наявна секція першого
+        рівня `v8storagekit.<секція>` заміняє верхню `<секцію>` ЦІЛКОМ, без злиття (інакше `v8storagekit.tests` без
+        `levels` пропустив би рівні тестів іншої зони). `v8storagekit.version` — версія проєкту, не секція. Ключі —
+        без урахування регістру, як у хештаблиці. Та сама функція — для злитих шарів (Get-KitProfile) і для одного
+        шару (pr.afterMerge з профілю на головній гілці, KitPrGate.psm1).
+    #>
+    param($Data)
+    if (-not ($Data -is [System.Collections.IDictionary])) { return , $Data }
+    $nsKey = @($Data.Keys | Where-Object { [string]$_ -ieq 'v8storagekit' }) | Select-Object -First 1
+    if ($null -eq $nsKey -or -not ($Data[$nsKey] -is [System.Collections.IDictionary])) { return , $Data }
+    $out = [ordered]@{}
+    foreach ($k in $Data.Keys) { $out[$k] = $Data[$k] }
+    foreach ($k in $Data[$nsKey].Keys) {
+        if ([string]$k -ieq 'version') { continue }
+        $same = @($out.Keys | Where-Object { [string]$_ -ieq [string]$k })
+        foreach ($s in $same) { $out.Remove($s) }
+        $out[$k] = $Data[$nsKey][$k]
+    }
+    , $out
+}
+
 function Get-KitProfile {
     <#
     .SYNOPSIS
@@ -86,6 +109,8 @@ function Get-KitProfile {
     $shared = if (Test-Path -LiteralPath $sharedPath) { Read-KitProfileJson $sharedPath } else { $null }
     $local = if (Test-Path -LiteralPath $localPath) { Read-KitProfileJson $localPath } else { $null }
     $data = Merge-KitProfileData -Base (Merge-KitProfileData -Base ($machine ?? @{}) -Over ($shared ?? @{})) -Over ($local ?? @{})
+    # Спершу шари, потім простір імен v8storagekit (ADR-0020).
+    $data = Resolve-KitProfileNamespace $data
     [pscustomobject]@{
         Root     = $root
         MainRoot = Get-KitMainRoot -Path $root
@@ -155,4 +180,4 @@ function Get-KitAgentsDir {
 }
 
 Export-ModuleMember -Function Get-KitCheckoutRoot, Get-KitMainRoot, Get-KitMachineProfilePath, Merge-KitProfileData,
-    Get-KitProfile, Get-KitProfileValue, Resolve-KitInsidePath, Get-KitAgentsDir
+    Get-KitProfile, Get-KitProfileValue, Resolve-KitInsidePath, Get-KitAgentsDir, Resolve-KitProfileNamespace

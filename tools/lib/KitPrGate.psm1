@@ -595,6 +595,8 @@ function Get-PrGateReviewedAfterMerge {
     if ($show.Ok -and $show.Raw.Trim()) {
         try { $j = $show.Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
         catch { throw (New-KitNotChecked "профіль .agents/kit.profile.json на origin/$ref не JSON: $($_.Exception.Message)") }
+        # Той самий простір імен, що для злитих шарів (ADR-0020): v8storagekit.pr цілком заміняє pr.
+        $j = Resolve-KitProfileNamespace $j
         if ($j -is [System.Collections.IDictionary] -and $j['pr'] -is [System.Collections.IDictionary] -and $j['pr'].Contains('afterMerge')) {
             $entries = $j['pr']['afterMerge']
         }

@@ -97,7 +97,7 @@ function Invoke-KitPreflight {
     catch { & $fail 'manifest' $_.Exception.Message; return $ctx }
     if ($ctx.Manifest.HasKitVersion) {
         & $fail 'kit-version' ('У маніфесті є поле kitVersion — його прибрано: видаліть рядок kitVersion: з v8storagekit.yaml; ' +
-                               'версію проєкту тримає .agents/kit.profile.json (kit.version).')
+                               'версію проєкту тримає .agents/kit.profile.json (v8storagekit.version).')
     }
     $ctx.Kind = $ctx.Manifest.Kind; $ctx.Label = $ctx.Manifest.Label; $ctx.MainBranch = $ctx.Manifest.MainBranch
 

@@ -4,10 +4,11 @@
     Версія плагіна й журнал змін. Плагін читається з кешу споживача, тож оновлення діє одразу
     скрізь, а проєкт, підключений раніше, не знає, що відстав. Тому:
       версія плагіна  — .claude-plugin/plugin.json, поле version;
-      версія проєкту  — kit.version у .agents/kit.profile.json (поля немає — 0.1.0);
+      версія проєкту  — v8storagekit.version у .agents/kit.profile.json (поля немає — 0.1.0);
       що зробити при оновленні — чекліст запису в CHANGELOG.md у корені плагіна.
-    Тут єдиний розбір формату для kit-setup, kit-scan і перевірок; хук старту сесії читає той самий
-    формат власним мінімальним кодом (він навмисно без модулів) — міняючи формат, міняй обидва.
+    Тут єдиний розбір формату для kit-setup, kit-scan і перевірок. Rust-пара Get-KitProjectVersion —
+    kit::profile::project_version (rust/src/profile.rs), її кличе хук старту сесії; міняючи правило версії
+    (ADR-0020), міняй обидві.
 
     Функції чисті: нічого не друкують, помилки форми журналу повертають списком Problems.
 #>
@@ -155,15 +156,25 @@ function Get-KitProjectVersion {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Version = $null; Source = 'none'; Error = $null } }
     try { $data = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
     catch { return [pscustomobject]@{ Version = $null; Source = 'invalid'; Error = "не читається ${script:ProfileFile}: $($_.Exception.Message)" } }
-    $kit = if ($data -is [System.Collections.IDictionary] -and $data.Contains('kit')) { $data['kit'] } else { $null }
-    if (-not ($kit -is [System.Collections.IDictionary]) -or -not $kit.Contains('version')) {
-        return [pscustomobject]@{ Version = $script:DefaultProjectVersion; Source = 'default'; Error = $null }
+    # ADR-0020: версія v8storagekit — `v8storagekit.version`; `kit.version` належить agent-kit. Тимчасово (до
+    # перенесення кроком оновлення 1.6.14) `kit.version` береться, лише коли він ≥ 1.0.0: agent-kit на лінії 0.x,
+    # v8storagekit — 1.x. Невалідний чи 0.x `kit.version` — чужий: «версію не задано», не помилка.
+    $section = { param($name) if ($data -is [System.Collections.IDictionary]) { $k = @($data.Keys | Where-Object { [string]$_ -ieq $name }) | Select-Object -First 1; if ($null -ne $k) { $data[$k] } } }
+    $field = { param($sec) if ($sec -is [System.Collections.IDictionary]) { $k = @($sec.Keys | Where-Object { [string]$_ -ieq 'version' }) | Select-Object -First 1; if ($null -ne $k) { , @($sec[$k]) } } }
+    $own = & $field (& $section 'v8storagekit')
+    if ($null -ne $own -and $null -ne $own[0]) {
+        $v = $own[0]
+        if (-not (ConvertTo-KitVersion $v)) {
+            return [pscustomobject]@{ Version = $null; Source = 'invalid'; Error = "v8storagekit.version `"$v`" у $script:ProfileFile не є x.y.z" }
+        }
+        return [pscustomobject]@{ Version = [string]$v; Source = 'profile'; Error = $null }
     }
-    $v = $kit['version']
-    if (-not (ConvertTo-KitVersion $v)) {
-        return [pscustomobject]@{ Version = $null; Source = 'invalid'; Error = "kit.version `"$v`" у $script:ProfileFile не є x.y.z" }
+    $foreign = & $field (& $section 'kit')
+    if ($null -ne $foreign -and $null -ne $foreign[0]) {
+        $fv = ConvertTo-KitVersion $foreign[0]
+        if ($fv -and $fv.Major -ge 1) { return [pscustomobject]@{ Version = [string]$foreign[0]; Source = 'profile'; Error = $null } }
     }
-    [pscustomobject]@{ Version = [string]$v; Source = 'profile'; Error = $null }
+    [pscustomobject]@{ Version = $script:DefaultProjectVersion; Source = 'default'; Error = $null }
 }
 
 function Get-KitManifestVersion {

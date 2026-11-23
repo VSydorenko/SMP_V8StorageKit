@@ -27,10 +27,10 @@ kit-scan [-Json] [-MinSimilarity <0..1>] [-Memory <тека>]
 Скан для підключення проєкту до процесу v8storagekit (скіл onboarding). Лише читання: друкує
 рядки-кандидати, колонки class/action заповнює агент разом із власником.
 
-  Kit version   kit.version у .agents/kit.profile.json проти версії плагіна; коли проєкт відстав — кроки
+  Kit version   v8storagekit.version у .agents/kit.profile.json проти версії плагіна; коли проєкт відстав — кроки
                 чеклістів CHANGELOG.md усіх версій після версії проєкту, найстаріша першою (рядки V1…Vn).
-                connected-before: профілю чи kit.version немає, але в v8storagekit.yaml є kitVersion —
-                `kit check -RepoRoot .` і чеклісти версій, новіших за неї; no-version: профіль без kit.version
+                connected-before: профілю чи v8storagekit.version немає, але в v8storagekit.yaml є kitVersion —
+                `kit check -RepoRoot .` і чеклісти версій, новіших за неї; no-version: профіль без v8storagekit.version
                 і без kitVersion у маніфесті — його запише `kit-setup -SetVersion` останнім комітом PR
   Duplicates    .claude/commands|agents|skills і .agents/skills проєкту (та scripts, tools, bin), що
                 копіюють чи прототипують частину kit: відомі шляхи, збіг назви або схожість вмісту (шингли)
@@ -231,8 +231,8 @@ function Get-ScanVersion {
         $x['versions'] = $versions
         $x['steps'] = [int](($versions | ForEach-Object { $_.steps.Count } | Measure-Object -Sum).Sum)
     }
-    # Проєкт, підключений раніше: у маніфесті є kitVersion, а профілю чи kit.version у ньому немає
-    # (профіль з kit.version має пріоритет над маніфестом). Читається рядком, без YAML-модуля (ADR-0002).
+    # Проєкт, підключений раніше: у маніфесті є kitVersion, а профілю чи v8storagekit.version у ньому немає
+    # (профіль з v8storagekit.version має пріоритет над маніфестом). Читається рядком, без YAML-модуля (ADR-0002).
     $m = if ($p.Source -in 'none', 'default') { Get-KitManifestVersion -Root $Root } else { $null }
     if ($m -and $m.Present) {
         $x['source'] = 'manifest'; $x['hasProfile'] = ($p.Source -eq 'default'); $x['project'] = $m.Value
@@ -255,11 +255,11 @@ function Get-ScanVersion {
     & $res 'behind' $x
 }
 
-$script:SetVersionNote = 'kit.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
+$script:SetVersionNote = 'v8storagekit.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
 
 function Get-ScanVersionLines {
     param([Parameter(Mandatory)]$V)
-    $head = "проєкт $($V.project)$(if ($V.source -eq 'default') { ' (у профілі немає kit.version — підключено до появи версій)' }), плагін $($V.plugin)"
+    $head = "проєкт $($V.project)$(if ($V.source -eq 'default') { ' (у профілі немає v8storagekit.version — підключено до появи версій)' }), плагін $($V.plugin)"
     switch ($V.status) {
         'kit-repo' { return @("це сам репозиторій плагіна (плагін $($V.plugin)) — версії проєкту немає") }
         'changelog-broken' { return @($V.note) }
@@ -267,7 +267,7 @@ function Get-ScanVersionLines {
         'no-version' { return @("$script:SetVersionNote (плагін $($V.plugin)); кроків оновлення від 0.1.0 не перелічено") }
         'connected-before' {
             $o = [System.Collections.Generic.List[string]]::new()
-            $o.Add("підключено раніше ($($V.project)), $(if ($V.hasProfile) { 'у профілі немає kit.version' } else { 'профілю немає' }); плагін $($V.plugin)")
+            $o.Add("підключено раніше ($($V.project)), $(if ($V.hasProfile) { 'у профілі немає v8storagekit.version' } else { 'профілю немає' }); плагін $($V.plugin)")
             $o.Add('- відхилення контуру від поточних правил: `kit check -RepoRoot .`')
             if ($V.versions.Count) {
                 $o.Add("- версій у журналі після $($V.project): $($V.versions.Count), кроків оновлення $($V.steps) — кожен крок є рядком звіту підключення")
@@ -295,7 +295,7 @@ function Get-ScanVersionLines {
         foreach ($s in $e.steps) { $n++; $out.Add("- [ ] V$n $s") }
     }
     $out.Add('')
-    $out.Add("останній крок того ж PR: kit-setup -SetVersion (запише kit.version $($V.plugin) у .agents/kit.profile.json; що змінилось — CHANGELOG.md плагіна)")
+    $out.Add("останній крок того ж PR: kit-setup -SetVersion (запише v8storagekit.version $($V.plugin) у .agents/kit.profile.json; що змінилось — CHANGELOG.md плагіна)")
     $out.ToArray()
 }
 
