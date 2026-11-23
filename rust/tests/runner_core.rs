@@ -141,6 +141,21 @@ fn ceiling_kills_the_process_and_keeps_what_arrived() {
     }
 }
 
+/// Онук тримає канали ~10 с після виходу раннера: стеля обмежує й очікування каналів.
+#[test]
+fn ceiling_bounds_the_wait_for_pipes_held_by_a_grandchild() {
+    let a: Vec<&OsStr> = vec![OsStr::new("grandchild")];
+    let started = std::time::Instant::now();
+    let res = runner::exec(Path::new(FAKE), Path::new("."), &a, Some(Duration::from_secs(2)));
+    let elapsed = started.elapsed();
+    let out = res.unwrap();
+    // Прибрати онука до перевірок.
+    let pid = out.stdout.trim().strip_prefix("pid:").expect(&out.stdout).to_string();
+    let _ = Command::new("taskkill").args(["/F", "/PID", &pid]).output();
+    assert_eq!(out.exit_code, 0);
+    assert!(elapsed < Duration::from_secs(5), "очікування каналів без межі: {elapsed:?}");
+}
+
 #[test]
 fn missing_runner_is_not_found() {
     let err = runner::exec(Path::new("C:\\немає\\v8-runner.exe"), Path::new("."), &[], None).unwrap_err();

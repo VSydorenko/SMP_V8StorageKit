@@ -12,6 +12,8 @@
 //  big       — по 2 МіБ у stdout і stderr (дедлок на непрочитаному каналі), код 0;
 //  sleep     — спить 60 с;
 //  partial   — друкує рядок у stdout і stderr, потім спить 60 с (вивід, що встиг прийти);
+//  grandchild — запускає онука (режим hold), що успадковує канали, друкує `pid:<PID онука>` і виходить;
+//  hold      — спить 10 с;
 //  code7     — код виходу 7.
 
 use std::io::Write;
@@ -74,6 +76,12 @@ fn main() {
             out.flush().unwrap();
             eprintln!("pre-err");
             std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+        "hold" => std::thread::sleep(std::time::Duration::from_secs(10)),
+        "grandchild" => {
+            #[allow(clippy::zombie_processes)] // онук навмисно переживає батька
+            let child = std::process::Command::new(std::env::current_exe().unwrap()).arg("hold").spawn().unwrap();
+            writeln!(out, "pid:{}", child.id()).unwrap();
         }
         "code7" => {
             drop(out);

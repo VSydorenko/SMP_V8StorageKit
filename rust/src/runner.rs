@@ -12,6 +12,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -118,15 +119,42 @@ pub fn installed_runner(registry: &Path, repo_root: Option<&Path>) -> Result<Pat
     Ok(runner)
 }
 
-fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut p) = pipe {
-            let _ = p.read_to_end(&mut buf);
-        }
-        buf
-    })
+/// Читання каналу потоком із накопиченням у спільний буфер: вивід, що вже прийшов, доступний і тоді, коли
+/// канал не закрився (онук тримає його після виходу процесу).
+struct Drain {
+    buf: Arc<Mutex<Vec<u8>>>,
+    handle: std::thread::JoinHandle<()>,
 }
+
+fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> Drain {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let shared = Arc::clone(&buf);
+    let handle = std::thread::spawn(move || {
+        let Some(mut p) = pipe else { return };
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = p.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            shared.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(&chunk[..n]);
+        }
+    });
+    Drain { buf, handle }
+}
+
+impl Drain {
+    /// Чекає EOF каналу не довше `until` (без межі — до EOF) і віддає накопичене.
+    fn finish(self, until: Option<Instant>) -> String {
+        while !self.handle.is_finished() && until.is_none_or(|u| Instant::now() < u) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let bytes = self.buf.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+}
+
+/// Скільки чекати EOF каналів після вбивства дерева за стелею.
+const KILL_GRACE: Duration = Duration::from_secs(1);
 
 fn describe(args: &[&OsStr]) -> String {
     args.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
@@ -151,12 +179,13 @@ pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration
             Err(e) => break Err(Some(e)),
         }
     };
-    let text = |h: std::thread::JoinHandle<Vec<u8>>| String::from_utf8_lossy(&h.join().unwrap_or_default()).into_owned();
     match status {
-        Ok(s) => Ok(RawOutput { exit_code: s.code().unwrap_or(-1), stdout: text(out), stderr: text(err) }),
+        // Очікування каналів після виходу обмежене рештою стелі: онук, що успадкував канали, не тримає виклик.
+        Ok(s) => Ok(RawOutput { exit_code: s.code().unwrap_or(-1), stdout: out.finish(deadline), stderr: err.finish(deadline) }),
         Err(cause) => {
             proc::kill_tree(&mut child);
-            let (stdout, stderr) = (text(out), text(err));
+            let until = Some(Instant::now() + KILL_GRACE);
+            let (stdout, stderr) = (out.finish(until), err.finish(until));
             match cause {
                 None => Err(RunError::Timeout {
                     runner: runner.display().to_string(),
