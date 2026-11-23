@@ -78,6 +78,28 @@ Describe 'kit session-check — сигнал без платформи' {
     # Сценарій B: те саме, але дзеркала ще й немає — раніше текст казав
     # "дзеркала ще немає — kit sync" (дієво), а код був 0 (тиша): контракт "дзеркала немає при
     # доступному сховищі → 3" порушувався саме тут.
+    It 'дзеркало лише на origin (#101) — порада відновити гілку, не перший реплей; контроль: без origin — kit sync' {
+        $s = New-FakeStorage -Name 'remote-only' -ObjectsWrite $script:New -DbWrite $script:New
+        $repo = New-Repo -Name 'remote-only' -StoragePath $s -MirrorDate $script:Old -NoMirror
+        $ctl = Invoke-SessionCheck -Repo $repo
+        $ctl.Output | Should -BeLike '*дзеркала storage/Alpha_SMB ще немає*kit sync -Source Alpha_SMB -Apply*'
+
+        git -C $repo update-ref refs/remotes/origin/storage/Alpha_SMB HEAD
+        $r = Invoke-SessionCheck -Repo $repo
+        $r.ExitCode | Should -Be 4 -Because $r.Output
+        $r.Output | Should -BeLike '*є origin/storage/Alpha_SMB*git branch --track storage/Alpha_SMB origin/storage/Alpha_SMB*'
+        $r.Output | Should -Not -BeLike '*kit sync -Source Alpha_SMB -Apply*'
+        $r.Output | Should -Match 'next: git branch --track storage/Alpha_SMB origin/storage/Alpha_SMB'
+
+        # Сховище недоступне (друга машина) — крок той самий і код 4, не 0: дія не залежить від сховища.
+        $far = New-Repo -Name 'remote-only-far' -StoragePath (Join-Path $TestDrive 'no-such-storage-far') -MirrorDate $script:Old -NoMirror
+        git -C $far update-ref refs/remotes/origin/storage/Alpha_SMB HEAD
+        $f = Invoke-SessionCheck -Repo $far
+        $f.ExitCode | Should -Be 4 -Because $f.Output
+        $f.Output | Should -BeLike '*недоступне*'
+        $f.Output | Should -Match 'next: git branch --track storage/Alpha_SMB origin/storage/Alpha_SMB'
+    }
+
     It 'сценарій B: дзеркала немає, шлях доступний, але без data/objects — код і текст узгоджені (4)' {
         $wrong = Join-Path $TestDrive 'i2-wrong-b'
         New-Item -ItemType Directory -Path $wrong -Force | Out-Null

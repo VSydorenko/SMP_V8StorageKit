@@ -99,6 +99,20 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         $r.Output   | Should -BeLike '*storage/Alpha_SMB*'
     }
 
+    It 'дзеркало лише на origin (#101) — зупинка з рецептом git branch --track, не «kit sync -Apply»; дерево не змінене' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'adopt-remote-only') -WithHooks -WithGitattributes
+        $ctl = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB')
+        $ctl.Output | Should -BeLike '*kit sync -Source Alpha_SMB -Apply*'
+        git -C $repo update-ref refs/remotes/origin/storage/Alpha_SMB HEAD
+        $head = git -C $repo rev-parse HEAD
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Not -Be 0
+        $r.Output   | Should -BeLike '*git branch --track storage/Alpha_SMB origin/storage/Alpha_SMB*'
+        $r.Output   | Should -Not -BeLike '*kit sync -Source*'
+        (git -C $repo rev-parse HEAD) | Should -Be $head
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+    }
+
     It '-Apply замінює дерево вмістом дзеркала й прибирає зайве' {
         $repo = New-AdoptRepo -Name 'adopt-apply'
         $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')

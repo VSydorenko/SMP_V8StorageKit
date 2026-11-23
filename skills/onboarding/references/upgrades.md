@@ -355,4 +355,5 @@
    тимчасові файли — лише в гітігнорованих теках проєкту».
 2. **Дзеркала сховища.** `pr-gate land` попередніх версій видаляв локальні `storage/*`. Перевірити
    `git branch --list 'storage/*'` проти `git branch -r --list 'origin/storage/*'`; відсутнє локально —
-   `git branch --track storage/<джерело> origin/storage/<джерело>`.
+   `git branch --track storage/<джерело> origin/storage/<джерело>` (той самий крок тепер радять `session-check`,
+   `adopt` і `sync`). **Не** `kit sync -Apply` до відновлення: реплей з нуля дав би другу історію сховища.

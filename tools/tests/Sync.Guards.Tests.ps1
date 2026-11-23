@@ -28,6 +28,22 @@ Describe 'kit sync — штатні зупинки до звернення до 
         (git -C $repo status --porcelain) | Should -BeNullOrEmpty
     }
 
+    It 'дзеркало лише на origin (#101) — зупинка з рецептом до бази й платформи, orphan-гілки й build/sync немає' {
+        $dir = Join-Path $TestDrive 'remote-only-storage'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'remote-only') -OverlayText "storages:`n  Alpha_SMB: '$dir'" -WithHooks
+        git -C $repo update-ref refs/remotes/origin/storage/Alpha_SMB HEAD
+        $r = Invoke-Sync -Repo $repo -More @('-Apply')
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*є origin/storage/Alpha_SMB*реплей з нуля*git branch --track storage/Alpha_SMB origin/storage/Alpha_SMB*'
+        (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty
+        Join-Path $repo 'build/sync/Alpha_SMB' | Should -Not -Exist
+        # Контроль: без origin-дзеркала той самий виклик проходить цю перевірку й зупиняється далі (бази агента немає).
+        git -C $repo update-ref -d refs/remotes/origin/storage/Alpha_SMB
+        $c = Invoke-Sync -Repo $repo -More @('-Apply')
+        $c.Output | Should -Not -BeLike '*реплей з нуля*'
+    }
+
     It 'AUTHORS відсутній — зупинка до платформи' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-authors') -WithHooks
         Remove-Item -LiteralPath (Join-Path $repo 'AUTHORS')
