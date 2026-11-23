@@ -8,6 +8,7 @@
 | `gitattributes` | `.gitattributes` (onboarding дописує `<ws>/<path>/** -text` під фактичні шляхи) |
 | `gitignore` | `.gitignore` (без загального `**/cf/**`; onboarding дописує `<ws>/<path>/**` для кожного `truth: vendor`) + `**/Ext/ParentConfigurations/` (поставка вендора поза git) |
 | `settings.json` | `.claude/settings.json` — дозволи (читальні інструменти Уніки й `unica_run` — без запиту; `unica_apply` — з запитом; локальні команди процесу — без запиту в обох формах `Bash(…)`/`PowerShell(…)`, той самий перелік, що пише `kit-setup`, — звіряє `Templates.Tests.ps1`); хука `SessionStart` тут немає — його поставляє сам плагін (`hooks/hooks.json`) |
+| `v8project.yaml` | `<воркспейс>/v8project.yaml` — форма воркспейсу Уніки 0.16 (`providers`, `source-set`, без `infobase:`); заповнює onboarding; кожне правило перевіряє `check` |
 | `githooks/pre-commit`, `githooks/pre-merge-commit` | `.githooks/…` + `git config core.hooksPath .githooks` |
 | `CLAUDE.md` | `CLAUDE.md` (контур сховища й процес розробки; профіль процесу `.agents/kit.profile.json` кладе не цей шаблон, а `kit-setup` — скіл `v8storagekit:onboarding`) |
 | `v8storagekit.yaml.example` | `v8storagekit.yaml` (корінь; заповнює onboarding за відповідями людини) |

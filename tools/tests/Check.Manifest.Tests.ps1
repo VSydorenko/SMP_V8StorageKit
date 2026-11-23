@@ -22,6 +22,13 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike "*[!]*Extra*EXTERNAL_DATA_PROCESSORS*немає в маніфесті*"
+        # Дія називає рядки під фактичний шлях для обох випадків truth.
+        $r.Output | Should -BeLike "*'epf/src/** -text' у .gitattributes*"
+        $r.Output | Should -BeLike "*'epf/src/**' у .gitignore*"
+        # Контроль: без незаявленого source-set знахідки й підказки немає.
+        $ok = Invoke-Check -Repo (New-GoodRepo 'declared-only-ctl')
+        $ok.Output | Should -Not -BeLike '*undeclared*'
+        $ok.Output | Should -Not -BeLike '*немає в маніфесті*'
     }
 
     # .gitignore реального репозиторію мав рядок
