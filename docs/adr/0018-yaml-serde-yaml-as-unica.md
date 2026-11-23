@@ -1,6 +1,6 @@
 # ADR-0018: YAML у Rust-коді kit — `serde_yaml` тієї самої версії, що в Уніці й раннері
 
-Status: proposed
+Status: accepted 2026-11-23
 Decided by: architect
 Spec: docs/superpowers/specs/2026-11-23-rust-phase2-session-check-design.md §5.1
 

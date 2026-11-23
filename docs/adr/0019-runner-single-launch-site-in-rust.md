@@ -1,6 +1,6 @@
 # ADR-0019: Раннер Уніки запускає лише модуль `runner` крейта kit; PowerShell — через `kit.exe`
 
-Status: proposed
+Status: accepted 2026-11-23
 Decided by: architect
 Spec: docs/superpowers/specs/2026-11-23-rust-phase2-session-check-design.md §5.2
 
