@@ -299,6 +299,11 @@ function Invoke-KitSync {
             if (-not (Test-Path -LiteralPath $src.StoragePath)) {
                 throw "Каталог сховища не знайдено: $($src.StoragePath). Перевизначте його в v8storagekit.local.yaml під storages: $($src.Key)."
             }
+            # Дзеркало лише на origin (#101): реплей з нуля дав би другу історію сховища. Зупинка до бази й платформи.
+            if (Test-KitRemoteOnlyMirror -RepoRoot $root -Branch $src.Branch) {
+                throw ("Локальної гілки $($src.Branch) немає, але є origin/$($src.Branch) — реплей з нуля дав би другу історію сховища. " +
+                       "Відновіть дзеркало: $(Get-KitRestoreMirrorStep -Branch $src.Branch), і повторіть sync.")
+            }
 
             # Дамп — у базі агента, не в тимчасовій ІБ зі стабом: серіалізація розширення залежить від
             # конфігурації-власника (зі стаба — GUID замість імен). Get-KitSourceInfobase несе запобіжник

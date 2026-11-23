@@ -129,7 +129,12 @@ function Invoke-KitSessionCheck {
         #  'packed-newer'  — усе запаковано, а data/pack новіший: дешева перевірка сказати не може
         #                    — теж код 4, не тиша й не 1.
         $newInStorage = $false; $newInStorageReason = $null
-        if ($imprintCurrent) {
+        #  'remote-only'   — локального дзеркала немає, а origin/<гілка> є (#101): дія — відновити гілку,
+        #                    і вона не залежить від доступності сховища (друга машина без сховища — типово).
+        $remoteOnly = (-not $mirror) -and (-not $gitProblem) -and (Test-KitRemoteOnlyMirror -RepoRoot $root -Branch $src.Branch)
+        if ($remoteOnly) {
+            $newInStorage = $true; $newInStorageReason = 'remote-only'
+        } elseif ($imprintCurrent) {
             if ($imprint.Version -gt $lastVersion) { $newInStorage = $true; $newInStorageReason = 'imprint-ahead' }
         } elseif ($activity.Accessible -and -not $gitProblem) {
             if (-not $activity.IsStorage) {
@@ -183,7 +188,11 @@ function Invoke-KitSessionCheck {
                     $parts.Add("шлях сховища доступний, але не схожий на сховище 1С ($($activity.Reason)) — перевірте storages: $($src.Key) у v8storagekit.local.yaml (чи сам шлях у v8storagekit.yaml)")
                 }
 
-                if (-not $mirror) {
+                if ($remoteOnly) {
+                    # Дзеркало лише на origin (#101): sync -Apply почав би реплей з нуля в другу історію.
+                    $parts.Add("локальної гілки $($src.Branch) немає, але є origin/$($src.Branch) — відновіть дзеркало: $(Get-KitRestoreMirrorStep -Branch $src.Branch)")
+                    $srcStep = Get-KitRestoreMirrorStep -Branch $src.Branch
+                } elseif (-not $mirror) {
                     $parts.Add("дзеркала storage/$($src.Key) ще немає — перший реплей: kit sync -Source $($src.Key) -Apply")
                     $srcStep = "kit sync -Source $($src.Key) -Apply"
                 } elseif ($newInStorageReason -eq 'newer') {
