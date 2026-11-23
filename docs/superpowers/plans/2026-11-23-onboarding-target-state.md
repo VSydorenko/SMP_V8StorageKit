@@ -87,6 +87,13 @@ subsystem_info subsystem_validate task_cancel task_get task_result xdto_info`.
 
 ## 6. Інваріанти безпеки
 
+> **Рішення власника 2026-11-23 (T4, раунд 3): права не автоматизуються.** `kit-setup` не пише `.claude/settings.json`
+> ніколи — лише звіт про відхилення від `templates/settings.json` (класи: відсутні правила, перетин за першим токеном,
+> `pr-gate open/ready/land`, застарілі імена Уніки, `unica_apply` в `allow`, шим дослівною командою, широкі правила);
+> `install-hooks` не кладе `settings.json`. Правки — людина чи агент штатними засобами Claude Code за згодою людини.
+> Інваріант: `kit-setup` і `install-hooks` лишають `.claude/settings.json` байт-у-байт тим самим і не створюють його.
+> Рядки злиття нижче й рішення D8 (2), D12, D13 описують логіку **звіту**, а не запис; історія раундів — журнал `sdd`.
+
 Тест (3) B2 тримає одну фікстуру `settings.json` у репозиторії без ознак 1С: застаріле ім'я Уніки в `allow`, в `ask` і
 в `deny`; чинне `unica_view` в `allow`; `unica_run` в `ask` (форма Уніки 0.13); `unica_apply` в `allow`;
 `Bash(git push:*)` **лише** в `allow`, `PowerShell(git push:*)` в `ask`; `Bash(pr-gate land:*)` в `ask` (правило з

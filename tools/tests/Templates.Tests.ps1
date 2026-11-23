@@ -117,27 +117,31 @@ Describe 'templates/settings.json — дозволи споживача' -Tag 'D
         }
     }
 
-    It 'шаблон ↔ kit-setup: з ознакою 1С результат дорівнює шаблону, без 1С — шаблону без правил Уніки в allow (D8 (2), D9)' {
-        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+    It 'шаблон ↔ звіт kit-setup: проєкт = шаблон (з 1С — повний, без 1С — без правил Уніки в allow) — звіт порожній; файл не змінено (D8 (2), D9)' {
+        $tplText = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw
+        $s = $tplText | ConvertFrom-Json -AsHashtable
         foreach ($case in @(@{ Name = 'kit-setup-1c'; Is1C = $true }, @{ Name = 'kit-setup-plain'; Is1C = $false })) {
             $repo = Join-Path $TestDrive $case.Name
-            New-Item -ItemType Directory -Path $repo -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
             git -C $repo init -q
             if ($case.Is1C) { Set-Content -LiteralPath (Join-Path $repo 'v8project.yaml') -Value 'name: x' -Encoding utf8NoBOM }
+            $perms = $s.permissions
+            if (-not $case.Is1C) {
+                $perms = [ordered]@{ allow = @($s.permissions.allow | Where-Object { -not $_.StartsWith('mcp__plugin_unica_unica__', [System.StringComparison]::Ordinal) }); ask = $s.permissions.ask; deny = $s.permissions.deny }
+            }
+            $file = Join-Path $repo '.claude/settings.json'
+            [System.IO.File]::WriteAllText($file, (ConvertTo-Json -InputObject ([ordered]@{ permissions = $perms }) -Depth 10), [System.Text.UTF8Encoding]::new($false))
+            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
             Push-Location $repo
             try {
-                $null = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit.ps1') kit-setup -NoGitignore -NoProfile -NoWorktreeInclude 2>&1
-                $LASTEXITCODE | Should -Be 0
+                $out = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit.ps1') kit-setup -Json -NoGitignore -NoProfile -NoWorktreeInclude 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 0 -Because $out
             } finally { Pop-Location }
-            $got = (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).permissions
-            foreach ($l in 'allow', 'ask', 'deny') {
-                $exp = @($s.permissions.$l)
-                if ($l -eq 'allow' -and -not $case.Is1C) { $exp = @($exp | Where-Object { -not $_.StartsWith('mcp__plugin_unica_unica__', [System.StringComparison]::Ordinal) }) }
-                (@($got.$l) -join "`n") | Should -BeExactly ($exp -join "`n") -Because "$($case.Name): $l"
-            }
+            $rep = ($out | ConvertFrom-Json).permissions
+            $rep.clean | Should -BeTrue -Because "$($case.Name): $out"
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash | Should -Be $hash -Because 'kit-setup не пише settings.json'
         }
     }
-
     It 'зміст шаблону за §5.3 і D10: 8 правил команд в ask, pr-gate open/ready/land в allow, без pr-gate:*, без застарілих імен Уніки (тест (7))' {
         Import-Module (Join-Path $script:Root 'tools/lib/KitCli.psm1') -Force
         Import-Module (Join-Path $script:Root 'tools/lib/KitVersion.psm1') -Force

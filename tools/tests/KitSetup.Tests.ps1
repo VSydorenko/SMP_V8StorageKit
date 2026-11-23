@@ -1,13 +1,14 @@
 #Requires -Version 7
-# kit-setup: ідемпотентність, збереження чужого в settings.json, -DryRun без запису
-# (оригінал — agent-kit 0.9.1 tests/kit-setup.test.mjs). Справжній kit.ps1 підпроцесом на
-# синтетичному git-репо в TestDrive: — за зразком SessionBoard.Tests.ps1.
+# kit-setup: ідемпотентність, звіт про settings.json (лише читання; рішення власника 2026-11-23: права не
+# автоматизуються), -DryRun без запису (оригінал — agent-kit 0.9.1 tests/kit-setup.test.mjs). Справжній
+# kit.ps1 підпроцесом на синтетичному git-репо в TestDrive: — за зразком SessionBoard.Tests.ps1.
 Describe 'kit-setup — підключення проєкту' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         $script:KitProcess = Join-Path (Split-Path $script:Kit -Parent) 'kit.ps1'
-        $script:Files = @('.claude/settings.json', '.gitignore', '.agents/kit.profile.json', '.worktreeinclude')
+        $script:Files = @('.gitignore', '.agents/kit.profile.json', '.worktreeinclude')
+        $script:NoFiles = @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
 
         function script:New-Repo {
             param([string]$Name)
@@ -30,59 +31,70 @@ Describe 'kit-setup — підключення проєкту' {
                 if (Test-Path -LiteralPath $p) { "$_=$((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash)" } else { "$_=<немає>" }
             }
         }
+        function script:Write-Settings {
+            param([string]$Repo, $Data)
+            New-Item -ItemType Directory -Path (Join-Path $Repo '.claude') -Force | Out-Null
+            $f = Join-Path $Repo '.claude/settings.json'
+            [System.IO.File]::WriteAllText($f, (ConvertTo-Json -InputObject $Data -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
+            $f
+        }
+        function script:Get-Sha { param([string]$Path) (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+        function script:Get-ReportLine {
+            <# Рядки звіту, що містять підрядок. #>
+            param([string]$Out, [string]$Part)
+            @($Out -split '\r?\n' | Where-Object { $_.Contains($Part) })
+        }
     }
 
-    It 'повторний запуск нічого не змінює: байти всіх чотирьох файлів однакові' {
+    It 'повторний запуск нічого не змінює: байти файлів однакові; settings.json не з''являється' {
         $repo = New-Repo 'idem'
         Set-Content -LiteralPath (Join-Path $repo '.gitignore') -Value 'node_modules' -Encoding utf8NoBOM
         $r1 = Invoke-Setup $repo
         $r1.Code | Should -Be 0 -Because $r1.Out
         $first = Get-Hashes $repo
-        $first | Should -Not -Contain '.claude/settings.json=<немає>'
         $first | Should -Not -Contain '.agents/kit.profile.json=<немає>'
         $r2 = Invoke-Setup $repo
         $r2.Code | Should -Be 0 -Because $r2.Out
         (Get-Hashes $repo) | Should -Be $first -Because $r2.Out
         $r2.Out | Should -Match '(?m)^next: kit-scan\r?$' -Because $r2.Out
+        # Контроль, що вміє впасти: «kit-setup пише settings.json» створило б файл (і на звичайному запуску, і на -DryRun).
+        Test-Path -LiteralPath (Join-Path $repo '.claude/settings.json') | Should -BeFalse -Because $r1.Out
+        $r3 = Invoke-Setup (New-Repo 'idem-dry') -Arguments @('-DryRun')
+        Test-Path -LiteralPath (Join-Path $TestDrive 'idem-dry/.claude/settings.json') | Should -BeFalse -Because $r3.Out
+        $r1.Out | Should -Match 'файла немає' -Because 'звіт називає відсутній файл'
     }
 
-    It 'чуже правило й наявні широкі pr-gate:*, git branch:* лишаються на місці; нове дописується в кінець, у двох формах' {
+    It 'settings.json байт-у-байт той самий після kit-setup (і з -DryRun, і без); широкі правила й чуже — лише в звіті' {
         $repo = New-Repo 'keep'
-        New-Item -ItemType Directory -Path (Join-Path $repo '.claude') | Out-Null
-        $settings = Join-Path $repo '.claude/settings.json'
-        Set-Content -LiteralPath $settings -Encoding utf8NoBOM -Value ([ordered]@{
+        $settings = Write-Settings $repo ([ordered]@{
                 attribution = @{ commit = '' }
                 permissions = [ordered]@{ deny = @('Bash(rm:*)'); allow = @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)', 'PowerShell(git branch:*)') }
                 env         = @{ A = '1' }
-            } | ConvertTo-Json -Depth 5)
-        $r = Invoke-Setup $repo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
-        $r.Code | Should -Be 0 -Because $r.Out
-        $s = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json -AsHashtable
-        @($s.Keys) | Should -Be @('attribution', 'permissions', 'env')
-        @($s.permissions.Keys) | Should -Be @('deny', 'allow', 'ask')
-        @($s.permissions.allow)[0..3] | Should -Be @('Bash(git status*)', 'Bash(pr-gate:*)', 'Bash(git branch:*)', 'PowerShell(git branch:*)')
-        $s.permissions.allow | Should -Contain 'PowerShell(session-cost:*)'
-        $s.permissions.allow | Should -Contain 'Bash(session-cost:*)'
-        $s.permissions.allow | Should -Contain 'Bash(pr-gate open:*)'
-        $s.permissions.deny[0] | Should -Be 'Bash(rm:*)'
-        # Широкі правила названо рядками-попередженнями (§5.3, D14), а не прибрано.
-        $r.Out | Should -Match 'Bash\(pr-gate:\*\) ширше за потрібне — дозволяє й майбутні підкоманди pr-gate без рішення; заміни на [^\r\n]*Bash\(pr-gate open:\*\), Bash\(pr-gate ready:\*\), Bash\(pr-gate land:\*\)'
-        $r.Out | Should -Match 'Bash\(git branch:\*\) ширше за потрібне — пропускає й git branch -D/-f[^\r\n]*заміни на Bash\(git branch --list:\*\), Bash\(git branch --show-current\)'
-        # PowerShell-форма: вузької заміни шаблон не має — порада не обіцяє PowerShell(git branch --list:*).
-        $r.Out | Should -Match 'PowerShell\(git branch:\*\) ширше за потрібне — [^\r\n]*Вузької PowerShell-форми шаблон не має'
-        $r.Out | Should -Not -Match 'PowerShell\(git branch --list'
+            })
+        $hash = Get-Sha $settings
+        foreach ($mode in @(@('-DryRun'), @())) {
+            $r = Invoke-Setup $repo -Arguments (@($mode) + $script:NoFiles)
+            $r.Code | Should -Be 0 -Because $r.Out
+            Get-Sha $settings | Should -Be $hash -Because "kit-setup $($mode -join ' ') не пише settings.json"
+            # Широкі правила названо рядками-попередженнями (§5.3, D14).
+            $r.Out | Should -Match 'Bash\(pr-gate:\*\) ширше за потрібне — дозволяє й майбутні підкоманди pr-gate без рішення; заміни на [^\r\n]*Bash\(pr-gate open:\*\), Bash\(pr-gate ready:\*\), Bash\(pr-gate land:\*\)'
+            $r.Out | Should -Match 'Bash\(git branch:\*\) ширше за потрібне — пропускає й git branch -D/-f[^\r\n]*заміни на Bash\(git branch --list:\*\), Bash\(git branch --show-current\)'
+            # PowerShell-форма: вузької заміни шаблон не має — порада не обіцяє PowerShell(git branch --list:*).
+            $r.Out | Should -Match 'PowerShell\(git branch:\*\) ширше за потрібне — [^\r\n]*Вузької PowerShell-форми шаблон не має'
+            $r.Out | Should -Not -Match 'PowerShell\(git branch --list'
+            $r.Out | Should -Match 'kit цього файла не змінює'
+        }
         Test-Path -LiteralPath (Join-Path $repo '.gitignore') | Should -BeFalse
     }
 
-    Context 'злиття settings.json з шаблоном (тест (3), фікстура плану §6; репозиторій без ознак 1С)' {
+    Context 'звіт про settings.json (тест (3), фікстура плану §6; репозиторій без ознак 1С)' {
         BeforeAll {
             $script:Obsolete = @{
                 Allow = 'mcp__plugin_unica_unica__unica_project_map'
                 Ask   = 'mcp__plugin_unica_unica__unica_code_search'
                 Deny  = 'mcp__plugin_unica_unica__unica_source_read'
             }
-            # Шість форм шима kit (уся команда — дослівно шим): перша — у групі з власним хуком, решта — окрема
-            # група, що спорожніє й зникає цілком.
+            # Шість форм шима kit (уся команда — дослівно шим): перша — у групі з власним хуком, решта — окрема група.
             $script:ShimCmd = 'pwsh -NoProfile -File .claude\hooks\session-start.ps1'
             $script:ShimForms = @(
                 'pwsh -NoProfile -File .claude/hooks/session-start.ps1',
@@ -91,18 +103,15 @@ Describe 'kit-setup — підключення проєкту' {
                 'pwsh -NoProfile -File "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.ps1"',
                 "pwsh -NoProfile -File '.claude/hooks/session-start.ps1'")
             $script:OwnHook = @{ type = 'command'; command = 'pwsh -NoProfile -File tools/own-start.ps1' }
-            # Окрема група: команди зі шляхом шима, що не є шимом kit (інша програма, інші прапорці, хук рівня
-            # користувача, складена, .custom) — лишаються.
-            $script:OtherGroup = [ordered]@{ hooks = @(
-                    [ordered]@{ type = 'command'; command = 'echo own-group' },
-                    [ordered]@{ type = 'command'; command = "python '`$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.ps1'" },
-                    [ordered]@{ type = 'command'; command = 'Write-Output .claude/hooks/session-start.ps1' },
-                    [ordered]@{ type = 'command'; command = 'pwsh -File .claude/hooks/session-start.ps1' },
-                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File .claude/hooks/session-start.ps1.custom' },
-                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File ~/.claude/hooks/session-start.ps1' },
-                    [ordered]@{ type = 'command'; command = 'pwsh -NoProfile -File .claude/hooks/session-start.ps1 && pwsh -File tools/own.ps1' }
-                ) }
-            # unica_view і власне правило — не останні в allow: інакше зміна коми дала б рядок «-» і без дефекту.
+            # Команди зі шляхом шима, що не є шимом kit (інша програма, інші прапорці, хук рівня користувача,
+            # складена, .custom) — у звіті про шим їх немає.
+            $script:OtherCommands = @('echo own-group',
+                "python '`$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.ps1'",
+                'Write-Output .claude/hooks/session-start.ps1',
+                'pwsh -File .claude/hooks/session-start.ps1',
+                'pwsh -NoProfile -File .claude/hooks/session-start.ps1.custom',
+                'pwsh -NoProfile -File ~/.claude/hooks/session-start.ps1',
+                'pwsh -NoProfile -File .claude/hooks/session-start.ps1 && pwsh -File tools/own.ps1')
             # ask (D13, перетин за першим токеном): Bash(pr-gate land:*) закриває всі правила pr-gate обох форм;
             # PowerShell(git push:*) — всі читальні git; Bash(session-cost *) — session-cost.
             $script:InputPerms = [ordered]@{
@@ -113,24 +122,23 @@ Describe 'kit-setup — підключення проєкту' {
                 deny  = @($script:Obsolete.Deny, 'Bash(rm -rf:*)', 'Bash(gitsync:*)', 'Bash(oscript:*)')
             }
             $script:MergeRepo = New-Repo 'merge'
-            New-Item -ItemType Directory -Path (Join-Path $script:MergeRepo '.claude') | Out-Null
-            $script:MergeSettings = Join-Path $script:MergeRepo '.claude/settings.json'
-            [System.IO.File]::WriteAllText($script:MergeSettings, ([ordered]@{
-                        permissions = $script:InputPerms
-                        hooks       = [ordered]@{ SessionStart = @(
-                                [ordered]@{ matcher = 'startup'; hooks = @([ordered]@{ type = 'command'; command = $script:ShimCmd }, $script:OwnHook) },
-                                [ordered]@{ matcher = 'resume'; hooks = @($script:ShimForms | ForEach-Object { [ordered]@{ type = 'command'; command = $_ } }) },
-                                $script:OtherGroup
-                            ) }
-                    } | ConvertTo-Json -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
-            $script:InputHash = (Get-FileHash -LiteralPath $script:MergeSettings -Algorithm SHA256).Hash
+            $script:MergeSettings = Write-Settings $script:MergeRepo ([ordered]@{
+                    permissions = $script:InputPerms
+                    hooks       = [ordered]@{ SessionStart = @(
+                            [ordered]@{ matcher = 'startup'; hooks = @([ordered]@{ type = 'command'; command = $script:ShimCmd }, $script:OwnHook) },
+                            [ordered]@{ matcher = 'resume'; hooks = @($script:ShimForms | ForEach-Object { [ordered]@{ type = 'command'; command = $_ } }) },
+                            [ordered]@{ hooks = @($script:OtherCommands | ForEach-Object { [ordered]@{ type = 'command'; command = $_ } }) }
+                        ) }
+                })
+            $script:InputHash = Get-Sha $script:MergeSettings
 
             $script:NoPerm = Invoke-Setup $script:MergeRepo -Arguments @('-DryRun', '-NoPermissions')
-            $script:Dry = Invoke-Setup $script:MergeRepo -Arguments @('-DryRun', '-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
-            $script:DryHash = (Get-FileHash -LiteralPath $script:MergeSettings -Algorithm SHA256).Hash
-            $script:Real = Invoke-Setup $script:MergeRepo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
-            $script:After = Get-Content -LiteralPath $script:MergeSettings -Raw | ConvertFrom-Json -AsHashtable
-            $script:Diff = @($script:Dry.Out -split '\r?\n')
+            $script:Dry = Invoke-Setup $script:MergeRepo -Arguments (@('-DryRun') + $script:NoFiles)
+            $script:DryHash = Get-Sha $script:MergeSettings
+            $script:Real = Invoke-Setup $script:MergeRepo -Arguments $script:NoFiles
+            $script:RealHash = Get-Sha $script:MergeSettings
+            $script:Json = Invoke-Setup $script:MergeRepo -Arguments (@('-Json') + $script:NoFiles)
+            $script:JsonNoPerm = Invoke-Setup $script:MergeRepo -Arguments @('-Json', '-NoPermissions')
             # Ще входи того самого тесту. Проби рецензента безпеки: кожна форма на pr-gate (маска, вужче, інша
             # форма, точне) закриває pr-gate open/ready/land; контроль — Bash(pr:*) (інший перший токен); ціле
             # ім'я інструмента в deny; git push в ask при git status, що вже є в allow.
@@ -150,137 +158,136 @@ Describe 'kit-setup — підключення проєкту' {
                 @{ Name = 'merge-git'; Perms = [ordered]@{ allow = @('Bash(git status:*)'); ask = @('Bash(git push:*)') } })
             $script:Covered = foreach ($case in $cases) {
                 $repo = New-Repo $case.Name
-                New-Item -ItemType Directory -Path (Join-Path $repo '.claude') | Out-Null
-                $f = Join-Path $repo '.claude/settings.json'
-                [System.IO.File]::WriteAllText($f, ([ordered]@{ permissions = $case.Perms } | ConvertTo-Json -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
-                $r = Invoke-Setup $repo -Arguments @('-NoGitignore', '-NoProfile', '-NoWorktreeInclude')
-                [pscustomobject]@{ Name = $case.Name; Run = $r; Allow = @((Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -AsHashtable).permissions.allow) }
+                $f = Write-Settings $repo ([ordered]@{ permissions = $case.Perms })
+                $h = Get-Sha $f
+                $r = Invoke-Setup $repo -Arguments $script:NoFiles
+                [pscustomobject]@{ Name = $case.Name; Run = $r; Same = ((Get-Sha $f) -eq $h) }
             }
-            function script:Get-Count {
-                param($List, [string]$Rule)
-                @(@($List) | Where-Object { $_ -ceq $Rule }).Count
-            }
-            function script:Test-DiffLine {
-                <# Рядок diff «-»/«+» з правилом-рядком масиву (відступ і кома — будь-які). #>
-                param([string]$Sign, [string]$Rule)
-                [bool]@($script:Diff | Where-Object { $_ -cmatch ('^' + [regex]::Escape($Sign) + '\s+"' + [regex]::Escape($Rule) + '",?$') })
-            }
+            $script:HeldPrefix = 'у проєкті є ask/deny на `pr-gate`'
         }
 
-        It '-DryRun показує diff і нічого не пише; з -NoPermissions diff settings.json порожній' {
+        It 'контроль: -DryRun і запис не міняють settings.json ні в одній з форм (байт-у-байт); -NoPermissions — без звіту' {
             $script:Dry.Code | Should -Be 0 -Because $script:Dry.Out
-            $script:DryHash | Should -Be $script:InputHash -Because '-DryRun не пише'
-            $script:Dry.Out | Should -Match '(?m)^\+\+\+ b/\.claude/settings\.json\r?$'
-            $script:NoPerm.Code | Should -Be 0 -Because $script:NoPerm.Out
-            $script:NoPerm.Out | Should -Not -Match 'b/\.claude/settings\.json' -Because $script:NoPerm.Out
-        }
-
-        It 'deny проєкту після злиття дорівнює вхідному поелементно — навіть застаріле ім''я в ньому' {
             $script:Real.Code | Should -Be 0 -Because $script:Real.Out
-            @($script:After.permissions.deny) | Should -Be @($script:InputPerms.deny)
+            $script:DryHash | Should -Be $script:InputHash -Because '-DryRun не пише'
+            $script:RealHash | Should -Be $script:InputHash -Because 'kit-setup не пише settings.json ніколи'
+            $script:Dry.Out | Should -Not -Match 'b/\.claude/settings\.json' -Because 'diff settings.json більше немає'
+            $script:NoPerm.Code | Should -Be 0 -Because $script:NoPerm.Out
+            $script:NoPerm.Out | Should -Not -Match 'settings\.json' -Because $script:NoPerm.Out
+            $script:JsonNoPerm.Code | Should -Be 0 -Because $script:JsonNoPerm.Out
+            ($script:JsonNoPerm.Out | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'permissions'
         }
 
-        It 'застаріле прибрано з allow і ask; лише точний збіг — unica_view і власне правило без рядка «-»' {
-            Test-DiffLine '-' $script:Obsolete.Allow | Should -BeTrue
-            Test-DiffLine '-' $script:Obsolete.Ask | Should -BeTrue
-            Get-Count $script:After.permissions.allow $script:Obsolete.Allow | Should -Be 0
-            Get-Count $script:After.permissions.ask $script:Obsolete.Ask | Should -Be 0
-            @($script:Diff | Where-Object { $_ -like '-*unica_view*' }) | Should -BeNullOrEmpty -Because ($script:Diff -join "`n")
-            @($script:Diff | Where-Object { $_ -like '-*make test*' }) | Should -BeNullOrEmpty -Because ($script:Diff -join "`n")
-            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_view' | Should -Be 1
-            Get-Count $script:After.permissions.allow 'Bash(make test:*)' | Should -Be 1
+        It 'звіт показує кожен клас: відсутні правила, застарілі імена, unica_apply, шим, перетин за токеном' {
+            $out = $script:Dry.Out
+            # відсутні правила шаблону — окремо allow і ask (deny проєкту має gitsync/oscript — для нього відсутнього немає)
+            (Get-ReportLine $out 'немає в allow проєкту, є в шаблоні') | Should -Match 'Bash\(sdd:\*\)' -Because $out
+            (Get-ReportLine $out 'немає в ask проєкту, є в шаблоні') | Should -Match 'Bash\(gh pr create:\*\)' -Because $out
+            (Get-ReportLine $out 'немає в deny проєкту') | Should -BeNullOrEmpty -Because 'deny проєкту вже має обидва правила шаблону'
+            # D9: без ознак 1С правил Уніки з allow шаблону у звіті немає
+            $out | Should -Not -Match 'mcp__plugin_unica_unica__unica_search' -Because $out
+            # застарілі: лише allow і ask, точний збіг; deny — ніколи; unica_view і власне правило — ні
+            $o = Get-ReportLine $out 'застарілі імена Уніки в allow:'
+            $o | Should -Match ([regex]::Escape($script:Obsolete.Allow))
+            $o | Should -Not -Match 'unica_view|make test'
+            Get-ReportLine $out 'застарілі імена Уніки в ask:' | Should -Match ([regex]::Escape($script:Obsolete.Ask))
+            $out | Should -Not -Match ([regex]::Escape($script:Obsolete.Deny)) -Because 'deny проєкту не обговорюється'
+            # unica_apply
+            Get-ReportLine $out 'в allow, а шаблон тримає його в ask' | Should -Match 'unica_apply'
+            # перетин за першим токеном: ask проєкту закриває pr-gate (обидві форми) і session-cost
+            $pg = @(Get-ReportLine $out $script:HeldPrefix)
+            $pg.Count | Should -Be 1 -Because $out
+            foreach ($rule in 'Bash(pr-gate land:*)', 'PowerShell(pr-gate land:*)', 'Bash(pr-gate open:*)', 'PowerShell(pr-gate ready:*)') { $pg[0] | Should -Match ([regex]::Escape($rule)) }
+            $pg[0] | Should -Match 'додавати лише свідомо'
+            Get-ReportLine $out 'на `session-cost`' | Should -Match 'Bash\(session-cost:\*\)'
+            # закриті токеном правила pr-gate — не в загальному рядку й не в окремому рядку pr-gate (ADR-0017)
+            (Get-ReportLine $out 'немає в allow проєкту, є в шаблоні') | Should -Not -Match 'pr-gate' -Because $out
+            Get-ReportLine $out 'відсутні в allow' | Should -BeNullOrEmpty -Because 'pr-gate закрито ask проєкту, окремого рядка немає'
         }
 
-        It 'ask лишається й закриває перший токен обох форм: Bash(pr-gate land:*) в ask — жодного правила pr-gate в allow' {
-            Get-Count $script:After.permissions.ask 'mcp__plugin_unica_unica__unica_run' | Should -Be 1
-            Get-Count $script:After.permissions.ask 'Bash(pr-gate land:*)' | Should -Be 1
-            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_run' | Should -Be 0
-            foreach ($rule in 'Bash(pr-gate land:*)', 'PowerShell(pr-gate land:*)', 'Bash(pr-gate open:*)', 'PowerShell(pr-gate ready:*)') {
-                Get-Count $script:After.permissions.allow $rule | Should -Be 0 -Because "$rule — той самий перший токен, що в ask проєкту"
-                Test-DiffLine '+' $rule | Should -BeFalse -Because $rule
-            }
-            $script:Dry.Out | Should -Match 'не додано \d+ правил на `pr-gate` \(проєкт має ask/deny на `pr-gate`\): [^\r\n]*PowerShell\(pr-gate land:\*\)[^\r\n]* — додай сам, якщо згоден'
+        It 'шим: усі шість форм названо дослівно; команди, що не є шимом kit, у звіті відсутні' {
+            $line = @(Get-ReportLine $script:Dry.Out 'старий шим у hooks.SessionStart')
+            $line.Count | Should -Be 1 -Because $script:Dry.Out
+            $line[0] | Should -Match '\(6\)'
+            foreach ($s in @($script:ShimCmd) + $script:ShimForms) { $line[0].Contains($s) | Should -BeTrue -Because $s }
+            foreach ($o in $script:OtherCommands) { $script:Dry.Out.Contains($o) | Should -BeFalse -Because "не шим: $o" }
+            $script:Dry.Out.Contains('tools/own-start.ps1') | Should -BeFalse
         }
 
-        It 'перетин за першим токеном: контроль Bash(pr:*) не закриває pr-gate; Bash(session-cost *) закриває session-cost' {
+        It '-Json: розділ permissions з тими самими класами; файл не змінено' {
+            $script:Json.Code | Should -Be 0 -Because $script:Json.Out
+            $j = $script:Json.Out | ConvertFrom-Json
+            $j.permissions.clean | Should -BeFalse
+            $j.permissions.applyInAllow | Should -BeTrue
+            @($j.permissions.shim).Count | Should -Be 6
+            $j.permissions.obsolete.allow | Should -Contain $script:Obsolete.Allow
+            @($j.permissions.heldByAskDeny.'pr-gate').Count | Should -BeGreaterThan 0
+            (Get-Sha $script:MergeSettings) | Should -Be $script:InputHash
+        }
+
+        It 'перетин за першим токеном: контроль Bash(pr:*) не закриває pr-gate (рядок про pr-gate open|ready|land); проби — закривають' {
             $ctl = $script:Covered | Where-Object Name -eq 'ctl-pr'
             $ctl.Run.Code | Should -Be 0 -Because $ctl.Run.Out
-            foreach ($sub in 'open', 'ready', 'land') {
-                foreach ($f in 'Bash', 'PowerShell') {
-                    $ctl.Allow | Should -Contain "$f(pr-gate ${sub}:*)" -Because 'Bash(pr:*): перший токен pr ≠ pr-gate'
-                }
-            }
-            $ctl.Run.Out | Should -Not -Match 'не додано' -Because $ctl.Run.Out
-            foreach ($rule in 'Bash(session-cost:*)', 'PowerShell(session-cost:*)') {
-                Get-Count $script:After.permissions.allow $rule | Should -Be 0 -Because "${rule}: Bash(session-cost *) в ask проєкту"
-            }
-            Get-Count $script:After.permissions.allow 'PowerShell(sdd:*)' | Should -Be 1 -Because 'контроль: незачеплене правило шаблону додано'
-        }
-
-        It 'проби рецензента: кожна форма на pr-gate — жодного pr-gate open/ready/land в allow і рядок «не додано»; deny PowerShell — жодного правила оболонки' {
+            $ctl.Run.Out | Should -Not -Match ([regex]::Escape($script:HeldPrefix)) -Because $ctl.Run.Out
+            $pr = Get-ReportLine $ctl.Run.Out 'правила pr-gate open|ready|land (ADR-0017) відсутні в allow'
+            foreach ($sub in 'open', 'ready', 'land') { foreach ($f in 'Bash', 'PowerShell') { $pr | Should -Match ([regex]::Escape("$f(pr-gate ${sub}:*)")) } }
             foreach ($k in $script:PrGateProbes.Keys) {
                 $c = $script:Covered | Where-Object Name -eq $k
                 $c.Run.Code | Should -Be 0 -Because "${k}: $($c.Run.Out)"
-                @($c.Allow | Where-Object { $_ -cmatch '^(Bash|PowerShell)\(pr-gate (open|ready|land)' }) | Should -BeNullOrEmpty -Because "${k}: $($c.Allow -join ', ')"
-                $c.Run.Out | Should -Match 'не додано \d+ правил на `pr-gate` \(проєкт має ask/deny на `pr-gate`\)' -Because "${k}: $($c.Run.Out)"
+                $c.Same | Should -BeTrue -Because "${k}: файл не змінено"
+                $c.Run.Out | Should -Match ([regex]::Escape($script:HeldPrefix)) -Because "${k}: $($c.Run.Out)"
+                $c.Run.Out | Should -Not -Match 'відсутні в allow: ' -Because "${k}: правила pr-gate закриті токеном, окремого рядка немає"
             }
-            ($script:Covered | Where-Object Name -eq 'p-broad').Allow | Should -Contain 'Bash(sdd:*)' -Because 'контроль: правило іншого токена додано'
-            $whole = $script:Covered | Where-Object Name -eq 'merge-whole'
-            $whole.Run.Code | Should -Be 0 -Because $whole.Run.Out
-            @($whole.Allow | Where-Object { $_ -cmatch '^(Bash|PowerShell)\b' }) | Should -BeNullOrEmpty -Because ($whole.Allow -join ', ')
+            # контроль: правило іншого токена не закрите — є в загальному рядку
+            (Get-ReportLine ($script:Covered | Where-Object Name -eq 'p-broad').Run.Out 'немає в allow проєкту, є в шаблоні') | Should -Match 'Bash\(sdd:\*\)'
         }
 
-        It 'не додано — одним рядком на токен і лише те, чого в allow ще немає: git push в ask, git status уже в allow' {
+        It 'ціле ім''я інструмента в deny закриває всі правила оболонки: жодного правила оболонки в рядку «немає в allow»' {
+            $whole = $script:Covered | Where-Object Name -eq 'merge-whole'
+            $whole.Run.Code | Should -Be 0 -Because $whole.Run.Out
+            $whole.Same | Should -BeTrue
+            @(Get-ReportLine $whole.Run.Out 'немає в allow проєкту, є в шаблоні' | Where-Object { $_ -match '(Bash|PowerShell)\(' }) | Should -BeNullOrEmpty -Because $whole.Run.Out
+        }
+
+        It 'закрите токеном — одним рядком на токен і лише те, чого в allow ще немає: git push в ask, git status уже в allow' {
             $g = $script:Covered | Where-Object Name -eq 'merge-git'
             $g.Run.Code | Should -Be 0 -Because $g.Run.Out
-            $lines = @($g.Run.Out -split '\r?\n' | Where-Object { $_ -match 'не додано' })
+            $lines = @(Get-ReportLine $g.Run.Out 'у проєкті є ask/deny на `git`')
             $lines.Count | Should -Be 1 -Because $g.Run.Out
-            $lines[0] | Should -Match 'не додано \d+ правил на `git` \(проєкт має ask/deny на `git`\): '
             $lines[0] | Should -Match ([regex]::Escape('Bash(git log:*)'))
             $lines[0] | Should -Match ([regex]::Escape('Bash(git branch --show-current)'))
             $lines[0] | Should -Not -Match ([regex]::Escape('git status')) -Because 'правило вже в allow проєкту'
-            Get-Count $g.Allow 'Bash(git status:*)' | Should -Be 1
-            Get-Count $g.Allow 'Bash(git log:*)' | Should -Be 0
-        }
-
-        It 'unica_apply лише в ask; без ознак 1С правил Уніки з allow шаблону немає' {
-            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_apply' | Should -Be 0
-            Get-Count $script:After.permissions.ask 'mcp__plugin_unica_unica__unica_apply' | Should -Be 1
-            # Без ознак 1С правила Уніки з allow шаблону не додаються (D9).
-            Get-Count $script:After.permissions.allow 'mcp__plugin_unica_unica__unica_search' | Should -Be 0
-        }
-
-        It 'наявність перевіряється в тому самому списку: Bash(git push:*) і в allow, і в ask; PowerShell(git push:*) в ask один' {
-            Get-Count $script:After.permissions.allow 'Bash(git push:*)' | Should -Be 1
-            Get-Count $script:After.permissions.ask 'Bash(git push:*)' | Should -Be 1
-            Get-Count $script:After.permissions.ask 'PowerShell(git push:*)' | Should -Be 1
-            Get-Count $script:After.permissions.ask 'Bash(gh pr merge:*)' | Should -Be 1
-        }
-
-        It 'шим прибрано елементом: шість форм шима kit; власний хук у його групі й команди не-шима — на місці' {
-            $all = @($script:After.hooks.SessionStart | ForEach-Object { $_.hooks } | ForEach-Object { $_.command })
-            foreach ($s in @($script:ShimCmd) + $script:ShimForms) { $all | Should -Not -Contain $s -Because $s }
-            $groups = @($script:After.hooks.SessionStart)
-            $groups.Count | Should -Be 2 -Because 'група лише зі шимами спорожніла й зникла'
-            $groups[0].matcher | Should -Be 'startup'
-            @($groups[0].hooks).Count | Should -Be 1
-            $groups[0].hooks[0].command | Should -BeExactly $script:OwnHook.command
-            @($groups[1].hooks | ForEach-Object { $_.command }) | Should -Be @($script:OtherGroup.hooks | ForEach-Object { $_.command })
         }
     }
 
-    It 'невалідний JSON на вході — код 3, settings.json байт-у-байт той самий, .gitignore і профіль не створено (тест (4))' {
+    It 'порожній звіт, коли проєкт збігається з шаблоном (без 1С — без Уніки в allow): «відхилень від шаблону немає»' {
+        $repo = New-Repo 'clean'
+        $tpl = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../templates/settings.json') -Raw | ConvertFrom-Json -AsHashtable
+        $allow = @($tpl.permissions.allow | Where-Object { -not $_.StartsWith('mcp__plugin_unica_unica__', [System.StringComparison]::Ordinal) })
+        $f = Write-Settings $repo ([ordered]@{ permissions = [ordered]@{ allow = $allow; ask = $tpl.permissions.ask; deny = $tpl.permissions.deny } })
+        $r = Invoke-Setup $repo -Arguments $script:NoFiles
+        $r.Code | Should -Be 0 -Because $r.Out
+        $r.Out | Should -Match 'відхилень від шаблону немає'
+        # Контроль, що вміє впасти: прибрали одне правило — звіт перестає бути порожнім.
+        $f2 = Write-Settings (New-Repo 'clean-minus') ([ordered]@{ permissions = [ordered]@{ allow = @($allow | Where-Object { $_ -cne 'Bash(sdd:*)' }); ask = $tpl.permissions.ask; deny = $tpl.permissions.deny } })
+        $r2 = Invoke-Setup (Split-Path (Split-Path $f2 -Parent) -Parent) -Arguments $script:NoFiles
+        $r2.Out | Should -Not -Match 'відхилень від шаблону немає' -Because $r2.Out
+        $r2.Out | Should -Match 'немає в allow проєкту, є в шаблоні \(1\)'
+    }
+
+    It 'невалідний JSON на вході — код 3, «звіт не перевірено», settings.json байт-у-байт той самий, нічого не записано (тест (4))' {
         $repo = New-Repo 'broken'
         New-Item -ItemType Directory -Path (Join-Path $repo '.claude') | Out-Null
         $settings = Join-Path $repo '.claude/settings.json'
         [System.IO.File]::WriteAllText($settings, "{ `"permissions`": { `"allow`": [ `"Bash(make:*)`",`n", [System.Text.UTF8Encoding]::new($false))
-        $hash = (Get-FileHash -LiteralPath $settings -Algorithm SHA256).Hash
+        $hash = Get-Sha $settings
         $r = Invoke-Setup $repo
         $r.Code | Should -Be 3 -Because $r.Out
-        $r.Out | Should -Match 'не читається \.claude/settings\.json'
-        (Get-FileHash -LiteralPath $settings -Algorithm SHA256).Hash | Should -Be $hash
+        $r.Out | Should -Match 'звіт дозволів не перевірено: не читається \.claude/settings\.json'
+        Get-Sha $settings | Should -Be $hash
         Test-Path -LiteralPath (Join-Path $repo '.gitignore') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $repo '.agents/kit.profile.json') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $repo '.worktreeinclude') | Should -BeFalse
         @(Get-ChildItem -LiteralPath (Join-Path $repo '.claude') -Force).Count | Should -Be 1 -Because 'тимчасових файлів не лишилось'
     }
 

@@ -1,5 +1,5 @@
 #Requires -Version 7
-Describe 'kit install-hooks — хуки захисту й settings.json одним кроком' {
+Describe 'kit install-hooks — хуки захисту storage/* (settings.json не чіпає)' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
@@ -11,18 +11,19 @@ Describe 'kit install-hooks — хуки захисту й settings.json одн�
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'preview')
         $r = Invoke-InstallHooks -Repo $repo
         $r.ExitCode | Should -Be 0
-        $r.Output | Should -BeLike '*.githooks*settings.json*-Apply*'
+        $r.Output | Should -BeLike '*.githooks*-Apply*'
+        $r.Output | Should -Not -BeLike '*settings.json*' -Because 'команда більше не кладе settings.json (права не автоматизуються)'
         Join-Path $repo '.githooks' | Should -Not -Exist
     }
-    It '-Apply кладе все; після цього kit check мовчить про hooks і hook-shim' {
+    It '-Apply кладе git-хуки й не створює settings.json; після цього kit check мовчить про hooks і hook-shim' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'apply') -WithGitattributes -WithGitignore
         $r = Invoke-InstallHooks -Repo $repo -More @('-Apply')
         $r.ExitCode | Should -Be 0 -Because $r.Output
         Join-Path $repo '.githooks/pre-commit' | Should -Exist
         # З 1.6.0 хук старту сесії поставляє плагін: ні шима, ні розділу hooks у споживача.
         Join-Path $repo '.claude/hooks/session-start.ps1' | Should -Not -Exist
-        Join-Path $repo '.claude/settings.json' | Should -Exist
-        (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).PSObject.Properties.Name | Should -Not -Contain 'hooks'
+        # Контроль, що вміє впасти: якби install-hooks клав шаблон, файл з'явився б (рішення власника 2026-11-23).
+        Join-Path $repo '.claude/settings.json' | Should -Not -Exist
         (git -C $repo config --get core.hooksPath) | Should -Be '.githooks'
         # Хуки застейджені з режимом 100755 — саме він дістанеться кожному клону (git ls-files -s питає індекс, не ФС).
         # -c core.quotepath=false — той самий інваріант, що в production-коді (Hooks.psm1, check.psm1): git ls-files друкує
@@ -33,13 +34,14 @@ Describe 'kit install-hooks — хуки захисту й settings.json одн�
         $check | Should -Not -Match '100644'
         $check | Should -Not -Match 'session-start\.ps1'
     }
-    It 'наявний .claude/settings.json не перезаписується' {
+    It 'наявний .claude/settings.json лишається байт-у-байт той самий' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'keep')
         New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
         # Старий проєктний хук (1.6.0 переніс хук у плагін): наявний settings.json install-hooks не чіпає, а warn лишає людині.
         Set-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Value '{ "permissions": { "allow": ["Bash(echo:*)"] }, "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "pwsh -NoProfile -File .claude/hooks/session-start.ps1" } ] } ] } }' -Encoding UTF8
+        $hash = (Get-FileHash -LiteralPath (Join-Path $repo '.claude/settings.json') -Algorithm SHA256).Hash
         $r = Invoke-InstallHooks -Repo $repo -More @('-Apply')
-        (Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw) | Should -BeLike '*Bash(echo:*)*'
+        (Get-FileHash -LiteralPath (Join-Path $repo '.claude/settings.json') -Algorithm SHA256).Hash | Should -Be $hash
         # Доказ, що команда справді відпрацювала, не лише що файл, який
         # тест сам поклав рядком вище, лишився недоторканим — без цього асерту тест зелений і на
         # вилученому tools/commands/install-hooks.psm1 (диспетчер друкує «Невідома команда» й

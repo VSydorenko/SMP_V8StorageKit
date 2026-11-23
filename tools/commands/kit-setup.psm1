@@ -4,47 +4,37 @@ Set-StrictMode -Version Latest
 
 <#
     Разове підключення проєкту до процесу v8storagekit. Плагін не може постачати правила дозволів
-    (обмеження Claude Code), тож ця команда зливає .claude/settings.json проєкту з цільовим станом —
-    templates/settings.json плагіна, єдиним джерелом правил (ADR-0017). Без питання — локальні
-    команди (читання, запис у .agents/, тимчасові дерева) і pr-gate open|ready|land, межі яких тримає
-    код pr-gate; голі git push, gh pr create|merge, gh release — з питанням; track spec|milestone і сам
-    kit-setup — теж.
+    (обмеження Claude Code), але права НЕ автоматизуються (рішення власника 2026-11-23): kit-setup НІКОЛИ не
+    пише .claude/settings.json — ні додавання, ні прибирання, ні шим. Замість злиття — звіт лише для читання про
+    відхилення проєкту від цільового стану, templates/settings.json плагіна, єдиного еталона правил (ADR-0017):
+    правила шаблону, яких немає в проєкті (allow/ask/deny окремо; D9 — allow Уніки лише в репо 1С; правила
+    allow, на перший токен яких у проєкті є ask/deny, — окремим підкласом «додавати лише свідомо», D13);
+    точні застарілі імена Уніки в allow/ask; unica_apply в allow; старий шим hooks.SessionStart (дослівна
+    команда, D12); широкі правила pr-gate:*, track:*, git branch:*; відсутні pr-gate open|ready|land. Додає чи
+    прибирає правила людина або агент за її згодою штатними засобами Claude Code.
 
-    Злиття settings.json (спека §5.2 (а)–(г)): (а) правило шаблону додається до списку, якщо його немає
-    в ТОМУ САМОМУ списку проєкту. Інваріант: kit-setup додає в allow лише правило, про яке доведено, що
-    жодне ask/deny проєкту його не зачіпає; прибирає лише хук, що дослівно є шимом kit. Правило оболонки
-    шаблону не йде в allow, якщо ВХІДНІ (до злиття) ask чи deny проєкту мають правило оболонки (Bash ≡
-    PowerShell) на той самий перший токен команди, маску на нього чи невідомої форми (Get-SetupAllowBlock,
-    D13 перебудовано за рев'ю безпеки); пропущені названо рядком «не додано» на кожен токен. Правила Уніки
-    з allow шаблону — лише в репозиторії 1С, ask і deny — завжди; (б) з allow і ask прибираються правила,
-    що ТОЧНО (з урахуванням регістру) збігаються з застарілими іменами Уніки
-    (tools/assets/obsolete-names.json); (в) unica_apply з allow переходить в ask; (г) з
-    hooks.SessionStart[].hooks[] прибирається елемент, уся команда якого — дослівно шим kit
-    (pwsh -NoProfile -File <шлях шима>); група, SessionStart і hooks — лише коли спорожніли.
-    deny проєкту не змінюється ніколи, крім дописування; власні правила й хуки проєкту лишаються. Широкі
-    правила першого покоління (pr-gate:*, track:*, git branch:*) не прибираються — команда називає, чим
-    їх замінити. Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює.
+    Решту файлів (.gitignore, профіль, .worktreeinclude) команда лише доповнює.
 
     Ідемпотентно: другий запуск нічого не змінює. -DryRun друкує точний diff кожного файла (власним
     кодом, без зовнішнього diff) і нічого не пише. Запис — один помічник Write-SetupFiles: JSON-результат
     розбирається в пам'яті, можливість запису всіх цілей перевіряється до першої заміни, кожен файл
-    пишеться в тимчасовий поруч і лише потім атомарно замінює ціль.
+    пишеться в тимчасовий поруч і лише потім атомарно замінює ціль. Невалідний settings.json — код 3 до
+    будь-якого запису (звіт не перевірено).
 
-    Змін проти оригіналу: параметри PowerShell-стилем; кожне правило дозволу у двох формах — Bash(…) і
-    PowerShell(…) (виміряно 2026-11-20 у Claude Code 2.1.329: PowerShell(session-cost:*) пропускає виклик
-    інструментом PowerShell, а Bash(session-cost:*) — ні); перелік команд — команди цього плагіна;
+    Змін проти оригіналу: параметри PowerShell-стилем; перелік команд — команди цього плагіна;
     без .cbmignore, без JS-детекції (package.json, ESLint), без лематизатора й без сторожа git
     (ADR-0007); корінь worktree в .gitignore і .worktreeinclude — лише в режимі worktree.
 #>
-
 # Цільові правила дозволів — шаблон плагіна (D8); власного переліку команд тут немає.
 $script:TemplateRel = 'templates/settings.json'
 $script:PermLists = @('allow', 'ask', 'deny')
 # Правила Уніки: з allow шаблону — лише в репозиторії 1С (D9).
 $script:UnicaRulePrefix = 'mcp__plugin_unica_unica__'
-# (в): шаблон тримає unica_apply в ask; з allow проєкту він переходить туди ж.
+# Шаблон тримає unica_apply в ask; з allow проєкту він переходить туди ж.
 $script:UnicaApply = 'mcp__plugin_unica_unica__unica_apply'
-# (г): шим kit за історію мав одну форму — pwsh -NoProfile -File .claude/hooks/session-start.ps1. Збіг — уся
+# Правила pr-gate open|ready|land (ADR-0017): окремий рядок звіту.
+$script:PrGateRule = '^(?:Bash|PowerShell)\(pr-gate (?:open|ready|land):'
+# Шим kit за історію мав одну форму — pwsh -NoProfile -File .claude/hooks/session-start.ps1. Збіг — уся
 # команда (після обрізання пробілів по краях), заякорена з обох боків: шлях з / чи \, з необов'язковим ./ або
 # $CLAUDE_PROJECT_DIR/ (${…}), сам шлях у лапках "…"/'…' чи без, або лапки лише навколо змінної. Будь-яка
 # інша команда (інша програма, інші прапорці, складена, хук рівня користувача) — не шим kit, лишається.
@@ -72,27 +62,22 @@ $script:DefaultPrivateDir = '.agents/private'
 $script:ReviewExclude1C = @('**/ConfigDumpInfo.xml', '**/DumpFilesIndex.txt')
 
 $script:Usage = @"
-kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInclude]
+kit-setup [-DryRun] [-Json] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInclude]
 
 Разове підключення поточного репозиторію до процесу v8storagekit й оновлення після нової версії
 плагіна. Ідемпотентно: другий запуск нічого не змінює.
 
-  permissions  злити $script:SettingsFile з цільовим станом — $script:TemplateRel плагіна:
-               (а) дописати правила шаблону, яких немає в тому самому списку (allow, ask, deny);
-                   правило оболонки в allow — лише коли вхідні ask і deny проєкту не мають правила
-                   Bash чи PowerShell на той самий перший токен команди (git, pr-gate, …), маски на
-                   нього (pr-gate*, *) чи цілого інструмента; пропущене — рядок «не додано» на токен
-                   (додай сам, якщо згоден); правила Уніки в allow — лише в репозиторії 1С
-                   (v8storagekit.yaml чи v8project.yaml) і лише без того самого рядка в ask чи deny;
-               (б) прибрати з allow і ask точні застарілі імена Уніки (tools/assets/obsolete-names.json);
-               (в) перенести unica_apply з allow в ask;
-               (г) прибрати з hooks.SessionStart елемент, уся команда якого — шим kit
-                   pwsh -NoProfile -File .claude/hooks/session-start.ps1 (файл шима не видаляється;
-                   будь-яка інша команда не чіпається).
-               deny проєкту й власні правила й хуки не прибираються. Без питання — локальні команди
-               процесу й pr-gate open|ready|land; git push, gh pr create|merge, gh release,
-               track spec|milestone і kit-setup — з питанням. Широкі правила pr-gate:*, track:* і
-               git branch:* не прибираються — команда називає, чим їх замінити
+  permissions  ЗВІТ (лише читання) про $script:SettingsFile відносно $script:TemplateRel плагіна. kit цей файл
+               не пише НІКОЛИ (права не автоматизуються): показує, що додати чи прибрати, а правки —
+               людина чи агент штатними засобами Claude Code, за згодою людини. Класи звіту:
+                 - правила шаблону, яких немає в allow/ask/deny проєкту (allow Уніки — лише в
+                   репозиторії 1С: v8storagekit.yaml чи v8project.yaml); підклас: у проєкті є ask/deny
+                   на перший токен команди — такі правила allow додавати лише свідомо;
+                 - точні застарілі імена Уніки в allow/ask (tools/assets/obsolete-names.json);
+                 - unica_apply в allow, коли шаблон тримає його в ask;
+                 - старий шим hooks.SessionStart (pwsh -NoProfile -File .claude/hooks/session-start.ps1);
+                 - широкі правила pr-gate:*, track:*, git branch:*;
+                 - відсутні pr-gate open|ready|land (ADR-0017)
   gitignore    дописати .agents/out/, .agents/sdd/, <private.dir>/, .agents/briefs/,
                $script:LocalProfileRel; у режимі worktree ще й <worktrees.root>/
   profile      створити $script:ProfileRel зі знайденими значеннями й TODO-маркерами, лише якщо його
@@ -101,14 +86,15 @@ kit-setup [-DryRun] [-NoPermissions] [-NoGitignore] [-NoProfile] [-NoWorktreeInc
   worktreeinclude  лише в режимі worktree: дописати $($script:IncludeLines -join ', ') до
                $script:IncludeFile (гітігноровані файли, що копіюються в кожен новий worktree)
   -DryRun      надрукувати точний diff кожного файла, нічого не писати
-  -NoPermissions  не чіпати $script:SettingsFile зовсім (ні дописування, ні прибирання)
+  -Json        вивести результат одним JSON-об'єктом (для агента): файли й звіт permissions
+  -NoPermissions  без звіту про $script:SettingsFile (і без розділу permissions у -Json)
 
 Режим workspace.mode: з наявного профілю; інакше shared, якщо в корені є v8storagekit.yaml або будь-де
 v8project.yaml, інакше worktree.
 Вихід: 0 готово (або нічого міняти); 2 помилка виклику; 3 не git-репозиторій, файл проєкту чи
-плагіна (шаблон, застарілі імена) не читається або результат не розбирається — тоді не записано нічого.
+плагіна (шаблон, застарілі імена) не читається або результат не розбирається (зокрема невалідний
+$($script:SettingsFile): звіт не перевірено) — тоді не записано нічого.
 "@
-
 # ---------- допоміжне ----------
 
 function Read-SetupText {
@@ -145,13 +131,6 @@ function Add-SetupLines {
     $head + "# $Comment" + $nl + ($Lines -join $nl) + $nl
 }
 
-function Get-SetupJsonText {
-    param([Parameter(Mandatory)]$Data, [AllowNull()][string]$Before)
-    # ConvertTo-Json пише Environment.NewLine (на Windows — CRLF): спершу до LF, потім — кінці рядків файла.
-    $text = ((ConvertTo-Json -InputObject $Data -Depth 50 -EscapeHandling Default) -replace "`r`n", "`n") + "`n"
-    if ((Get-SetupNewline $Before) -eq "`r`n") { $text = $text -replace "`n", "`r`n" }
-    $text
-}
 
 function ConvertFrom-SetupJson {
     <# JSON → впорядкована хеш-таблиця; рядки-дати лишаються рядками. Помилка — виняток. #>
@@ -352,131 +331,110 @@ function Test-SetupShimHook {
     $Hook['command'].Trim() -cmatch $script:ShimPattern
 }
 
-function Remove-SetupShimHook {
+function Get-SetupPermissionReport {
     <#
-        (г) Прибирає з hooks.SessionStart[].hooks[] елементи старого шима; повертає їх кількість. Група —
-        лише коли її hooks[] спорожнів через це прибирання; SessionStart і hooks — так само. Невідомі
-        форми (не об'єкт, не масив) не чіпає.
-    #>
-    param([Parameter(Mandatory)][System.Collections.IDictionary]$Data)
-    $hooks = if ($Data.Contains('hooks')) { $Data['hooks'] } else { $null }
-    if (-not ($hooks -is [System.Collections.IDictionary]) -or -not $hooks.Contains('SessionStart')) { return 0 }
-    $groups = $hooks['SessionStart']
-    if (-not (Test-SetupJsonArray $groups)) { return 0 }
-    $removed = 0
-    $keptGroups = [System.Collections.Generic.List[object]]::new()
-    foreach ($g in $groups) {
-        $inner = $null
-        if ($g -is [System.Collections.IDictionary] -and $g.Contains('hooks')) { $inner = $g['hooks'] }
-        if (-not (Test-SetupJsonArray $inner)) { $keptGroups.Add($g); continue }
-        $keptHooks = [System.Collections.Generic.List[object]]::new()
-        $n = 0
-        foreach ($h in $inner) { if (Test-SetupShimHook $h) { $n++ } else { $keptHooks.Add($h) } }
-        if (-not $n) { $keptGroups.Add($g); continue }
-        $removed += $n
-        if ($keptHooks.Count) { $g['hooks'] = [object[]]$keptHooks.ToArray(); $keptGroups.Add($g) }
-    }
-    if (-not $removed) { return 0 }
-    if ($keptGroups.Count) { $hooks['SessionStart'] = [object[]]$keptGroups.ToArray() }
-    else {
-        $hooks.Remove('SessionStart')
-        if (-not $hooks.Count) { $Data.Remove('hooks') }
-    }
-    $removed
-}
-
-function Get-SetupSettingsPlan {
-    <#
-        Злиття settings.json проєкту з шаблоном (§5.2 (а)–(г), D9, D12, D13). Порядок ключів, чужі правила
-        й хуки лишаються; deny проєкту лише доповнюється. Нічого міняти — After = Before (файл не
-        переписується).
+        Звіт про .claude/settings.json проєкту відносно шаблону (спека §5.2; рішення власника 2026-11-23: права
+        не автоматизуються). ТІЛЬКИ ЧИТАННЯ: файл не змінюється й не пишеться ніколи — класифікація лише
+        називає, що відрізняється; додає людина чи агент за її згодою штатними засобами Claude Code.
+        Класи: Missing (правила шаблону, яких немає в тому самому списку проєкту); Held (правила allow шаблону,
+        яких не варто додавати, бо вхідні ask/deny проєкту мають правило оболонки на той самий перший токен чи
+        маску на нього — D13, Get-SetupAllowBlock); PrGate (відсутні pr-gate open|ready|land, ADR-0017);
+        Obsolete (точні застарілі імена Уніки в allow/ask); ApplyInAllow; Shim (дослівні команди старого шима
+        hooks.SessionStart); Broad (широкі правила першого покоління). Error — файл не розбирається.
     #>
     param([Parameter(Mandatory)][string]$Root)
     $path = Join-Path $Root $script:SettingsFile
     $before = Read-SetupText $path
     $data = [ordered]@{}
-    if ($null -ne $before) {
-        try { $data = ConvertFrom-SetupJson $before } catch { return @{ Error = "не читається $($script:SettingsFile): $($_.Exception.Message)" } }
-        if (-not ($data -is [System.Collections.IDictionary])) { return @{ Error = "$($script:SettingsFile) — не JSON-об'єкт" } }
+    $absent = $null -eq $before
+    if (-not $absent) {
+        try { $data = ConvertFrom-SetupJson $before } catch { return @{ Error = "звіт дозволів не перевірено: не читається $($script:SettingsFile): $($_.Exception.Message)" } }
+        if (-not ($data -is [System.Collections.IDictionary])) { return @{ Error = "звіт дозволів не перевірено: $($script:SettingsFile) — не JSON-об'єкт" } }
     }
     $perm = if ($data.Contains('permissions')) { $data['permissions'] } else { $null }
-    if ($null -ne $perm -and -not ($perm -is [System.Collections.IDictionary])) { return @{ Error = "$($script:SettingsFile): permissions — не об'єкт" } }
+    if ($null -ne $perm -and -not ($perm -is [System.Collections.IDictionary])) { return @{ Error = "звіт дозволів не перевірено: $($script:SettingsFile): permissions — не об'єкт" } }
     $cur = [ordered]@{}
     foreach ($l in $script:PermLists) {
         # Не через вираз if: він розгорнув би одноелементний масив у рядок.
         $v = $null
         if ($null -ne $perm -and $perm.Contains($l)) { $v = $perm[$l] }
-        if ($null -ne $v -and -not (Test-SetupJsonArray $v)) { return @{ Error = "$($script:SettingsFile): permissions.$l — не масив" } }
-        $cur[$l] = [System.Collections.Generic.List[object]]::new()
-        if ($null -ne $v) { foreach ($x in $v) { $cur[$l].Add($x) } }
+        if ($null -ne $v -and -not (Test-SetupJsonArray $v)) { return @{ Error = "звіт дозволів не перевірено: $($script:SettingsFile): permissions.$l — не масив" } }
+        $cur[$l] = @(if ($null -ne $v) { $v })
     }
-    # Вхідні ask і deny проєкту — до (б), (в) і дописування шаблону: лише з ними звіряється allow (а).
-    # Не злитий стан: ask шаблону (git push) інакше закрив би allow шаблону (git status) у кожному репо.
-    $inputStricter = @($cur['ask']) + @($cur['deny'])
+    $stricter = @($cur['ask']) + @($cur['deny'])
     $tpl = Get-SetupTemplateRules -Is1C (Test-SetupIs1C -Root $Root)
-    $obsolete = [string[]]@((Get-KitObsoleteNames).UnicaTools)
+    $obsoleteNames = [string[]]@((Get-KitObsoleteNames).UnicaTools)
 
-    # (б) Застарілі імена Уніки — точний збіг, лише allow і ask. deny не чіпаємо ніколи.
-    $dropped = 0
-    foreach ($l in 'allow', 'ask') {
-        $kept = [System.Collections.Generic.List[object]]::new()
-        foreach ($x in $cur[$l]) { if ($x -is [string] -and $obsolete -ccontains $x) { $dropped++ } else { $kept.Add($x) } }
-        $cur[$l] = $kept
-    }
-    # (в) unica_apply: з allow — в ask.
-    $moved = Test-SetupHasRule $cur['allow'] $script:UnicaApply
-    if ($moved) {
-        $kept = [System.Collections.Generic.List[object]]::new()
-        foreach ($x in $cur['allow']) { if (-not ($x -is [string] -and $x -ceq $script:UnicaApply)) { $kept.Add($x) } }
-        $cur['allow'] = $kept
-        if (-not (Test-SetupHasRule $cur['ask'] $script:UnicaApply)) { $cur['ask'].Add($script:UnicaApply) }
-    }
-    # (а) Правила шаблону, яких немає в тому самому списку; в allow — лише те, чого не зачіпає жодне вхідне
-    # ask чи deny проєкту (D13 — Get-SetupAllowBlock). Пропущене — не мовчки: рядок на перший токен.
-    $added = [ordered]@{ allow = 0; ask = 0; deny = 0 }
-    $skipped = [ordered]@{}
-    foreach ($l in 'deny', 'ask', 'allow') {
+    $missing = [ordered]@{ allow = @(); ask = @(); deny = @() }
+    $held = [ordered]@{}
+    $prGate = @()
+    foreach ($l in $script:PermLists) {
+        $list = [System.Collections.Generic.List[string]]::new()
         foreach ($r in $tpl[$l]) {
             if (Test-SetupHasRule $cur[$l] $r) { continue }
             if ($l -eq 'allow') {
-                $key = Get-SetupAllowBlock -Rule $r -By $inputStricter
+                $key = Get-SetupAllowBlock -Rule $r -By $stricter
                 if ($null -ne $key) {
-                    if (-not $skipped.Contains($key)) { $skipped[$key] = [System.Collections.Generic.List[string]]::new() }
-                    $skipped[$key].Add($r)
+                    if (-not $held.Contains($key)) { $held[$key] = [System.Collections.Generic.List[string]]::new() }
+                    $held[$key].Add($r)
                     continue
                 }
+                if ($r -cmatch $script:PrGateRule) { $prGate += $r; continue }
             }
-            $cur[$l].Add($r)
-            $added[$l]++
+            $list.Add($r)
+        }
+        $missing[$l] = [string[]]$list.ToArray()
+    }
+    $obsolete = [ordered]@{}
+    foreach ($l in 'allow', 'ask') {
+        $obsolete[$l] = [string[]]@($cur[$l] | Where-Object { $_ -is [string] -and $obsoleteNames -ccontains $_ })
+    }
+    $apply = (Test-SetupHasRule $cur['allow'] $script:UnicaApply) -and (Test-SetupHasRule $tpl['ask'] $script:UnicaApply)
+    $shim = @()
+    $hooks = if ($data.Contains('hooks')) { $data['hooks'] } else { $null }
+    if ($hooks -is [System.Collections.IDictionary] -and $hooks.Contains('SessionStart') -and (Test-SetupJsonArray $hooks['SessionStart'])) {
+        foreach ($g in $hooks['SessionStart']) {
+            $inner = $null
+            if ($g -is [System.Collections.IDictionary] -and $g.Contains('hooks')) { $inner = $g['hooks'] }
+            if (-not (Test-SetupJsonArray $inner)) { continue }
+            foreach ($h in $inner) { if (Test-SetupShimHook $h) { $shim += $h['command'].Trim() } }
         }
     }
-    $skipNote = (@(foreach ($k in $skipped.Keys) {
-                "`n  не додано $($skipped[$k].Count) правил на ``$k`` (проєкт має ask/deny на ``$k``): $($skipped[$k] -join ', ') — додай сам, якщо згоден"
-            }) -join '')
-    # (г) Елемент старого шима в hooks.SessionStart.
-    $shim = Remove-SetupShimHook -Data $data
-
-    # Попередження — без урахування регістру: тут ширше безпечніше (нічого не прибирається).
-    $warn = (@($script:BroadOld.Keys | Where-Object { @($cur['allow']) -contains $_ } | ForEach-Object {
-                "`n  власнику: $_ ширше за потрібне — $($script:BroadOld[$_])"
-            }) -join '')
-    $plan = @{ Path = $path; Rel = $script:SettingsFile; Before = $before; After = $before; Json = $true; Note = "дозволи вже за шаблоном$warn$skipNote" }
-    $addedTotal = $added['allow'] + $added['ask'] + $added['deny']
-    if (-not ($addedTotal -or $dropped -or $moved -or $shim)) { return $plan }
-
-    if ($null -eq $perm) { $perm = [ordered]@{}; $data['permissions'] = $perm }
-    foreach ($l in $script:PermLists) {
-        if ($perm.Contains($l) -or $cur[$l].Count) { $perm[$l] = [object[]]$cur[$l].ToArray() }
+    # Попередження — без урахування регістру: тут ширше безпечніше.
+    $broad = [ordered]@{}
+    foreach ($k in $script:BroadOld.Keys) { if (@($cur['allow']) -contains $k) { $broad[$k] = $script:BroadOld[$k] } }
+    @{
+        Absent = $absent; Missing = $missing; Held = $held; PrGate = [string[]]$prGate
+        Obsolete = $obsolete; ApplyInAllow = $apply; Shim = [string[]]$shim; Broad = $broad
     }
-    $plan.After = Get-SetupJsonText -Data $data -Before $before
-    $parts = @(
-        foreach ($l in $script:PermLists) { if ($added[$l]) { "+$($added[$l]) $l" } }
-        if ($dropped) { "−$dropped застарілих імен Уніки (allow/ask)" }
-        if ($moved) { 'unica_apply: allow → ask' }
-        if ($shim) { "−$shim елемент(и) старого шима в hooks.SessionStart (файл .claude/hooks/session-start.ps1 — прибрати з git окремо)" }
-    )
-    $plan.Note = "$($parts -join '; ') — власнику: перегляньте цей diff (правила allow агенти виконують без питання)$warn$skipNote"
-    $plan
+}
+
+function Test-SetupReportClean {
+    param([Parameter(Mandatory)]$R)
+    -not (@($R.Missing.Values | ForEach-Object { $_ }).Count -or $R.Held.Count -or $R.PrGate.Count -or $R.Obsolete['allow'].Count -or
+        $R.Obsolete['ask'].Count -or $R.ApplyInAllow -or $R.Shim.Count -or $R.Broad.Count)
+}
+
+function Format-SetupPermissionReport {
+    <# Текст звіту: один рядок на клас; порожній звіт — один рядок «відхилень немає». #>
+    param([Parameter(Mandatory)]$R)
+    $out = [System.Collections.Generic.List[string]]::new()
+    $out.Add("  $($script:SettingsFile) — звіт про відхилення від $($script:TemplateRel); kit цього файла не змінює (правки — людина чи агент штатними засобами Claude Code, за згодою людини)$(if ($R.Absent) { '; файла немає' })")
+    if (Test-SetupReportClean $R) { $out.Add('    відхилень від шаблону немає'); return $out.ToArray() }
+    foreach ($l in $script:PermLists) {
+        if ($R.Missing[$l].Count) { $out.Add("    немає в $l проєкту, є в шаблоні ($($R.Missing[$l].Count)): $($R.Missing[$l] -join ', ')") }
+    }
+    foreach ($k in $R.Held.Keys) {
+        $out.Add("    у проєкті є ask/deny на ``$k`` — $($R.Held[$k].Count) правил шаблону для allow не пропонуються автоматично (додавати лише свідомо): $($R.Held[$k] -join ', ')")
+    }
+    if ($R.PrGate.Count) { $out.Add("    правила pr-gate open|ready|land (ADR-0017) відсутні в allow: $($R.PrGate -join ', ')") }
+    foreach ($l in 'allow', 'ask') {
+        if ($R.Obsolete[$l].Count) { $out.Add("    застарілі імена Уніки в ${l}: $($R.Obsolete[$l] -join ', ') — прибрати (інструмента вже немає)") }
+    }
+    if ($R.ApplyInAllow) { $out.Add("    $($script:UnicaApply) в allow, а шаблон тримає його в ask — перенести в ask") }
+    if ($R.Shim.Count) { $out.Add("    старий шим у hooks.SessionStart ($($R.Shim.Count)): $($R.Shim -join '; ') — прибрати (хук поставляє плагін; файл шима прибрати з git окремо)") }
+    foreach ($k in $R.Broad.Keys) { $out.Add("    власнику: $k ширше за потрібне — $($R.Broad[$k])") }
+    $out.ToArray()
 }
 
 function Get-SetupGitignorePlan {
@@ -646,30 +604,49 @@ function Write-SetupFiles {
 function Invoke-KitKitSetup {
     param([AllowEmptyCollection()][string[]]$Arguments = @(), [Parameter(Mandatory)][string]$RepoRoot)
     $a = ConvertFrom-KitArguments -Arguments $Arguments -Spec @{
-        DryRun = 'switch'; NoPermissions = 'switch'; NoGitignore = 'switch'; NoProfile = 'switch'; NoWorktreeInclude = 'switch'
+        DryRun = 'switch'; Json = 'switch'; NoPermissions = 'switch'; NoGitignore = 'switch'; NoProfile = 'switch'; NoWorktreeInclude = 'switch'
     }
     if ($a.Help) { Write-KitLine $script:Usage; return 0 }
     if ($a.Positional.Count) { throw (New-KitUsageError "неочікуваний аргумент '$($a.Positional[0])'") }
     $root = Get-KitCheckoutRoot -Path $RepoRoot
     $dry = [bool]$a.Named['DryRun']
+    $asJson = [bool]$a.Named['Json']
 
     $data = Get-SetupProfileData -Root $root
     $mode = Get-SetupMode -Root $root -Data $data
+    # Звіт дозволів — лише читання; не розібраний settings.json — «не перевірено» до будь-якого запису.
+    $report = $null
+    if (-not $a.Named['NoPermissions']) {
+        $report = Get-SetupPermissionReport -Root $root
+        if ($report.ContainsKey('Error')) { throw (New-KitNotChecked $report.Error) }
+    }
     $plans = [System.Collections.Generic.List[hashtable]]::new()
-    if (-not $a.Named['NoPermissions']) { $plans.Add((Get-SetupSettingsPlan -Root $root)) }
     if (-not $a.Named['NoGitignore']) { $plans.Add((Get-SetupGitignorePlan -Root $root -Mode $mode -Data $data)) }
     if (-not $a.Named['NoProfile']) { $plans.Add((Get-SetupProfilePlan -Root $root -Mode $mode)) }
     if (-not $a.Named['NoWorktreeInclude']) { $plans.Add((Get-SetupWorktreeIncludePlan -Root $root -Mode $mode)) }
-    # Помилка будь-якого файла — до першого запису: не пишемо нічого.
-    $broken = $plans | Where-Object { $_.ContainsKey('Error') } | Select-Object -First 1
-    if ($broken) { throw (New-KitNotChecked $broken.Error) }
 
     $changed = @($plans | Where-Object { $_.After -cne $_.Before })
+    if (-not $dry -and $changed) { Write-SetupFiles -Plans $changed }
+    if ($asJson) {
+        $o = [ordered]@{
+            root = $root; mode = $mode; dryRun = $dry
+            files = @(foreach ($p in $plans) { [ordered]@{ path = $p.Rel; changed = ($p.After -cne $p.Before); note = $p.Note } })
+        }
+        if ($report) {
+            $o['permissions'] = [ordered]@{
+                file = $script:SettingsFile; absent = $report.Absent; clean = (Test-SetupReportClean $report)
+                missing = $report.Missing; heldByAskDeny = $report.Held; prGate = @($report.PrGate)
+                obsolete = $report.Obsolete; applyInAllow = $report.ApplyInAllow; shim = @($report.Shim); broad = $report.Broad
+            }
+        }
+        Write-KitLine (ConvertTo-Json -InputObject $o -Depth 10 -EscapeHandling Default)
+        return 0
+    }
     if ($dry) { foreach ($p in $changed) { Write-KitLine (Get-SetupUnifiedDiff -Rel $p.Rel -Before $p.Before -After $p.After) } }
-    elseif ($changed) { Write-SetupFiles -Plans $changed }
     Write-KitLine "kit-setup$(if ($dry) { ' -DryRun (нічого не записано)' }): $root; режим $mode"
     foreach ($p in $plans) { Write-KitLine "  $($p.Rel): $($p.Note)" }
-    if (-not $changed) { Write-KitLine 'нічого міняти' }
+    if ($report) { foreach ($l in (Format-SetupPermissionReport $report)) { Write-KitLine $l } }
+    if (-not $changed) { Write-KitLine 'нічого міняти у файлах' }
     Write-KitNext 'kit-scan'
     return 0
 }

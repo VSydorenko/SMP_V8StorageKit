@@ -512,14 +512,7 @@ function Copy-KitTools {
     # bin/<команда> → tools/kit.ps1.
     New-Item -ItemType Directory -Path (Join-Path $Root 'bin') -Force | Out-Null
     Copy-Item -Path (Join-Path $kitRoot 'bin/*') -Destination (Join-Path $Root 'bin') -Force
-    # templates/settings.json — раніше НЕ копіювали: тоді
-    # Install-KitSettings у тестах завжди викликали напряму з явним -TemplatesDir на
-    # справжній $kitRoot, і копія була мертва. kit install-hooks це зламало:
-    # команда викликає Install-KitSettings БЕЗ -TemplatesDir (типове значення відносне
-    # від $PSScriptRoot Hooks.psm1), а InstallHooks.Tests.ps1 запускає install-hooks
-    # ПІДПРОЦЕСОМ проти саме цієї копії kit.ps1 — типове значення тоді резолвиться в
-    # $Root/templates/settings.json, якого без цього рядка тут нема (живий прогін задачі
-    # спіймав: "Cannot find path ...\templates\settings.json").
+    # templates/settings.json — еталон звіту kit-setup (Get-KitPluginRoot у підпроцесі резолвиться в цю копію).
     Copy-Item -LiteralPath (Join-Path $kitRoot 'templates/settings.json') -Destination (Join-Path $Root 'templates/settings.json') -Force
     # .claude-plugin/plugin.json: версію плагіна читають від кореня копії (KitVersion.psm1: kit-scan,
     # kit-setup) — у цій копії, не в робочій копії плагіна, бо саме копію запускає підпроцес kit.ps1.
