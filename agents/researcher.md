@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Дослідник лише для читання: одне вузьке питання з брифом «підтверди чи спростуй» — код, чужий код, від якого він залежить, документація платформи, веб. Повертає дельту з якорями й джерелами. Кличе скіл research; про одиничний факт пошукай сам.
+description: "Дослідник лише для читання: одне вузьке питання з брифом «підтверди чи спростуй» — код, чужий код, від якого він залежить, документація платформи, веб. Повертає дельту з якорями й джерелами. Кличе скіл research; про одиничний факт пошукай сам."
 model: sonnet
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 omitClaudeMd: true

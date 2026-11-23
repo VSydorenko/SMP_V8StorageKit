@@ -284,15 +284,23 @@ function Get-PgConflictNext {
 
 function Get-PgProtectedBranches {
     <#
-        Захищені гілки: main, base профілю, base цього виклику (-Extra: -Base, baseRefName PR) і ціль
-        origin/HEAD. Їх pr-gate не пушить і не видаляє ніде (віддалено чи локально). Порівнювати —
-        лише -ccontains: на регістрочутливих ФС Main і main — різні гілки.
+        Захищені гілки: main, base профілю, base цього виклику (-Extra: -Base, baseRefName PR), ціль
+        origin/HEAD і кожне дзеркало сховища storage/* (локальне чи на origin). Їх pr-gate не пушить і
+        не видаляє ніде (віддалено чи локально). Дзеркало після kit sync завжди вміщене в головну гілку,
+        тож без захисту prune видаляв би його першим же land, а непушнуті версії дзеркала — назавжди;
+        гілки storage/* пише лише kit sync. Порівнювати — лише -ccontains: на регістрочутливих ФС Main
+        і main — різні гілки.
     #>
     param($Ctx, [string[]]$Extra = @())
     $set = [System.Collections.Generic.List[string]]::new()
     foreach ($b in (@('main', $Ctx.Base) + @($Extra))) { if ($b) { $set.Add([string]$b) } }
     $head = Invoke-PgGit -GitArgs @('symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') -Cwd $Ctx.MainRoot
     if ($head.Ok -and $head.Out -cmatch '^refs/remotes/origin/(.+)$') { $set.Add($Matches[1]) }
+    $mirrors = Invoke-PgGit -GitArgs @('for-each-ref', '--format=%(refname)', 'refs/heads/storage/', 'refs/remotes/origin/storage/') -Cwd $Ctx.MainRoot
+    if (-not $mirrors.Ok) { throw "pr-gate: не прочитано дзеркала storage/*: $($mirrors.Err)" }
+    foreach ($ref in (@($mirrors.Out) -split "\r?\n")) {
+        if ($ref -cmatch '^refs/(?:heads|remotes/origin)/(storage/.+)$') { $set.Add($Matches[1]) }
+    }
     $set.ToArray()
 }
 
@@ -722,7 +730,11 @@ function Remove-PgMergedBranch {
     $tip = Invoke-PgGit -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$Branch") -Cwd $root
     if (-not $tip.Ok) { & $Say "гілка ${Branch}: локальної немає"; return }
     $holder = @(Get-PgWorktrees -Cwd $root) | Where-Object { $_.Branch -ceq $Branch } | Select-Object -First 1
-    if ($holder) { & $Say "гілку $Branch лишено: її тримає worktree $($holder.Path)"; return }
+    if ($holder) {
+        if (Test-PgSamePath $holder.Path $root) { & $Say "гілку $Branch лишено: на ній головний checkout $root; після git switch $($Ctx.Base): git -C $root branch -d $Branch" }
+        else { & $Say "гілку $Branch лишено: її тримає worktree $($holder.Path)" }
+        return
+    }
     $baseRef = "origin/$($Ctx.Base)"
     $null = Invoke-PgGit -GitArgs @('fetch', '-q', 'origin') -Cwd $root
     $reason = $null
@@ -918,7 +930,10 @@ function Invoke-PrGateLand {
         $null = Get-PgGit -GitArgs @('fetch', '-q', 'origin') -Cwd $root
         if ($shared) {
             & $stepSay "пропущено: workspace.mode = shared, головне дерево $root спільне, HEAD не зсуваємо"
-            $left.Add($ff)
+            # Гілка PR у самому головному дереві (shared): людині — повернутись на base і прибрати гілку.
+            $cur = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
+            if ($cur -ceq $p.headRefName) { $left.Add("git -C $root switch $base && $ff && git -C $root branch -d $($p.headRefName)") }
+            else { $left.Add($ff) }
         } else {
             $cur = Get-PgGit -GitArgs @('branch', '--show-current') -Cwd $root
             $dirty = Get-PgGit -GitArgs @('status', '--porcelain', '--untracked-files=no') -Cwd $root

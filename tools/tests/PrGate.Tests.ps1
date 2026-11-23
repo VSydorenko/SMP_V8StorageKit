@@ -186,6 +186,49 @@ Describe 'pr-gate — запобіжники' {
         $extra.Out | Should -Match 'gh api -X DELETE repos/\{owner\}/\{repo\}/git/refs/heads/feat'
     }
 
+    It 'land: prune не видаляє дзеркала storage/* (локальне й з origin), хоч вони вміщені в main; контроль: звичайна злита гілка видаляється' {
+        $r = New-PgRepo -Name 'mirrors' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
+        git -C $r.Dir branch 'storage/МХ_Адаптация'
+        git -C $r.Dir branch 'storage/base'
+        git -C $r.Dir push -q origin 'storage/base'
+        git -C $r.Dir branch 'old-merged'
+        $rules = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('pr', 'list'); stdout = '[]' }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }
+            @{ prefix = @('api') }
+        )
+        $res = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $res.Code | Should -Be 0 -Because $res.Err
+        $left = @(git -C $r.Dir for-each-ref --format='%(refname:short)' refs/heads)
+        $left | Should -Contain 'storage/МХ_Адаптация'
+        $left | Should -Contain 'storage/base'
+        $left | Should -Not -Contain 'old-merged' -Because 'контроль: prune дійшов до видалення злитої гілки'
+        $res.Out | Should -Match 'видалено old-merged'
+        $res.Out | Should -Not -Match 'storage/'
+    }
+
+    It 'land у shared, головний checkout на гілці PR: next — switch на base, ff і branch -d; не «тримає worktree»' {
+        $r = New-PgRepo -Name 'sharedhead' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
+        git -C $r.Dir switch -q -c feat
+        $rules = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('pr', 'list'); stdout = '[]' }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }
+            @{ prefix = @('api') }
+        )
+        $res = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $res.Code | Should -Be 0 -Because $res.Err
+        $res.Out | Should -Match 'next: .*switch main && git -C .* merge --ff-only origin/main && git -C .* branch -d feat'
+        $res.Out | Should -Match 'на ній головний checkout'
+        $res.Out | Should -Not -Match 'тримає worktree'
+        (git -C $r.Dir branch --show-current) | Should -Be 'feat' -Because 'у shared HEAD спільного дерева не зсуваємо'
+    }
+
     It 'start у workspace.mode = shared — код 1, жодної нової гілки чи worktree; контроль: у worktree-режимі start працює' {
         $r = New-PgRepo -Name 'shared' -Profile @{ workspace = @{ mode = 'shared' } }
         $rules = @(@{ prefix = @('issue', 'view'); stdout = '{"number":12,"title":"Fix thing","state":"OPEN"}' })
