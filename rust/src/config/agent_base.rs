@@ -95,7 +95,8 @@ pub fn assert_plain_path(path: &str) -> Result<(), ConfigError> {
         return Err(ConfigError::new(ERR_DEVICE_PATH));
     }
     if let Some(rest) = p.strip_prefix("\\\\") {
-        let mut parts = rest.split('\\');
+        // Порожні частини пропускаються: `\\localhost\\C$` після нормалізації — той самий адмінський ресурс.
+        let mut parts = rest.split('\\').filter(|s| !s.is_empty());
         let _host = parts.next();
         let admin = parts.next().is_some_and(|share| {
             let mut c = share.chars();
@@ -120,17 +121,24 @@ fn resolve_link_target(raw: &str, current: &str) -> Result<Option<String>, Confi
     if target.is_empty() {
         return Ok(None);
     }
-    if prefixed {
-        let drive = {
-            let mut c = target.chars();
-            matches!((c.next(), c.next(), c.next()), (Some(l), Some(':'), Some(s)) if l.is_ascii_alphabetic() && SEPARATORS.contains(&s))
-        };
-        if !drive && !target.starts_with("\\\\") {
-            return Err(ConfigError::new(ERR_DEVICE_PATH));
-        }
-        return Ok(Some(target));
-    }
-    if is_path_rooted(&target) { Ok(Some(target)) } else { full_path(&format!("{current}\\{target}")).map(Some) }
+    let drive = {
+        let mut c = target.chars();
+        matches!((c.next(), c.next(), c.next()), (Some(l), Some(':'), Some(s)) if l.is_ascii_alphabetic() && SEPARATORS.contains(&s))
+    };
+    let joined = if drive || target.starts_with("\\\\") {
+        target
+    } else if prefixed || is_path_rooted(&target) {
+        // Префікс без диска (`Volume{…}`, `GLOBALROOT`), корінь без диска (`\x`) чи диск без кореня (`C:x`):
+        // склеїти з диском чи текою процесу не можна — відмова.
+        return Err(ConfigError::new(ERR_DEVICE_PATH));
+    } else {
+        format!("{current}\\{target}")
+    };
+    assert_plain_path(&joined)?;
+    let normalized = full_path(&joined)?;
+    // І по нормалізованому шляху: `GetFullPathNameW` зводить підряд роздільники.
+    assert_plain_path(&normalized)?;
+    Ok(Some(normalized))
 }
 
 /// Компонент відсутній лише за кодами Windows 2 і 3 (як .NET FileNotFound/DirectoryNotFound). Усе інше —
@@ -146,6 +154,7 @@ fn is_absent(e: &std::io::Error) -> bool {
 pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
     assert_plain_path(path)?;
     let mut full = full_path(path.trim())?;
+    assert_plain_path(&full)?;
     for _ in 0..MAX_HOPS {
         let root = path_root(&full);
         let rest = full.strip_prefix(root.as_str()).unwrap_or("");
@@ -171,7 +180,9 @@ pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
                 if let Some(target) = target {
                     let tail: Vec<&str> = segments.iter().skip(i.saturating_add(1)).copied().collect();
                     let tail = if tail.is_empty() { String::new() } else { format!("\\{}", tail.join("\\")) };
-                    restart = Some(full_path(&format!("{}{tail}", target.trim_end_matches(SEPARATORS)))?);
+                    let next_full = full_path(&format!("{}{tail}", target.trim_end_matches(SEPARATORS)))?;
+                    assert_plain_path(&next_full)?;
+                    restart = Some(next_full);
                     break;
                 }
             }
@@ -761,6 +772,12 @@ mod tests {
             format!("\\\\?\\C:\\{marker}"),
             format!("\\??\\C:\\{marker}"),
             format!("//./C:/{marker}"),
+            format!("\\\\localhost\\\\C$\\{marker}"),
+            format!("//localhost//C$/{marker}"),
+            format!("\\\\h\\/C$\\{marker}"),
+            format!(" \\\\localhost\\\\C$\\{marker}"),
+            format!("\\\\127.0.0.1\\\\\\C$\\{marker}"),
+            format!("\\\\?\\UNC\\localhost\\C$\\{marker}"),
         ] {
             let e = assert_plain_path(&bad).unwrap_err();
             assert!(e.message().contains("не збігається з базою людини") && !e.message().contains(marker), "{e}");
@@ -793,6 +810,13 @@ mod tests {
         assert_eq!(resolve_link_target("\\??\\C:\\real\\x", "C:\\a").unwrap().as_deref(), Some("C:\\real\\x"));
         assert_eq!(resolve_link_target("\\\\?\\UNC\\srv\\sh\\x", "C:\\a").unwrap().as_deref(), Some("\\\\srv\\sh\\x"));
         assert_eq!(resolve_link_target("..\\x", "C:\\a\\b").unwrap().as_deref(), Some("C:\\a\\x"));
+        // Корінь без диска й диск без кореня — відмова, а не підстановка диска чи теки процесу.
+        for bad in ["\\x", "C:x", "/x"] {
+            assert!(resolve_link_target(bad, "D:\\a").is_err(), "{bad}");
+        }
+        // Адмінський ресурс у цілі — відмова (у т. ч. після зняття `\\?\UNC\`).
+        assert!(resolve_link_target("\\\\?\\UNC\\localhost\\C$\\x", "D:\\a").is_err());
+        assert!(resolve_link_target("\\\\localhost\\\\C$\\x", "D:\\a").is_err());
         assert_eq!(resolve_link_target("", "C:\\a").unwrap(), None);
     }
 
