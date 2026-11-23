@@ -1,6 +1,7 @@
 #@ target: overlay
 #@ check: none
 #@ parity: class
+#@ decision: KD-5
 #@ rust-check: overlay
 #@ rust-starts: Накладка {path}, infobases.dev — connection: має бути скалярним значенням
 infobases:

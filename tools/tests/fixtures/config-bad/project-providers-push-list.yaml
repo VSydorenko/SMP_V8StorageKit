@@ -1,6 +1,7 @@
 #@ target: project
 #@ check: none
 #@ parity: class
+#@ decision: KD-5
 #@ rust-check: workspace
 #@ rust-starts: {path}: providers.push — не скаляр, потрібно designer (агентський режим раннера на Windows не заміряний, #429).
 providers: { push: [designer], pull: designer, download: designer }

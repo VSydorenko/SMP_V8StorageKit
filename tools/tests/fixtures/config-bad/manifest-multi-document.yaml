@@ -1,6 +1,7 @@
 #@ target: manifest
 #@ check: none
 #@ parity: class
+#@ decision: KD-2
 #@ rust-check: manifest
 #@ rust-starts: Файл {path} містить кілька YAML-документів
 version: 1

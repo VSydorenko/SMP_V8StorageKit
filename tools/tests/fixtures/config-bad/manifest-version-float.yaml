@@ -1,6 +1,7 @@
 #@ target: manifest
 #@ check: none
 #@ parity: class
+#@ decision: KD-3
 #@ rust-check: manifest
 #@ rust-starts: Маніфест {path} — version: 1.0 не підтримується; kit знає лише version: 1.
 version: 1.0

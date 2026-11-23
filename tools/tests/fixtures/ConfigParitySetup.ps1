@@ -213,10 +213,25 @@ function script:Compare-ParityRun {
 
 # ---- Корпус неправильних файлів ----------------------------------------------------------------------------
 
+# Закритий перелік відомих відмінностей Rust від PowerShell — ДЖЕРЕЛО ПРАВДИ гейта (план блоку тимчасовий і зникне
+# з close-block). Фікстура `parity: class` мусить мати `decision` з цього переліку; нова відмінність починається
+# з рядка тут: що робить PowerShell, що робить Rust і чому, хто вирішив.
+#   KD-1 текст помилки розбору YAML — лише файл і місце, без тексту парсера (спека §6)
+#   KD-2 кілька YAML-документів — відмова з місцем другого `---`
+#   KD-3 рядкові поля — вихідний текст скаляра або відмова; `version: 1.0` відхиляється
+#   KD-4 YAML-тег у значенні чи ключі — відмова з місцем, без цитування
+#   KD-5 список чи мапа на місці скаляра — відмова без значення
+#   KD-6 ім'я ключа рядка підключення — лише з відомого переліку (рішення 9; «непарні лапки» теж)
+#   KD-7 `File=` з префіксом пристрою чи адмінським ресурсом, ціль посилання не абсолютна — відмова «kit не може довести…»
+#   KD-8 порядок імен (DT-INF, «Є: …») не залежить від культури; дедуплікація за тим самим правилом
+#   KD-9 запис `sources` без значення — ім'я не друкується
+$script:KnownDifferences = 'KD-1', 'KD-2', 'KD-3', 'KD-4', 'KD-5', 'KD-6', 'KD-7', 'KD-8', 'KD-9'
+
 # Заголовок фікстури: рядки `#@ ключ: значення` на початку файла. Ключі: target (manifest|overlay|project|local),
 # check (знахідка PowerShell: manifest|overlay|workspace|source|agentBase|none), starts (початок її тексту; {path} —
 # шлях файла-цілі, {ws} — тека воркспейсу), parity (text — типово, class — відома відмінність: Rust-бік свій),
-# rust-check, rust-starts (для class), note.
+# decision (для class: KD-n із $script:KnownDifferences), rust-check, rust-starts (для class), rust-also (для class:
+# початок тексту ДРУГОЇ проблеми Rust — помилки бази агента чи перетинів, коли вона не збігається з rust-starts), note.
 function script:Read-ConfigBadFixture([string]$File) {
     $meta = @{ file = $File; parity = 'text' }
     foreach ($line in (Get-Content -LiteralPath $File -Encoding UTF8)) {
@@ -259,6 +274,23 @@ function script:Get-FirstProblem($Tree) {
     if ($w -and $w.agentBase.error) { return @('agentBase', $w.agentBase.error) }
     if ($w -and $w.collisions.error) { return @('agentBase', $w.collisions.error) }
     @('none', '')
+}
+
+# Усі проблеми результату Rust крім першої: друга знахідка error й помилки бази агента / перетинів першого воркспейсу
+# з іншим текстом. Класова фікстура не може мати другої хибної проблеми (гейт інакше сліпий до всього, крім першої).
+function script:Get-ExtraProblems($Tree) {
+    $extra = [System.Collections.Generic.List[object]]::new()
+    if ($Tree.stop) { return }
+    $errors = @($Tree.findings | Where-Object { $_.level -eq 'error' })
+    for ($i = 1; $i -lt $errors.Count; $i++) { $extra.Add(@('finding', $errors[$i].message)) }
+    $first = (Get-FirstProblem $Tree)[1]
+    $w = @($Tree.context.workspaces)[0]
+    if ($w) {
+        foreach ($pair in @(@('agentBase', $w.agentBase.error), @('collisions', $w.collisions.error))) {
+            if ($pair[1] -and $pair[1] -cne $first) { $extra.Add($pair) }
+        }
+    }
+    $extra.ToArray()
 }
 
 function script:Expand-ParityStarts([string]$Text, [string]$Repo, [string]$Target) {

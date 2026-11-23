@@ -1,6 +1,7 @@
 #@ target: manifest
 #@ check: manifest
 #@ parity: class
+#@ decision: KD-5
 #@ starts: Маніфест {path} — version: System.Collections.Specialized.OrderedDictionary не підтримується; kit знає лише version: 1.
 #@ rust-starts: Маніфест {path} — version: має бути числом (значення не друкується).
 version: { a: 1 }

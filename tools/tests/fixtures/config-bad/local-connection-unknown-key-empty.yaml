@@ -1,6 +1,7 @@
 #@ target: local
 #@ check: agentBase
 #@ parity: class
+#@ decision: KD-6
 #@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить порожнє значення для ключа 'ss'.
 #@ rust-starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить порожнє значення для невідомого ключа (ім'я не друкується).
 infobases:

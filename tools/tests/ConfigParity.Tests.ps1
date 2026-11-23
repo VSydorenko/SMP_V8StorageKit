@@ -56,6 +56,9 @@ Describe 'Rust-префлайт проти PowerShell-префлайту (пар
                 @(Invoke-ParityAllModes $repo) | Should -BeNullOrEmpty
             } else {
                 # Відома відмінність: Rust свій клас і свій початок тексту; PowerShell — як заявлено вище.
+                # Закритий перелік: без рішення з переліку (чи з невідомим ідентифікатором) клас нічого не доводить.
+                $m['decision'] | Should -Not -BeNullOrEmpty -Because 'класова фікстура мусить мати #@ decision: KD-n'
+                $m['decision'] | Should -BeIn $script:KnownDifferences -Because "ідентифікатор рішення «$($m['decision'])» поза закритим переліком відомих відмінностей"
                 foreach ($mode in $script:Modes) {
                     $rs = Invoke-RustPreflight -Repo $repo -Mode $mode
                     $rs.Code | Should -Be 0
@@ -65,6 +68,13 @@ Describe 'Rust-префлайт проти PowerShell-префлайту (пар
                     $wantText = Expand-ParityStarts $m['rust-starts'] $repo $m.target
                     $rp[1].StartsWith($wantText) | Should -BeTrue -Because "Rust [$mode]: «$($rp[1])» має починатись з «$wantText»"
                     if ($mode -eq 'Strict' -and $rs.Tree.stop) { $rs.Tree.stop.check | Should -BeExactly $m['rust-check'] }
+                    # Лише перша проблема — не весь клас: друга знахідка error, а також помилка бази агента чи перетинів
+                    # з іншим текстом — червоне, якщо фікстура не декларує її початок у rust-also.
+                    @($rs.Tree.findings | Where-Object { $_.level -eq 'error' }).Count | Should -BeLessOrEqual 1 -Because "Rust [$mode]: друга знахідка error на класовій фікстурі"
+                    $wantAlso = if ($m.Contains('rust-also')) { Expand-ParityStarts $m['rust-also'] $repo $m.target } else { $wantText }
+                    foreach ($x in @(Get-ExtraProblems $rs.Tree)) {
+                        $x[1].StartsWith($wantAlso) | Should -BeTrue -Because "Rust [$mode]: друга проблема ($($x[0])) «$($x[1])» має починатись з «$wantAlso» (того ж класу) або фікстура декларує rust-also"
+                    }
                     $script:ClassRuns[$mode]++
                 }
             }

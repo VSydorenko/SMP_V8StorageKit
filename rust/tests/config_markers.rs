@@ -24,6 +24,7 @@ const VARIANTS: [(&str, &str, bool); 3] = [
 
 #[derive(Clone, Copy)]
 enum File {
+    Manifest,
     Overlay,
     Local,
 }
@@ -60,7 +61,7 @@ fn case(name: &'static str, file: File, text: &'static str, expect: Expect) -> C
 }
 
 fn cases() -> Vec<Case> {
-    use File::{Local, Overlay};
+    use File::{Local, Manifest, Overlay};
     let on = |c: Case, q: bool| Case {
         quote_only: Some(q),
         ..c
@@ -97,6 +98,13 @@ fn cases() -> Vec<Case> {
             Overlay,
             "workspaces:\n  ws: { agentBase: '{M}' }\n",
             Expect::Finding("overlay", "має бути мапою"),
+        ),
+        // --- маніфест: запис `sources` без значення (ключ без `:`) — ім'я не друкується, лише номер запису ---
+        case(
+            "manifest запис sources без значення",
+            Manifest,
+            "version: 1\nproduct: P\nworkspaces:\n  - path: ws\n    sources: { cf: { truth: git }, '{M}' }\n",
+            Expect::Finding("manifest", "запис №2 без значення"),
         ),
         // --- дубль ключа (розбір YAML) ---
         case(
@@ -380,6 +388,7 @@ fn tmp(tag: &str) -> PathBuf {
 fn write_case(dir: &Path, c: &Case, value: &str) -> String {
     let text = c.text.replace("{M}", value);
     let path = match c.file {
+        File::Manifest => dir.join("v8storagekit.yaml"),
         File::Overlay => dir.join("v8storagekit.local.yaml"),
         File::Local => dir.join("ws").join("v8project.local.yaml"),
     };

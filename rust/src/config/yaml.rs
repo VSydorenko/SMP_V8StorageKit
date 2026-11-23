@@ -17,7 +17,11 @@
 //
 // Дерево нормалізоване під PowerShell: ключі мап — рядки, мапа тримає порядок файла, ключі, що відрізняються лише
 // регістром, зливаються (PowerShell тримає дерево в `OrderedDictionary` без регістру: перший запис задає місце,
-// ім'я й значення — останній; вимір 2026-11-24: `A: 1` і `a: 2` дають ключ `a`, задача 4). Пошук за ключем — без регістру. Тег (`!x`) у значенні — помилка розбору.
+// ім'я й значення — останній; вимір 2026-11-24: `A: 1` і `a: 2` дають ключ `a`, задача 4). Пошук за ключем — без регістру. Тег (`!x`) у значенні чи ключі — відмова з місцем (рядок, колонка) без тексту тега й значення (відома відмінність).
+//
+// Прийняте обмеження: розбір глибокої flow-вкладеності (`[[[[…]]]]`) квадратичний за глибиною — 100 КБ вкладених
+// дужок розбираються ~14,5 с, 400 КБ — ~39 с. Межі розміру немає (рішення архітектора: файл конфігурації пише людина,
+// стеля — час хука); якорі («мільярд сміхів») обмежує сам `serde_yaml`.
 
 use super::ConfigError;
 use std::collections::HashMap;
@@ -81,7 +85,11 @@ pub fn read_yaml_or_none(path: &Path) -> Result<Option<Mapping>, ConfigError> {
     match root {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Mapping(typed)) => match text_tree(text, &typed) {
-            Some(Value::Mapping(m)) => Ok(Some(m)),
+            Ok(Value::Mapping(m)) => Ok(Some(m)),
+            Err(TextFail::Tag(Some((line, column)))) => Err(ConfigError::new(format!(
+                "{shown}: YAML-тег (`!…`) у рядку {line}, колонці {column} не підтримується — приберіть тег."
+            ))),
+            Err(TextFail::Tag(None)) => Err(ConfigError::new(format!("{shown}: YAML-тег (`!…`) не підтримується — приберіть тег."))),
             _ => Err(ConfigError::new(format!("Файл {shown} не розбирається як YAML."))),
         },
         Some(other) => Err(ConfigError::new(format!(
@@ -164,11 +172,45 @@ fn marker_line(text: &str, content_line: usize) -> usize {
 }
 
 /// Дерево першого документа, де кожен скаляр прочитано як рядок; форму (мапа, список, `null`) задає типове дерево.
-fn text_tree(text: &str, typed: &Mapping) -> Option<Value> {
-    let first = serde_yaml::Deserializer::from_str(text).next()?;
+fn text_tree(text: &str, typed: &Mapping) -> Result<Value, TextFail> {
+    let first = serde_yaml::Deserializer::from_str(text).next().ok_or(TextFail::Other)?;
     let shape = Value::Mapping(typed.clone());
-    let tree = TextSeed(&shape).deserialize(first).ok()?;
-    normalize(tree)
+    let tree = TextSeed(&shape).deserialize(first).map_err(|e| {
+        if e.to_string().contains(TAG_MARK) { TextFail::Tag(place(&e)) } else { TextFail::Other }
+    })?;
+    normalize(tree).ok_or(TextFail::Other)
+}
+
+enum TextFail {
+    /// Тег (`!x`) у значенні чи ключі; місце — з `serde_yaml`, текст тега й значення не передаються.
+    Tag(Option<(usize, usize)>),
+    Other,
+}
+
+/// Мітка внутрішньої помилки «тег»: у текст для людини не йде.
+const TAG_MARK: &str = "kit-yaml-tag";
+
+/// Читає вузол із тегом: `serde_yaml` повідомляє `visit_enum` лише для тегованого вузла, і помилка дістає місце цього
+/// вузла (власна помилка без читання вузла місця не мала б).
+struct TagFail;
+
+impl<'de> Visitor<'de> for TagFail {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("тег")
+    }
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, _: A) -> Result<Value, A::Error> {
+        Err(A::Error::custom(TAG_MARK))
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for TagFail {
+    type Value = Value;
+
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Value, D::Error> {
+        d.deserialize_any(self)
+    }
 }
 
 struct TextSeed<'a>(&'a Value);
@@ -181,7 +223,7 @@ impl<'de> DeserializeSeed<'de> for TextSeed<'_> {
             Value::Mapping(shape) => d.deserialize_map(MapShape(shape)),
             Value::Sequence(shape) => d.deserialize_seq(SeqShape(shape)),
             Value::Null => d.deserialize_any(IgnoredAny).map(|_| Value::Null),
-            Value::Tagged(_) => Err(D::Error::custom("тег")),
+            Value::Tagged(_) => TagFail.deserialize(d),
             Value::Bool(_) | Value::Number(_) | Value::String(_) => String::deserialize(d).map(Value::String),
         }
     }
@@ -199,7 +241,11 @@ impl<'de> Visitor<'de> for MapShape<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Value, A::Error> {
         let mut out = Mapping::new();
         for (key_shape, value_shape) in self.0 {
-            if matches!(key_shape, Value::Sequence(_) | Value::Mapping(_) | Value::Tagged(_)) {
+            if matches!(key_shape, Value::Tagged(_)) {
+                a.next_key_seed(TagFail)?;
+                return Err(A::Error::custom(TAG_MARK));
+            }
+            if matches!(key_shape, Value::Sequence(_) | Value::Mapping(_)) {
                 return Err(A::Error::custom("ключ не скаляр"));
             }
             let Some(key) = a.next_key::<String>()? else { break };
@@ -313,27 +359,14 @@ pub fn get_string(map: &Mapping, key: &str) -> String {
     get(map, key).map(ps_string).unwrap_or_default()
 }
 
-const LIST_TYPE: &str = "System.Collections.Generic.List`1[System.Object]";
-const MAP_TYPE: &str = "System.Collections.Specialized.OrderedDictionary";
-
-/// Значення → рядок за правилами PowerShell `[string]` (рішення 7 плану): ціле без крапки, `True`/`False`,
-/// `null` → порожньо, список — елементи через пробіл, мапа й вкладений список — ім'я типу .NET.
+/// Значення рядкового поля: вихідний текст скаляра, `null` — порожній рядок. Після `text_tree` скаляр у дереві — лише
+/// `String` чи `Null` (число, булеве й тег сюди не доходять: скаляри прочитано як рядки, тег — відмова). Список і мапа
+/// на місці рядкового поля відхиляє `assert_scalar` (і `storages.*` — власна перевірка накладки) раніше за читання, тож
+/// їхнього рядкового подання немає (відмінності від PowerShell — у плані блоку, KD-3 і KD-5); сюди вони давали б порожньо.
 pub fn ps_string(v: &Value) -> String {
     match v {
-        Value::Null => String::new(),
-        Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
-        Value::Number(n) => number_text(n).0,
         Value::String(s) => s.clone(),
-        Value::Tagged(t) => ps_string(&t.value),
-        Value::Mapping(_) => MAP_TYPE.to_string(),
-        Value::Sequence(items) => items
-            .iter()
-            .map(|i| match i {
-                Value::Sequence(_) => LIST_TYPE.to_string(),
-                other => ps_string(other),
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
+        _ => String::new(),
     }
 }
 
@@ -460,13 +493,20 @@ mod tests {
         assert!(e.message().contains("laughs.yaml") && e.message().contains("не розбирається як YAML"), "{e}");
     }
 
+    // Тег у значенні чи ключі — відмова з місцем без тексту тега й значення.
     #[test]
-    fn powershell_string_conversion() {
-        let d = tmp("psstring");
-        let p = file(&d, "v.yaml", "l: [1.10, true, ~, 0123, [x], {k: v}, abc]\nm: {k: v}\n");
-        let m = read_yaml(&p, Emptiness::Required).unwrap();
-        assert_eq!(get_string(&m, "l"), format!("1.10 true  0123 {LIST_TYPE} {MAP_TYPE} abc"));
-        assert_eq!(get_string(&m, "m"), MAP_TYPE);
+    fn tag_is_refused_with_place_only() {
+        let d = tmp("tags");
+        let marker = "SECRETmarker"; // ASCII: тег з не-ASCII символами сам не розбирається
+        for (name, text) in [
+            ("v.yaml", format!("a: 1\nb: !{marker} {marker}\n")),
+            ("k.yaml", format!("a: 1\n!{marker} b: {marker}\n")),
+            ("n.yaml", format!("a:\n  - x\n  - !{marker} [{marker}]\n")),
+        ] {
+            let e = read_yaml(&file(&d, name, &text), Emptiness::Required).unwrap_err();
+            assert!(e.message().contains("YAML-тег (`!…`) у рядку") && e.message().contains("колонці") && e.message().ends_with("приберіть тег."), "{name}: {e}");
+            assert!(!e.message().contains(marker) && !format!("{e:?}").contains(marker), "{name}: {e}");
+        }
     }
 
     // Рішення архітектора: рядкове поле дає вихідний текст скаляра, ніколи `1.1` замість `1.10` чи `123` замість

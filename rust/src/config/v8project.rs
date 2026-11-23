@@ -3,11 +3,12 @@
 //
 // Kit читає лише те, від чого залежить: source-set-и (name/type/path), `workPath`, `providers` (як дерево) і
 // `infobases.origin` у локальному файлі. Секрети — типом: пароль — `Secret`, рядок підключення — `RawConnection`,
-// піддерево `dbms` — непрозорий `SecretTree` (спека §6). Усі рядкові поля переводяться тією самою `ps_string`,
-// що й решта конфігурації (рішення 7 плану), — пароль не має окремого шляху.
+// піддерево `dbms` — непрозорий `SecretTree` (спека §6). Усі рядкові поля читаються тією самою `get_string`, що й
+// решта конфігурації: вихідний текст скаляра, список чи мапа на місці скаляра — відмова без значення, — пароль не має
+// окремого шляху.
 
 use super::manifest::is_blank;
-use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, read_yaml, read_yaml_or_none};
+use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, ps_string, read_yaml, read_yaml_or_none};
 use super::{ConfigError, RawConnection, Secret, SecretTree};
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
@@ -154,6 +155,7 @@ pub fn read_local_infobase(path: &Path) -> Result<Option<LocalInfobase>, ConfigE
     if is_blank(&connection) {
         return Ok(None);
     }
+    // `dbms` не мапою (скаляр, список) — «не задано», як у PowerShell (`-is [IDictionary]`); значення не друкується.
     let dbms = match get(origin, "dbms") {
         Some(Value::Mapping(m)) => Some(SecretTree::new(m.clone())),
         _ => None,
@@ -212,7 +214,9 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
                     }
                 }
                 if let Some(origin) = get(map, "origin") {
-                    let described = matches!(origin, Value::Mapping(o) if contains(o, "connection") && !is_blank(&get_string(o, "connection")));
+                    // Список чи мапа в `connection` — «описано» (відмову дає читання бази агента: KD-5), а не «без connection».
+                    let described = matches!(origin, Value::Mapping(o) if get(o, "connection").is_some_and(
+                        |c| matches!(c, Value::Sequence(_) | Value::Mapping(_)) || !is_blank(&ps_string(c))));
                     if !described {
                         problems.push(format!(
                             "{p}: infobases.origin без connection — база агента оголошена, але не описана. Допишіть connection: 'File=build/ib' (файлова) або 'Srvr=…;Ref=…;' (серверна) — скіл v8storagekit:infobase-agent."
@@ -337,7 +341,7 @@ mod tests {
         }
     }
 
-    // Інваріант §6: пароль і піддерево dbms не потрапляють у Debug; пароль іде через `ps_string` (число → текст).
+    // Інваріант §6: пароль і піддерево dbms не потрапляють у Debug; пароль іде через `ps_string` (вихідний текст скаляра).
     #[test]
     fn local_infobase_keeps_secrets_opaque() {
         let d = tmp("local");

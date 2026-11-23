@@ -208,7 +208,9 @@ pub fn read_manifest(path: &Path, allow_kit_version: bool) -> Result<Manifest, C
         }
 
         let mut sources = Vec::new();
-        for (key_value, src) in src_raw {
+        for (idx, (key_value, src)) in src_raw.iter().enumerate() {
+            // Спершу значення, потім ім'я: запис без значення — це ключ без `:`, і секрет міг опинитись у ньому.
+            assert_entry_has_value(src, idx.saturating_add(1), &format!("{where_}, воркспейс '{ws_path}', sources"))?;
             let key = ps_string(key_value);
             let swhere = format!("{where_}, воркспейс '{ws_path}', джерело '{key}'");
             let src_map = assert_map_keys(src, &["truth", "storage", "dump"], &["truth"], &swhere)?;
@@ -331,6 +333,14 @@ mod tests {
         let bad_path = format!("version: 1\nproduct: p\nworkspaces: [{{path: a, sources: {{k: {{truth: storage, storage: {{path: '{marker}'}}}}}}}}]\n");
         let e = read("badpath", &bad_path, false).unwrap_err();
         assert!(!e.message().contains(marker) && e.message().contains("шлях сховища має форму"), "{e}");
+
+        // Запис `sources` без значення: ім'я не друкується (номер запису); двійник — той самий запис зі значенням
+        // друкується в тексті про значення (ім'я там уже перевірене розбором).
+        let no_value = format!("version: 1\nproduct: p\nworkspaces: [{{path: a, sources: {{k: {{truth: git}}, {marker}}}}}]\n");
+        let e = read("novalue", &no_value, false).unwrap_err();
+        assert!(!e.message().contains(marker) && e.message().contains("запис №2 без значення"), "{e}");
+        let with_value = format!("version: 1\nproduct: p\nworkspaces: [{{path: a, sources: {{k: {{truth: git}}, {marker}: git}}}}]\n");
+        assert!(read("withvalue", &with_value, false).unwrap_err().message().contains(&format!("джерело '{marker}' має бути мапою")));
 
         let both = "version: 1\nproduct: p\nclient: c\nworkspaces: []\n";
         assert!(read("both", both, false).unwrap_err().message().ends_with("рівно один із ключів product: або client: (вказано обидва)."));

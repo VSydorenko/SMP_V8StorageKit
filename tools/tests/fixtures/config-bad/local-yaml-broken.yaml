@@ -1,6 +1,7 @@
 #@ target: local
 #@ check: workspace
 #@ parity: class
+#@ decision: KD-1
 #@ starts: Конфіг Уніки воркспейсу 'Alpha_SMB' не читається: Файл {path} не розбирається як YAML
 #@ rust-starts: Конфіг Уніки воркспейсу 'Alpha_SMB' не читається: Файл {path} не розбирається як YAML
 infobases: [
