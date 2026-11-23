@@ -161,6 +161,22 @@ BeforeAll {
         return , $problems.ToArray()
     }
 
+    # 2а. Frontmatter — справжній YAML. Claude Code розбирає його парсером YAML і на збої вантажить скіл чи
+    # агента з порожніми метаданими (`claude plugin validate`: «YAML frontmatter failed to parse»); порядковий
+    # Get-KitFrontmatter такого не бачить — для нього `description: a: b` нормальне значення (#95).
+    function script:Get-KitFrontmatterYamlProblems([string]$Root) {
+        Import-Module powershell-yaml -ErrorAction Stop
+        $problems = [System.Collections.Generic.List[string]]::new()
+        foreach ($f in @(Get-KitSkillAgentFiles $Root)) {
+            $m = [regex]::Match((Get-Content -LiteralPath $f.Path -Raw -Encoding UTF8), '^---\r?\n([\s\S]*?)\r?\n---')
+            if (-not $m.Success) { continue }   # відсутність frontmatter ловлять перевірки 1 і 2
+            try { $y = ConvertFrom-Yaml -Yaml $m.Groups[1].Value -Ordered }
+            catch { $problems.Add("$($f.Rel) — frontmatter не YAML: $(($_.Exception.Message -split "\r?\n")[0]) (значення з «: » чи « #» — у лапки)"); continue }
+            if ($y -isnot [System.Collections.IDictionary]) { $problems.Add("$($f.Rel) — frontmatter не мапа YAML") }
+        }
+        return , $problems.ToArray()
+    }
+
     # 3. Розмір SKILL.md.
     function script:Get-KitSkillSizeProblems([string]$Root) {
         $problems = [System.Collections.Generic.List[string]]::new()
@@ -416,6 +432,24 @@ Describe 'Агенти: description, model, tools' -Tag 'Docs' {
         $p | Should -Match 'agents/bad\.md — немає model:'
         $p | Should -Match 'agents/bad\.md — немає tools:'
         $p | Should -Not -Match 'agents/good'
+    }
+}
+
+Describe 'Frontmatter скілів і агентів — справжній YAML' -Tag 'Docs' {
+    It 'frontmatter кожного скіла й агента розбирається парсером YAML у мапу' {
+        $p = Get-KitFrontmatterYamlProblems $script:PluginRoot
+        $p | Should -BeNullOrEmpty -Because ($p -join '; ')
+    }
+
+    It 'контроль: опис з «: » без лапок — знахідка; той самий у лапках і багаторядковий «>» — ні' {
+        $root = Join-Path $TestDrive 'shape-yaml'
+        New-Item -ItemType Directory -Path (Join-Path $root 'agents') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $root 'agents/bad.md') -Value "---`nname: bad`ndescription: Аудитор лише для читання: спека`nmodel: sonnet`ntools: Read`n---`nтіло" -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'agents/quoted.md') -Value "---`nname: quoted`ndescription: `"Аудитор лише для читання: спека`"`nmodel: sonnet`ntools: Read`n---`nтіло" -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $root 'agents/folded.md') -Value "---`nname: folded`ndescription: >`n  Аудитор лише для читання: спека`nmodel: sonnet`ntools: Read`n---`nтіло" -Encoding UTF8
+        $p = (Get-KitFrontmatterYamlProblems $root) -join "`n"
+        $p | Should -Match 'agents/bad\.md — frontmatter не YAML'
+        $p | Should -Not -Match 'quoted|folded'
     }
 }
 

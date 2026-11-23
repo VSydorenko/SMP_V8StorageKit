@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Виконує одну задачу прийнятого плану за файлом брифу в робочій копії, яку названо у виклику: код, тести, звіт і короткий статус; коміт — лише як дозволяє бриф. Кличе скіл execute, модель задає контролер.
+description: "Виконує одну задачу прийнятого плану за файлом брифу в робочій копії, яку названо у виклику: код, тести, звіт і короткий статус; коміт — лише як дозволяє бриф. Кличе скіл execute, модель задає контролер."
 model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff, mcp__plugin_unica_unica__unica_apply, mcp__plugin_unica_unica__unica_run
 ---
