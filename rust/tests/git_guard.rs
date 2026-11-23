@@ -10,6 +10,8 @@
 //      аргументів `.arg(`, `.args(` чи `Command::new(`;
 //  (в) `Command::new` з нелітеральним аргументом (або без виклику — як значення функції) — лише з
 //      явного переліку дозволених місць ALLOWED_DYNAMIC;
+//  Правило (а) має явний перелік ALLOWED_LITERAL: слово `git`, що не є програмою (словник значень). Кожен запис
+//  мусить відповідати рівно одному літералу, застарілий запис — червоне, як в ALLOWED_DYNAMIC.
 //  (г) псевдонім типу `Command` (`Command as X`, `type X = …Command;`).
 // Позитивний двійник: у модулі `git` правило влучення ДАЄ — інакше сканер сліпий.
 
@@ -22,6 +24,10 @@ const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
     ("src/proc.rs", "&taskkill", "убити дерево процесів на стелі часу: хук старту (session-check) і gh"),
     ("src/gh.rs", "&exe", "gh для session-board: програма знайдена в PATH"),
 ];
+
+/// Дозволені літерали правила (а): (файл відносно rust/, літерал, навіщо). Кожен запис — рівно одне місце.
+const ALLOWED_LITERAL: &[(&str, &str, &str)] =
+    &[("src/config/mod.rs", "git", "значення truth: git у словнику маніфесту, не програма")];
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -339,9 +345,10 @@ struct Report {
     git_module_hits: usize,
 }
 
-fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)]) -> Report {
+fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)], allowed_literal: &[(&str, &str, &str)]) -> Report {
     let files = scope_files(root);
     let mut unused: Vec<(&str, &str)> = allowed.iter().map(|(f, a, _)| (*f, *a)).collect();
+    let mut unused_lit: Vec<(&str, &str)> = allowed_literal.iter().map(|(f, a, _)| (*f, *a)).collect();
     let mut violations = Vec::new();
     let mut git_module_hits = 0;
     for (rel, path) in &files {
@@ -352,6 +359,13 @@ fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)]) -> Report {
             continue;
         }
         for h in hits {
+            if h.rule == "а" {
+                let pos = unused_lit.iter().position(|(f, lit)| *f == rel && format!("{lit:?}") == h.detail);
+                if let Some(p) = pos {
+                    unused_lit.remove(p);
+                    continue;
+                }
+            }
             violations.push(format!("{rel}:{} правило ({}) {}", h.line, h.rule, h.detail));
         }
         for (line, arg) in dynamic {
@@ -366,13 +380,16 @@ fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)]) -> Report {
     for (f, a) in unused {
         violations.push(format!("застарілий запис переліку дозволених: {f} Command::new({a})"));
     }
+    for (f, lit) in unused_lit {
+        violations.push(format!("застарілий запис переліку дозволених літералів: {f} {lit:?}"));
+    }
     Report { scanned: files.len(), violations, git_module_hits }
 }
 
 #[test]
 fn git_is_launched_only_in_git_module() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let r = scan_crate(root, ALLOWED_DYNAMIC);
+    let r = scan_crate(root, ALLOWED_DYNAMIC, ALLOWED_LITERAL);
     assert!(r.scanned > 0, "сканер не бачить жодного файлу");
     assert_eq!(r.scanned, count_rs(root), "відскановано не всі файли *.rs обсягу");
     assert!(r.git_module_hits > 0, "у модулі git немає жодного влучення — сканер сліпий");
@@ -442,7 +459,7 @@ fn nested_file_is_scanned() {
     std::fs::write(tmp.join("build.rs"), "fn main() {}").unwrap();
     std::fs::write(tmp.join("src/git.rs"), r#"fn g() { Command::new("git"); }"#).unwrap();
     std::fs::write(tmp.join("src/a/b/deep.rs"), r#"fn f() { Command::new("git").status(); }"#).unwrap();
-    let r = scan_crate(&tmp, &[("src/main.rs", "&pwsh", "")]);
+    let r = scan_crate(&tmp, &[("src/main.rs", "&pwsh", "")], &[]);
     let _ = std::fs::remove_dir_all(&tmp);
     assert_eq!(r.scanned, 3);
     assert_eq!(r.git_module_hits, 1);
@@ -453,4 +470,25 @@ fn nested_file_is_scanned() {
             "застарілий запис переліку дозволених: src/main.rs Command::new(&pwsh)".to_string(),
         ]
     );
+}
+
+/// Перелік дозволених літералів: запис гасить рівно одне влучення правила (а) у своєму файлі; застарілий запис
+/// і той самий літерал в іншому файлі поза модулем git — червоне (контроль, що сканер не осліп).
+#[test]
+fn allowed_literal_is_exact_and_stale_entries_fail() {
+    let tmp = std::env::temp_dir().join(format!("kit-guard-{}-{}", std::process::id(), line!()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(tmp.join("build.rs"), "fn main() {}").unwrap();
+    std::fs::write(tmp.join("src/git.rs"), r#"fn g() { Command::new("git"); }"#).unwrap();
+    std::fs::write(tmp.join("src/words.rs"), r#"const A: &str = "git";"#).unwrap();
+    std::fs::write(tmp.join("src/other.rs"), r#"const B: &str = "git";"#).unwrap();
+    let allowed = [("src/words.rs", "git", "слово словника")];
+    let r = scan_crate(&tmp, &[], &allowed);
+    assert_eq!(r.violations, vec!["src/other.rs:1 правило (а) \"git\"".to_string()], "дозволений запис гасить лише своє місце");
+    // Застарілий запис: у файлі літерала немає.
+    let stale = [("src/words.rs", "git", ""), ("src/other.rs", "git", ""), ("src/nowhere.rs", "git", "")];
+    let r = scan_crate(&tmp, &[], &stale);
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert_eq!(r.violations, vec!["застарілий запис переліку дозволених літералів: src/nowhere.rs \"git\"".to_string()]);
 }

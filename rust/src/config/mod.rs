@@ -93,9 +93,9 @@ impl fmt::Debug for RawConnection {
     }
 }
 
-/// Значення `truth` «git». Склеєне, бо запобіжник «запуск git лише в модулі git» (tests/git_guard.rs) бачить
-/// літерал `"git"` як можливий запуск програми; тут це слово словника, не програма.
-const TRUTH_GIT: &str = concat!("g", "it");
+/// Значення `truth: git`. Єдиний у модулі літерал `"git"` — слово словника, не програма: запобіжник
+/// tests/git_guard.rs має для нього запис ALLOWED_LITERAL.
+const TRUTH_GIT: &str = "git";
 
 /// Словник `truth` — єдине місце, де він оголошений (як `$script:TruthValues`).
 pub const TRUTH_VALUES: [&str; 4] = ["storage", "dump", "vendor", TRUTH_GIT];
