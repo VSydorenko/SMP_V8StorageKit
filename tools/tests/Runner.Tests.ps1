@@ -131,3 +131,32 @@ Describe 'Get-KitRunnerVerdict: версія раннера' {
         (Get-KitRunnerVerdict -InstalledPluginsPath $reg).Level | Should -Be 'error'
     }
 }
+
+Describe 'Start-KitRunnerProcess: аргументи доходять до раннера дослівно (через bin/kit.exe runner-exec)' {
+    BeforeAll {
+        # Раннером слугує сам kit.exe: source-fingerprint <токен> повертає токен у тексті помилки
+        # «відбиток <токен> не обчислено» (stderr), тож вивід показує, що саме отримав процес.
+        $script:KitExe = (Resolve-Path "$PSScriptRoot/../../bin/kit.exe").Path
+    }
+    It 'токен <Token> у виводі дослівно' -ForEach @(
+        @{ Token = 'a b' }
+        @{ Token = 'q"uote' }
+        @{ Token = 'trailing\' }
+        @{ Token = 'back\"slash' }
+        @{ Token = 'кирилиця з пробілом' }
+    ) {
+        $kit = $script:KitExe; $cwd = "$TestDrive"; $tok = $Token
+        $run = InModuleScope Runner -Parameters @{ Kit = $kit; Cwd = $cwd; Tok = $tok } {
+            param($Kit, $Cwd, $Tok)
+            Start-KitRunnerProcess -RunnerPath $Kit -WorkingDirectory $Cwd -Arguments @('source-fingerprint', $Tok)
+        }
+        $run.ExitCode | Should -Be 1
+        $run.Stderr | Should -BeLike "*відбиток $Token не обчислено*"
+    }
+    It 'фальшивий .cmd у теці з пробілом і кирилицею запускається' {
+        $dir = Join-Path $TestDrive 'тека з пробілом'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        Copy-Item -Path (Join-Path $script:FixDir '*') -Destination $dir -Recurse
+        Get-KitRunnerVersion -RunnerPath (Join-Path $dir 'v8-runner.cmd') | Should -BeExactly '0.18.1'
+    }
+}
