@@ -18,8 +18,9 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 - Повернення розділів оновлення для версій до 1.4.0 (ADR-0016, Rejected).
 - Явний корінь для всіх команд (`--repo`) — #93, у Rust-фазах #53/#55.
 - Порт `check`, `kit-scan`, `kit-setup` на Rust — фази #53/#55; цей блок міняє поведінку **до** порту (ADR-0014).
-- `pr-gate land` і дзеркала `storage/*`, frontmatter скілів (#95) — окрема мала задача архітектора в тій самій
-  гілці, не блок цієї спеки.
+- Межі злиття `pr-gate` у коді (дзеркала `storage/*`, форк, `pr.afterMerge` лише з головної гілки), frontmatter
+  скілів (#95) — окрема мала задача архітектора в тій самій гілці (гілка `fix/prgate-storage-frontmatter`), не
+  блок цієї спеки; B2 від неї залежить (§5.3).
 - Хук git `pre-push` і дозвіл голого `git push` без запиту — відкинуто (ADR-0017).
 - Перелік класів шуму канонізації як повний — #41; тут лише той, що виміряно (§5.4).
 
@@ -28,7 +29,7 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 | Block | Scope | Done when | Depends on |
 | --- | --- | --- | --- |
 | B1 Контур сховища за цільовим станом | `check` (`tools/commands/check.psm1`, `tools/lib/Preflight.psm1`, `tools/lib/Manifest.psm1`, диспетчер `tools/kit.ps1`): `kitVersion` — помилка без зупинки лише для `check`; шаблон `templates/v8project.yaml`; рядки `.gitattributes`/`.gitignore` під кожен source-set | тести-підпроцеси на синтетичному репозиторії (`New-KitFakeRepo`): (1) маніфест з `kitVersion` і старим блоком `infobase:` у `v8project.yaml` → `check` друкує **обидві** знахідки, код 1; (2) той самий репозиторій → `sync` і `session-check` зупиняються з дією «видалити `kitVersion`», наступний крок не відбувся; (3) source-set з `v8project.yaml`, якого немає в маніфесті, → наявна `warn undeclared-source` (код 0) тепер називає, який рядок `.gitattributes`/`.gitignore` випливе з кожного `truth`; контроль — заявлений set без рядка `-text` дає `error` з рядком `<шлях>/** -text` | — |
-| B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`), файл застарілих імен, `templates/settings.json` (ADR-0017) | тести-підпроцеси: (1) маніфест `kitVersion: 1.4.0`, без профілю → `kit-scan` каже «підключено раніше (1.4.0)», не «перше підключення»; (2) `CLAUDE.md` з `v8storagekit:reconcile`, `/v8storagekit:sync` і `tools/kit.ps1` → рядок на кожне з заміною; контроль — «kit sync», «dump» без префікса рядка не дають; (3) `settings.json` з застарілим правилом Уніки в `allow`, `unica_apply` в `allow`, власним правилом проєкту, власним `deny`, `git push` в `ask` і старим записом `hooks.SessionStart` поруч із власним → `kit-setup -DryRun` показує: прибрати застаріле, перенести `unica_apply` в `ask`, додати правила `pr-gate open/ready/land`, прибрати лише запис шима; `git push` в `ask`, власне правило, `deny` і власний хук — без змін; (4) невалідний JSON на вході → зупинка, файл байт-у-байт той самий; (5) новий профіль без `kit.version`, `kit-scan` показує розрив; явний крок записує версію; (6) профіль без знайдених `docs.specs`/`docs.plans` — без TODO для них; (7) зміст шаблону: `pr-gate open`, `ready`, `land` в `allow` в обох формах; `git push`, `gh pr create`, `gh pr merge` — в `ask`; широкого `pr-gate:*` немає | — |
+| B2 Процес за цільовим станом | `kit-scan`, `kit-setup` (`tools/commands/kit-scan.psm1`, `kit-setup.psm1`, `tools/lib/KitVersion.psm1`), файл застарілих імен, `templates/settings.json` (ADR-0017) | тести-підпроцеси: (1) маніфест `kitVersion: 1.4.0`, без профілю → `kit-scan` каже «підключено раніше (1.4.0)», не «перше підключення»; (2) `CLAUDE.md` з `v8storagekit:reconcile`, `/v8storagekit:sync` і `tools/kit.ps1` → рядок на кожне з заміною; контроль — «kit sync», «dump» без префікса рядка не дають; (3) `settings.json` з застарілим правилом Уніки в `allow`, `unica_apply` в `allow`, власним правилом проєкту, власним `deny`, `git push` в `ask` і старим записом `hooks.SessionStart` поруч із власним → `kit-setup -DryRun` показує: прибрати застаріле, перенести `unica_apply` в `ask`, додати правила `pr-gate open/ready/land`, прибрати лише запис шима; `git push` в `ask`, власне правило, `deny` і власний хук — без змін; (4) невалідний JSON на вході → зупинка, файл байт-у-байт той самий; (5) новий профіль без `kit.version`, `kit-scan` показує розрив; явний крок записує версію; (6) профіль без знайдених `docs.specs`/`docs.plans` — без TODO для них; (7) зміст шаблону: `pr-gate open`, `ready`, `land` в `allow` в обох формах; `git push`, `gh pr create`, `gh pr merge` — в `ask`; широкого `pr-gate:*` немає | мала задача архітектора «pr-gate: межі злиття в коді» (§2, §5.3) |
 | B3 Текст онбордингу | `skills/onboarding/SKILL.md`, `skills/onboarding/references/upgrades.md`, `skills/onboarding/references/process.md`, `skills/onboarding/references/storage.md`, `templates/CLAUDE.md`, `docs/unica-contract.md`; тексти `skills/storage-sync/SKILL.md`, `skills/storage-rules/SKILL.md`, `skills/infobase-agent/SKILL.md`, `skills/infobase-dump/SKILL.md` у межах §5.4 | `Skills.Tests.ps1` і `KitScan.Tests.ps1` зелені; рецепт кроку 9 не містить безумовного видалення `Ext/ParentConfigurations/` і безумовного закриття VS Code; таблиця «Довідка по версіях» має рядок на кожен розділ версії; `templates/CLAUDE.md` каже «push, PR і злиття — через `pr-gate` без запиту; голі `git push`/`gh pr` — з запитом» | B1 (текст знахідок `check`), B2 (вивід `kit-scan`, `kit-setup`, файл застарілих імен, шаблон дозволів) |
 
 ## 4. Interfaces
@@ -112,12 +113,22 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 - `allow`: правила процесу, які `kit-setup` пише й тепер, плюс `pr-gate open`, `pr-gate ready`, `pr-gate land` — у
   формах `Bash(pr-gate <підкоманда>:*)` і `PowerShell(pr-gate <підкоманда>:*)`. Широке `pr-gate:*` не
   вживається: воно дозволило б і майбутні підкоманди без рішення (`kit-setup` і далі попереджає про нього).
-- `ask`: голі `git push`, `gh pr create`, `gh pr merge` — як тепер; `gh release`.
+- `ask`: голі `git push`, `gh pr create` (як тепер) і **новий** `gh pr merge` — у формах `Bash(… *)` і
+  `PowerShell(… *)`; `gh release`.
 - `deny`: як тепер.
 
-Межа «лише гілка задачі, лише fast-forward, ніколи головна гілка й `storage/*`, злиття лише без конфлікту й на
-перевіреній голові» — це запобіжники `pr-gate` у коді (`tools/lib/KitPrGate.psm1`, тести `PrGate.Tests.ps1`), а
-не префікси дозволів. Тримає: тест (7) рядка B2 і `Templates.Tests.ps1` (шаблон ↔ вивід `kit-setup`).
+`kit-setup` (`tools/commands/kit-setup.psm1`): перелік команд процесу отримує `pr-gate open`, `ready`, `land`;
+довідка «зовнішні дії не дозволяються» і текст попередження про широке `pr-gate:*` переписуються — причина
+попередження тепер «дозволяє й майбутні підкоманди без рішення», а замінник включає `open`, `ready`, `land`.
+
+Межі, які тримає код `pr-gate` (`tools/lib/KitPrGate.psm1`, тести `PrGate.Tests.ps1`), а не префікси дозволів:
+`open` пушить лише поточну гілку в однойменну, звичайним push (без force), ніколи захищену (головна гілка, base,
+ціль `origin/HEAD`, будь-яка `storage/*`) і не відкриває PR у `storage/*`; `land` зливає лише PR з цього
+репозиторію (не форк), не в `storage/*` і не зі `storage/*`, без конфлікту, на голові, яку прочитав перед злиттям
+(`--match-head-commit`), а prune не видаляє `storage/*`; `pr.afterMerge` `land` бере лише з
+`.agents/kit.profile.json` на головній гілці origin, не з локального чи машинного профілю й не з гілки задачі.
+Ці запобіжники — мала задача архітектора в цій самій гілці (§2); B2 стартує після її злиття. Тримає: тест (7)
+рядка B2, `PrGate.Tests.ps1` і `Templates.Tests.ps1` (шаблон ↔ вивід `kit-setup`).
 
 ### 5.4 B3 Текст онбордингу
 
@@ -150,8 +161,10 @@ Glossary: docs/GLOSSARY.md · ADR: ADR-0016, ADR-0017, ADR-0014 (порт без
 
 - **Дозволи.** Без запиту — лише `pr-gate open/ready/land`, межі яких тримає код `pr-gate` (§5.3); голі `git push`,
   `gh pr create`, `gh pr merge` лишаються з запитом, тож примусовий push, push у головну гілку, видалення
-  віддалених гілок і обхід хуків (`--no-verify`) без людини неможливі. `pr-gate land` не перевіряє схвалення
-  рев'ю на GitHub — «злиття після рев'ю» тримає процес (скіли `review`, `execute`), а не команда.
+  віддалених гілок і обхід хуків (`--no-verify`) без людини неможливі. Дозвіл на `land` — це й дозвіл на
+  `pr.afterMerge`, тому його argv береться лише зі зрев'юєного профілю на головній гілці origin (§5.3). `pr-gate
+  land` не перевіряє схвалення рев'ю на GitHub — «злиття після рев'ю» тримає процес (скіли `review`, `execute`),
+  а не команда; голова, на якій зливає `land`, — та, яку він сам прочитав перед злиттям.
 - **Злиття `settings.json`.** Ніколи не прибирає `deny` і `ask`; не кладе в `allow` правило, яке шаблон тримає в
   `ask`; прибирає лише точні застарілі імена й лише запис старого шима.
 - **Невалідний JSON.** Запис — атомарний, з розбором результату до заміни файлу; збій — зупинка, файл той самий.
