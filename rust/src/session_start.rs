@@ -12,7 +12,7 @@
 // - маніфест лише в предку — те саме з -RepoRoot <предок> плюс попередження: Уніка бачитиме лише теку
 //   сесії, а воркспейси лежать у корені репозиторію;
 // - лише профіль — контекст із самого блоку правил і рядка оновлення; session-check не запускається.
-//   Профіль, що не читається (не JSON або kit.version не x.y.z), без маніфесту дає тишу, а з маніфестом —
+//   Профіль, що не читається (не JSON або v8storagekit.version не x.y.z), без маніфесту дає тишу, а з маніфестом —
 //   звичайний контекст без рядка оновлення.
 //
 // Гарантія «код 0 і жодного часткового виводу» — структурна: увесь вивід збирається в пам'яті й
@@ -34,7 +34,7 @@
 // Перенесено з hooks/session-start.ps1 (PowerShell-хук до переносу на Rust); той, у свою чергу, — з agent-kit 0.9.1
 // hooks/session-rules.mjs (modified): блок правил і рядок оновлення.
 
-use kit::profile::{ps_string, strip_json_comments};
+use kit::profile::{is_version, parse_version, strip_json_comments};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -128,22 +128,8 @@ fn read_text(path: &Path) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(body).into_owned())
 }
 
-fn is_version(s: &str) -> bool {
-    let parts: Vec<&str> = s.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// Версія x.y.z як кортеж; переповнення — None (у PowerShell [version] кидав виняток).
-fn parse_version(s: &str) -> Option<(i32, i32, i32)> {
-    let mut it = s.split('.').map(|p| p.parse::<i32>().ok());
-    match (it.next()??, it.next()??, it.next()??, it.next()) {
-        (a, b, c, None) => Some((a, b, c)),
-        _ => None,
-    }
-}
-
 /// Профіль процесу: None — файла немає; Ok — читається (версія проєкту, типово 0.1.0); Bad — не JSON
-/// або kit.version не x.y.z.
+/// або v8storagekit.version не x.y.z (ADR-0018; чужий kit.version не Bad).
 enum Profile {
     None,
     Ok(String),
@@ -164,17 +150,11 @@ fn read_profile(git_root: &Path) -> Profile {
         return Profile::Ok("0.1.0".to_string());
     }
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Profile::Bad };
-    let version = match json.get("kit") {
-        Some(serde_json::Value::Object(kit)) => kit.get("version"),
-        _ => None,
-    };
-    match version {
-        None | Some(serde_json::Value::Null) => Profile::Ok("0.1.0".to_string()),
-        // `[string]$verProp` у PowerShell-хука: масив — елементи через пробіл, число й булеве — текстом.
-        Some(v) => {
-            let s = ps_string(v);
-            if is_version(&s) { Profile::Ok(s) } else { Profile::Bad }
-        }
+    // Версія — за єдиним правилом profile::project_version (ADR-0018): v8storagekit.version, тимчасово kit.version ≥ 1.0.0.
+    match kit::profile::project_version(&json) {
+        kit::profile::ProjectVersion::Unset => Profile::Ok("0.1.0".to_string()),
+        kit::profile::ProjectVersion::Set(s) => Profile::Ok(s),
+        kit::profile::ProjectVersion::Bad => Profile::Bad,
     }
 }
 

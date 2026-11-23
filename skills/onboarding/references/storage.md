@@ -31,7 +31,7 @@
 `.claude/settings.json` (звіт лише для читання, `SKILL.md`, розділ 3); правки прав — за згодою людини, штатними
 засобами Claude Code.
 
-Версію проєкту маніфест не тримає — вона в `.agents/kit.profile.json` (`kit.version`), її виставляє
+Версію проєкту маніфест не тримає — вона в `.agents/kit.profile.json` (`v8storagekit.version`), її виставляє
 `kit-setup -SetVersion` останнім комітом PR (`SKILL.md`). Далі — розділ 2 для кожного воркспейсу.
 
 ## 2. Воркспейс і його джерела

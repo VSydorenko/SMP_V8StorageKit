@@ -44,7 +44,75 @@ impl Profile {
                 data = merge(data, read_layer(path)?);
             }
         }
-        Ok(Profile { data })
+        // Спершу шари, потім простір імен v8storagekit (ADR-0018).
+        Ok(Profile { data: apply_namespace(data) })
+    }
+}
+
+/// Простір імен `v8storagekit` (ADR-0018): у репозиторії, де профіль ділять v8storagekit і agent-kit, наявна
+/// секція першого рівня `v8storagekit.<секція>` заміняє верхню `<секцію>` ЦІЛКОМ, без злиття (інакше
+/// `v8storagekit.tests` без `levels` пропустив би рівні тестів іншої зони). `v8storagekit.version` — не
+/// секція, а версія проєкту (`project_version`). Ключі вже в нижньому регістрі (`lower_keys`).
+pub fn apply_namespace(data: Value) -> Value {
+    let Value::Object(mut top) = data else { return data };
+    if let Some(Value::Object(ns)) = top.get("v8storagekit").cloned() {
+        for (k, v) in ns {
+            if k != "version" {
+                top.insert(k, v);
+            }
+        }
+    }
+    Value::Object(top)
+}
+
+/// Версія проєкту для v8storagekit (ADR-0018).
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProjectVersion {
+    /// Версію не задано: поля немає (або лише чужий `kit.version` < 1.0.0 — agent-kit). Хук рахує від 0.1.0.
+    Unset,
+    Set(String),
+    /// `v8storagekit.version` є, але не x.y.z.
+    Bad,
+}
+
+/// Версія проєкту з ОДНОГО JSON-об'єкта профілю (ключі будь-якого регістру): `v8storagekit.version`; немає — тимчасово
+/// `kit.version`, лише коли він ≥ 1.0.0 (agent-kit на лінії 0.x, v8storagekit — 1.x). Невалідний `kit.version` — чужий,
+/// мовчки ігнорується.
+fn get_ci<'a>(obj: &'a Value, name: &str) -> Option<&'a Value> {
+    obj.as_object()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v)
+}
+
+pub fn project_version(json: &Value) -> ProjectVersion {
+    let field = |sec: &str| get_ci(json, sec).and_then(|s| get_ci(s, "version"));
+    match field("v8storagekit") {
+        Some(Value::Null) | None => {}
+        Some(v) => {
+            let s = ps_string(v);
+            return if is_version(&s) { ProjectVersion::Set(s) } else { ProjectVersion::Bad };
+        }
+    }
+    if let Some(v) = field("kit") {
+        let s = ps_string(v);
+        if let Some((major, _, _)) = parse_version(&s).filter(|_| is_version(&s)) {
+            if major >= 1 {
+                return ProjectVersion::Set(s);
+            }
+        }
+    }
+    ProjectVersion::Unset
+}
+
+pub fn is_version(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Версія x.y.z як кортеж; переповнення — None (у PowerShell [version] кидав виняток).
+pub fn parse_version(s: &str) -> Option<(i32, i32, i32)> {
+    let mut it = s.split('.').map(|p| p.parse::<i32>().ok());
+    match (it.next()??, it.next()??, it.next()??, it.next()) {
+        (a, b, c, None) => Some((a, b, c)),
+        _ => None,
     }
 }
 
@@ -188,5 +256,34 @@ mod tests {
         assert_eq!(profile.value("pr.x"), Some(&Value::from(1)));
         assert_eq!(profile.value("list"), Some(&serde_json::json!([3])));
         assert_eq!(profile.value("pr.base.deeper"), None);
+    }
+
+    #[test]
+    fn namespace_section_replaces_whole_top_section() {
+        // v8storagekit.tests без levels: рівні Linux верхнього tests НЕ просочуються (заміна, не злиття).
+        let data = lower_keys(serde_json::json!({
+            "tests": { "default": "gateway", "levels": { "gateway": { "command": ["npx", "vitest"] } } },
+            "pr": { "base": "main", "afterMerge": [{ "paths": ["**"], "run": ["linux-cmd"] }] },
+            "V8StorageKit": { "tests": { "default": "yaxunit" }, "version": "1.6.14" }
+        }));
+        let p = Profile { data: apply_namespace(data) };
+        assert_eq!(p.value("tests.default"), Some(&Value::String("yaxunit".into())));
+        assert_eq!(p.value("tests.levels"), None);
+        assert_eq!(p.value("pr.base"), Some(&Value::String("main".into())), "секція без перекриття лишається");
+        assert_eq!(p.value("version"), None, "version простору імен — не секція");
+        // Контроль: без простору імен — верхні секції як були.
+        let plain = Profile { data: apply_namespace(lower_keys(serde_json::json!({ "tests": { "levels": { "a": {} } } }))) };
+        assert!(plain.value("tests.levels").is_some());
+    }
+
+    #[test]
+    fn project_version_namespace_then_foreign_kit_version_only_from_1_0() {
+        let v = |j: serde_json::Value| project_version(&j);
+        assert_eq!(v(serde_json::json!({ "v8storagekit": { "version": "1.6.14" }, "kit": { "version": "0.11.5" } })), ProjectVersion::Set("1.6.14".into()));
+        assert_eq!(v(serde_json::json!({ "kit": { "version": "1.6.12" } })), ProjectVersion::Set("1.6.12".into()));
+        assert_eq!(v(serde_json::json!({ "kit": { "version": "0.4.2" } })), ProjectVersion::Unset, "версія agent-kit — не наша");
+        assert_eq!(v(serde_json::json!({ "kit": { "version": "x" } })), ProjectVersion::Unset, "невалідний чужий — мовчки");
+        assert_eq!(v(serde_json::json!({ "V8StorageKit": { "Version": "nope" } })), ProjectVersion::Bad);
+        assert_eq!(v(serde_json::json!({})), ProjectVersion::Unset);
     }
 }

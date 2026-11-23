@@ -291,9 +291,9 @@ Describe 'kit-setup — підключення проєкту' {
         @(Get-ChildItem -LiteralPath (Join-Path $repo '.claude') -Force).Count | Should -Be 1 -Because 'тимчасових файлів не лишилось'
     }
 
-    It 'профіль без kit.version; kit-scan — no-version; -SetVersion пише лише kit.version, без локального шару; зламаний профіль — код 3 (тест (5))' {
+    It 'профіль без версії; kit-scan — no-version; -SetVersion пише лише v8storagekit.version, kit.version не чіпає, без локального шару; зламаний профіль — код 3 (тест (5))' {
         $plugin = (Get-Content -LiteralPath (Join-Path (Split-Path (Split-Path $script:Kit -Parent) -Parent) '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json).version
-        $note = 'kit\.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
+        $note = 'v8storagekit\.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
         $repo = New-Repo 'ver'
         $profilePath = Join-Path $repo '.agents/kit.profile.json'
         $r = Invoke-Setup $repo -Arguments @('-NoPermissions')
@@ -301,7 +301,8 @@ Describe 'kit-setup — підключення проєкту' {
         $r.Out | Should -Match "плагін $([regex]::Escape($plugin))" -Because 'вивід kit-setup називає версію плагіна'
         $r.Out | Should -Match $note -Because $r.Out
         $created = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json -AsHashtable
-        $created.Contains('kit') | Should -BeFalse -Because 'новий профіль — без kit.version'
+        $created.Contains('kit') | Should -BeFalse -Because 'новий профіль — без версії'
+        $created.Contains('v8storagekit') | Should -BeFalse -Because 'новий профіль — без версії'
         ((Invoke-Setup $repo -Arguments @('-Json', '-NoPermissions')).Out | ConvertFrom-Json).plugin | Should -Be $plugin
         # kit-scan на тому самому профілі — стан no-version (D6), без кроків від 0.1.0; kit-setup — той самий текст.
         Push-Location $repo
@@ -312,7 +313,8 @@ Describe 'kit-setup — підключення проєкту' {
         (Invoke-Setup $repo -Arguments @('-NoPermissions')).Out | Should -Match "kit\.profile\.json: уже є, не змінено; $note"
 
         # Межа шарів (D7): локальний шар з pr.afterMerge і власні поля проєктного профілю.
-        $data = [ordered]@{ pr = [ordered]@{ base = 'main'; mergeMethod = 'squash' }; workspace = [ordered]@{ mode = 'worktree' }; tests = [ordered]@{ levels = @('unit') }; own = @(1, 'x', $null, [ordered]@{ deep = $true }) }
+        # kit.version — agent-kit (ADR-0018): лишається як був.
+        $data = [ordered]@{ kit = [ordered]@{ version = '0.4.2' }; pr = [ordered]@{ base = 'main'; mergeMethod = 'squash' }; workspace = [ordered]@{ mode = 'worktree' }; tests = [ordered]@{ levels = @('unit') }; own = @(1, 'x', $null, [ordered]@{ deep = $true }) }
         [System.IO.File]::WriteAllText($profilePath, (ConvertTo-Json -InputObject $data -Depth 10) + "`n", [System.Text.UTF8Encoding]::new($false))
         [System.IO.File]::WriteAllText((Join-Path $repo '.agents/kit.profile.local.json'), '{ "pr": { "afterMerge": ["pwsh", "-c", "evil"] }, "workspace": { "mode": "shared" } }', [System.Text.UTF8Encoding]::new($false))
         $hash = Get-Sha $profilePath
@@ -323,14 +325,15 @@ Describe 'kit-setup — підключення проєкту' {
         $set = Invoke-Setup $repo -Arguments @('-SetVersion')
         $set.Code | Should -Be 0 -Because $set.Out
         $after = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json -AsHashtable
-        $after['kit']['version'] | Should -Be $plugin
+        $after['v8storagekit']['version'] | Should -Be $plugin
+        $after['kit']['version'] | Should -Be '0.4.2' -Because 'kit.version належить agent-kit'
         $after['pr'].Contains('afterMerge') | Should -BeFalse -Because 'pr.afterMerge локального шару не переноситься в проєктний профіль'
-        # Змінився лише kit.version: решта — ті самі дані (порівняння даних, не байтів).
-        $after['kit'].Count | Should -Be 1
-        $after.Remove('kit')
+        # Змінилась лише v8storagekit.version: решта — ті самі дані (порівняння даних, не байтів).
+        $after['v8storagekit'].Count | Should -Be 1
+        $after.Remove('v8storagekit')
         (ConvertTo-Json -InputObject $after -Depth 10 -Compress) | Should -BeExactly (ConvertTo-Json -InputObject $data -Depth 10 -Compress)
         $again = Get-Sha $profilePath
-        (Invoke-Setup $repo -Arguments @('-SetVersion')).Out | Should -Match 'kit\.version уже'
+        (Invoke-Setup $repo -Arguments @('-SetVersion')).Out | Should -Match 'v8storagekit\.version уже'
         Get-Sha $profilePath | Should -Be $again
         # Окремий режим: з іншим прапорцем — код 2, файл той самий.
         $mix = Invoke-Setup $repo -Arguments @('-SetVersion', '-Json')

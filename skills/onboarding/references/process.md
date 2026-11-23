@@ -28,9 +28,9 @@
   прогалини), `Skills outside the plugin`, `Places outside the repo`; ключі `-Json` — `kitVersion`,
   `duplicates`, `obsoleteNames`, `superpowers`, `superpowersPlugin`, `superpowersDocs`, `journals`, `memory`, `skills`,
   `places`. Вивід розходиться з цим переліком — вір виводу й скажи про розбіжність у звіті.
-- `Kit version`: актуально; `connected-before` (профілю чи `kit.version` немає, у маніфесті є `kitVersion:`) —
+- `Kit version`: актуально; `connected-before` (профілю чи `v8storagekit.version` немає, у маніфесті є `kitVersion:`) —
   підключено раніше: `kit check -RepoRoot .` і чеклісти версій, новіших за версію з маніфесту; `no-version`
-  (профіль без `kit.version`, `kitVersion:` немає) — нормальний стан до останнього коміту PR, його запише
+  (профіль без `v8storagekit.version`, `kitVersion:` немає) — нормальний стан до останнього коміту PR, його запише
   `kit-setup -SetVersion`, кроків оновлення немає; відставання з кроками `V1…Vn` → оновлення,
   [upgrades.md](upgrades.md). Проєкт, підключений раніше, іде порядком із `SKILL.md`, розділ 5.
 - `kit-setup -DryRun` показує різниці `.gitignore` і профілю та **звіт про `.claude/settings.json`** відносно
@@ -119,7 +119,7 @@
 ## 5. Застосуй після схвалення
 
 В одній гілці й одному PR проєкту (відкриває `pr-gate open`, зливає власник):
-- `kit-setup` (`.gitignore`, скелет профілю без `kit.version`, `.worktreeinclude`) і заповнений профіль;
+- `kit-setup` (`.gitignore`, скелет профілю без `v8storagekit.version`, `.worktreeinclude`) і заповнений профіль;
   правки `.claude/settings.json` — лише ті, які людина схвалила за звітом `kit-setup`, штатними засобами Claude
   Code (старий шим хука разом із `git rm .claude/hooks/session-start.ps1`);
 - якщо за час онбордингу з'явився `v8project.yaml` — повторний `kit-setup` (правила Уніки в `allow` шаблону
@@ -132,7 +132,7 @@
 - глосарій, ADR і переписування спек як схвалено — один коміт на спеку (крок 6, частина «пиши»);
 - пам'ять: pointer, видалення, переноси як схвалено; `MEMORY.md` оновлюй у тому ж кроці;
 - рядки оновлення `V1…Vn`;
-- **останній коміт** — `kit-setup -SetVersion` (запише `kit.version` = версії плагіна в наявний профіль, решту не
+- **останній коміт** — `kit-setup -SetVersion` (запише `v8storagekit.version` = версії плагіна в наявний профіль, решту не
   чіпає), коли закрито кожен рядок `V`; версія плагіна у виводі `kit-setup` — та сама, що у звіті, інакше спершу
   повторний `kit-scan`. `kit-scan` тоді каже `up to date`.
 

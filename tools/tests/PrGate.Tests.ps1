@@ -294,6 +294,30 @@ Describe 'pr-gate — запобіжники' {
         @(git -C $r.Dir tag --list 'am-ran') | Should -Be @('am-ran')
     }
 
+    It 'land: v8storagekit.pr на головній гілці заміняє pr цілком — виконується afterMerge простору імен, не верхній (ADR-0018)' {
+        $prof = [ordered]@{
+            workspace = @{ mode = 'shared' }
+            pr = [ordered]@{ mergeMethod = 'squash'; afterMerge = @(@{ paths = @('**'); run = @('git', 'tag', 'top-ran') }) }
+            v8storagekit = [ordered]@{ pr = [ordered]@{ mergeMethod = 'squash'; afterMerge = @(@{ paths = @('**'); run = @('git', 'tag', 'ns-ran') }) } }
+        }
+        $r = New-PgRepo -Name 'amns' -Profile $prof
+        git -C $r.Dir add -f .agents/kit.profile.json
+        git -C $r.Dir commit -q -m profile
+        git -C $r.Dir push -q origin main
+        $rules = @(
+            @{ prefix = @('pr', 'view'); after = @('pr', 'merge'); stdout = (New-PrJson @{ state = 'MERGED'; mergeCommit = @{ oid = 'c' * 40 } }) }
+            @{ prefix = @('pr', 'view'); stdout = (New-PrJson) }
+            @{ prefix = @('pr', 'merge') }
+            @{ prefix = @('pr', 'list'); stdout = '[]' }
+            @{ prefix = @('api', 'repos/{owner}/{repo}/git/ref/heads/feat'); stdout = $script:OldSha }
+            @{ prefix = @('api') }
+        )
+        $res = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $res.Code | Should -Be 0 -Because $res.Err
+        @(git -C $r.Dir tag --list 'ns-ran') | Should -Be @('ns-ran')
+        @(git -C $r.Dir tag --list 'top-ran') | Should -BeNullOrEmpty -Because 'верхній pr.afterMerge іншої зони не виконується'
+    }
+
     It 'land у shared, головний checkout на гілці PR: next — switch на base, ff і branch -d; не «тримає worktree»' {
         $r = New-PgRepo -Name 'sharedhead' -Profile @{ workspace = @{ mode = 'shared' }; pr = @{ mergeMethod = 'squash' } }
         git -C $r.Dir switch -q -c feat

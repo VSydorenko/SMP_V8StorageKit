@@ -132,7 +132,7 @@ Describe 'Manifest.psm1 — схема v8storagekit.yaml' {
     Context 'kitVersion — поле прибрано' {
         It 'маніфест із kitVersion — зупинка з рецептом: версію тримає профіль процесу' {
             $p = Write-Yaml 'with-kitversion.yaml' @('version: 1', 'kitVersion: 1.0.1', 'product: Fake', 'workspaces:', '  - path: A', '    sources:', '      a: { truth: git }')
-            { Read-KitManifest -Path $p } | Should -Throw '*kitVersion прибрано*kit.profile.json*kit.version*onboarding*'
+            { Read-KitManifest -Path $p } | Should -Throw '*kitVersion прибрано*kit.profile.json*v8storagekit.version*onboarding*'
         }
     }
 }
