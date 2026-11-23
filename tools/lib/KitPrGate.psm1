@@ -567,18 +567,29 @@ function Invoke-PgArgv {
 
 function Get-PrGateReviewedAfterMerge {
     <#
-        pr.afterMerge, яку land виконує: лише з проєктного профілю (.agents/kit.profile.json) на головній гілці
-        origin — ціль origin/HEAD, інакше main, тобто зрев'юєний текст. land дозволено без запиту (ADR-0017), а
+        pr.afterMerge, яку land виконує: лише з проєктного профілю (.agents/kit.profile.json) на коміті головної
+        гілки, який назвав сам origin (ls-remote --symref), тобто зрев'юєний текст. land дозволено без запиту (ADR-0017), а
         argv з afterMerge — це довільна команда; локальний і машинний шари профілю й робоче дерево гілки задачі
         агент пише сам, тож звідти afterMerge не береться. Повертає @{ Entries; Ref; Ignored } — Ignored, коли
         шари профілю дають інше значення, ніж головна гілка.
     #>
     param([Parameter(Mandatory)][string]$MainRoot, $Layered)
-    $ref = 'main'
-    $head = Invoke-PgGit -GitArgs @('symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD') -Cwd $MainRoot
-    if ($head.Ok -and $head.Out -cmatch '^refs/remotes/origin/(.+)$') { $ref = $Matches[1] }
+    # Головна гілка й її коміт — з самого origin (ls-remote), не з локальних refs/remotes/origin/*: ті агент
+    # переписує сам (`remote set-head`, `update-ref`), і межа б не трималась. Збій — «не перевірено», не порожньо.
+    $ls = Invoke-PgGit -GitArgs @('ls-remote', '--symref', 'origin', 'HEAD') -Cwd $MainRoot
+    if (-not $ls.Ok) { throw (New-KitNotChecked "pr.afterMerge: головну гілку origin не прочитано (git ls-remote): $($ls.Err)") }
+    $ref = $null; $sha = $null
+    foreach ($line in ($ls.Out -split "\r?\n")) {
+        if ($line -cmatch '^ref: refs/heads/(\S+)\s+HEAD$') { $ref = $Matches[1] }
+        elseif ($line -cmatch '^([0-9a-f]{40,64})\s+HEAD$') { $sha = $Matches[1] }
+    }
+    if (-not $ref -or -not $sha) { throw (New-KitNotChecked "pr.afterMerge: origin не назвав головної гілки (git ls-remote --symref origin HEAD)") }
+    $fetch = Invoke-PgGit -GitArgs @('fetch', '-q', 'origin', "refs/heads/$ref") -Cwd $MainRoot
+    if (-not $fetch.Ok -or -not (Invoke-PgGit -GitArgs @('cat-file', '-e', "$sha^{commit}") -Cwd $MainRoot).Ok) {
+        throw (New-KitNotChecked "pr.afterMerge: коміт $($sha.Substring(0, 7)) головної гілки origin/$ref не отримано: $($fetch.Err)")
+    }
     $entries = @()
-    $show = Invoke-PgGit -GitArgs @('show', "refs/remotes/origin/${ref}:.agents/kit.profile.json") -Cwd $MainRoot
+    $show = Invoke-PgGit -GitArgs @('show', "${sha}:.agents/kit.profile.json") -Cwd $MainRoot
     if ($show.Ok -and $show.Raw.Trim()) {
         try { $j = $show.Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
         catch { throw (New-KitNotChecked "профіль .agents/kit.profile.json на origin/$ref не JSON: $($_.Exception.Message)") }

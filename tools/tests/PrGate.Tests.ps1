@@ -265,6 +265,25 @@ Describe 'pr-gate — запобіжники' {
         @(git -C $r.Dir tag --list 'am-ran') | Should -BeNullOrEmpty
         $bad.Out | Should -Match 'pr\.afterMerge береться лише з .agents/kit\.profile\.json на origin/main'
 
+        # Підміна локальних refs/remotes: профіль з afterMerge — на гілці задачі на origin, а локальні
+        # origin/HEAD і origin/main переписано на неї. Головну гілку називає сам origin — argv не виконується.
+        $other = Join-Path $TestDrive 'aftermerge-other'
+        git clone -q $r.Origin $other
+        New-Item -ItemType Directory -Path (Join-Path $other '.agents') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $r.Dir '.agents/kit.profile.json') -Destination (Join-Path $other '.agents/kit.profile.json')
+        git -C $other add -f .agents/kit.profile.json
+        git -C $other commit -q -m 'profile on task'
+        git -C $other push -q origin HEAD:task-evil
+        git -C $r.Dir fetch -q origin
+        git -C $r.Dir update-ref refs/remotes/origin/main refs/remotes/origin/task-evil
+        git -C $r.Dir remote set-head origin task-evil
+        Remove-Item -LiteralPath (Join-Path $r.Dir '.agents/out') -Recurse -Force -ErrorAction SilentlyContinue
+        $spoof = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('land', '5') -Rules $rules
+        $spoof.Code | Should -Be 0 -Because $spoof.Err
+        @(git -C $r.Dir tag --list 'am-ran') | Should -BeNullOrEmpty
+        git -C $r.Dir remote set-head origin main
+        git -C $r.Dir fetch -q origin '+refs/heads/main:refs/remotes/origin/main'
+
         # Контроль: профіль закомічено й запушено в main — той самий argv виконується.
         git -C $r.Dir add -f .agents/kit.profile.json
         git -C $r.Dir commit -q -m profile
