@@ -40,7 +40,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'lib/Environment.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'lib/Runner.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/V8.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'lib/Yaml.psm1') -Force
 
@@ -86,8 +85,48 @@ $checks.Add((New-EnvironmentCheck -Name 'Pester 5+' -Category 'Розробка 
 # Уніка й раннер — частина конвеєра, а не «вихідники»: без них sync, verify
 # і provision не працюють. Версія 0.16.x — ok; нижча — помилка; вища — попередження (проходить як Ok).
 
-$unica = Get-UnicaInstallation -InstalledPluginsPath $InstalledPluginsPath
-$unicaVerdict = Get-KitUnicaVersionVerdict -Installation $unica
+# Вердикти Уніки й раннера дає bin/kit.exe tool-verdicts цього дерева (Rust, ADR-0014); порожній
+# -RunnerPath не передається — раннер тоді береться з реєстру.
+$kitExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../bin/kit.exe'))
+if (-not (Test-Path -LiteralPath $kitExe -PathType Leaf)) {
+    # Без kit.exe вердиктів немає: обидві перевірки категорії «Конвеєр» — [-] з шляхом, без сирого винятку Process.Start.
+    $missing = "bin/kit.exe не знайдено: $kitExe — вердикт про Уніку й раннер неможливий"
+    $verdicts = [pscustomobject]@{
+        unica  = [pscustomobject]@{ Installed = $false; PathExists = $false; Level = 'error'; Message = $missing }
+        runner = [pscustomobject]@{ Level = 'error'; Message = $missing }
+    }
+} else {
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($kitExe)
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $psi.CreateNoWindow = $true
+    foreach ($token in @('tool-verdicts', '-InstalledPluginsPath', $InstalledPluginsPath)) { $psi.ArgumentList.Add($token) }
+    if ($RunnerPath) { foreach ($token in @('-RunnerPath', $RunnerPath)) { $psi.ArgumentList.Add($token) } }
+    # Корінь git поточної теки (тихо): записи Уніки scope project/local цього репозиторію теж кандидати.
+    # Без git у PATH (рядок «git» вище вже [-]) корінь не шукаємо: лише записи user.
+    $repoTop = $null
+    if ($git.Available) { $repoTop = (& git rev-parse --show-toplevel 2>$null) }
+    if ($repoTop -and $LASTEXITCODE -eq 0) {
+        foreach ($token in @('-RepoRoot', ([string]$repoTop).Trim())) { $psi.ArgumentList.Add($token) }
+    }
+    $verdictProc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $verdictOut = $verdictProc.StandardOutput.ReadToEndAsync()
+        $verdictErr = $verdictProc.StandardError.ReadToEndAsync()
+        $verdictProc.WaitForExit()
+        if ($verdictProc.ExitCode -ne 0) {
+            throw "kit.exe tool-verdicts завершився з кодом $($verdictProc.ExitCode): $($verdictErr.GetAwaiter().GetResult().Trim())"
+        }
+        $verdicts = $verdictOut.GetAwaiter().GetResult() | ConvertFrom-Json
+    } finally {
+        $verdictProc.Dispose()
+    }
+}
+$unica = $verdicts.unica
+$unicaVerdict = $unica
 $unicaOk = $unicaVerdict.Level -ne 'error'
 $unicaDetail = if ($unica.Installed -and $unica.PathExists) {
     "версія $($unica.Version), $($unica.InstallPath)" + $(if ($unicaVerdict.Level -in 'error', 'warn') { " — $($unicaVerdict.Message)" } else { '' })
@@ -96,7 +135,7 @@ $unicaDetail = if ($unica.Installed -and $unica.PathExists) {
 }
 $checks.Add((New-EnvironmentCheck -Name 'Плагін unica 0.16' -Category 'Конвеєр' -Ok $unicaOk -Detail $unicaDetail))
 
-$runnerVerdict = Get-KitRunnerVerdict -RunnerPath $RunnerPath -InstalledPluginsPath $InstalledPluginsPath
+$runnerVerdict = $verdicts.runner
 $checks.Add((New-EnvironmentCheck -Name 'Раннер v8-runner 0.18' -Category 'Конвеєр' -Ok ($runnerVerdict.Level -ne 'error') -Detail $runnerVerdict.Message))
 # --- Вивід -------------------------------------------------------------------
 

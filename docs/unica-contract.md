@@ -321,7 +321,7 @@ source-set і падає з `validation error: source-set 'X' resolves to extens
 ### F3. Раннер — інструмент kit; ядро kit раннером не дублюється
 
 **Kit запускає раннер сам** — той, що постачається з установленою Унікою (`Get-KitRunnerPath`,
-`tools/lib/Runner.psm1` — єдине місце запуску процесу; запасного пошуку немає). Що kit бере в
+процес раннера запускає лише модуль `runner` крейта `kit` — ADR-0019; PowerShell-код кличе його через `kit.exe runner-exec`; запасного пошуку немає). Що kit бере в
 нього:
 - `v8-runner platforms` → `data.selected.designer.path` — платформа для власних пакетних операцій
   kit у базі агента (`sync`, `verify`, порожня база `provision`). Так kit і Уніка вивантажують на
