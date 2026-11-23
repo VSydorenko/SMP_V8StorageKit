@@ -381,3 +381,14 @@
    `git branch --list 'storage/*'` проти `git branch -r --list 'origin/storage/*'`; відсутнє локально —
    `git branch --track storage/<джерело> origin/storage/<джерело>` (той самий крок тепер радять `session-check`,
    `adopt` і `sync`). **Не** `kit sync -Apply` до відновлення: реплей з нуля дав би другу історію сховища.
+3. **Контур сховища за цільовим станом.** `kit check -RepoRoot .` (якщо є `v8storagekit.yaml`) — виконати дію кожної
+   знахідки: `kit-version` — прибрати рядок `kitVersion:` з маніфесту (до того `sync`, `verify` й інші команди
+   зупиняються); `undeclared-source` — заявити набір у маніфесті з `truth` і дописати названий рядок
+   `.gitattributes`/`.gitignore`. Зразок воркспейсу — `templates/v8project.yaml.example`.
+4. **Застарілі імена.** `kit-scan`, розділ `Obsolete names` — замінити кожну стару назву на нову в названому файлі
+   (перелік — `tools/assets/obsolete-names.json` плагіна; таблиць замін тут не дублюємо).
+5. **Дозволи.** `kit-setup -DryRun` — звіт про `.claude/settings.json` проти `templates/settings.json`; kit цей файл
+   не пише. Показати звіт людині, запропонувати, що додати чи прибрати (зокрема `pr-gate open/ready/land` за
+   ADR-0017, застарілі імена Уніки, старий шим), і внести лише погоджене — скілом `update-config` чи Edit з
+   перечитуванням JSON.
+6. **Версія проєкту.** `kit-setup -SetVersion` — останнім комітом PR оновлення.

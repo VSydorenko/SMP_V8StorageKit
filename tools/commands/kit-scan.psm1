@@ -35,7 +35,7 @@ kit-scan [-Json] [-MinSimilarity <0..1>] [-Memory <тека>]
   Duplicates    .claude/commands|agents|skills і .agents/skills проєкту (та scripts, tools, bin), що
                 копіюють чи прототипують частину kit: відомі шляхи, збіг назви або схожість вмісту (шингли)
   Obsolete      застарілі імена з tools/assets/obsolete-names.json (скіли v8storagekit:<стара назва>, tools/kit.ps1,
-                kit build, прибрані інструменти Уніки) у CLAUDE.md, AGENTS.md, .claude/, .agents/, .gitignore,
+                прибрані команди kit, прибрані інструменти Уніки) у CLAUDE.md, AGENTS.md, .claude/, .agents/, .gitignore,
                 .gitattributes: файл, стара назва, заміна
   Superpowers   `superpowers:<скіл>` у CLAUDE.md, AGENTS.md, .claude/ і .agents/ із заміною з kit;
                 увімкнений плагін superpowers у .claude/settings*.json; теки docs/superpowers/;
@@ -295,7 +295,7 @@ function Get-ScanVersionLines {
         foreach ($s in $e.steps) { $n++; $out.Add("- [ ] V$n $s") }
     }
     $out.Add('')
-    $out.Add("останній крок того ж PR: виставити `"kit`": { `"version`": `"$($V.plugin)`" } у .agents/kit.profile.json (що змінилось — CHANGELOG.md плагіна)")
+    $out.Add("останній крок того ж PR: kit-setup -SetVersion (запише kit.version $($V.plugin) у .agents/kit.profile.json; що змінилось — CHANGELOG.md плагіна)")
     $out.ToArray()
 }
 
