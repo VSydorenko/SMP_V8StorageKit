@@ -13,13 +13,14 @@
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
-// `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С.
+// `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С;
+// `config-preflight` — префлайт конфігурації як JSON із маскою секретів (блок B1, живе, доки живе PowerShell-копія).
 
 mod fingerprint;
 mod session_start;
 mod subagent_start;
 
-use kit::{cli, session_board};
+use kit::{cli, config, session_board};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, exit};
@@ -104,6 +105,42 @@ fn dispatch(root: &Path, tokens: &[String]) -> i32 {
     }
 }
 
+/// `kit config-preflight -RepoRoot <тека> [-Mode Strict|Lenient|Check] [-Workspace w] [-Source s] [-Truth t ...]`:
+/// друкує JSON результату `config::preflight` (код 0, зупинка — поле `stop`); помилка виклику — код 2.
+fn config_preflight(args: &[String]) -> i32 {
+    const NAME: &str = "config-preflight";
+    let spec = [
+        ("RepoRoot", cli::Kind::Str),
+        ("Mode", cli::Kind::Str),
+        ("Workspace", cli::Kind::Str),
+        ("Source", cli::Kind::Str),
+        ("Truth", cli::Kind::List),
+    ];
+    let parsed = cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(NAME, &m, 2));
+    if !parsed.positional.is_empty() {
+        fail(NAME, "позиційні аргументи не підтримуються", 2);
+    }
+    let text = |n: &str| match parsed.named.get(n) {
+        Some(cli::Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let Some(root) = text("RepoRoot") else {
+        fail(NAME, "потрібен -RepoRoot", 2);
+    };
+    let mode = match text("Mode") {
+        None => config::Mode::Strict,
+        Some(m) => config::Mode::parse(&m).unwrap_or_else(|| fail(NAME, "-Mode: Strict, Lenient або Check", 2)),
+    };
+    let truth = match parsed.named.get("Truth") {
+        Some(cli::Value::List(l)) => l.clone(),
+        _ => Vec::new(),
+    };
+    let report = config::preflight::report_json(Path::new(&root), mode, text("Workspace").as_deref(), text("Source").as_deref(), &truth);
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{report}").and_then(|_| stdout.flush());
+    0
+}
+
 fn main() {
     kit::install_panic_hook();
     let mut tokens = Vec::new();
@@ -136,6 +173,9 @@ fn main() {
             let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
         }
         exit(0);
+    }
+    if command == "config-preflight" {
+        exit(config_preflight(&tokens[1..]));
     }
     if command == "session-board" {
         // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.
