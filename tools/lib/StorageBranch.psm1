@@ -19,6 +19,29 @@ function Test-KitBranchExists {
     $LASTEXITCODE -eq 0
 }
 
+function Test-KitRemoteOnlyMirror {
+    <#
+    .SYNOPSIS
+        Дзеркало є лише на origin: локальної refs/heads/<Branch> немає, а refs/remotes/origin/<Branch> є (типово —
+        локальну прибрав pr-gate prune до 1.6.13, #101). Реплей «з нуля» тоді дав би другу, orphan-історію сховища,
+        що розходиться з origin, тож sync, adopt і session-check радять відновити гілку, а не реплей. Без мережі:
+        дивиться лише наявні refs; збій git — $false (хук старту не падає).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch)
+    if (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch) { return $false }
+    try {
+        git -C $RepoRoot rev-parse --verify --quiet "refs/remotes/origin/$Branch^{commit}" 2>$null | Out-Null
+        $LASTEXITCODE -eq 0
+    } catch { $false }
+}
+
+function Get-KitRestoreMirrorStep {
+    <# Крок відновлення локального дзеркала з origin — один текст для sync, adopt і session-check. #>
+    param([Parameter(Mandatory)][string]$Branch)
+    "git branch --track $Branch origin/$Branch"
+}
+
 function Test-KitBranchUnborn {
     <#
     .SYNOPSIS
@@ -580,4 +603,4 @@ function Get-KitCommitSha {
     (@($out) -join '').Trim()
 }
 
-Export-ModuleMember -Function Test-KitBranchExists, Test-KitBranchUnborn, Get-KitStorageActivity, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion
+Export-ModuleMember -Function Test-KitBranchExists, Test-KitRemoteOnlyMirror, Get-KitRestoreMirrorStep, Test-KitBranchUnborn, Get-KitStorageActivity, Get-KitBranchCommits, Get-KitStorageBranchLastVersion, Test-KitStorageBranchInvariants, Get-KitPendingVersions, Get-KitVersionGapNote, New-KitStorageCommitMessage, New-KitStorageWorktree, Remove-KitStorageWorktree, Write-KitStorageVersion, Get-KitCommitSha, Get-KitVerifyVersion

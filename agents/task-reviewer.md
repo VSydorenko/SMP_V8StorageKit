@@ -1,6 +1,6 @@
 ---
 name: task-reviewer
-description: Рецензент лише для читання: diff однієї задачі плану проти її брифу або вужче повторне рев'ю раунду виправлень (Mode: re-review). Кличе скіл execute з брифом, звітом виконавця й пакетом рев'ю; модель задає скіл.
+description: "Рецензент лише для читання: diff однієї задачі плану проти її брифу або вужче повторне рев'ю раунду виправлень (Mode: re-review). Кличе скіл execute з брифом, звітом виконавця й пакетом рев'ю; модель задає скіл."
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__plugin_unica_unica__unica_view, mcp__plugin_unica_unica__unica_search, mcp__plugin_unica_unica__unica_resolve, mcp__plugin_unica_unica__unica_docs, mcp__plugin_unica_unica__unica_check, mcp__plugin_unica_unica__unica_diff
 ---

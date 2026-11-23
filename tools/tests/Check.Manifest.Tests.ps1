@@ -22,6 +22,13 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0
         $r.Output | Should -BeLike "*[!]*Extra*EXTERNAL_DATA_PROCESSORS*немає в маніфесті*"
+        # Дія називає рядки під фактичний шлях для обох випадків truth.
+        $r.Output | Should -BeLike "*'epf/src/** -text' у .gitattributes*"
+        $r.Output | Should -BeLike "*'epf/src/**' у .gitignore*"
+        # Контроль: без незаявленого source-set знахідки й підказки немає.
+        $ok = Invoke-Check -Repo (New-GoodRepo 'declared-only-ctl')
+        $ok.Output | Should -Not -BeLike '*undeclared*'
+        $ok.Output | Should -Not -BeLike '*немає в маніфесті*'
     }
 
     # .gitignore реального репозиторію мав рядок
@@ -138,6 +145,51 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -Match '\[i\].*main'
         $r.Output | Should -BeLike "*Свіжий репозиторій*'main'*ще немає*перший коміт*"
         $r.Output | Should -Not -BeLike '*перевірте mainBranch*'
+    }
+}
+
+Describe 'kitVersion у маніфесті — знахідка check, зупинка решти команд' {
+    BeforeAll {
+        . (Join-Path $PSScriptRoot 'fixtures/CheckSetup.ps1')
+        function script:Add-KitVersionLine([string]$Repo, [string]$Line) {
+            $p = Join-Path $Repo 'v8storagekit.yaml'
+            $lines = @(Get-Content -LiteralPath $p -Encoding UTF8)
+            Set-Content -LiteralPath $p -Encoding UTF8 -Value (@($lines[0], $Line) + $lines[1..($lines.Count - 1)])
+        }
+    }
+
+    It 'check: kitVersion + стара форма infobase: — обидві знахідки, код 1; лише kitVersion і порожнє kitVersion: — теж код 1 і [-] з дією' {
+        $both = New-GoodRepo 'kv-both'
+        Add-KitVersionLine $both 'kitVersion: 1.0.1'
+        Add-Content -LiteralPath (Join-Path $both 'Alpha_SMB/v8project.yaml') -Encoding UTF8 -Value @('infobase:', "  connection: 'File=build/ib'")
+        $r = Invoke-Check -Repo $both
+        $r.ExitCode | Should -Be 1
+        $r.Output | Should -BeLike '*[[]-]*kitVersion*kit.profile.json*'
+        $r.Output | Should -BeLike "*стара форма 'infobase:'*"
+
+        # Контроль: чистий репозиторій без kitVersion — зелений, тож червоне нижче дає саме поле.
+        (Invoke-Check -Repo (New-GoodRepo 'kv-none')).ExitCode | Should -Be 0
+
+        foreach ($case in @(@('kv-only', 'kitVersion: 1.0.1'), @('kv-empty', 'kitVersion:'))) {
+            $repo = New-GoodRepo $case[0]
+            Add-KitVersionLine $repo $case[1]
+            $r = Invoke-Check -Repo $repo
+            $r.ExitCode | Should -Be 1 -Because $case[0]
+            $r.Output | Should -BeLike '*[[]-]*kitVersion*kit.profile.json*' -Because $case[0]
+        }
+    }
+
+    It 'sync і session-check на маніфесті з kitVersion — зупинка з дією, дзеркал storage/* не створено' {
+        $repo = New-GoodRepo 'kv-stop'
+        Add-KitVersionLine $repo 'kitVersion: 1.0.1'
+        $s = Invoke-KitCommand -Kit $script:Kit -Command 'sync' -Repo $repo
+        $s.ExitCode | Should -Be 1
+        $s.Output | Should -BeLike '*kitVersion прибрано*видаліть рядок*'
+        Test-Path -LiteralPath (Join-Path $repo 'build/sync') | Should -BeFalse
+        @(git -C $repo branch --list 'storage/*').Count | Should -Be 0
+        $c = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo
+        $c.ExitCode | Should -Be 1
+        $c.Output | Should -BeLike '*kitVersion прибрано*'
     }
 }
 

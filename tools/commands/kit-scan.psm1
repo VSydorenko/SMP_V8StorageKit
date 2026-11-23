@@ -27,11 +27,16 @@ kit-scan [-Json] [-MinSimilarity <0..1>] [-Memory <тека>]
 Скан для підключення проєкту до процесу v8storagekit (скіл onboarding). Лише читання: друкує
 рядки-кандидати, колонки class/action заповнює агент разом із власником.
 
-  Kit version   kit.version у .agents/kit.profile.json (немає поля — 0.1.0) проти версії плагіна; коли
-                проєкт відстав — кроки чеклістів CHANGELOG.md усіх версій після версії проєкту, найстаріша
-                першою (рядки V1…Vn)
+  Kit version   kit.version у .agents/kit.profile.json проти версії плагіна; коли проєкт відстав — кроки
+                чеклістів CHANGELOG.md усіх версій після версії проєкту, найстаріша першою (рядки V1…Vn).
+                connected-before: профілю чи kit.version немає, але в v8storagekit.yaml є kitVersion —
+                `kit check -RepoRoot .` і чеклісти версій, новіших за неї; no-version: профіль без kit.version
+                і без kitVersion у маніфесті — його запише `kit-setup -SetVersion` останнім комітом PR
   Duplicates    .claude/commands|agents|skills і .agents/skills проєкту (та scripts, tools, bin), що
                 копіюють чи прототипують частину kit: відомі шляхи, збіг назви або схожість вмісту (шингли)
+  Obsolete      застарілі імена з tools/assets/obsolete-names.json (скіли v8storagekit:<стара назва>, tools/kit.ps1,
+                прибрані команди kit, прибрані інструменти Уніки) у CLAUDE.md, AGENTS.md, .claude/, .agents/, .gitignore,
+                .gitattributes: файл, стара назва, заміна
   Superpowers   `superpowers:<скіл>` у CLAUDE.md, AGENTS.md, .claude/ і .agents/ із заміною з kit;
                 увімкнений плагін superpowers у .claude/settings*.json; теки docs/superpowers/;
                 журнали .superpowers/sdd/ і .agents/sdd/. «planned» — заміни ще немає в плагіні
@@ -217,20 +222,40 @@ function Get-ScanVersion {
     if (Test-KitPluginRepo -Root $Root) { return & $res 'kit-repo' @{} }
     $p = Get-KitProjectVersion -Root $Root
     $x = @{ project = $p.Version; source = $p.Source }
+    if ($p.Source -eq 'invalid') { $x['note'] = $p.Error; return & $res 'invalid' $x }
+    $pending = {
+        param($from)
+        $versions = @(Get-KitPendingEntries -Entries $info.Entries -From $from -To $info.Version | ForEach-Object {
+                [ordered]@{ version = $_.Version; date = $_.Date; changes = @($_.Changes); steps = @($_.Steps); noAction = [bool]$_.NoAction }
+            })
+        $x['versions'] = $versions
+        $x['steps'] = [int](($versions | ForEach-Object { $_.steps.Count } | Measure-Object -Sum).Sum)
+    }
+    # Проєкт, підключений раніше: у маніфесті є kitVersion, а профілю чи kit.version у ньому немає
+    # (профіль з kit.version має пріоритет над маніфестом). Читається рядком, без YAML-модуля (ADR-0002).
+    $m = if ($p.Source -in 'none', 'default') { Get-KitManifestVersion -Root $Root } else { $null }
+    if ($m -and $m.Present) {
+        $x['source'] = 'manifest'; $x['hasProfile'] = ($p.Source -eq 'default'); $x['project'] = $m.Value
+        if (-not (ConvertTo-KitVersion $m.Value)) {
+            $x['project'] = $null
+            $x['note'] = "kitVersion `"$($m.Value)`" у v8storagekit.yaml не є x.y.z"
+            return & $res 'invalid' $x
+        }
+        if ((Compare-KitVersion -A $m.Value -B $info.Version) -lt 0) { & $pending $m.Value }
+        return & $res 'connected-before' $x
+    }
     switch ($p.Source) {
         'none' { return & $res 'no-profile' $x }
-        'invalid' { $x['note'] = $p.Error; return & $res 'invalid' $x }
+        'default' { $x['project'] = $null; return & $res 'no-version' $x }
     }
     $cmp = Compare-KitVersion -A $p.Version -B $info.Version
     if ($cmp -eq 0) { return & $res 'current' $x }
     if ($cmp -gt 0) { return & $res 'ahead' $x }
-    $versions = @(Get-KitPendingEntries -Entries $info.Entries -From $p.Version -To $info.Version | ForEach-Object {
-            [ordered]@{ version = $_.Version; date = $_.Date; changes = @($_.Changes); steps = @($_.Steps); noAction = [bool]$_.NoAction }
-        })
-    $x['versions'] = $versions
-    $x['steps'] = [int](($versions | ForEach-Object { $_.steps.Count } | Measure-Object -Sum).Sum)
+    & $pending $p.Version
     & $res 'behind' $x
 }
+
+$script:SetVersionNote = 'kit.version немає — запише `kit-setup -SetVersion` останнім комітом PR'
 
 function Get-ScanVersionLines {
     param([Parameter(Mandatory)]$V)
@@ -238,7 +263,25 @@ function Get-ScanVersionLines {
     switch ($V.status) {
         'kit-repo' { return @("це сам репозиторій плагіна (плагін $($V.plugin)) — версії проєкту немає") }
         'changelog-broken' { return @($V.note) }
-        'no-profile' { return @("немає .agents/kit.profile.json — перше підключення; kit-setup запише kit.version $($V.plugin) у новий профіль") }
+        'no-profile' { return @("немає .agents/kit.profile.json — перше підключення; $script:SetVersionNote (плагін $($V.plugin))") }
+        'no-version' { return @("$script:SetVersionNote (плагін $($V.plugin)); кроків оновлення від 0.1.0 не перелічено") }
+        'connected-before' {
+            $o = [System.Collections.Generic.List[string]]::new()
+            $o.Add("підключено раніше ($($V.project)), $(if ($V.hasProfile) { 'у профілі немає kit.version' } else { 'профілю немає' }); плагін $($V.plugin)")
+            $o.Add('- відхилення контуру від поточних правил: `kit check -RepoRoot .`')
+            if ($V.versions.Count) {
+                $o.Add("- версій у журналі після $($V.project): $($V.versions.Count), кроків оновлення $($V.steps) — кожен крок є рядком звіту підключення")
+                $n = 0
+                foreach ($e in $V.versions) {
+                    $o.Add(''); $o.Add("### $($e.version) — $($e.date)"); $o.Add('')
+                    if (-not $e.steps.Count) { $o.Add('- дій у проєкті немає') }
+                    foreach ($s in $e.steps) { $n++; $o.Add("- [ ] V$n $s") }
+                }
+                $o.Add('')
+            }
+            $o.Add("- $script:SetVersionNote")
+            return $o.ToArray()
+        }
         'invalid' { return @("$($V.note) — виправ (версія, до якої проєкт востаннє підключено чи оновлено)") }
         'current' { return @("$head — up to date") }
         'ahead' { return @("$head — проєкт новіший за цей плагін: онови плагін (claude plugin update v8storagekit)") }
@@ -252,7 +295,7 @@ function Get-ScanVersionLines {
         foreach ($s in $e.steps) { $n++; $out.Add("- [ ] V$n $s") }
     }
     $out.Add('')
-    $out.Add("останній крок того ж PR: виставити `"kit`": { `"version`": `"$($V.plugin)`" } у .agents/kit.profile.json (що змінилось — CHANGELOG.md плагіна)")
+    $out.Add("останній крок того ж PR: kit-setup -SetVersion (запише kit.version $($V.plugin) у .agents/kit.profile.json; що змінилось — CHANGELOG.md плагіна)")
     $out.ToArray()
 }
 
@@ -382,6 +425,51 @@ function Get-ScanSuperpowers {
             } else { 'superpowers (скіл не названо)' }
             $t = $line.Trim()
             $rows.Add([ordered]@{ item = "${rel}:$n"; text = $(if ($t.Length -gt 140) { $t.Substring(0, 140) } else { $t }); part = $by; planned = @($planned | Select-Object -Unique) })
+        }
+    }
+    , $rows.ToArray()
+}
+
+# ---------- Obsolete names ----------
+
+function Get-ScanObsolete {
+    <#
+        Застарілі імена з tools/assets/obsolete-names.json (скіли з префіксом v8storagekit: чи /v8storagekit:,
+        виклики, інструменти Уніки) у CLAUDE.md, AGENTS.md, .claude/**, .agents/** (без вивід-тек), .gitignore,
+        .gitattributes. Цілі токени без урахування регістру; голі слова без префікса не збіг. Рядок на збіг в
+        рядку файла: file:line, стара назва, заміна.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+    $names = Get-KitObsoleteNames
+    $targets = [System.Collections.Generic.List[object]]::new()
+    foreach ($k in $names.Skills.Keys) {
+        $targets.Add(@{ Old = "v8storagekit:$k"; New = [string]$names.Skills[$k]; Rx = "(?<![\w-])v8storagekit:$([regex]::Escape($k))(?![\w-])" })
+    }
+    foreach ($k in $names.Commands.Keys) {
+        # Шлях зі скісною рискою (tools/kit.ps1) — це старий виклик і з префіксом шляху (`./tools/kit.ps1`, `C:/p/tools/kit.ps1`),
+        # і з `\`: перед ним лише літера, цифра чи дефіс не дозволені. Команда без `/` (kit build) — ціле слово.
+        $esc = [regex]::Escape($k)
+        $rx = if ($k.Contains('/')) { "(?<![\w-])$($esc.Replace('/', '[/\\]'))(?![\w-])" } else { "(?<![\w./-])${esc}(?![\w-])" }
+        $targets.Add(@{ Old = $k; New = [string]$names.Commands[$k]; Rx = $rx })
+    }
+    foreach ($k in $names.UnicaTools) {
+        $targets.Add(@{ Old = $k; New = 'прибрати: інструмента немає в Уніці 0.16'; Rx = "(?<![\w])$([regex]::Escape($k))(?![\w])" })
+    }
+    $files = [System.Collections.Generic.List[string]]::new()
+    foreach ($f in (Get-ScanSuperpowersText -Root $Root)) { $files.Add($f) }
+    foreach ($f in '.gitignore', '.gitattributes') {
+        if (Test-Path -LiteralPath (Join-Path $Root $f) -PathType Leaf) { $files.Add($f) }
+    }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($rel in $files) {
+        $text = Read-ScanText -Path (Join-Path $Root $rel)
+        if (-not $text) { continue }
+        $n = 0
+        foreach ($line in ($text -split "\r?\n")) {
+            $n++
+            foreach ($t in $targets) {
+                if ([regex]::IsMatch($line, $t.Rx, 'IgnoreCase')) { $rows.Add([ordered]@{ item = "${rel}:$n"; old = $t.Old; replacement = $t.New }) }
+            }
         }
     }
     , $rows.ToArray()
@@ -671,7 +759,7 @@ function ConvertTo-ScanCell {
 }
 
 function Write-ScanMarkdown {
-    param($Root, $Version, $Dup, $Sp, $SpPlugin, $SpDocs, $Journals, $Mem, $Skills, $Places)
+    param($Root, $Version, $Dup, $Sp, $Obsolete, $SpPlugin, $SpDocs, $Journals, $Mem, $Skills, $Places)
     $o = [System.Collections.Generic.List[string]]::new()
     $o.Add("kit-scan: $Root")
     $o.Add("memory: $($Mem.dir)$(if ($Mem.missing) { ' (немає)' } else { " ($($Mem.total) файлів)" })")
@@ -694,6 +782,13 @@ function Write-ScanMarkdown {
     }
     if (@($Sp | Where-Object { $_.planned.Count }).Count) {
         $o.Add(''); $o.Add('planned — частини kit, на які вказує заміна, ще немає в плагіні: такий рядок — клас keep (познач issue, що її замінить).')
+    }
+    $o.Add('')
+    $o.Add("## Obsolete names ($($Obsolete.Count))"); $o.Add('')
+    $o.Add('| # | item | old name | replacement | class | action |'); $o.Add('| --- | --- | --- | --- | --- | --- |')
+    for ($i = 0; $i -lt $Obsolete.Count; $i++) {
+        $r = $Obsolete[$i]
+        $o.Add("| O$($i + 1) | ``$(ConvertTo-ScanCell $r.item)`` | ``$(ConvertTo-ScanCell $r.old)`` | $(ConvertTo-ScanCell $r.replacement) | ? | ? |")
     }
     $o.Add('')
     $o.Add("## Superpowers plugin ($($SpPlugin.Count))"); $o.Add('')
@@ -774,6 +869,7 @@ function Invoke-KitKitScan {
     $version = Get-ScanVersion -Root $root
     $dup = Get-ScanDuplicates -Root $root -Kit $kit -MinSim $minSim -IsKitRepo $isKitRepo
     $sp = Get-ScanSuperpowers -Root $root
+    $obsolete = Get-ScanObsolete -Root $root
     $spPlugin = Get-ScanSuperpowersPlugin -Root $root
     $spDocs = Get-ScanSuperpowersDocs -Root $root
     $journals = Get-ScanJournals -Roots @(@($main, $root) | Select-Object -Unique)
@@ -784,12 +880,12 @@ function Invoke-KitKitScan {
 
     if ($a.Named['Json']) {
         $doc = [ordered]@{
-            root = ($root -replace '\\', '/'); kitVersion = $version; duplicates = $dup; superpowers = $sp
+            root = ($root -replace '\\', '/'); kitVersion = $version; duplicates = $dup; superpowers = $sp; obsoleteNames = $obsolete
             superpowersPlugin = $spPlugin; superpowersDocs = $spDocs; journals = $journals; memory = $mem; skills = $skills; places = $places
         }
         Write-KitLine (ConvertTo-Json -InputObject $doc -Depth 10)
     } else {
-        foreach ($l in (Write-ScanMarkdown -Root ($root -replace '\\', '/') -Version $version -Dup $dup -Sp $sp -SpPlugin $spPlugin -SpDocs $spDocs -Journals $journals -Mem $mem -Skills $skills -Places $places)) { Write-KitLine $l }
+        foreach ($l in (Write-ScanMarkdown -Root ($root -replace '\\', '/') -Version $version -Dup $dup -Sp $sp -Obsolete $obsolete -SpPlugin $spPlugin -SpDocs $spDocs -Journals $journals -Mem $mem -Skills $skills -Places $places)) { Write-KitLine $l }
         Write-KitNext 'kit-setup -DryRun'
     }
     return 0

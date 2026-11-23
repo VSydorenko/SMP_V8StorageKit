@@ -95,28 +95,72 @@ Describe 'templates/settings.json — дозволи споживача' -Tag 'D
         @($s.permissions.ask) -ccontains $full | Should -BeTrue -Because 'відсутність в allow не гарантує запиту в режимах auto/acceptEdits/bypass'
         @($s.permissions.ask | Where-Object { $_ -match '(?i)unica|^mcp__' }) | Should -Be @($full) -Because 'в ask з інструментів Уніки — лише apply'
     }
-    It 'дозволи команд процесу в шаблоні — рівно ті, що пише kit-setup; зовнішніх немає' {
-        # Одне джерело переліку — kit-setup (його правила дописуються в уже наявні налаштування проєкту);
-        # шаблон — статичний JSON, який роздає install-hooks, тож він не може взяти перелік під час
-        # роботи. Тест запускає справжній kit-setup на порожньому репо й звіряє множини з урахуванням
-        # регістру: нова команда в kit-setup без рядка в шаблоні (чи навпаки) — червоне.
-        $repo = Join-Path $TestDrive 'kit-setup-perms'
-        New-Item -ItemType Directory -Path $repo -Force | Out-Null
-        git -C $repo init -q
-        Push-Location $repo
-        try {
-            $null = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit.ps1') kit-setup -NoGitignore -NoProfile -NoWorktreeInclude 2>&1
-            $LASTEXITCODE | Should -Be 0
-        } finally { Pop-Location }
-        $fromSetup = @((Get-Content -LiteralPath (Join-Path $repo '.claude/settings.json') -Raw | ConvertFrom-Json).permissions.allow | Sort-Object { $_ } -CaseSensitive)
-        $fromSetup.Count | Should -BeGreaterThan 0 -Because 'kit-setup мусить дописати правила команд процесу'
+    It 'правила команд процесу в шаблоні — рівно перелік-орієнтир; кожна команда процесу має рішення про дозвіл (D8 (1))' {
+        # Незалежний орієнтир: перелік — літерал тут, а не з kit-setup чи шаблону. Команди процесу —
+        # обгортки bin/<команда> (вхід агента); кожна мусить мати рішення: або її правила нижче, або вона
+        # свідомо з питанням. Нова команда без рішення, правило без рядка тут (чи навпаки) — червоне.
+        $allowed = @('sdd', 'review-pack', 'doc', 'session-board', 'session-cost', 'kit-scan', 'track status',
+            'pr-gate start', 'pr-gate cleanup', 'pr-gate scratch', 'pr-gate open', 'pr-gate ready', 'pr-gate land')
+        $withAsk = @('codex-audit', 'kit-setup')   # дії назовні чи зміна налаштувань — з питанням
+        $decided = @(@($allowed | ForEach-Object { $_.Split(' ')[0] }) + $withAsk | Sort-Object -Unique -CaseSensitive)
+        $commands = @(Get-ChildItem -LiteralPath (Join-Path $script:Root 'bin') -File | ForEach-Object { $_.Name -replace '\.(ps1|exe)$', '' } |
+            Where-Object { $_ -cne 'kit' } | Sort-Object -Unique -CaseSensitive)
+        ($commands -join ', ') | Should -BeExactly ($decided -join ', ') -Because 'кожна команда процесу з bin/ має рішення про дозвіл у цьому тесті'
+
+        $want = @($allowed | ForEach-Object { "Bash($_`:*)"; "PowerShell($_`:*)" } | Sort-Object -CaseSensitive)
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
-        $process = '^(Bash|PowerShell)\((sdd|review-pack|doc|session-board|session-cost|kit-scan|kit-setup|track|pr-gate)[ :]'
-        $inTemplate = @($s.permissions.allow | Where-Object { $_ -cmatch $process } | Sort-Object { $_ } -CaseSensitive)
-        ($inTemplate -join "`n") | Should -BeExactly ($fromSetup -join "`n") -Because 'шаблон і kit-setup дозволяють той самий перелік команд процесу'
-        foreach ($e in @($s.permissions.allow)) {
-            $e | Should -Not -Match '^(Bash|PowerShell)\((pr-gate (open|ready|land)|track (spec|milestone)|kit-setup|pr-gate:|track:)' -Because 'зовнішні дії й широкі маски — лише з запитом'
+        $process = '^(Bash|PowerShell)\((' + (($commands | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')[ :)]'
+        foreach ($l in 'allow', 'ask', 'deny') {
+            $got = @($s.permissions.$l | Where-Object { $_ -cmatch $process } | Sort-Object -CaseSensitive)
+            $exp = if ($l -eq 'allow') { $want } else { @() }
+            ($got -join "`n") | Should -BeExactly ($exp -join "`n") -Because "правила команд процесу в $l шаблону — рівно орієнтир"
         }
+    }
+
+    It 'шаблон ↔ звіт kit-setup: проєкт = шаблон (з 1С — повний, без 1С — без правил Уніки в allow) — звіт порожній; файл не змінено (D8 (2), D9)' {
+        $tplText = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw
+        $s = $tplText | ConvertFrom-Json -AsHashtable
+        foreach ($case in @(@{ Name = 'kit-setup-1c'; Is1C = $true }, @{ Name = 'kit-setup-plain'; Is1C = $false })) {
+            $repo = Join-Path $TestDrive $case.Name
+            New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
+            git -C $repo init -q
+            if ($case.Is1C) { Set-Content -LiteralPath (Join-Path $repo 'v8project.yaml') -Value 'name: x' -Encoding utf8NoBOM }
+            $perms = $s.permissions
+            if (-not $case.Is1C) {
+                $perms = [ordered]@{ allow = @($s.permissions.allow | Where-Object { -not $_.StartsWith('mcp__plugin_unica_unica__', [System.StringComparison]::Ordinal) }); ask = $s.permissions.ask; deny = $s.permissions.deny }
+            }
+            $file = Join-Path $repo '.claude/settings.json'
+            [System.IO.File]::WriteAllText($file, (ConvertTo-Json -InputObject ([ordered]@{ permissions = $perms }) -Depth 10), [System.Text.UTF8Encoding]::new($false))
+            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+            Push-Location $repo
+            try {
+                $out = & pwsh -NoProfile -File (Join-Path $script:Root 'tools/kit.ps1') kit-setup -Json -NoGitignore -NoProfile -NoWorktreeInclude 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 0 -Because $out
+            } finally { Pop-Location }
+            $rep = ($out | ConvertFrom-Json).permissions
+            $rep.clean | Should -BeTrue -Because "$($case.Name): $out"
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash | Should -Be $hash -Because 'kit-setup не пише settings.json'
+        }
+    }
+    It 'зміст шаблону за §5.3 і D10: 8 правил команд в ask, pr-gate open/ready/land в allow, без pr-gate:*, без застарілих імен Уніки (тест (7))' {
+        Import-Module (Join-Path $script:Root 'tools/lib/KitCli.psm1') -Force
+        Import-Module (Join-Path $script:Root 'tools/lib/KitVersion.psm1') -Force
+        $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
+        $ask = @($s.permissions.ask)
+        $askCommands = @('git push', 'gh pr create', 'gh pr merge', 'gh release') | ForEach-Object { "Bash($_`:*)"; "PowerShell($_`:*)" }
+        foreach ($r in $askCommands) { ($ask -ccontains $r) | Should -BeTrue -Because "$r — в ask" }
+        $nonMcp = @($ask | Where-Object { $_ -notmatch '^mcp__' } | Sort-Object -CaseSensitive)
+        ($nonMcp -join "`n") | Should -BeExactly ((@($askCommands) | Sort-Object -CaseSensitive) -join "`n") -Because 'в ask — рівно 8 правил команд (D10)'
+        foreach ($sub in 'open', 'ready', 'land') {
+            foreach ($f in 'Bash', 'PowerShell') {
+                (@($s.permissions.allow) -ccontains "$f(pr-gate $sub`:*)") | Should -BeTrue -Because "$f(pr-gate $sub`:*) — в allow"
+            }
+        }
+        $all = @($s.permissions.allow) + @($s.permissions.ask) + @($s.permissions.deny)
+        @($all | Where-Object { $_ -match '^(Bash|PowerShell)\(pr-gate:' }) | Should -BeNullOrEmpty -Because 'широке pr-gate:* дозволило б майбутні підкоманди без рішення'
+        $obsolete = @((Get-KitObsoleteNames -PluginRoot $script:Root).UnicaTools)
+        $obsolete.Count | Should -BeGreaterThan 0
+        @($all | Where-Object { $obsolete -ccontains $_ }) | Should -BeNullOrEmpty -Because 'застаріле ім''я в шаблоні kit-setup сам би прибрав'
     }
 }
 
