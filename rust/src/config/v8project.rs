@@ -244,7 +244,9 @@ pub fn local_has_dev_infobase_line(directory: &Path) -> bool {
     let Ok(bytes) = std::fs::read(&local) else {
         return false;
     };
-    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let lossy = String::from_utf8_lossy(&bytes);
+    // `Get-Content -Encoding UTF8`: BOM відкидається.
+    let text = lossy.strip_prefix('\u{feff}').unwrap_or(&lossy).to_string();
     let lines: Vec<&str> = text.split('\n').collect();
     for (i, line) in lines.iter().enumerate() {
         let head = line.trim_start();
@@ -347,9 +349,9 @@ mod tests {
     fn dev_infobase_line_is_raw_text_match() {
         let d = tmp("devib");
         let p = d.join(LOCAL_FILE_NAME);
-        for (text, expect) in [("devInfobase: x\n", true), ("a: 1\n  DEVINFOBASE : x\n", true), ("a: 1\n# devInfobase: x\n", false), ("xdevInfobase: 1\n", false)] {
+        for (text, expect) in [("devInfobase: x\n", true), ("a: 1\n  DEVINFOBASE : x\n", true), ("a: 1\n# devInfobase: x\n", false), ("xdevInfobase: 1\n", false), ("\u{feff}devInfobase: x\n", true)] {
             std::fs::write(&p, text).unwrap();
-            assert_eq!(local_has_dev_infobase_line(&d), expect, "{text}");
+            assert_eq!(local_has_dev_infobase_line(&d), expect, "{text:?}");
         }
         assert!(!local_has_dev_infobase_line(&d.join("немає")));
     }

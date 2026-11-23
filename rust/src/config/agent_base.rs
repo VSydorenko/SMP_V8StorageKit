@@ -8,6 +8,15 @@
 // Лексичний `[IO.Path]::GetFullPath` (`v8project::full_path`) для порівняння баз НЕ годиться: build за junction
 // веде в теку, де лежить база людини, а лексично шляхи різні (інваріант §6).
 //
+// Одне правило на вхід, без часткового зведення (рішення архітектора 2026-11-23; відома відмінність від
+// PowerShell, ADR-0014 п. 7): `File=` з префіксом пристрою (`\\.\`, `\\?\`, `\??\`, зокрема `GLOBALROOT` і
+// `Volume{`) чи на адмінський ресурс UNC (`\\<хост>\<X>$\…`) — відмова до будь-якої дії, текст шлях не цитує.
+// Те саме для цілі посилання, що після зняття `\\?\`/`\\?\UNC\`/`\??\` не є абсолютним шляхом диска чи UNC.
+// Відносна ціль без префікса розв'язується від теки самого посилання, не від поточної теки процесу.
+//
+// Межа, яку прийнято: звичайний ресурс `\\<локальний хост>\<ресурс>`, що веде в локальну теку, лексично не
+// відрізнити від віддаленого; надійно розрізняє лише ідентичність тому й файлу — це рівень спеки, не B1.
+//
 // Єдиний предикат перетину — `canonical_paths_overlap`: його кличуть і гілка файлових баз
 // (`infobases_overlap`), і `paths_overlap` (захищені шляхи, пам'ять раннера).
 //
@@ -76,15 +85,67 @@ fn path_root(full: &str) -> String {
     String::new()
 }
 
-fn is_absent(kind: std::io::ErrorKind) -> bool {
-    matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
+const ERR_DEVICE_PATH: &str = "kit не може довести, що база агента не збігається з базою людини; вкажіть звичайний шлях X:\\… чи \\\\сервер\\ресурс\\….";
+
+/// Вхідний шлях має бути звичайним: диск (`X:\…`), відносний чи UNC `\\сервер\ресурс\…`. Префікси пристроїв
+/// (`\\.\`, `\\?\`, `\??\`) і адмінський ресурс (`\\<хост>\<X>$\…`) — відмова без цитування шляху.
+pub fn assert_plain_path(path: &str) -> Result<(), ConfigError> {
+    let p = path.trim().replace('/', "\\");
+    if ["\\\\.\\", "\\\\?\\", "\\??\\"].iter().any(|prefix| p.starts_with(prefix)) {
+        return Err(ConfigError::new(ERR_DEVICE_PATH));
+    }
+    if let Some(rest) = p.strip_prefix("\\\\") {
+        let mut parts = rest.split('\\');
+        let _host = parts.next();
+        let admin = parts.next().is_some_and(|share| {
+            let mut c = share.chars();
+            matches!((c.next(), c.next(), c.next()), (Some(l), Some('$'), None) if l.is_ascii_alphabetic())
+        });
+        if admin {
+            return Err(ConfigError::new(ERR_DEVICE_PATH));
+        }
+    }
+    Ok(())
+}
+
+/// Ціль посилання → абсолютний шлях. `None` — порожня ціль (посилання без цілі, як `LinkTarget = $null`).
+/// Ціль з префіксом `\\?\`/`\??\`, що після зняття не є диском чи UNC (`Volume{…}`, `GLOBALROOT`), — відмова;
+/// відносна ціль без префікса — від теки `current` (теки посилання), не від поточної теки процесу.
+fn resolve_link_target(raw: &str, current: &str) -> Result<Option<String>, ConfigError> {
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let prefixed = raw.starts_with("\\\\?\\") || raw.starts_with("\\??\\");
+    let target = strip_verbatim(raw);
+    if target.is_empty() {
+        return Ok(None);
+    }
+    if prefixed {
+        let drive = {
+            let mut c = target.chars();
+            matches!((c.next(), c.next(), c.next()), (Some(l), Some(':'), Some(s)) if l.is_ascii_alphabetic() && SEPARATORS.contains(&s))
+        };
+        if !drive && !target.starts_with("\\\\") {
+            return Err(ConfigError::new(ERR_DEVICE_PATH));
+        }
+        return Ok(Some(target));
+    }
+    if is_path_rooted(&target) { Ok(Some(target)) } else { full_path(&format!("{current}\\{target}")).map(Some) }
+}
+
+/// Компонент відсутній лише за кодами Windows 2 і 3 (як .NET FileNotFound/DirectoryNotFound). Усе інше —
+/// мережеві помилки (67 BAD_NET_NAME), шлях через файл (267), доступ — fail-closed: `ErrorKind::NotFound` для цього
+/// надто широкий.
+fn is_absent(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(2) | Some(3))
 }
 
 /// Канонічний абсолютний шлях для порівняння баз і тек: без префікса `\\?\`, з розкритими посиланнями по наявних
 /// компонентах. Ненаявний компонент зупиняє розкриття (глибше нічого немає). Помилка читання атрибута чи цілі
 /// наявного компонента — відмова (fail-closed); текст помилки не містить шляху.
 pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
-    let mut full = full_path(&strip_verbatim(path.trim()))?;
+    assert_plain_path(path)?;
+    let mut full = full_path(path.trim())?;
     for _ in 0..MAX_HOPS {
         let root = path_root(&full);
         let rest = full.strip_prefix(root.as_str()).unwrap_or("");
@@ -95,7 +156,7 @@ pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
             let next = format!("{current}\\{segment}");
             let meta = match std::fs::symlink_metadata(&next) {
                 Ok(m) => m,
-                Err(e) if is_absent(e.kind()) => {
+                Err(e) if is_absent(&e) => {
                     // Глибше нічого немає: решту дописуємо як є.
                     let tail: Vec<&str> = segments.iter().skip(i.saturating_add(1)).copied().collect();
                     return Ok(std::iter::once(next.as_str()).chain(tail).collect::<Vec<_>>().join("\\"));
@@ -106,9 +167,8 @@ pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
             // розбору (OneDrive, том) цілі не має — звичайний компонент, як `LinkTarget = $null` у PowerShell.
             if meta.file_attributes() & REPARSE_POINT != 0 && meta.file_type().is_symlink() {
                 let target = std::fs::read_link(&next).map_err(|_| ConfigError::new(ERR_LINK_TARGET))?;
-                let target = strip_verbatim(&target.to_string_lossy());
-                if !target.is_empty() {
-                    let target = if is_path_rooted(&target) { target } else { full_path(&format!("{current}\\{target}"))? };
+                let target = resolve_link_target(&target.to_string_lossy(), &current)?;
+                if let Some(target) = target {
                     let tail: Vec<&str> = segments.iter().skip(i.saturating_add(1)).copied().collect();
                     let tail = if tail.is_empty() { String::new() } else { format!("\\{}", tail.join("\\")) };
                     restart = Some(full_path(&format!("{}{tail}", target.trim_end_matches(SEPARATORS)))?);
@@ -389,7 +449,8 @@ pub fn protected_paths(
                 items.push(item(ProtectedKind::DevBase, None, label, None, Some(human.connection.clone())));
                 continue;
             };
-            let p = strip_verbatim(&file);
+            assert_plain_path(&file)?;
+            let p = file;
             if !is_path_rooted(&p) {
                 continue;
             }
@@ -666,10 +727,73 @@ mod tests {
         assert!(canonical_paths_overlap("D:\\Bases\\X", "d:\\bases\\x\\"));
         assert!(canonical_paths_overlap("D:\\Bases\\X\\ib", "D:\\Bases\\X"));
         assert!(!canonical_paths_overlap("D:\\Bases\\ib2", "D:\\Bases\\ib"));
-        // Канонічна форма знімає \\?\ і \\?\UNC\ і не вимагає наявності шляху.
-        assert_eq!(canonical_path("\\\\?\\Z:\\немає\\x").unwrap().to_lowercase(), "z:\\немає\\x");
+        // Канонічна форма не вимагає наявності шляху; зняття префіксів — лише для цілей посилань.
+        assert_eq!(canonical_path("Z:\\немає\\x").unwrap().to_lowercase(), "z:\\немає\\x");
         assert_eq!(strip_verbatim("\\\\?\\UNC\\srv\\sh\\x"), "\\\\srv\\sh\\x");
         assert_eq!(strip_verbatim("\\??\\C:\\x"), "C:\\x");
+    }
+
+    // Раунд 1, знахідка 2: «відсутній» — лише коди 2 і 3; мережева помилка (67) і шлях через файл (267) —
+    // fail-closed, а не тихий перехід на лексичне порівняння.
+    #[test]
+    fn only_file_and_path_not_found_stop_link_resolution() {
+        let e = canonical_path("\\\\localhost\\nosuchshare_zz_kit\\x").unwrap_err();
+        assert!(e.message().starts_with("не вдалося перевірити компонент шляху бази"), "{e}");
+        let d = tmp("absent");
+        std::fs::write(d.join("file.txt"), "x").unwrap();
+        // Шлях через звичайний файл Windows відхиляє кодом 3, як .NET (DirectoryNotFoundException): «відсутній»,
+        // а не помилка (виміряно: код 267 для цього входу не виникає).
+        let through_file = d.join("file.txt").join("sub");
+        assert!(canonical_path(&through_file.to_string_lossy()).unwrap().to_lowercase().ends_with("file.txt\\sub"));
+        // Контроль: ненаявний хвіст під наявною текою — не помилка.
+        assert!(canonical_path(&d.join("немає").join("x").to_string_lossy()).unwrap().to_lowercase().ends_with("немає\\x"));
+    }
+
+    // Раунд 1, доповнення архітектора: пристрої, GLOBALROOT, Volume{…}, адмінські ресурси — відмова без цитування
+    // шляху; звичайний `C:\…` і `\\сервер\ресурс\…` проходять.
+    #[test]
+    fn device_prefixes_and_admin_shares_are_refused_everywhere() {
+        let marker = "МАРКЕР-шлях";
+        for bad in [
+            format!("\\\\.\\C:\\{marker}"),
+            format!("\\\\localhost\\C$\\{marker}"),
+            format!("\\\\?\\GLOBALROOT\\Device\\{marker}"),
+            format!("\\\\?\\C:\\{marker}"),
+            format!("\\??\\C:\\{marker}"),
+            format!("//./C:/{marker}"),
+        ] {
+            let e = assert_plain_path(&bad).unwrap_err();
+            assert!(e.message().contains("не збігається з базою людини") && !e.message().contains(marker), "{e}");
+            assert!(canonical_path(&bad).is_err());
+            // Дев-база накладки: відмова в переліку захищених шляхів.
+            let overlay = Overlay {
+                path: "o.yaml".into(),
+                infobases: vec![crate::config::overlay::OverlayInfobase { name: "dev".into(), connection: RawConnection::new(format!("File={bad}")), user: String::new() }],
+                storages: vec![],
+                workspaces: vec![],
+            };
+            let e = protected_paths(Some(&overlay), &[], "ws", None, &[ProtectedKind::DevBase]).unwrap_err();
+            assert!(!e.message().contains(marker), "{e}");
+            // База агента проти дев-бази: нерозбірне — відмова, значення не цитується.
+            let e = infobases_overlap(&format!("File={bad}"), "File=Z:\\b", &origins()).unwrap_err();
+            assert!(!e.message().contains(marker), "{e}");
+        }
+        for ok in ["C:\\x\\ib", "\\\\server\\share\\ib", "build\\ib", "\\\\server\\ADMIN\\x"] {
+            assert!(assert_plain_path(ok).is_ok(), "{ok}");
+        }
+    }
+
+    // Ціль посилання: Volume{…}/GLOBALROOT — відмова; відносна ціль — від теки посилання, не від теки процесу.
+    #[test]
+    fn link_target_is_checked_and_relative_target_uses_link_dir() {
+        for bad in ["\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\", "\\??\\Volume{1}\\x", "\\\\?\\GLOBALROOT\\Device\\HarddiskVolume1\\x"] {
+            let e = resolve_link_target(bad, "C:\\a\\b").unwrap_err();
+            assert!(e.message().contains("не збігається з базою людини") && !e.message().contains("Volume"), "{e}");
+        }
+        assert_eq!(resolve_link_target("\\??\\C:\\real\\x", "C:\\a").unwrap().as_deref(), Some("C:\\real\\x"));
+        assert_eq!(resolve_link_target("\\\\?\\UNC\\srv\\sh\\x", "C:\\a").unwrap().as_deref(), Some("\\\\srv\\sh\\x"));
+        assert_eq!(resolve_link_target("..\\x", "C:\\a\\b").unwrap().as_deref(), Some("C:\\a\\x"));
+        assert_eq!(resolve_link_target("", "C:\\a").unwrap(), None);
     }
 
     #[test]

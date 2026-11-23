@@ -35,9 +35,9 @@ fn canonical_form_follows_junction_and_lexical_form_does_not() {
     let via_link = d.join("link").join("deep").join("ib");
     let canon = canonical_path(&via_link.to_string_lossy()).unwrap();
     assert!(canon.to_lowercase().ends_with("\\real\\deep\\ib"), "{canon}");
-    // Ненаявний хвіст дописується як є, префікс \\?\ знімається.
+    // Префікс пристрою на вході — відмова (рішення архітектора 2026-11-23), а не мовчазне зняття.
     let verbatim = format!("\\\\?\\{}", via_link.display());
-    assert_eq!(canonical_path(&verbatim).unwrap(), canon);
+    assert!(canonical_path(&verbatim).is_err());
 
     let real = d.join("real");
     assert!(paths_overlap(&via_link.to_string_lossy(), &real.to_string_lossy()).unwrap());
