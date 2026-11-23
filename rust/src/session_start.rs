@@ -4,14 +4,15 @@
 // оновлення проєкту. Нічого не змінює: рішення — людині, дія — скіл v8storagekit:storage-sync.
 //
 // ХУК СПРАЦЬОВУЄ В КОЖНІЙ СЕСІЇ МАШИНИ, зокрема в проєктах не про 1С. Критерій — маніфест АБО профіль
-// процесу: v8storagekit.yaml шукається в теці проєкту сесії (CLAUDE_PROJECT_DIR) і в її предках; профіль —
+// процесу з заданою версією v8storagekit (v8storagekit.version; тимчасово kit.version ≥ 1.0.0, ADR-0020;
+// профіль спільного agent-kit без версії хука не вмикає): v8storagekit.yaml шукається в теці проєкту сесії (CLAUDE_PROJECT_DIR) і в її предках; профіль —
 // <корінь git>/.agents/kit.profile.json (корінь git — перша тека вгору від проєкту з .git, текою чи
 // файлом; git не запускається). Ні маніфесту, ні профілю (або змінної немає) — нічого не друкується, код
 // 0, і `pwsh` не запускається: PowerShell потрібен лише `session-check`, тобто лише з маніфестом.
 // - маніфест у самій теці проєкту — контекст «Стан сховищ» і наприкінці блок правил;
 // - маніфест лише в предку — те саме з -RepoRoot <предок> плюс попередження: Уніка бачитиме лише теку
 //   сесії, а воркспейси лежать у корені репозиторію;
-// - лише профіль — контекст із самого блоку правил і рядка оновлення; session-check не запускається.
+// - лише профіль з версією — контекст із самого блоку правил і рядка оновлення; session-check не запускається.
 //   Профіль, що не читається (не JSON або v8storagekit.version не x.y.z), без маніфесту дає тишу, а з маніфестом —
 //   звичайний контекст без рядка оновлення.
 //
@@ -70,10 +71,10 @@ pub fn run(plugin: &Path) -> Option<String> {
 
     // Блок правил і рядок оновлення; збій тут не скасовує решти.
     let mut rules_block = String::new();
-    if repo.is_some() || matches!(profile, Profile::Ok(_)) {
+    if repo.is_some() || profile.marks_repo() {
         let rules = rules_text(plugin).unwrap_or_default();
         let hint = match (&profile, &git_root) {
-            (Profile::Ok(version), Some(root)) => upgrade_hint(plugin, root, version).unwrap_or_default(),
+            (Profile::Ok(version, _), Some(root)) => upgrade_hint(plugin, root, version).unwrap_or_default(),
             _ => String::new(),
         };
         rules_block = [rules, hint].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n");
@@ -87,7 +88,7 @@ pub fn run(plugin: &Path) -> Option<String> {
             };
             Some(hook_json(&context))
         }
-        _ if matches!(profile, Profile::Ok(_)) && !rules_block.is_empty() => {
+        _ if profile.marks_repo() && !rules_block.is_empty() => {
             Some(hook_json(&format!("<v8storagekit>\n{rules_block}\n</v8storagekit>")))
         }
         _ => None,
@@ -128,12 +129,21 @@ fn read_text(path: &Path) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(body).into_owned())
 }
 
-/// Профіль процесу: None — файла немає; Ok — читається (версія проєкту, типово 0.1.0); Bad — не JSON
+/// Профіль процесу: None — файла немає; Ok — читається; Bad — не JSON
 /// або v8storagekit.version не x.y.z (ADR-0020; чужий kit.version не Bad).
 enum Profile {
     None,
-    Ok(String),
+    /// Версія проєкту (типово 0.1.0) і ознака, що вона задана в профілі (`ProjectVersion::Set`).
+    Ok(String, bool),
     Bad,
+}
+
+impl Profile {
+    /// Профіль — ознака репозиторію v8storagekit лише коли в ньому задано версію (ADR-0020): профіль
+    /// agent-kit без v8storagekit.version (і без kit.version ≥ 1.0.0) хука не вмикає.
+    fn marks_repo(&self) -> bool {
+        matches!(self, Profile::Ok(_, true))
+    }
 }
 
 fn read_profile(git_root: &Path) -> Profile {
@@ -147,13 +157,13 @@ fn read_profile(git_root: &Path) -> Profile {
     // без лапок, кома в кінці) kit сам не пише — тут вони дають Bad.
     let text = strip_json_comments(&text);
     if text.trim().is_empty() {
-        return Profile::Ok("0.1.0".to_string());
+        return Profile::Ok("0.1.0".to_string(), false);
     }
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Profile::Bad };
     // Версія — за єдиним правилом profile::project_version (ADR-0020): v8storagekit.version, тимчасово kit.version ≥ 1.0.0.
     match kit::profile::project_version(&json) {
-        kit::profile::ProjectVersion::Unset => Profile::Ok("0.1.0".to_string()),
-        kit::profile::ProjectVersion::Set(s) => Profile::Ok(s),
+        kit::profile::ProjectVersion::Unset => Profile::Ok("0.1.0".to_string(), false),
+        kit::profile::ProjectVersion::Set(s) => Profile::Ok(s, true),
         kit::profile::ProjectVersion::Bad => Profile::Bad,
     }
 }

@@ -1,4 +1,5 @@
 {
+  "v8storagekit": { "version": "1.6.15" },
   "pr": {
     "base": "main",
     "mergeMethod": "merge"
