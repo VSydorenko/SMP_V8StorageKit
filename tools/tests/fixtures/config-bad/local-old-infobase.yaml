@@ -1,0 +1,4 @@
+#@ target: local
+#@ check: workspace
+#@ starts: {path}: стара форма 'infobase:' — kit читає базу агента лише з infobases.origin у {path} (одна форма на kit і Уніку, без сумісного читання). Перенесіть: infobases: { origin: { connection: …, user: …, password: … } } у {path} і приберіть infobase: (перехід — sk
+infobase: { connection: 'File=x' }

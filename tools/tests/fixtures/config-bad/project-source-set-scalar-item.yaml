@@ -1,0 +1,6 @@
+#@ target: project
+#@ check: workspace
+#@ starts: Елемент source-set у {path} не є мапою з ключами name/type/path.
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - foo

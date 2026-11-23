@@ -1,0 +1,7 @@
+#@ target: local
+#@ check: agentBase
+#@ parity: class
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить невідомий ключ 'ss'. Дозволені ключі: Srvr, Ref, File.
+#@ rust-starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить невідомий ключ (ім'я не друкується). Дозволені ключі: Srvr, Ref, File.
+infobases:
+  origin: { connection: 'Srvr=a;Ref=b;ss=x' }

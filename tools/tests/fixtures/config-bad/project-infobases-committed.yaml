@@ -1,0 +1,8 @@
+#@ target: project
+#@ check: workspace
+#@ starts: {path}: infobases у закоміченому v8project.yaml — база агента машинна й може нести пароль. Перенесіть блок у {ws}\v8project.local.yaml (гітігнорований).
+infobases: { origin: { connection: 'File=x' } }
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }
+  - { name: Alpha_SMB, type: EXTENSION, path: cfe/src }

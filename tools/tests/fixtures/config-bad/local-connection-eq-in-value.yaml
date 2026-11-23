@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить '=' у значенні ключа 'File' — найімовірніше, пропущено ';' між елементами. Шлях у File= не може містити '=' (як і ';').
+infobases:
+  origin: { connection: 'File=a=b' }

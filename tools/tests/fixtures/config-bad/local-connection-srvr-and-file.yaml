@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить одночасно Srvr= і File= — це два різні способи описати базу, разом вони суперечливі.
+infobases:
+  origin: { connection: 'Srvr=a;File=b' }

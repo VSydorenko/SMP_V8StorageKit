@@ -1,0 +1,9 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' — dump.from порожній.
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: dump, dump: { from: '' } }

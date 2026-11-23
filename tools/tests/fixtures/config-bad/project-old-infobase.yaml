@@ -1,0 +1,8 @@
+#@ target: project
+#@ check: workspace
+#@ starts: {path}: стара форма 'infobase:' — kit читає базу агента лише з infobases.origin у {ws}\v8project.local.yaml (одна форма на kit і Уніку, без сумісного читання). Перенесіть: infobases: { origin: { connection: …, user: …, password: … } } у {ws}\v8project.local.ya
+infobase: { connection: 'File=x' }
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }
+  - { name: Alpha_SMB, type: EXTENSION, path: cfe/src }

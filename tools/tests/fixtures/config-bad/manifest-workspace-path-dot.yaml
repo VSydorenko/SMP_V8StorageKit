@@ -1,0 +1,8 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — workspaces[].path '.' має бути ім'ям теки безпосередньо в корені репозиторію (без роздільників).
+version: 1
+product: Fake
+workspaces:
+  - path: '.'
+    sources: { x: { truth: git } }

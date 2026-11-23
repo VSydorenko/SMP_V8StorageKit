@@ -1,0 +1,10 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — воркспейс 'Alpha_SMB' оголошено двічі.
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources: { x: { truth: git } }
+  - path: Alpha_SMB
+    sources: { x: { truth: git } }

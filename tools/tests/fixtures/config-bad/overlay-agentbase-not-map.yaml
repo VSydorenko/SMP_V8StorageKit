@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, workspaces.Alpha_SMB.agentBase має бути мапою (ключ: значення).
+workspaces:
+  Alpha_SMB: { agentBase: x }

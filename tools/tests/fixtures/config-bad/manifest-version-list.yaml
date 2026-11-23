@@ -1,0 +1,9 @@
+#@ target: manifest
+#@ check: none
+version: [1]
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

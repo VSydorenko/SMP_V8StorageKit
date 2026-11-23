@@ -7,7 +7,7 @@
 // що й решта конфігурації (рішення 7 плану), — пароль не має окремого шляху.
 
 use super::manifest::is_blank;
-use super::yaml::{Emptiness, contains, eq_ci, get, get_string, keys, read_yaml};
+use super::yaml::{Emptiness, contains, eq_ci, get, get_string, keys, read_yaml, read_yaml_or_none};
 use super::{ConfigError, RawConnection, Secret, SecretTree};
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
@@ -182,7 +182,10 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
         if !Path::new(&p).is_file() {
             continue;
         }
-        let data = read_yaml(Path::new(&p), Emptiness::Allowed)?;
+        // `$null` (порожній чи суто коментований файл) PowerShell пропускає: `if ($null -eq $data) { continue }`.
+        let Some(data) = read_yaml_or_none(Path::new(&p))? else {
+            continue;
+        };
 
         if contains(&data, "infobase") {
             problems.push(format!(
@@ -281,6 +284,20 @@ mod tests {
     }
 
     const PROVIDERS: &str = "providers: { push: designer, pull: Designer, download: designer }\n";
+
+    // `$null` (порожній чи суто коментований файл) PowerShell пропускає, а явна порожня мапа `{}` — перевіряє (знахідка
+    // про providers): паритет із `Get-V8ProjectConfigProblems` (задача 4).
+    #[test]
+    fn config_problems_skips_null_file_but_checks_empty_map() {
+        let d = tmp("nullfile");
+        let p = d.join("v8project.yaml");
+        std::fs::write(&p, "# лише коментар
+").unwrap();
+        assert!(config_problems(&d).unwrap().is_empty());
+        std::fs::write(&p, "{}
+").unwrap();
+        assert!(config_problems(&d).unwrap()[0].contains("немає providers"));
+    }
 
     #[test]
     fn reads_project_and_rejects_bad_shapes() {

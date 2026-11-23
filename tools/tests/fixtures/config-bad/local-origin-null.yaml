@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: workspace
+#@ starts: {path}: infobases.origin без connection — база агента оголошена, але не описана. Допишіть connection: 'File=build/ib' (файлова) або 'Srvr=…;Ref=…;' (серверна) — скіл v8storagekit:infobase-agent.
+infobases:
+  origin:

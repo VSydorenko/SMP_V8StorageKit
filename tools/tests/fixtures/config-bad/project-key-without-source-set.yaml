@@ -1,0 +1,6 @@
+#@ target: project
+#@ check: source
+#@ starts: Ключ sources воркспейсу 'Alpha_SMB' (ім'я не друкується) не відповідає жодному name: source-set у Alpha_SMB/v8project.yaml (є: base).
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }

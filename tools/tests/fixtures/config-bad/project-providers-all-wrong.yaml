@@ -1,0 +1,7 @@
+#@ target: project
+#@ check: workspace
+#@ starts: {path}: providers.push — 'a', потрібно designer (агентський режим раннера на Windows не заміряний, #429).
+providers: { push: a, pull: b, download: c }
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }
+  - { name: Alpha_SMB, type: EXTENSION, path: cfe/src }

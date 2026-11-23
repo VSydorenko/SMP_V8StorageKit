@@ -1,0 +1,4 @@
+#@ target: local
+#@ check: workspace
+#@ starts: {path}: infobases має бути мапою з ключем origin (infobases: { origin: { connection: … } }) — інакше база агента тихо зникає. Виправте або приберіть infobases.
+infobases: x

@@ -1,0 +1,4 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — storages: має бути мапою «ключ джерела → шлях або { path, user, password }».
+storages: [a]

@@ -1,0 +1,7 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, елемент workspaces має бути мапою (ключ: значення).
+version: 1
+product: Fake
+workspaces:
+  - foo

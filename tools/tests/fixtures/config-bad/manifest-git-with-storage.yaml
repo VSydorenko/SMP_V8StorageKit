@@ -1,0 +1,9 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' — truth: git означає, що зовнішнього джерела немає: ні storage:, ні dump: тут не буває.
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: git, storage: { path: 'R:\x' } }

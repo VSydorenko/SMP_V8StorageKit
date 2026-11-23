@@ -1,0 +1,12 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ rust-check: manifest
+#@ rust-starts: Маніфест {path} — version: 1.0 не підтримується; kit знає лише version: 1.
+version: 1.0
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

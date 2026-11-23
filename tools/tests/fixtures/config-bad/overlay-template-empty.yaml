@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — workspaces.Alpha_SMB.agentBase.template порожній: вкажіть правильний шлях до .dt; рішення прибрати шаблон — за людиною.
+workspaces:
+  Alpha_SMB: { agentBase: { template: '' } }

@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — база агента воркспейсу 'Alpha_SMB' (infobases.origin у v8project.local.yaml). не вдалося перевірити компонент шляху бази на посилання — kit не може довести, що бази різні. Очікуєт
+infobases:
+  origin: { connection: 'File=\\kit-no-such-host-parity\share\ib' }

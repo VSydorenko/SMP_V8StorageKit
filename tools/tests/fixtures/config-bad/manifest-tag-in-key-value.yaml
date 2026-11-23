@@ -1,0 +1,13 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ rust-check: manifest
+#@ rust-starts: Файл {path} не розбирається як YAML.
+version: 1
+product: Fake
+mainBranch: !t develop
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

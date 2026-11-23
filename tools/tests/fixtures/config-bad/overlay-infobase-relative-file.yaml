@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: agentBase
+#@ starts: Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — дев-база 'dev' у v8storagekit.local.yaml. відносний File= — kit звіряє лише абсолютні File=. Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=<база>;. Доки kit не впевнений
+infobases:
+  dev: { connection: 'File=build/ib' }

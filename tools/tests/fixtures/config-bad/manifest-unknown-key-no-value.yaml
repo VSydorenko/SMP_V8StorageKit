@@ -1,0 +1,11 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — містить невідомий ключ (ім'я не друкується). Дозволені: version, product, client, mainBranch, workspaces. Перевірте пробіл після ':' і форму 'ключ: значення'.
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }
+foo:

@@ -1,0 +1,4 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — workspaces: має бути мапою «тека воркспейсу → { agentBase }».
+workspaces: [a]

@@ -1,0 +1,7 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, елемент workspaces — бракує обов'язкового ключа 'path'.
+version: 1
+product: Fake
+workspaces:
+  - sources: { a: { truth: git } }

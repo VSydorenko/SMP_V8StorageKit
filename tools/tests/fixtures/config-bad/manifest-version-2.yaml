@@ -1,0 +1,10 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — version: 2 не підтримується; kit знає лише version: 1.
+version: 2
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

@@ -1,0 +1,4 @@
+#@ target: project
+#@ check: workspace
+#@ starts: Файл {path} порожній — очікувався YAML-документ із мапою на верхньому рівні.
+# порожньо

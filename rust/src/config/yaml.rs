@@ -16,14 +16,13 @@
 // Відмінність від PowerShell: там значення `0123`, `1.0`, `1e3` стають числом (`123`, `1`, `1000`) — Rust дає текст.
 //
 // Дерево нормалізоване під PowerShell: ключі мап — рядки, мапа тримає порядок файла, ключі, що відрізняються лише
-// регістром, зливаються (PowerShell тримає дерево в `OrderedDictionary` без регістру: перший запис задає ім'я й
-// місце, останній — значення). Пошук за ключем — без регістру. Тег (`!x`) у значенні — помилка розбору.
+// регістром, зливаються (PowerShell тримає дерево в `OrderedDictionary` без регістру: перший запис задає місце,
+// ім'я й значення — останній; вимір 2026-11-24: `A: 1` і `a: 2` дають ключ `a`, задача 4). Пошук за ключем — без регістру. Тег (`!x`) у значенні — помилка розбору.
 
 use super::ConfigError;
 use serde::Deserialize;
 use serde::de::{DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_yaml::{Mapping, Number, Value};
-use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
@@ -36,6 +35,21 @@ pub enum Emptiness {
 
 /// Читає файл у мапу. Не панікує на жодному вході.
 pub fn read_yaml(path: &Path, emptiness: Emptiness) -> Result<Mapping, ConfigError> {
+    let shown = path.display();
+    match read_yaml_or_none(path)? {
+        Some(map) => Ok(map),
+        None => match emptiness {
+            Emptiness::Allowed => Ok(Mapping::new()),
+            Emptiness::Required => Err(ConfigError::new(format!(
+                "Файл {shown} порожній — очікувався YAML-документ із мапою на верхньому рівні."
+            ))),
+        },
+    }
+}
+
+/// Те саме, але порожній або суто коментований файл — `None` (`$null` з `-AllowEmpty`), на відміну від явної
+/// порожньої мапи `{}`: `Get-V8ProjectConfigProblems` пропускає перший і перевіряє другу.
+pub fn read_yaml_or_none(path: &Path) -> Result<Option<Mapping>, ConfigError> {
     let shown = path.display();
     if !path.is_file() {
         return Err(ConfigError::new(format!("Файл не знайдено: {shown}")));
@@ -64,14 +78,9 @@ pub fn read_yaml(path: &Path, emptiness: Emptiness) -> Result<Mapping, ConfigErr
     };
 
     match root {
-        None | Some(Value::Null) => match emptiness {
-            Emptiness::Allowed => Ok(Mapping::new()),
-            Emptiness::Required => Err(ConfigError::new(format!(
-                "Файл {shown} порожній — очікувався YAML-документ із мапою на верхньому рівні."
-            ))),
-        },
+        None | Some(Value::Null) => Ok(None),
         Some(Value::Mapping(typed)) => match text_tree(text, &typed) {
-            Some(Value::Mapping(m)) => Ok(m),
+            Some(Value::Mapping(m)) => Ok(Some(m)),
             _ => Err(ConfigError::new(format!("Файл {shown} не розбирається як YAML."))),
         },
         Some(other) => Err(ConfigError::new(format!(
@@ -228,13 +237,20 @@ fn normalize(value: Value) -> Option<Value> {
         Value::Tagged(t) => normalize(t.value),
         Value::Sequence(items) => items.into_iter().map(normalize).collect::<Option<Vec<_>>>().map(Value::Sequence),
         Value::Mapping(map) => {
-            let mut out = Mapping::new();
-            let mut spelled: HashMap<String, String> = HashMap::new();
+            // `OrderedDictionary` у PowerShell: ключ без регістру — одне місце (де вперше з'явився), а ім'я й значення
+            // — з останнього запису (вимір 2026-11-24: `Alpha_SMB:` і `ALPHA_SMB:` дають ключ `ALPHA_SMB`).
+            let mut entries: Vec<(String, Value)> = Vec::new();
             for (k, v) in map {
                 let key = key_text(&k)?;
                 let v = normalize(v)?;
                 let folded = key.to_lowercase();
-                let name = spelled.entry(folded).or_insert_with(|| key.clone()).clone();
+                match entries.iter_mut().find(|(name, _)| name.to_lowercase() == folded) {
+                    Some(slot) => *slot = (key, v),
+                    None => entries.push((key, v)),
+                }
+            }
+            let mut out = Mapping::new();
+            for (name, v) in entries {
                 out.insert(Value::String(name), v);
             }
             Some(Value::Mapping(out))
@@ -372,10 +388,10 @@ mod tests {
     #[test]
     fn contract_of_read_yaml() {
         let d = tmp("contract");
-        // Порядок ключів збережено, регістр зливається (перше ім'я, останнє значення), BOM відкинуто.
+        // Порядок ключів збережено, регістр зливається (місце першого запису, ім'я й значення останнього), BOM відкинуто.
         let ok = file(&d, "ok.yaml", "\u{feff}b: 1\nA: 2\na: 3\n");
         let m = read_yaml(&ok, Emptiness::Required).unwrap();
-        assert_eq!(keys(&m), ["b", "A"]);
+        assert_eq!(keys(&m), ["b", "a"]);
         assert_eq!(get_string(&m, "a"), "3");
 
         // Порожній: обов'язковий — помилка з іменем файла, дозволений — порожня мапа.

@@ -1,0 +1,4 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — містить невідомий ключ (ім'я не друкується). Дозволені: infobases, storages, workspaces. Перевірте пробіл після ':' і форму 'ключ: значення'.
+foo: 1

@@ -1,0 +1,14 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ rust-check: manifest
+#@ rust-starts: Файл {path} містить кілька YAML-документів
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }
+---
+version: 2

@@ -1,0 +1,4 @@
+#@ target: project
+#@ check: workspace
+#@ starts: У {path} немає розділу source-set: — без нього Unica не бачить воркспейсу, а kit не має чого звірити з маніфестом.
+providers: { push: designer, pull: designer, download: designer }

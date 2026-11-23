@@ -1,0 +1,6 @@
+#@ target: overlay
+#@ check: overlay
+#@ parity: class
+#@ starts: Файл {path} не розбирається як YAML
+#@ rust-starts: Файл {path} не розбирається як YAML
+infobases: [

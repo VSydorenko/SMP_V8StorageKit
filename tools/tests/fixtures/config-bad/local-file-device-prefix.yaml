@@ -1,0 +1,7 @@
+#@ target: local
+#@ check: none
+#@ parity: class
+#@ rust-check: agentBase
+#@ rust-starts: Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — база агента воркспейсу 'Alpha_SMB' (infobases.origin у v8project.local.yaml). kit не може довести, що база агента не збігається з базою людини; вкажіть звичайний шлях X:\… чи \\се
+infobases:
+  origin: { connection: 'File=\\.\C:\x\ib' }
