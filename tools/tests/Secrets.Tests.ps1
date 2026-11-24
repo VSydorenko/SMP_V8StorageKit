@@ -224,6 +224,23 @@ Describe 'секрети не у виводі' {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ('h4-' + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '$V'"
             $r = Invoke-Kit -Command 'check' -Repo $repo
             $r.Output | Should -Not -BeLike '*шлях сховища має форму*'
+            if ($V -eq 'tcp://srv/repo') {
+                # Рішення 4 плану B3: адреса сервера файлово не пробується — info, а не вічний warn «каталог недоступний».
+                $r.Output | Should -Match '(?m)^\[i\] Alpha_SMB/Alpha_SMB: .*серверне сховище — доступність check не перевіряє'
+                $r.Output | Should -Not -Match '(?m)^\[!\].*каталог сховища недоступний'
+            }
+        }
+        It 'пароль у userinfo шляху сховища «tcp://user:МАРКЕР@host/x» — ні в stdout, ні в stderr kit.exe check; двійник ***@host є' {
+            # Прямий виклик бінарника: stdout і stderr — окремо (Invoke-KitCommand зливає їх), маркер шукається в обох.
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h5-userinfo') -WithHooks -WithGitignore -OverlayText "storages:`n  Alpha_SMB: 'tcp://user:MARKZ9МАРКЗ9@host/x'"
+            $errFile = Join-Path $TestDrive 'h5-err.txt'
+            $out = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>$errFile | Out-String
+            $err = Get-Content -LiteralPath $errFile -Raw -Encoding UTF8
+            foreach ($m in 'MARKZ9', 'МАРКЗ9') {
+                $out | Should -Not -BeLike "*$m*"
+                $err | Should -Not -BeLike "*$m*"
+            }
+            $out | Should -BeLike '*://***@host/x*'
         }
     }
 

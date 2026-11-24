@@ -385,8 +385,71 @@ function Invoke-KitCommand {
     if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-RunnerPath')) {
         $cmdArgs.Add('-RunnerPath'); $cmdArgs.Add((Join-Path $PSScriptRoot 'runner/v8-runner.cmd'))
     }
+    if ($Command -eq 'check') {
+        # check виконує сам kit.exe (блок B3): диспетчер його більше не отримує. Бінарник — із копії Copy-KitTools
+        # (bin/kit.exe поруч із tools/), ніколи не `kit` з PATH. Фальшивий pwsh.exe першим у PATH лишає маркер,
+        # якщо check усе ж запустить pwsh: тоді виклик падає, а не мовчки лишається на PowerShell.
+        $exe = Get-KitExe -Kit $Kit
+        $fake = Get-KitFakePwsh -Kit $Kit
+        Remove-Item -LiteralPath $fake.Marker -Force -ErrorAction SilentlyContinue
+        $savedPath = $env:PATH; $savedMarker = $env:FAKE_PWSH_MARKER
+        try {
+            $env:PATH = "$($fake.Bin)$([IO.Path]::PathSeparator)$env:PATH"
+            $env:FAKE_PWSH_MARKER = $fake.Marker
+            $out = & $exe @cmdArgs 2>&1 | Out-String
+            $code = $LASTEXITCODE
+        } finally {
+            $env:PATH = $savedPath
+            if ($null -eq $savedMarker) { Remove-Item Env:FAKE_PWSH_MARKER -ErrorAction SilentlyContinue } else { $env:FAKE_PWSH_MARKER = $savedMarker }
+        }
+        if (Test-Path -LiteralPath $fake.Marker) {
+            throw "kit.exe check запустив pwsh (маркер $($fake.Marker)): $(Get-Content -LiteralPath $fake.Marker -Raw)"
+        }
+        return [pscustomobject]@{ ExitCode = $code; Output = $out }
+    }
     $out = & pwsh -NoProfile -File $Kit @cmdArgs 2>&1 | Out-String
     [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+}
+
+function Get-KitExe {
+    <#
+    .SYNOPSIS
+        bin/kit.exe копії Copy-KitTools, до якої належить -Kit (шлях tools/kit.ps1 копії).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Kit)
+    Join-Path (Split-Path (Split-Path $Kit -Parent) -Parent) 'bin/kit.exe'
+}
+
+function Get-KitFakePwsh {
+    <#
+    .SYNOPSIS
+        Фальшивий pwsh.exe, що лише дописує свої аргументи в маркер; будується один раз на копію kit.
+    .DESCRIPTION
+        Саме .exe: заглушку-скрипт пошук pwsh за PATHEXT не знайде (той самий прийом, що в SessionStartHook.Tests).
+        Повертає теку для PATH і шлях маркера (змінна FAKE_PWSH_MARKER).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Kit)
+    $root = Split-Path (Split-Path $Kit -Parent) -Parent
+    $bin = Join-Path $root 'fake-pwsh'
+    $exe = Join-Path $bin 'pwsh.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        New-Item -ItemType Directory -Path $bin -Force | Out-Null
+        $src = Join-Path $bin 'fake-pwsh.cs'
+        Set-Content -LiteralPath $src -Encoding UTF8 -Value @'
+using System; using System.IO;
+class FakePwsh { static int Main(string[] a) {
+    var m = Environment.GetEnvironmentVariable("FAKE_PWSH_MARKER");
+    if (!string.IsNullOrEmpty(m)) File.AppendAllText(m, string.Join(" ", a) + "\n");
+    return 0;
+} }
+'@
+        $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        $built = & $csc /nologo "/out:$exe" $src 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "не зібрано фальшивий pwsh.exe: $($built -join ' ')" }
+    }
+    [pscustomobject]@{ Bin = $bin; Marker = (Join-Path $bin 'marker.txt') }
 }
 
 function New-KitFakeUnicaRegistry {
@@ -548,4 +611,4 @@ function Get-KitBashPath {
     throw "Git Bash не знайдено (git: $git) — тести обгорток bin/ потребують Git for Windows."
 }
 
-Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, New-KitClientWorkspaces, Get-KitBashPath
+Export-ModuleMember -Function New-KitFakeUnicaRegistry, Set-KitFakeAgentBase, New-KitFakeRepo, New-KitFakeConfigurationXml, Add-KitFakeStorageCommit, Set-KitFakeBranchTree, Copy-KitTools, Invoke-KitCommand, Get-KitExe, Get-KitFakePwsh, New-KitClientWorkspaces, Get-KitBashPath

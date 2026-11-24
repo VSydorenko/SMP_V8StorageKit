@@ -79,6 +79,9 @@ function script:Get-ConfigParityCases {
     Add-Case 'templates/v8storagekit.local.yaml.example як накладка' @{ Manifest = $simple; Overlay = $lEx; Projects = @{ Alpha_SMB = $pEx } } @()
     Add-Case 'templates/v8project.yaml.example як v8project.yaml' @{ Manifest = $simple; Projects = @{ Alpha_SMB = $pEx } } @()
 
+    # --- Шлях сховища зі схемою: userinfo маскується (scheme://***@host/…) з обох боків паритету (B3, доповнення) ---
+    Add-Case 'накладка: шлях сховища «tcp://user:pass@host/x» — маска userinfo з обох боків' @{ Overlay = "storages:`n  Alpha_SMB: 'tcp://user:pass@host/x'`n" } @()
+
     # --- kitVersion у маніфесті: три режими — три різні результати ---
     Add-Case 'kitVersion у добре сформованому маніфесті' @{ Manifest = "kitVersion: 1`nversion: 1`nproduct: Fake`nworkspaces:`n  - path: Alpha_SMB`n    sources:`n      base: { truth: vendor, dump: { from: dev } }`n      Alpha_SMB: { truth: git }`n" } @() @{ ModesDiffer = $true; Good = $false }
 

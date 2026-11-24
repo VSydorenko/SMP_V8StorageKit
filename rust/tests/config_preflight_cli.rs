@@ -139,7 +139,10 @@ fn storage_path_userinfo_is_masked_in_stdout_and_stderr() {
         String::from_utf8_lossy(&out.stderr).into_owned(),
     );
     assert!(
-        !stdout.contains(m1) && !stdout.contains(m2) && !stderr.contains(m2),
+        !stdout.contains(m1)
+            && !stderr.contains(m1)
+            && !stdout.contains(m2)
+            && !stderr.contains(m2),
         "{stdout}{stderr}"
     );
     assert!(stdout.matches("http://***@srv/r").count() >= 2, "{stdout}");

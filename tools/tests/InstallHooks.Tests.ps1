@@ -29,7 +29,7 @@ Describe 'kit install-hooks — хуки захисту storage/* (settings.json
         # -c core.quotepath=false — той самий інваріант, що в production-коді (Hooks.psm1, check.psm1): git ls-files друкує
         # шляхи, і kit форсує цю конфігурацію за виклик завжди, без винятку для свідомо ASCII-шляхів (правило CLAUDE.md).
         foreach ($h in 'pre-commit', 'pre-merge-commit') { (git -c core.quotepath=false -C $repo ls-files -s -- ".githooks/$h") | Should -Match '^100755 ' }
-        $check = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
+        $check = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
         $check | Should -Not -BeLike '*core.hooksPath*'
         $check | Should -Not -Match '100644'
         $check | Should -Not -Match 'session-start\.ps1'
@@ -63,7 +63,7 @@ Describe 'kit install-hooks — хуки захисту storage/* (settings.json
     }
     It 'на репозиторії без хуків вивід kit check називає команду install-hooks' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-mentions-command')
-        $check = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
+        $check = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
         $check | Should -BeLike '*install-hooks*'
     }
 }
