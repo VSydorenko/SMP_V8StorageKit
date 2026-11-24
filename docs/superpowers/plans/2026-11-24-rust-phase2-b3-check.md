@@ -11,7 +11,7 @@
 - **Хто збирає `kit.exe`:** виконавець задачі, `tools/build-kit-exe.ps1`; бінарник і зміна `rust/` — одним комітом.
 - **Заборони:** `tools/commands/check.psm1` і `session-check.psm1` не змінюються ні на байт (рішення архітектора 2026-11-24:
   `check.psm1` лишається бібліотекою PowerShell `session-check` до B4). Інший PowerShell змінюється лише у файлах спеки §5.0 і
-  тестах. Файли B1 (`config`) — лише читати; потрібна зміна — розвилка архітектору. Дозволені дві зміни `config` (рішення 19).
+  тестах. Файли B1 (`config`) — лише читати; потрібна зміна — розвилка архітектору. Дозволені зміни `config` — лише рішення 19 і §5 (у.3).
 
 ## 2. Мета / Архітектура / Спека
 
@@ -81,9 +81,27 @@ B1 — розділ «Відомі відмінності від PowerShell» п
 
 **Дає** (споживач — B4; сигнатури фіксуються зараз, імена полів — виконавця):
 
+Уточнення контракту для B4 — рішення архітектора 2026-11-24 (звірка плану B4 сесією a2), задача 0; пункти 1–6 нижче
+позначено «(у.N)».
+
 - `check::Options { workspace: Option<String>, source: Option<String>, registry: PathBuf, runner: Option<PathBuf> }`.
+  `registry` — завжди визначений `PathBuf` (у.4): невизначену домашню теку (`unica::default_registry() == None`)
+  перетворює на код 2 («домашню теку не визначено») CLI-обгортка `check` у `main.rs`, а не `run`.
 - `check::run(ctx: &config::Context, opts: &Options) -> Result<Report, UsageError>`; `Err` — лише рішення 3 (ім'я поза
-  маніфестом, код 2). `Report { findings: Vec<config::Finding>, not_checked: Vec<String>, code: i32 }`, код за рішенням 2.
+  маніфестом, код 2; неоднозначний `-Source` без `-Workspace`, код 2). `run` приймає `Context` будь-якого режиму
+  префлайту (у.5): `Mode::Check` для `kit check`, `Mode::Lenient` для B4; за `ctx.manifest == None` імена
+  `-Workspace`/`-Source` не звіряються. `Report { findings: Vec<config::Finding>, not_checked: Vec<config::Finding>,
+  code: i32 }` (у.1): «не перевірено» — окремий список повних знахідок (не рядків); належність до списку і є ознакою,
+  `Finding` не змінюється. Код за рішенням 2.
+- `fake_runner` (`rust/tests/support/fake_runner.rs`): тривалість сну на `--version` — параметр (аргумент чи файл/змінна
+  тестової цілі), а не лише «довше за стелю» (у.2): на ньому стоять тест B3 «стеля спрацьовує» і тест B4 «менше за
+  стелю — не спрацьовує».
+- Властивості шляху сховища з маніфесту — публічні функції в `config` (у.3; третя зміна `config` за рішенням 19): маска
+  userinfo (`scheme://***@host/…`) і предикат «серверна адреса» (`tcp://`, `http(s)://`). B3 (`storage-path`, будь-який
+  текст зі шляхом сховища) і B4 беруть їх звідти; власних копій у `check` немає.
+- `storage_branch` — спільний модуль гілок `storage/*` (у.6): B3 кладе туди своє (гілка існує / unborn, інваріанти
+  `storage/*` для `storage-branch`), а B4 — свої перенесені функції (`remote_only`, `restore_mirror_step`,
+  `last_storage_version`). Модуль — бібліотечний, без друку; git — лише через ядро `git`.
 - `check::print(&Report, root: &Path)` — текстовий вивід як зараз.
 - `check::MACHINE_STATE_CHECKS: &[&str]`.
 - Перенесені спільні функції (спека §5.0) — у модулях за змістом (`git`-читання гілок і атрибутів, `storage_branch`,
@@ -136,7 +154,7 @@ B1 — розділ «Відомі відмінності від PowerShell» п
 
 ### Задача 3 — Джерела, `storage/*`, поставка, хуки
 
-- **Файли:** нова тека rust/src/check (джерела, хуки), перенесені `storage_branch`, `supply`, `hooks`
+- **Файли:** нова тека rust/src/check (джерела, хуки), перенесені `storage_branch` (спільний модуль, §5 у.6), `supply`, `hooks`; `config` — маска userinfo й предикат серверної адреси шляху сховища (§5 у.3)
 - **Готово, коли:** `supply`, `storage-path` (рішення 4), `storage-branch` (інваріанти `storage/*`), `config-name`, `hooks`, `hook-shim` за рішеннями 8, 10, 12; Rust-тести
 - **Після:** 2
 - **Перевірка:** `cargo test`, clippy
