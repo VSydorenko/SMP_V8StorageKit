@@ -1094,6 +1094,12 @@ fn local_audit_names_every_overlapping_dev_base_and_the_legacy_key() {
     assert!(f[1].contains("дев-базою 'parent'"), "{}", f[1]);
     assert_eq!(r.code, 1);
 
+    // Обгортка `config::dev_base_overlaps(ctx, ws)` дає той самий перелік (усі збіги, порядок накладки).
+    let ctx = config::preflight(&root, Mode::Check).unwrap();
+    let hits = config::dev_base_overlaps(&ctx, &ctx.workspaces[0]);
+    let names: Vec<String> = hits.into_iter().map(|h| h.unwrap().name).collect();
+    assert_eq!(names, ["dev", "parent"]);
+
     // Контроль: база агента окремо — аудит мовчить.
     write_file(
         &root,
@@ -1123,22 +1129,77 @@ fn local_audit_names_every_overlapping_dev_base_and_the_legacy_key() {
 #[test]
 fn global_git_failure_gives_guard_errors_code_1() {
     // `core.repositoryformatversion=99`: кожна команда git відповідає 128 — страж файла з паролем fail-closed.
-    let h = healthy("global");
-    git(&h.root, &["config", "core.repositoryformatversion", "99"]);
-    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
-    let f = by(&r, "overlay-ignored");
-    assert!(!f.is_empty(), "{:?}", r.findings);
-    assert!(
-        f.iter()
-            .all(|x| x.level == Level::Error && x.message.starts_with("не перевірено: ")),
-        "{f:?}"
+    let tmp = TempDir::new("global");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["cf", "vd"]);
+    write_manifest(
+        &root,
+        None,
+        &[("ws", &[("cf", "storage"), ("vd", "vendor")])],
     );
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    git(&root, &["config", "core.repositoryformatversion", "99"]);
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    for id in ["overlay-ignored", "local-ignored", "gitignore"] {
+        // `gitignore`: страж лише для vendor (`ws/vd`); дерево storage-джерела неохоронне, warn.
+        let mut f = by(&r, id);
+        f.retain(|x| id != "gitignore" || x.message.contains("ws/vd:"));
+        assert!(!f.is_empty(), "{id}: {:?}", r.findings);
+        assert!(
+            f.iter()
+                .all(|x| x.level == Level::Error && x.message.starts_with("не перевірено: ")),
+            "{id}: {f:?}"
+        );
+        // «Не перевірено» — властивість знахідки: вона й у переліку.
+        for x in f {
+            assert!(r.not_checked.contains(x), "{id}: {x:?}");
+        }
+    }
     assert_eq!(r.code, 1, "{:?}", r.findings);
     // Неохоронні перевірки на тому ж збої — «не перевірено» warn.
-    assert!(
-        by(&r, "build-artifacts")[0]
-            .message
-            .starts_with("не перевірено: ")
+    let ba = by(&r, "build-artifacts");
+    assert_eq!(ba[0].level, Level::Warn);
+    assert!(ba[0].message.starts_with("не перевірено: "));
+    // Інваріант: not_checked ⊆ findings, той самий рівень.
+    for x in &r.not_checked {
+        assert!(r.findings.contains(x), "{x:?}");
+    }
+}
+
+#[test]
+fn tracked_secret_file_in_another_case_is_still_committed() {
+    // Pathspec git звіряє регістр, а правило `.gitignore` за `core.ignorecase` — ні: файл з паролем в індексі під
+    // іншим регістром не мусить пройти повз страж.
+    let h = healthy("case-fact");
+    write_file(
+        &h.root,
+        "V8StorageKit.local.yaml",
+        "infobases: {}
+",
     );
-    assert!(!r.not_checked.is_empty());
+    write_file(
+        &h.root,
+        "ws/V8Project.local.yaml",
+        "infobases: {}
+",
+    );
+    git(
+        &h.root,
+        &[
+            "add",
+            "-f",
+            "--",
+            "V8StorageKit.local.yaml",
+            "ws/V8Project.local.yaml",
+        ],
+    );
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let o = by(&r, "overlay-ignored");
+    assert_eq!(o.len(), 1, "{:?}", r.findings);
+    assert!(o[0].message.contains("вже закомічено"), "{}", o[0].message);
+    let l = by(&r, "local-ignored");
+    assert_eq!(l.len(), 1, "{:?}", r.findings);
+    assert!(l[0].message.contains("вже закомічено"), "{}", l[0].message);
+    assert_eq!(r.code, 1);
 }

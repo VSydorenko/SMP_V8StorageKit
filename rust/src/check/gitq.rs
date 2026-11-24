@@ -4,6 +4,7 @@
 // а не відповідь зовнішнього репозиторію. Pathspec ls-files — буквальний (`:(literal)`): `[`, `*`, `?` у шляху
 // воркспейсу чи джерела не змінюють запиту; `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
 
+use crate::case_guard::fold;
 use crate::git;
 use std::path::Path;
 
@@ -38,11 +39,34 @@ pub(super) fn ignored(root: &Path, path: &str) -> Result<bool, String> {
         == 0)
 }
 
-/// Відстежувані індексом файли під шляхом (ФАКТ, а не правила).
-pub(super) fn tracked(root: &Path, path: &str) -> Result<Vec<String>, String> {
-    let spec = format!(":(literal){path}");
-    let out = query(root, &["ls-files", "-z", "--", &spec], &[0])?;
+/// Усі відстежувані індексом шляхи (ФАКТ, а не правила). Без pathspec: git звіряє pathspec з урахуванням регістру
+/// навіть за `core.ignorecase=true`, а файл з паролем в індексі може лежати в іншому регістрі.
+pub(super) fn index_files(root: &Path) -> Result<Vec<String>, String> {
+    Ok(nul_split(&query(root, &["ls-files", "-z"], &[0])?.stdout))
+}
+
+/// Файли на диску, що не відстежуються й не ігноруються (`--others --exclude-standard`).
+pub(super) fn unignored_files(root: &Path) -> Result<Vec<String>, String> {
+    let out = query(
+        root,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+        &[0],
+    )?;
     Ok(nul_split(&out.stdout))
+}
+
+/// Записи списку, що збігаються з шляхом (сам файл чи вміст теки) за юнікодним `OrdinalIgnoreCase`, як у NTFS.
+pub(super) fn under_ci(list: &[String], path: &str) -> Vec<String> {
+    let want = fold(&slashed(path));
+    list.iter()
+        .filter(|e| {
+            let f = fold(e);
+            f == want
+                || f.strip_prefix(&want)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Чи є в репозиторії `HEAD` (немає — свіжий репозиторій до першого коміту).

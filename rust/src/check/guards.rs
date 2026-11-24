@@ -5,12 +5,19 @@
 // не прочитано чи воркспейс випав через помилку конфігу.
 
 use super::Collector;
-use super::gitq::{ignored, tracked};
+use super::gitq::ignored;
 use std::path::Path;
 
 pub(super) fn overlay_ignored(c: &mut Collector, root: &Path) {
     const FILE: &str = "v8storagekit.local.yaml";
-    match ignored(root, FILE) {
+    let rules = ignored(root, FILE).and_then(|ok| {
+        // Правило «ігнорує» канонічне ім'я, а файл на диску може лежати в іншому регістрі й бути неігнорованим.
+        if ok && !c.unignored(root, FILE)?.is_empty() {
+            return Ok(false);
+        }
+        Ok(ok)
+    });
+    match rules {
         Ok(true) => {}
         Ok(false) => c.add(
             crate::config::Level::Error,
@@ -23,7 +30,7 @@ pub(super) fn overlay_ignored(c: &mut Collector, root: &Path) {
             &reason,
         ),
     }
-    match tracked(root, FILE) {
+    match c.tracked(root, FILE) {
         Ok(files) if files.is_empty() => {}
         Ok(_) => c.add(
             crate::config::Level::Error,
@@ -42,7 +49,13 @@ pub(super) fn overlay_ignored(c: &mut Collector, root: &Path) {
 pub(super) fn local_ignored(c: &mut Collector, root: &Path, ws_path: &str) {
     use crate::config::Level;
     let rel = format!("{ws_path}/v8project.local.yaml");
-    match ignored(root, &rel) {
+    let rules = ignored(root, &rel).and_then(|ok| {
+        if ok && !c.unignored(root, &rel)?.is_empty() {
+            return Ok(false);
+        }
+        Ok(ok)
+    });
+    match rules {
         Ok(true) => {}
         Ok(false) => c.add(
             Level::Error,
@@ -55,7 +68,7 @@ pub(super) fn local_ignored(c: &mut Collector, root: &Path, ws_path: &str) {
             &reason,
         ),
     }
-    match tracked(root, &rel) {
+    match c.tracked(root, &rel) {
         Ok(files) if files.is_empty() => {}
         Ok(_) => c.add(
             Level::Error,

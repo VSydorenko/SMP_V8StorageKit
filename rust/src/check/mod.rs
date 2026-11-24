@@ -64,9 +64,33 @@ pub struct Report {
 pub(crate) struct Collector {
     pub findings: Vec<Finding>,
     pub not_checked: Vec<Finding>,
+    /// Індекс і неігноровані файли читаються один раз за прогін.
+    index: Option<Result<Vec<String>, String>>,
+    unignored: Option<Result<Vec<String>, String>>,
 }
 
 impl Collector {
+    /// Відстежувані файли під шляхом (файл чи тека), регістр складається як у NTFS.
+    pub fn tracked(&mut self, root: &Path, path: &str) -> Result<Vec<String>, String> {
+        let list = self
+            .index
+            .get_or_insert_with(|| gitq::index_files(root))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        Ok(gitq::under_ci(list, path))
+    }
+
+    /// Неігноровані файли на диску під шляхом: правило, що «ігнорує» канонічне ім'я, може не ловити файл в іншому
+    /// регістрі.
+    pub fn unignored(&mut self, root: &Path, path: &str) -> Result<Vec<String>, String> {
+        let list = self
+            .unignored
+            .get_or_insert_with(|| gitq::unignored_files(root))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        Ok(gitq::under_ci(list, path))
+    }
+
     pub fn add(&mut self, level: Level, check: &str, message: impl Into<String>) {
         self.findings.push(Finding {
             level,
@@ -75,14 +99,16 @@ impl Collector {
         });
     }
 
-    /// Те саме для СТРАЖІВ секрету (рішення 2): fail-closed, рівень error — не warn, і код 1, а не 3. У переліку
-    /// `not_checked` не бере участі: error уже дає код 1.
+    /// Те саме для СТРАЖІВ секрету (рішення 2): fail-closed, рівень error — код 1, а не 3. «Не перевірено» —
+    /// властивість знахідки: вона й у `not_checked` (інваріант `not_checked ⊆ findings`).
     pub fn unchecked_error(&mut self, check: &str, what: &str, reason: &str) {
-        self.add(
-            Level::Error,
-            check,
-            format!("не перевірено: {what} — {reason}"),
-        );
+        let finding = Finding {
+            level: Level::Error,
+            check: check.to_string(),
+            message: format!("не перевірено: {what} — {reason}"),
+        };
+        self.not_checked.push(finding.clone());
+        self.findings.push(finding);
     }
 
     /// «не перевірено: <що> — <причина>»: warn з ідентифікатором перевірки й окремий запис для коду 3.
@@ -179,6 +205,8 @@ pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
     let mut c = Collector {
         findings: ctx.findings.clone(),
         not_checked: Vec::new(),
+        index: None,
+        unignored: None,
     };
     let root = Path::new(&ctx.repo_root);
 

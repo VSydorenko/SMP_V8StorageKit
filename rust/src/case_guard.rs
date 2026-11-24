@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 /// Простий верхній регістр посимвольно (без розширення довжини) — як `OrdinalIgnoreCase`.
-fn fold(path: &str) -> String {
+pub(crate) fn fold(path: &str) -> String {
     path.chars()
         .map(|c| {
             let mut up = c.to_uppercase();

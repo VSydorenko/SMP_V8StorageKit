@@ -2,7 +2,7 @@
 // `local-ignored` — страж, див. `guards`.
 
 use super::Collector;
-use super::gitq::{slashed, tracked};
+use super::gitq::slashed;
 use crate::config::agent_base::{Canonical, CollisionKind, canonical_form, dev_base_overlaps};
 use crate::config::connection::{CredentialsKind, credentials_recipe};
 use crate::config::v8project::read_local_infobase;
@@ -75,7 +75,7 @@ pub(super) fn build_artifacts(c: &mut Collector, ctx: &Context, ws: &Workspace) 
     };
     let ws_prefix = slashed(&ws.path);
     let work_prefix = format!("{ws_prefix}/{}/", slashed(work_path));
-    let files = match tracked(root, &ws.path) {
+    let files = match c.tracked(root, &ws.path) {
         Ok(f) => f,
         Err(reason) => {
             return c.unchecked(
@@ -117,9 +117,11 @@ pub(super) fn local_audit(c: &mut Collector, ctx: &Context, ws: &Workspace) {
     let rel = format!("{}/v8project.local.yaml", ws.path);
     let local_path = Path::new(&ws.full_path).join("v8project.local.yaml");
     let mut local_conn = None;
+    let mut read_failed = false;
     // Файл, який не вдалося прочитати, — «не перевірено» (рішення 8); прочитаний, але нерозібраний — error.
     match std::fs::read(&local_path) {
         Err(e) if local_path.is_file() => {
+            read_failed = true;
             c.unchecked(
                 "local-audit",
                 &format!("{rel}: аудит підключення"),
@@ -153,7 +155,8 @@ pub(super) fn local_audit(c: &mut Collector, ctx: &Context, ws: &Workspace) {
             }
             // Стара конвенція `devInfobase:` (до 1.0) kit уже не читає: без цієї гілки аудит пропускався б БЕЗ
             // ЖОДНОГО РЯДКА, а «нічого не сказано» читається як «все гаразд».
-            if local_path.is_file() {
+            // Збій читання вже названо вище одним рядком — другого («devInfobase») не додаємо.
+            if local_path.is_file() && !read_failed {
                 match std::fs::read(&local_path) {
                     Err(e) => c.unchecked(
                         "local-audit",

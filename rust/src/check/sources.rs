@@ -4,7 +4,7 @@
 // коментарями «[задача 3]».
 
 use super::Collector;
-use super::gitq::{has_head, head_paths, ignored, slashed, text_unset, tracked};
+use super::gitq::{has_head, head_paths, ignored, slashed, text_unset};
 use crate::case_guard::case_collisions;
 use crate::config::{Context, Level, Source, Truth};
 use std::path::Path;
@@ -117,7 +117,14 @@ fn tree_not_ignored(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
 /// збій git — error «не перевірено».
 fn vendor_tree(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let probe = format!("{}/Configuration.xml", src.repo_path);
-    match ignored(root, &probe) {
+    let rules = ignored(root, &probe).and_then(|ok| {
+        // Файл дерева в іншому регістрі може лишитися поза правилом.
+        if ok && !c.unignored(root, &src.repo_path)?.is_empty() {
+            return Ok(false);
+        }
+        Ok(ok)
+    });
+    match rules {
         Ok(true) => {}
         Ok(false) => c.add(
             Level::Error,
@@ -135,7 +142,7 @@ fn vendor_tree(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     }
     // Правило може бути на місці, а файли вже закомічені (`git add -f`): check-ignore --no-index індекс
     // свідомо ігнорує, тож питаємо індекс напряму.
-    match tracked(root, &src.repo_path) {
+    match c.tracked(root, &src.repo_path) {
         Ok(files) if files.is_empty() => {}
         Ok(files) => c.add(
             Level::Error,
