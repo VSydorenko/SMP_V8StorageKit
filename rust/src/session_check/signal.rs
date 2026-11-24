@@ -207,8 +207,13 @@ pub fn compute(input: &SourceInput<'_>, reading: &StorageReading) -> Computed {
             ));
             step = Some(sync_apply.clone());
         } else {
+            let merged_all = if shot.unmerged == 0 {
+                format!(", {main} містить усе")
+            } else {
+                String::new()
+            };
             parts.push(format!(
-                "дзеркало синхронне зі сховищем на версії {} (відбиток прочитано {} UTC)",
+                "дзеркало синхронне зі сховищем на версії {}{merged_all} (відбиток прочитано {} UTC)",
                 i.version,
                 format_utc(i.read_at_ticks)
             ));

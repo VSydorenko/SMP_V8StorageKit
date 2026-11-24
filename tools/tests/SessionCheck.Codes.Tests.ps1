@@ -73,21 +73,30 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         # мусить прочитати той самий рядок і привʼязати до нього відбиток.
         BeforeAll {
             function script:New-ParityCase {
-                param([string]$Name, [int]$Packs = 1)
+                param([string]$Name, [int]$Packs = 1, [switch]$Unmerged)
                 $s = New-FakeStorage -Name $Name -ObjectsWrite $script:Old -DbWrite $script:Old -PackWrite $script:Old
                 for ($i = 2; $i -le $Packs; $i++) {
                     $p = Join-Path $s "data/pack/$i.pack"; Set-Content -LiteralPath $p -Value "pack$i"
                     (Get-Item $p).LastWriteTimeUtc = $script:Old.ToUniversalTime().AddSeconds($i)
                 }
                 $written = $s.Substring(0, 3) + $s.Substring(3).Replace('\', '/') + '\'
-                $repo = New-Repo -Name $Name -StoragePath $written -MirrorDate $script:Old -Merge
+                $repo = New-Repo -Name $Name -StoragePath $written -MirrorDate $script:Old -Merge:(-not $Unmerged)
                 $ctx = Invoke-KitPreflight -RepoRoot $repo -Mode Lenient
                 $src = @(Select-KitSources -Context $ctx -Truth storage)[0]
                 $src.StoragePath | Should -BeExactly $written -Because 'відбиток пишеться з того, що віддає префлайт'
                 Write-KitStorageImprint -RepoRoot $repo -Key $src.Key -StoragePath $src.StoragePath -Version 1 | Out-Null
                 [pscustomobject]@{ Repo = $repo; Storage = $s }
             }
-            $script:Exact = '*на версії 1 (відбиток прочитано *UTC)*'
+            $script:Exact = '*на версії 1, main містить усе (відбиток прочитано *UTC)*'
+        }
+        It 'синхронний відбиток: «main містить усе» лише коли незлитих комітів немає' {
+            $merged = New-ParityCase -Name 'parity-merged'
+            (Invoke-SessionCheck -Repo $merged.Repo).Output | Should -BeLike $script:Exact
+            $c = New-ParityCase -Name 'parity-unmerged' -Unmerged
+            $r = Invoke-SessionCheck -Repo $c.Repo
+            $r.Output | Should -BeLike '*синхронне зі сховищем на версії 1 (відбиток прочитано *UTC)*'
+            $r.Output | Should -Not -BeLike '*містить усе*'
+            $r.Output | Should -BeLike '*не злиті в main*'
         }
         It 'відбиток із префлайт-шляхом (`/` після диска, кінцевий `\`) дає «синхронне на версії 1», код 0' {
             $c = New-ParityCase -Name 'parity-ok'

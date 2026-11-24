@@ -176,10 +176,7 @@ $repoRoot = if ($parsed.Named.ContainsKey('RepoRoot')) { [string]$parsed.Named['
 # Префлайт і сама команда — під одним try/catch: throw будь-де — один рядок `<команда>: ERROR …` і код 1
 # (або код із Data['KitExitCode'], або 2 за помилки прив'язки — нижче), а не сирий стек pwsh.
 try {
-    # check і session-check — діагностика: вони мусять ДОПОВІСТИ про суперечливий репозиторій, а не впасти на
-    # ньому. Решта команд без чистого префлайту не має з чим працювати.
-    $preflightMode = switch ($command) { 'check' { 'Check' } 'session-check' { 'Lenient' } default { 'Strict' } }
-    $context = Invoke-KitPreflight -RepoRoot $repoRoot -Mode $preflightMode
+    $context = Invoke-KitPreflight -RepoRoot $repoRoot -Mode Strict
     # Контракт суворий: людське команда друкує сама через Write-Host, а в success stream повертає лише
     # $null або {ExitCode; …}. Диспетчер повернене значення НЕ виводить, тільки читає ExitCode.
     $result = & $functionName -Context $context @splat
