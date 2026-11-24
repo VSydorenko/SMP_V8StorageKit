@@ -1,0 +1,82 @@
+// Запити git для перевірок `check` (рішення 5 плану B3): кожен розрізняє «так», «ні» і «git відповів збоєм»
+// (код поза контрактом команди, git не запустився). Збій — `Err` з дослівним stderr git, а не «немає». Усе —
+// через `git::run_at_root`: від кореня, зі стелею `GIT_CEILING_DIRECTORIES`, тож зламана тека `.git` дає збій,
+// а не відповідь зовнішнього репозиторію. Pathspec ls-files — буквальний (`:(literal)`): `[`, `*`, `?` у шляху
+// воркспейсу чи джерела не змінюють запиту; `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
+
+use crate::git;
+use std::path::Path;
+
+/// Код з переліку `ok` — відповідь команди; будь-який інший чи збій запуску — помилка з дослівним stderr git.
+pub(super) fn query(root: &Path, args: &[&str], ok: &[i32]) -> Result<git::Output, String> {
+    let out = git::run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
+    if ok.contains(&out.code) {
+        return Ok(out);
+    }
+    Err(format!(
+        "git {} завершився з кодом {}: {}",
+        args.join(" "),
+        out.code,
+        String::from_utf8_lossy(&out.stderr).trim_end()
+    ))
+}
+
+/// Шлях у формі git: роздільники `/`, без кінцевої скісної риски.
+pub(super) fn slashed(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// Чи ігнорує `.gitignore` шлях — за ПРАВИЛАМИ (`--no-index`), не за індексом: без нього check-ignore звіряється
+/// з індексом і ніколи не покаже вже відстежений файл ігнорованим.
+pub(super) fn ignored(root: &Path, path: &str) -> Result<bool, String> {
+    Ok(query(
+        root,
+        &["check-ignore", "--no-index", "-q", "--", path],
+        &[0, 1],
+    )?
+    .code
+        == 0)
+}
+
+/// Відстежувані індексом файли під шляхом (ФАКТ, а не правила).
+pub(super) fn tracked(root: &Path, path: &str) -> Result<Vec<String>, String> {
+    let spec = format!(":(literal){path}");
+    let out = query(root, &["ls-files", "-z", "--", &spec], &[0])?;
+    Ok(nul_split(&out.stdout))
+}
+
+/// Чи є в репозиторії `HEAD` (немає — свіжий репозиторій до першого коміту).
+pub(super) fn has_head(root: &Path) -> Result<bool, String> {
+    Ok(query(root, &["rev-parse", "-q", "--verify", "HEAD"], &[0, 1])?.code == 0)
+}
+
+/// Повні шляхи файлів `HEAD` під шляхом, сирі UTF-8 (`-z`: без квотування).
+pub(super) fn head_paths(root: &Path, path: &str) -> Result<Vec<String>, String> {
+    let out = query(
+        root,
+        &["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", path],
+        &[0],
+    )?;
+    Ok(nul_split(&out.stdout))
+}
+
+/// Чи діє `-text` (`text: unset`) на файл, який git питається самим — з урахуванням порядку й перекриття правил.
+pub(super) fn text_unset(root: &Path, probe: &str) -> Result<bool, String> {
+    let out = query(root, &["check-attr", "text", "--", probe], &[0])?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.trim_end();
+    Ok(line
+        .strip_suffix("unset")
+        .map(str::trim_end)
+        .and_then(|l| l.strip_suffix("text:"))
+        .map(str::trim_end)
+        .is_some_and(|l| l.ends_with(':')))
+}
+
+fn nul_split(bytes: &[u8]) -> Vec<String> {
+    bytes
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect()
+}

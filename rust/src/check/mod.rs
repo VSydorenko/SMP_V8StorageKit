@@ -15,7 +15,11 @@
 // регістру), 11 (одна `agent-base-required` на воркспейс).
 
 mod branch;
+mod gitq;
+mod guards;
+mod local;
 mod machine;
+mod sources;
 mod workspaces;
 
 use crate::config::{Context, Finding, Level, Source, manifest::Manifest, yaml::eq_ci};
@@ -69,6 +73,16 @@ impl Collector {
             check: check.to_string(),
             message: message.into(),
         });
+    }
+
+    /// Те саме для СТРАЖІВ секрету (рішення 2): fail-closed, рівень error — не warn, і код 1, а не 3. У переліку
+    /// `not_checked` не бере участі: error уже дає код 1.
+    pub fn unchecked_error(&mut self, check: &str, what: &str, reason: &str) {
+        self.add(
+            Level::Error,
+            check,
+            format!("не перевірено: {what} — {reason}"),
+        );
     }
 
     /// «не перевірено: <що> — <причина>»: warn з ідентифікатором перевірки й окремий запис для коду 3.
@@ -171,6 +185,9 @@ pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
     machine::check(&mut c, opts, root);
     if let Some(manifest) = &ctx.manifest {
         workspaces::check(&mut c, ctx, manifest, opts);
+    } else {
+        // Рішення 6: страж файла з паролем не мовчить, коли конфіг зламаний.
+        guards::overlay_ignored(&mut c, root);
     }
 
     let has_error = c.findings.iter().any(|f| f.level == Level::Error);

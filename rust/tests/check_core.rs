@@ -101,6 +101,10 @@ fn write_manifest(root: &Path, main_branch: Option<&str>, workspaces: &[(&str, &
                 "storage" => text.push_str(&format!(
                     "      {key}: {{ truth: storage, storage: {{ path: 'C:\\st' }} }}\n"
                 )),
+                "git" => text.push_str(&format!(
+                    "      {key}: {{ truth: git }}
+"
+                )),
                 other => text.push_str(&format!(
                     "      {key}: {{ truth: {other}, dump: {{ from: dev }} }}\n"
                 )),
@@ -108,6 +112,35 @@ fn write_manifest(root: &Path, main_branch: Option<&str>, workspaces: &[(&str, &
         }
     }
     std::fs::write(root.join("v8storagekit.yaml"), text).unwrap();
+    write_guard_files(root, workspaces);
+}
+
+/// `.gitignore` и `.gitattributes` здорового репозитория: накладка и `v8project.local.yaml` под ігнором, vendor —
+/// ігнорується, решта дерев — під `-text`. Файли не комітяться: правила читаються з робочого дерева.
+fn write_guard_files(root: &Path, workspaces: &[(&str, &[(&str, &str)])]) {
+    let mut ignore = String::from(
+        "v8storagekit.local.yaml
+v8project.local.yaml
+",
+    );
+    let mut attrs = String::new();
+    for (path, sources) in workspaces {
+        for (key, truth) in *sources {
+            if *truth == "vendor" {
+                ignore.push_str(&format!(
+                    "{path}/{key}/**
+"
+                ));
+            } else {
+                attrs.push_str(&format!(
+                    "{path}/{key}/** -text
+"
+                ));
+            }
+        }
+    }
+    std::fs::write(root.join(".gitignore"), ignore).unwrap();
+    std::fs::write(root.join(".gitattributes"), attrs).unwrap();
 }
 
 /// Фальшива Уніка: тека встановлення з фальшивим раннером (версія `runner_version`) і реєстр на неї.
@@ -166,6 +199,46 @@ struct Healthy {
     registry: PathBuf,
 }
 
+/// Комітить файл у дерево джерела, потім видаляє з диска кореневий об'єкт-дерево `HEAD`: ref і індекс цілі, а
+/// `ls-tree HEAD` падає — точковий збій git лише в перевірках, що читають дерево коміту.
+fn break_head_tree(root: &Path) {
+    let file = root.join("ws").join("cf").join("Configuration.xml");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "<x/>").unwrap();
+    git(root, &["add", "--", "ws/cf/Configuration.xml"]);
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "f",
+        ],
+    );
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD^{tree}"])
+        .output()
+        .unwrap();
+    let sha = String::from_utf8(out.stdout).unwrap().trim().to_string();
+    let object = root
+        .join(".git")
+        .join("objects")
+        .join(&sha[..2])
+        .join(&sha[2..]);
+    let mut perms = std::fs::metadata(&object).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    // Windows-ціль: лише знімається атрибут «лише читання»
+    perms.set_readonly(false);
+    std::fs::set_permissions(&object, perms).unwrap();
+    std::fs::remove_file(&object).unwrap();
+}
+
 fn healthy(tag: &str) -> Healthy {
     let tmp = TempDir::new(tag);
     let root = tmp.0.join("repo");
@@ -197,20 +270,20 @@ fn exit_codes_0_1_3_follow_errors_and_unchecked() {
     assert_eq!(r.code, 1);
     assert_eq!(by(&r, "runner-version")[0].level, Level::Error);
 
-    // 3: немає error, але git відповів збоєм — «не перевірено», а не «гілки немає».
-    std::fs::write(h.root.join(".git").join("HEAD"), "сміття, не ref\n").unwrap();
+    // 3: немає error, але git відповів збоєм у неохоронній перевірці — «не перевірено», а не «колізій немає».
+    break_head_tree(&h.root);
     let r = run_check(&h.root, &opts(&h.registry)).unwrap();
-    let mb = by(&r, "main-branch");
-    assert_eq!(mb.len(), 1, "{:?}", r.findings);
-    assert_eq!(mb[0].level, Level::Warn);
+    let cc = by(&r, "case-collision");
+    assert_eq!(cc.len(), 1, "{:?}", r.findings);
+    assert_eq!(cc[0].level, Level::Warn);
     assert!(
-        mb[0]
+        cc[0]
             .message
-            .starts_with("не перевірено: наявність головної гілки 'main' — git "),
+            .starts_with("не перевірено: ws/cf: регістр шляхів у HEAD — git ls-tree "),
         "{}",
-        mb[0].message
+        cc[0].message
     );
-    assert_eq!(r.not_checked.len(), 1);
+    assert_eq!(r.not_checked.len(), 1, "{:?}", r.findings);
     assert_eq!(r.code, 3, "{:?}", r.findings);
 
     // error сильніший за «не перевірено»: код 1.
@@ -671,5 +744,401 @@ fn broken_nested_git_dir_does_not_fall_through_to_the_outer_repository() {
         "{}",
         mb[0].message
     );
-    assert_eq!(r.code, 3, "{:?}", r.findings);
+    // Стражі секрету на тому ж збої — error «не перевірено» (fail-closed), тож код 1, а не 3.
+    assert_eq!(r.code, 1, "{:?}", r.findings);
+}
+
+// ---- Задача 2: git-стражі й локальні файли ----
+
+fn commit(root: &Path, message: &str) {
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ],
+    );
+}
+
+fn write_file(root: &Path, rel: &str, text: &str) {
+    let path = root.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+fn messages(r: &Report, id: &str) -> Vec<String> {
+    by(r, id).iter().map(|f| f.message.clone()).collect()
+}
+
+#[test]
+fn healthy_repository_has_no_guard_findings_and_overlay_guard_sees_rule_and_fact() {
+    let h = healthy("guards");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    for id in [
+        "overlay-ignored",
+        "local-ignored",
+        "gitattributes",
+        "gitignore",
+        "case-collision",
+        "build-artifacts",
+        "local-audit",
+        "overlay-connection",
+    ] {
+        assert!(by(&r, id).is_empty(), "{id}: {:?}", r.findings);
+    }
+
+    // ПРАВИЛА: накладку не гітігноровано.
+    write_file(&h.root, ".gitignore", "v8project.local.yaml\n");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "overlay-ignored");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+    assert!(
+        f[0].message.contains("не гітігноровано"),
+        "{}",
+        f[0].message
+    );
+    assert_eq!(r.code, 1);
+
+    // ФАКТ: правило є, а файл закомічено силою.
+    write_file(
+        &h.root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\n",
+    );
+    write_file(&h.root, "v8storagekit.local.yaml", "infobases: {}\n");
+    git(&h.root, &["add", "-f", "--", "v8storagekit.local.yaml"]);
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "overlay-ignored");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(f[0].message.contains("вже закомічено"), "{}", f[0].message);
+}
+
+#[test]
+fn overlay_guard_runs_when_the_manifest_is_unread_and_local_guard_for_unresolved_workspace() {
+    // Рішення 6: страж не залежить від розв'язаного контексту.
+    let h = healthy("guards-ctx");
+    write_file(&h.root, ".gitignore", "");
+    write_file(&h.root, "v8storagekit.yaml", "це: [не маніфест\n");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    assert!(
+        r.findings
+            .iter()
+            .any(|f| f.check == "manifest" && f.level == Level::Error),
+        "{:?}",
+        r.findings
+    );
+    let f = by(&r, "overlay-ignored");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+
+    // Воркспейс задекларовано, але не розв'язався (немає v8project.yaml): `local-ignored` усе одно питає.
+    let h = healthy("guards-unresolved");
+    std::fs::remove_file(h.root.join("ws").join("v8project.yaml")).unwrap();
+    write_file(&h.root, ".gitignore", "v8storagekit.local.yaml\n");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "local-ignored");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .starts_with("ws/v8project.local.yaml не гітігноровано"),
+        "{}",
+        f[0].message
+    );
+    // Решти перевірок воркспейсу для нього немає: помилка префлайту вже error.
+    assert!(by(&r, "local-audit").is_empty());
+    assert!(by(&r, "build-artifacts").is_empty());
+}
+
+#[test]
+fn local_ignored_rules_and_fact() {
+    let h = healthy("local-ignored");
+    write_file(&h.root, ".gitignore", "v8storagekit.local.yaml\n");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    assert_eq!(by(&r, "local-ignored").len(), 1, "{:?}", r.findings);
+
+    write_file(
+        &h.root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\n",
+    );
+    write_file(&h.root, "ws/v8project.local.yaml", "infobases: {}\n");
+    git(&h.root, &["add", "-f", "--", "ws/v8project.local.yaml"]);
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "local-ignored");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(f[0].message.contains("вже закомічено"), "{}", f[0].message);
+}
+
+#[test]
+fn text_policy_tree_ignore_and_vendor_rules_and_fact() {
+    let tmp = TempDir::new("trees");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["cf", "vd"]);
+    write_manifest(&root, None, &[("ws", &[("cf", "git"), ("vd", "vendor")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    assert!(
+        by(&r, "gitattributes").is_empty() && by(&r, "gitignore").is_empty(),
+        "{:?}",
+        r.findings
+    );
+
+    // Дерево без -text, дерево git під ігнором, vendor без правила: три різні знахідки.
+    write_file(&root, ".gitattributes", "");
+    write_file(
+        &root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\nws/cf/**\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let attrs = messages(&r, "gitattributes");
+    assert_eq!(attrs.len(), 1, "{:?}", r.findings);
+    assert!(attrs[0].contains("'ws/cf/** -text'"), "{}", attrs[0]);
+    let ign = messages(&r, "gitignore");
+    assert_eq!(ign.len(), 2, "{:?}", r.findings);
+    assert!(
+        ign[0].contains("гітігноровано, хоч має потрапляти в git (truth: git)"),
+        "{}",
+        ign[0]
+    );
+    assert!(
+        ign[1].contains("не гітігноровано (truth: vendor)"),
+        "{}",
+        ign[1]
+    );
+
+    // vendor: правило є, а дерево закомічено силою — ФАКТ.
+    write_file(
+        &root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\nws/vd/**\n",
+    );
+    write_file(&root, "ws/vd/Configuration.xml", "<x/>");
+    git(&root, &["add", "-f", "--", "ws/vd/Configuration.xml"]);
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let ign = messages(&r, "gitignore");
+    assert_eq!(ign.len(), 1, "{:?}", r.findings);
+    assert!(
+        ign[0].contains("відстежується git — у ньому 1 файл(ів)"),
+        "{}",
+        ign[0]
+    );
+}
+
+#[test]
+fn case_collision_groups_in_head_and_no_head_is_not_applicable() {
+    let h = healthy("case");
+    // Дві різні за регістром (кирилиця) назви в HEAD: на NTFS це один файл. У дерево вони потрапляють через індекс.
+    for (i, name) in ["ws/cf/Файл.xml", "ws/cf/файл.xml"].iter().enumerate() {
+        write_file(&h.root, "blob.txt", &format!("v{i}"));
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&h.root)
+            .args(["hash-object", "-w", "blob.txt"])
+            .output()
+            .unwrap();
+        let sha = String::from_utf8(out.stdout).unwrap().trim().to_string();
+        git(
+            &h.root,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("100644,{sha},{name}"),
+            ],
+        );
+    }
+    commit(&h.root, "two");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "case-collision");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+    assert!(
+        f[0].message.contains("1 груп(и)")
+            && f[0].message.contains("ws/cf/Файл.xml | ws/cf/файл.xml"),
+        "{}",
+        f[0].message
+    );
+
+    // Свіжий репозиторій без HEAD — «не застосовується»: ні знахідки, ні «не перевірено».
+    let tmp = TempDir::new("case-fresh");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", false);
+    write_workspace(&root, "ws", &["cf"]);
+    write_manifest(&root, None, &[("ws", &[("cf", "storage")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    assert!(
+        by(&r, "case-collision").is_empty() && r.not_checked.is_empty(),
+        "{:?}",
+        r.findings
+    );
+}
+
+#[test]
+fn build_artifacts_outside_the_work_path_are_a_warning() {
+    let h = healthy("artifacts");
+    for rel in ["ws/out/a.EPF", "ws/b.cfe", "ws/build/ok.cf", "ws/readme.md"] {
+        write_file(&h.root, rel, "x");
+        git(&h.root, &["add", "-f", "--", rel]);
+    }
+    commit(&h.root, "files");
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "build-artifacts");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message.contains("2 файл(ів): ws/b.cfe, ws/out/a.EPF"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.is_empty());
+    assert_eq!(r.code, 0);
+}
+
+#[test]
+fn dump_from_overlay_connection_and_broken_overlay() {
+    let tmp = TempDir::new("overlay");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["cf"]);
+    write_manifest(&root, None, &[("ws", &[("cf", "dump")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+
+    // Накладки немає.
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = messages(&r, "dump-from");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].contains("накладки v8storagekit.local.yaml на цій машині немає"),
+        "{}",
+        f[0]
+    );
+
+    // Накладка є, але потрібної бази в ній немає; один рядок підключення не розбирається, один відносний.
+    write_file(
+        &root,
+        "v8storagekit.local.yaml",
+        "infobases:\n  other: { connection: 'File=C:\\\\h\\\\a' }\n  bad: { connection: 'Srvr=a;' }\n  rel: { connection: 'File=build\\\\ib' }\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = messages(&r, "dump-from");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].contains("дев-бази 'dev' немає в infobases: накладки"),
+        "{}",
+        f[0]
+    );
+    let oc = messages(&r, "overlay-connection");
+    assert_eq!(oc.len(), 2, "{:?}", r.findings);
+    assert!(oc[0].starts_with("Дев-база 'bad' у "), "{}", oc[0]);
+    assert!(
+        oc[1].starts_with("Дев-база 'rel' у ") && oc[1].contains("відносний File="),
+        "{}",
+        oc[1]
+    );
+    assert!(
+        by(&r, "overlay-connection")
+            .iter()
+            .all(|f| f.level == Level::Warn)
+    );
+
+    // Накладка зламана (рішення 7): «накладки немає» не кажемо, звірку позначаємо «не перевірено».
+    write_file(
+        &root,
+        "v8storagekit.local.yaml",
+        "infobases:\n  dev: { connection: '' }\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    assert!(by(&r, "dump-from").is_empty(), "{:?}", r.findings);
+    let oc = by(&r, "overlay-connection");
+    assert_eq!(oc.len(), 1, "{:?}", r.findings);
+    assert_eq!(
+        oc[0].message,
+        "не перевірено: підключення дев-баз накладки — накладку не розібрано"
+    );
+    assert_eq!(r.not_checked.len(), 1);
+    assert_eq!(r.code, 1, "error накладки сильніший: {:?}", r.findings);
+}
+
+#[test]
+fn local_audit_names_every_overlapping_dev_base_and_the_legacy_key() {
+    let tmp = TempDir::new("audit");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["cf"]);
+    write_manifest(&root, None, &[("ws", &[("cf", "dump")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    write_file(
+        &root,
+        "v8storagekit.local.yaml",
+        "infobases:\n  dev: { connection: 'File=C:\\\\hum\\\\a' }\n  far: { connection: 'File=D:\\\\far' }\n  parent: { connection: 'File=C:\\\\hum' }\n",
+    );
+    write_file(
+        &root,
+        "ws/v8project.local.yaml",
+        "infobases:\n  origin:\n    connection: 'File=C:\\\\hum\\\\a\\\\'\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = messages(&r, "local-audit");
+    assert_eq!(f.len(), 2, "всі збіги, не перший: {:?}", r.findings);
+    assert!(f[0].contains("дев-базою 'dev'"), "{}", f[0]);
+    assert!(f[1].contains("дев-базою 'parent'"), "{}", f[1]);
+    assert_eq!(r.code, 1);
+
+    // Контроль: база агента окремо — аудит мовчить.
+    write_file(
+        &root,
+        "ws/v8project.local.yaml",
+        "infobases:\n  origin:\n    connection: 'File=C:\\\\agent\\\\ib'\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    assert!(by(&r, "local-audit").is_empty(), "{:?}", r.findings);
+
+    // Стара конвенція devInfobase: kit її не читає — warn, а не тиша.
+    write_file(
+        &root,
+        "ws/v8project.local.yaml",
+        "devInfobase: File=C:\\x\n",
+    );
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = by(&r, "local-audit");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message.contains("ключ devInfobase:"),
+        "{}",
+        f[0].message
+    );
+}
+
+#[test]
+fn global_git_failure_gives_guard_errors_code_1() {
+    // `core.repositoryformatversion=99`: кожна команда git відповідає 128 — страж файла з паролем fail-closed.
+    let h = healthy("global");
+    git(&h.root, &["config", "core.repositoryformatversion", "99"]);
+    let r = run_check(&h.root, &opts(&h.registry)).unwrap();
+    let f = by(&r, "overlay-ignored");
+    assert!(!f.is_empty(), "{:?}", r.findings);
+    assert!(
+        f.iter()
+            .all(|x| x.level == Level::Error && x.message.starts_with("не перевірено: ")),
+        "{f:?}"
+    );
+    assert_eq!(r.code, 1, "{:?}", r.findings);
+    // Неохоронні перевірки на тому ж збої — «не перевірено» warn.
+    assert!(
+        by(&r, "build-artifacts")[0]
+            .message
+            .starts_with("не перевірено: ")
+    );
+    assert!(!r.not_checked.is_empty());
 }

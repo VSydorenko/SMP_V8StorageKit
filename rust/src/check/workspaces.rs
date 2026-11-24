@@ -2,7 +2,7 @@
 // `undeclared-source`. Фільтр джерел за `truth` — лише через `config::Truth`.
 
 use super::branch::{BranchState, branch_state};
-use super::{Collector, Options, selected_sources};
+use super::{Collector, Options, guards, local, selected_sources, sources};
 use crate::config::agent_base::InfobaseKind;
 use crate::config::manifest::Manifest;
 use crate::config::{Context, Level, Truth, Workspace, yaml::eq_ci};
@@ -13,18 +13,37 @@ pub(super) fn check(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts:
     agent_base_required(c, ctx, opts);
     main_branch(c, ctx, manifest);
     unique_keys(c, ctx);
-    // Далі в PowerShell-порядку (задачі 2 і 3 плану B3): накладка, джерела, і лише потім цикл по воркспейсах,
-    // де `undeclared-source` іде першою перевіркою кожного воркспейсу.
-    for ws in &ctx.workspaces {
+    // Далі в PowerShell-порядку: накладка, джерела, воркспейси. Хуки — задача 3 плану B3.
+    let root = Path::new(&ctx.repo_root);
+    guards::overlay_ignored(c, root);
+    local::overlay_connection(c, ctx);
+    for src in selected_sources(ctx, opts) {
+        sources::check_source(c, ctx, src);
+    }
+    // Воркспейси, задекларовані в маніфесті (рішення 6): страж `local-ignored` не залежить від того, чи
+    // воркспейс розв'язався; решта перевірок воркспейсу — лише для розв'язаних (помилка префлайту вже error).
+    for declared in &manifest.workspaces {
         if opts
             .workspace
             .as_deref()
-            .is_some_and(|w| !w.is_empty() && !eq_ci(&ws.path, w))
+            .is_some_and(|w| !w.is_empty() && !eq_ci(&declared.path, w))
         {
             continue;
         }
-        undeclared_sources(c, manifest, ws);
+        let resolved = ctx
+            .workspaces
+            .iter()
+            .find(|w| eq_ci(&w.path, &declared.path));
+        if let Some(ws) = resolved {
+            undeclared_sources(c, manifest, ws);
+            local::build_artifacts(c, ctx, ws);
+        }
+        guards::local_ignored(c, root, &declared.path);
+        if let Some(ws) = resolved {
+            local::local_audit(c, ctx, ws);
+        }
     }
+    // [задача 3] hooks, hook-shim.
 }
 
 /// `manifest`: зведення за МАНІФЕСТОМ, а не за розв'язаним контекстом: воркспейс із помилкою конфігу до
