@@ -29,7 +29,7 @@
   `duplicates`, `obsoleteNames`, `superpowers`, `superpowersPlugin`, `superpowersDocs`, `journals`, `memory`, `skills`,
   `places`. Вивід розходиться з цим переліком — вір виводу й скажи про розбіжність у звіті.
 - `Kit version`: актуально; `connected-before` (профілю чи `v8storagekit.version` немає, у маніфесті є `kitVersion:`) —
-  підключено раніше: `kit check -RepoRoot .` і чеклісти версій, новіших за версію з маніфесту; `no-version`
+  підключено раніше: `kit check -RepoRoot .` (код `3` — рядки `не перевірено:`, не зелено; `2` — помилка виклику) і чеклісти версій, новіших за версію з маніфесту; `no-version`
   (профіль без `v8storagekit.version`, `kitVersion:` немає) — нормальний стан до останнього коміту PR, його запише
   `kit-setup -SetVersion`, кроків оновлення немає; відставання з кроками `V1…Vn` → оновлення,
   [upgrades.md](upgrades.md). Проєкт, підключений раніше, іде порядком із `SKILL.md`, розділ 5.
