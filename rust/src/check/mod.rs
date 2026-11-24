@@ -121,6 +121,7 @@ pub(crate) struct Collector {
     /// Мережеві проби, що стартували заздалегідь (паралельно).
     pub probes: DirProbes,
     pub hooks_prefetch: Option<crate::hooks::HooksPrefetch>,
+    pub probes_seam: Probes,
 }
 
 impl Collector {
@@ -251,8 +252,32 @@ fn selected_sources<'a>(ctx: &'a Context, opts: &Options) -> Vec<&'a Source> {
         .unwrap_or_default()
 }
 
+/// Шов мережевих проб: як перевіряється каталог сховища і як розв'язується абсолютний `core.hooksPath`. У
+/// виробництві — файлова система; тест підставляє повільні проби й міряє, що `run` стартує їх заздалегідь.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct Probes {
+    pub dir_exists: fn(&str) -> bool,
+    pub canonicalize: fn(&Path) -> std::io::Result<PathBuf>,
+}
+
+impl Default for Probes {
+    fn default() -> Self {
+        Probes {
+            dir_exists: sources::dir_exists,
+            canonicalize: |p| std::fs::canonicalize(p),
+        }
+    }
+}
+
 /// Виконує всі перевірки. `Err` — лише помилка виклику (код 2).
 pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
+    run_with(ctx, opts, Probes::default())
+}
+
+/// `run` із швом мережевих проб (лише для тестів).
+#[doc(hidden)]
+pub fn run_with(ctx: &Context, opts: &Options, seam: Probes) -> Result<Report, UsageError> {
     if let Some(manifest) = &ctx.manifest {
         validate_names(manifest, opts)?;
     }
@@ -263,10 +288,11 @@ pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
         unignored: None,
         probes: DirProbes::default(),
         hooks_prefetch: None,
+        probes_seam: seam,
     };
     let root = Path::new(&ctx.repo_root);
     // Усі мережеві проби стартують разом; звіт збирається в порядку перевірок, а не завершення проб.
-    c.hooks_prefetch = crate::hooks::prefetch_hooks_path(root);
+    c.hooks_prefetch = crate::hooks::prefetch_hooks_path(root, seam.canonicalize);
     sources::prefetch_storage_probes(&mut c, ctx, opts);
 
     machine::check(&mut c, opts, root);

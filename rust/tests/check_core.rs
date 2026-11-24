@@ -2146,3 +2146,88 @@ fn supply_state_is_one_line_when_the_bin_is_unreadable() {
         .collect();
     assert_eq!(lines.len(), 1, "{:?}", r.findings);
 }
+
+// Мережеві проби паралельно (рішення архітектора, п. 7 доповнення задачі 4): `run` стартує їх заздалегідь — проби
+// каталогу кожного джерела `truth: storage` і розв'язання абсолютного `core.hooksPath`. Шов `Probes` підставляє
+// повільні проби; без prefetch у `run` проби йшли б послідовно в порядку перевірок.
+
+const SLOW: Duration = Duration::from_millis(2000);
+
+fn slow_dir_exists(path: &str) -> bool {
+    std::thread::sleep(SLOW);
+    !path.contains("missing")
+}
+
+fn slow_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    std::thread::sleep(SLOW / 2);
+    std::fs::canonicalize(path)
+}
+
+fn instant_dir_exists(path: &str) -> bool {
+    !path.contains("missing")
+}
+
+fn instant_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    std::fs::canonicalize(path)
+}
+
+#[test]
+fn run_starts_network_probes_ahead_and_keeps_finding_order() {
+    let h = healthy("parallel-probes");
+    write_workspace(&h.root, "ws", &["cf", "s2", "s3"]);
+    let others = h.tmp.0.join("other-hooks");
+    std::fs::create_dir_all(&others).unwrap();
+    let (p1, p2, p3) = (
+        h.tmp.0.join("one").to_string_lossy().into_owned(),
+        h.tmp.0.join("missing-two").to_string_lossy().into_owned(),
+        h.tmp.0.join("three").to_string_lossy().into_owned(),
+    );
+    write_file(
+        &h.root,
+        "v8storagekit.yaml",
+        &format!(
+            "version: 1\nproduct: P\nworkspaces:\n  - path: ws\n    sources:\n      cf: {{ truth: storage, storage: {{ path: '{p1}' }} }}\n      s2: {{ truth: storage, storage: {{ path: '{p2}' }} }}\n      s3: {{ truth: storage, storage: {{ path: '{p3}' }} }}\n"
+        ),
+    );
+    git(
+        &h.root,
+        &["config", "core.hooksPath", &others.to_string_lossy()],
+    );
+    let ctx = config::preflight(&h.root, Mode::Check).unwrap();
+    let o = opts(&h.registry);
+    let fast = check::Probes {
+        dir_exists: instant_dir_exists,
+        canonicalize: instant_canonicalize,
+    };
+    let slow = check::Probes {
+        dir_exists: slow_dir_exists,
+        canonicalize: slow_canonicalize,
+    };
+    // Базовий прогін із миттєвими пробами міряє «решту» `run` на цьому навантаженні (cargo test ганяє тести разом).
+    let started = Instant::now();
+    let expected = check::run_with(&ctx, &o, fast).unwrap();
+    let baseline = started.elapsed();
+    let started = Instant::now();
+    let r = check::run_with(&ctx, &o, slow).unwrap();
+    let elapsed = started.elapsed();
+    // Три проби каталогів (по 2 с) і розв'язання hooksPath (2 × 1 с): послідовно база + 8 с, лише hooksPath
+    // послідовно — база + 4 с; паралельно — база + 2 с. Поріг — база + 3 с.
+    assert!(
+        elapsed < baseline + SLOW * 3 / 2,
+        "проби йдуть не паралельно: {elapsed:?} при базі {baseline:?}"
+    );
+    // Той самий звіт, що з миттєвими пробами, і порядок знахідок — за порядком перевірок і джерел.
+    assert_eq!(r, expected);
+    let paths: Vec<_> = by(&r, "storage-path");
+    assert_eq!(paths.len(), 1, "{:?}", r.findings);
+    assert!(
+        paths[0].message.starts_with("ws/s2:"),
+        "{}",
+        paths[0].message
+    );
+    assert!(
+        !by(&r, "hooks").is_empty(),
+        "hooksPath поза .githooks має дати знахідку: {:?}",
+        r.findings
+    );
+}

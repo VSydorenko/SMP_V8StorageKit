@@ -140,9 +140,12 @@ pub struct HooksPrefetch {
     resolution: Resolution,
 }
 
-fn begin_prefetch(root: &Path) -> Result<HooksPrefetch, String> {
+fn begin_prefetch(
+    root: &Path,
+    canon: fn(&Path) -> io::Result<PathBuf>,
+) -> Result<HooksPrefetch, String> {
     let configured = read_hooks_path(root)?;
-    let resolution = begin_hooks_path(root, &configured, PATH_CEILING, |p| fs::canonicalize(p));
+    let resolution = begin_hooks_path(root, &configured, PATH_CEILING, canon);
     Ok(HooksPrefetch {
         configured,
         resolution,
@@ -151,8 +154,11 @@ fn begin_prefetch(root: &Path) -> Result<HooksPrefetch, String> {
 
 /// Стартує розв'язання `core.hooksPath` заздалегідь, щоб мережеві проби `check` ішли паралельно. `None` — git не
 /// відповів: `audit_with` сам повідомить причину.
-pub fn prefetch_hooks_path(root: &Path) -> Option<HooksPrefetch> {
-    begin_prefetch(root).ok()
+pub fn prefetch_hooks_path(
+    root: &Path,
+    canon: fn(&Path) -> io::Result<PathBuf>,
+) -> Option<HooksPrefetch> {
+    begin_prefetch(root, canon).ok()
 }
 
 /// Вміст без BOM і з `\n` замість `\r\n`: CR — окрема біда, і про неї каже `.gitattributes`.
@@ -182,7 +188,7 @@ fn is_file(path: &Path) -> io::Result<bool> {
 /// Аудит хуків (`Test-KitGitHooks`): `core.hooksPath` увімкнено, обидва файли є, вміст = шаблон плагіна, біт
 /// виконання в git. `templates` — тека шаблонів (`None` — не знайдено).
 pub fn audit(root: &Path, templates: Option<&Path>) -> Vec<Outcome> {
-    audit_with(root, templates, None)
+    audit_with(root, templates, None, |p| fs::canonicalize(p))
 }
 
 /// `audit` із розв'язанням `core.hooksPath`, що вже стартувало (`prefetch_hooks_path`).
@@ -190,9 +196,10 @@ pub fn audit_with(
     root: &Path,
     templates: Option<&Path>,
     prefetch: Option<HooksPrefetch>,
+    canon: fn(&Path) -> io::Result<PathBuf>,
 ) -> Vec<Outcome> {
     let mut out = Vec::new();
-    match prefetch.map_or_else(|| begin_prefetch(root), Ok) {
+    match prefetch.map_or_else(|| begin_prefetch(root, canon), Ok) {
         Ok(p) => match p.resolution.finish() {
             Ok(true) => {}
             Err(reason) => out.push(unchecked("core.hooksPath", reason)),

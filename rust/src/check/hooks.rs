@@ -20,7 +20,12 @@ pub(super) fn check(c: &mut Collector, root: &Path) {
     push(
         c,
         "hooks",
-        hooks::audit_with(root, templates.as_deref(), prefetch),
+        hooks::audit_with(
+            root,
+            templates.as_deref(),
+            prefetch,
+            c.probes_seam.canonicalize,
+        ),
     );
     push(c, "hook-shim", hooks::legacy_session_hook(root));
 }

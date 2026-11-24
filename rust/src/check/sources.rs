@@ -15,7 +15,7 @@ use std::path::Path;
 
 use super::PROBE_CEILING as STORAGE_PROBE_CEILING;
 
-fn dir_exists(path: &str) -> bool {
+pub(super) fn dir_exists(path: &str) -> bool {
     fs::metadata(path).is_ok()
 }
 
@@ -31,7 +31,8 @@ pub(super) fn prefetch_storage_probes(c: &mut Collector, ctx: &Context, opts: &s
         }
         let path = src.storage_path.clone().unwrap_or_default();
         if !is_server_storage_path(&path) {
-            c.probes.start(&path, STORAGE_PROBE_CEILING, dir_exists);
+            let probe = c.probes_seam.dir_exists;
+            c.probes.start(&path, STORAGE_PROBE_CEILING, probe);
         }
     }
 }
@@ -367,7 +368,8 @@ fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
             ),
         );
     }
-    let exists = c.probes.wait(&effective, STORAGE_PROBE_CEILING, dir_exists);
+    let probe = c.probes_seam.dir_exists;
+    let exists = c.probes.wait(&effective, STORAGE_PROBE_CEILING, probe);
     match exists {
         Some(true) => {}
         None => c.unchecked(

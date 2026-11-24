@@ -122,9 +122,12 @@ Describe 'знімок permissions і hooks — .claude/settings.json і templat
             } elseif ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
                 $items = @($Value)
                 if (-not $items.Count) { $Out.Add("$Path = []") }
+                # Масив об'єктів/масивів — з індексом елемента: без нього множина губить пари «matcher ↔ command».
+                $i = 0
                 foreach ($e in $items) {
-                    if ($e -is [System.Management.Automation.PSCustomObject] -or ($e -is [System.Collections.IEnumerable] -and $e -isnot [string])) { Add-Flat $Out "$Path[]" $e }
+                    if ($e -is [System.Management.Automation.PSCustomObject] -or ($e -is [System.Collections.IEnumerable] -and $e -isnot [string])) { Add-Flat $Out "$Path[$i]" $e }
                     else { $Out.Add("$Path[] = $(if ($e -is [string]) { $e } else { ConvertTo-Json $e -Compress })") }
+                    $i++
                 }
             } elseif ($Value -is [string]) { $Out.Add("$Path = $Value") }
             else { $Out.Add("$Path = $(ConvertTo-Json $Value -Compress)") }
@@ -184,5 +187,19 @@ Describe 'знімок permissions і hooks — .claude/settings.json і templat
         ($doc | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $copy -Encoding UTF8
         $d = Get-SnapshotDiff -Expected $script:Expected['.claude/settings.json'] -Actual (Read-Snapshot $copy)
         ($d.Added.Count + $d.Removed.Count) | Should -BeGreaterThan 0 -Because 'знімок не помітив мутації'
+    }
+
+    # Пари «matcher ↔ command» не губляться: той самий набір matcher-ів і команд, але обмін командами — інший знімок.
+    It 'контроль: обмін командами між двома matcher-ами хуків — червоне' {
+        function script:New-HooksDoc([string]$CmdA, [string]$CmdB) {
+            $mk = { param($m, $c) [pscustomobject]@{ matcher = $m; hooks = @([pscustomobject]@{ type = 'command'; command = $c }) } }
+            [pscustomobject]@{ hooks = [pscustomobject]@{ PreToolUse = @((& $mk 'Bash' $CmdA), (& $mk 'Edit' $CmdB)) } }
+        }
+        $one = Join-Path $TestDrive 'hooks-one.json'
+        $two = Join-Path $TestDrive 'hooks-two.json'
+        (New-HooksDoc 'cmd-1' 'cmd-2' | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $one -Encoding UTF8
+        (New-HooksDoc 'cmd-2' 'cmd-1' | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $two -Encoding UTF8
+        $d = Get-SnapshotDiff -Expected (Read-Snapshot $one) -Actual (Read-Snapshot $two)
+        ($d.Added.Count + $d.Removed.Count) | Should -BeGreaterThan 0 -Because 'обмін команд між matcher-ами не помічено'
     }
 }
