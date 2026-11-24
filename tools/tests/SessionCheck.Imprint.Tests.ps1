@@ -30,7 +30,7 @@ Describe 'kit session-check — сигнал без платформи' {
             $s = New-FakeStorage -Name 'imprint-stale' -ObjectsWrite $script:Old -DbWrite $script:Old
             $repo = New-Repo -Name 'imprint-stale' -StoragePath $s -MirrorDate $script:Old -Merge
             Write-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB' -StoragePath $s -Version 1 | Out-Null
-            # Диск змінюємо ПІСЛЯ знімку відбитка — Test-KitStorageImprintCurrent мусить це виявити.
+            # Диск змінюємо ПІСЛЯ знімку відбитка — звірка відбитка в session-check мусить це виявити.
             $extra = Join-Path $s 'data/objects/ab/extra.bin'; Set-Content -LiteralPath $extra -Value 'new'
             (Get-Item $extra).LastWriteTimeUtc = $script:New.ToUniversalTime()
             $r = Invoke-SessionCheck -Repo $repo

@@ -24,7 +24,7 @@
     2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний крок. Помилка — перший рядок
     stderr `<команда>: ERROR …`.
 .EXAMPLE
-    pwsh -NoProfile -File tools/kit.ps1 check -RepoRoot <шлях до репо-споживача>
+    pwsh -NoProfile -File tools/kit.ps1 sync -RepoRoot <шлях до репо-споживача>
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

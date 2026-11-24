@@ -22,9 +22,9 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It 'той самий конекшн, інакше записаний (регістр, пробіл, без ";") — усе одно код 1' {
-        # Тест на саму нормалізацію (check.psm1: $norm), не на порівняння рядків: тут
+        # Тест на саму нормалізацію (rust/src/check/: нормалізація конекшна), не на порівняння рядків: тут
         # накладка й v8project.local.yaml НЕ побайтово однакові — інший регістр, зайвий
-        # пробіл після ";" і без завершальної ";". Якби $norm замінили на тотожність
+        # пробіл після ";" і без завершальної ";". Якби нормалізацію замінили на тотожність
         # (видалили нормалізацію), цей тест мав би почервоніти — на відміну від
         # попереднього (побайтово однакового), який пройшов би і без неї.
         $overlay = "infobases:`n  dev:`n    connection: 'Srvr=VSDEV;Ref=SMP_UNF;'`n    user: 'Адмін'"
@@ -80,11 +80,11 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It 'issue #9: local-audit файлової бази агента без truth: storage (лише через v8project.local.yaml) — File= без лапок теж ловить збіг' {
-        # Ізолює саме гілку local-audit (check.psm1) від труби Resolve-KitAgentBase (труба
+        # Ізолює саме гілку local-audit (rust/src/check/local.rs) від труби Resolve-KitAgentBase (труба
         # truth: storage, вище в цьому файлі): жодне джерело тут не truth: storage, тож
         # Resolve-KitAgentBase (агент-base-required) не викликається взагалі — колізію
         # може зловити ЛИШЕ local-audit, що читає v8project.local.yaml напряму. Без цього
-        # тесту повернення подвійної серіалізації в лапках ($localAuditConn у check.psm1,
+        # тесту повернення подвійної серіалізації в лапках (конекшн у local-audit, rust/src/check/local.rs;
         # AgentBase.psm1 має свій незалежний тест на той самий хак у Resolve-KitAgentBase)
         # лишилось би непоміченим.
         $ws = [ordered]@{ 'Alpha_SMB' = @{ Sets = @(
@@ -168,7 +168,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     }
 
     It 'issue #9: дев-база з непарною лапкою без бази агента для звірки — kit session-check не виходить кодом 1' {
-        # session-check спершу кличе Invoke-KitCheck -Quiet (session-check.psm1): лише
+        # session-check спершу проганяє check (rust/src/session_check/): лише
         # error-знахідки піднімають його до коду 1 ("Сигнали не обчислювались"). Ця дев-база
         # дає щойно додану WARN 'overlay-connection' — код 1 тут означав би, що новий
         # запобіжник помилково піднятий на рівень error.
@@ -193,7 +193,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         # Знахідка живого прогону на SMP_BankExchange: у живих репозиторіях цей файл несе
         # devInfobase:, а не infobase:. Read-V8ProjectLocalInfobase на ньому повертає $null,
         # тож ГІЛКА АУДИТУ ВИЩЕ ПРОПУСКАЄТЬСЯ БЕЗ ЖОДНОГО РЯДКА — саме це й треба зловити.
-        # Вирізати elseif із check.psm1 → вивід більше не містить 'devInfobase' і тест червоніє.
+        # Вирізати гілку з rust/src/check/local.rs → вивід більше не містить 'devInfobase' і тест червоніє.
         $repo = New-GoodRepo 'legacy-devinfobase' @{}
         Set-Content -LiteralPath (Join-Path $repo 'Alpha_SMB/v8project.local.yaml') -Encoding UTF8 `
             -Value "devInfobase:`n  connection: 'Srvr=VSDEV;Ref=SMP_UNF;'`n  user: 'Адмін'"

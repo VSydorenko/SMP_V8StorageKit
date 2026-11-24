@@ -7,9 +7,9 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # Тут — дзеркальний сценарій: source-set у v8project.yaml Є, а маніфест його НЕ знає.
     It 'source-set у v8project.yaml без ключа в маніфесті — warn undeclared-source, код 0' {
         $repo = New-GoodRepo 'undeclared-source'
-        # Ані git add, ані commit тут не потрібні: Invoke-KitCheck читає v8project.yaml з
-        # ДИСКА через Read-V8Project, а не з git, і жодної перевірки чистоти робочої копії
-        # в check.psm1 немає (стейджити тут нічого, а git add на щойно
+        # Ані git add, ані commit тут не потрібні: kit check читає v8project.yaml з
+        # ДИСКА через маніфест-читач, а не з git, і жодної перевірки чистоти робочої копії
+        # в rust/src/check/ немає (стейджити тут нічого, а git add на щойно
         # народженому LF-файлі фікстури лише додавав зайве попередження "LF will be
         # replaced by CRLF" без жодної користі для самого тесту).
         $vp = Join-Path $repo 'Alpha_SMB/v8project.yaml'

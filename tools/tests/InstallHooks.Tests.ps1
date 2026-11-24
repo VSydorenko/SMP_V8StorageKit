@@ -26,7 +26,7 @@ Describe 'kit install-hooks — хуки захисту storage/* (settings.json
         Join-Path $repo '.claude/settings.json' | Should -Not -Exist
         (git -C $repo config --get core.hooksPath) | Should -Be '.githooks'
         # Хуки застейджені з режимом 100755 — саме він дістанеться кожному клону (git ls-files -s питає індекс, не ФС).
-        # -c core.quotepath=false — той самий інваріант, що в production-коді (Hooks.psm1, check.psm1): git ls-files друкує
+        # -c core.quotepath=false — той самий інваріант, що в production-коді (Hooks.psm1, rust/src/check/): git ls-files друкує
         # шляхи, і kit форсує цю конфігурацію за виклик завжди, без винятку для свідомо ASCII-шляхів (правило CLAUDE.md).
         foreach ($h in 'pre-commit', 'pre-merge-commit') { (git -c core.quotepath=false -C $repo ls-files -s -- ".githooks/$h") | Should -Match '^100755 ' }
         $check = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) 2>&1 | Out-String
@@ -49,7 +49,7 @@ Describe 'kit install-hooks — хуки захисту storage/* (settings.json
         # коли settings.json не чіпають — це і є незалежний доказ роботи команди.
         Join-Path $repo '.githooks/pre-commit' | Should -Exist
         # warn (старий hooks.SessionStart у наявному settings.json) —
-        # це не зупинка (install-hooks.psm1: ExitCode рахує лише error, прецедент check.psm1:407),
+        # це не зупинка (install-hooks.psm1: ExitCode рахує лише error, прецедент kit check: лише error зупиняє),
         # тож код виходу 0, а сам warn і далі видно людині текстом. Обидва факти — під тестом, щоб
         # наступна зміна формули впала тут, а не лишилась непоміченою.
         $r.ExitCode | Should -Be 0 -Because $r.Output

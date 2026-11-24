@@ -91,10 +91,11 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
         }
     }
 
-    It 'кожна команда `kit <команда>` у скілах і шаблонах існує в tools/commands' {
+    It 'кожна команда `kit <команда>` у скілах і шаблонах існує в tools/commands або перенесена на Rust' {
         # Скіл, що кличе неіснуючу команду, — дефект, який користувач побачить лише на «Unknown command» у живій сесії.
         $commandsDir = (Resolve-Path "$PSScriptRoot/../commands").Path
-        $known = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName)
+        # Команди, перенесені на Rust, модуля .psm1 не мають: їх виконує kit.exe (rust/src/main.rs, print_help).
+        $known = @(Get-ChildItem -LiteralPath $commandsDir -Filter '*.psm1' -File | ForEach-Object BaseName) + @('check', 'session-check', 'session-board')
         $known.Count | Should -BeGreaterThan 5 -Because 'контроль: перелік команд не порожній'
         $templatesDir = (Resolve-Path "$PSScriptRoot/../../templates").Path
         $files = @($script:SkillDocs | ForEach-Object { [pscustomobject]@{ Rel = "skills/$($_.Rel)"; Text = $_.Text } }) +
@@ -106,7 +107,7 @@ Describe 'skills/*/SKILL.md — правила, які легко порушит
             if ($f.Rel -like '*upgrades.md') { continue }
             foreach ($m in [regex]::Matches($f.Text, '(?m)(?:^\s*|`)kit\s+([a-z][a-z0-9-]+)')) {
                 $seen++
-                $known | Should -Contain $m.Groups[1].Value -Because "у $($f.Rel) викликано kit $($m.Groups[1].Value), а tools/commands/$($m.Groups[1].Value).psm1 немає"
+                $known | Should -Contain $m.Groups[1].Value -Because "у $($f.Rel) викликано kit $($m.Groups[1].Value), а ні tools/commands/$($m.Groups[1].Value).psm1, ні переносу на Rust немає"
             }
         }
         $seen | Should -BeGreaterThan 5 -Because 'контроль: пошук мусить знаходити виклики'

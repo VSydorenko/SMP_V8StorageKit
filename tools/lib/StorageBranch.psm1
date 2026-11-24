@@ -75,8 +75,8 @@ function Get-KitStorageActivity {
         data/objects і data/pack — порожні чи відсутні (жодної версії).
 
         PackFiles — @({Name; Length; LastWriteTimeUtc}), відсортовані за Name: стабільний
-        порядок, потрібний лише для звірки з відбитком (Test-KitStorageImprintCurrent,
-        StorageImprint.psm1) — самій цій функції порядок байдужий. Порожній масив, не $null.
+        порядок, потрібний лише для звірки з відбитком (Rust, `rust/src/session_check/`;
+        запис — StorageImprint.psm1) — самій цій функції порядок байдужий. Порожній масив, не $null.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$StoragePath)

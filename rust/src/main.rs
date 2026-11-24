@@ -10,9 +10,8 @@
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
 // Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell),
-// `session-check` (блок B4: сигнал сховищ без PowerShell). Модулі `check.psm1` і `session-check.psm1` лишаються
-// до видалення в задачі 4 блоку B4. Хук старту сесії кличе `session-check` дочірнім `kit.exe` (current_exe), не
-// диспетчер.
+// `session-check` (блок B4: сигнал сховищ без PowerShell). Модулів `.psm1` вони не мають. Хук старту сесії
+// кличе `session-check` дочірнім `kit.exe` (current_exe), не диспетчер.
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
@@ -75,12 +74,8 @@ fn print_help(root: Option<&Path>) {
         .collect();
     // Команди, перенесені на Rust, модуля .psm1 не мають.
     names.push("session-board".to_string());
-    // `check` і `session-check` поки мають і модулі .psm1 (їх видаляє задача 4 блоку B4) — без дубля в переліку.
-    for ported in ["check", SESSION_CHECK_COMMAND] {
-        if !names.iter().any(|n| n == ported) {
-            names.push(ported.to_string());
-        }
-    }
+    names.push("check".to_string());
+    names.push(SESSION_CHECK_COMMAND.to_string());
     names.sort();
     if !names.is_empty() {
         println!("команди: {}", names.join(", "));

@@ -59,7 +59,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         BeforeAll {
             $script:CaseRepo = New-KitFakeRepo -Root (Join-Path $TestDrive 'case-repo') -WithHooks -WithGitattributes -WithGitignore
             $script:Fake = Get-KitFakePwsh -Kit $script:Kit
-            # Без маніфесту: session-start у репозиторії з маніфестом законно запускає pwsh (session-check).
+            # Без маніфесту: хук session-start не запускає pwsh ні з маніфестом (session-check — kit.exe), ні без; тут репозиторій без маніфесту, щоб нічого зайвого не виконувалось.
             $script:CasePlain = Join-Path $TestDrive 'case-plain'
             New-Item -ItemType Directory -Path (Join-Path $script:CasePlain '.git') -Force | Out-Null
             function script:Invoke-WithFakePwsh([string[]]$Tokens) {

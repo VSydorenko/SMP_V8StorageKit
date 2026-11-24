@@ -111,7 +111,7 @@ Describe 'kit check — коди виходу, межі запису й ранн
             $LASTEXITCODE | Should -Be 2
             $e | Should -BeLike 'check: ERROR*-Bogus*'
         }
-        It 'довідка kit.exe називає check рівно один раз (поки check.psm1 існує — без дубля)' {
+        It 'довідка kit.exe називає check рівно один раз (перелік дописує kit.exe сам, без дубля)' {
             $h = & (Get-KitExe -Kit $script:Kit) -Help 2>&1 | Out-String
             $line = @($h -split "`r?`n" | Where-Object { $_ -like 'команди:*' })[0]
             @($line -replace '^команди:\s*', '' -split ',\s*' | Where-Object { $_ -ceq 'check' }).Count | Should -Be 1

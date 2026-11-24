@@ -15,8 +15,8 @@
 # GitOutput — після TreeCompare (Get-KitOriginGap бере Invoke-KitGitProcess); Supply — після PathSafety (Assert-SafeWorkPath) і до StorageBranch/TreeCompare, які
 # беруть з нього шлях поставки; CaseGuard — після TreeCompare
 # (Invoke-KitGitProcess, Get-KitRelativeFiles, Test-KitComparableRelativePath; StorageBranch
-# і GitMerge імпортують його вкладено, як AgentBase — V8); Environment — без залежностей; check бере
-# звідти Get-UnicaInstallation і Get-KitUnicaVersionVerdict; UnicaStep — після Supply
+# і GitMerge імпортують його вкладено, як AgentBase — V8); Environment — без залежностей; Runner бере
+# звідти Get-UnicaInstallation; UnicaStep — після Supply
 # (Get-KitSupplyState, Get-KitSupplyRecipe), імпортує його вкладено без -Force, як AgentBase — V8; StoragePlatform імпортує UnicaStep вкладено (Format-KitUnicaRun) —
 # для тестів, що вантажать StoragePlatform окремо; Runner — після Environment (бере
 # Get-UnicaInstallation; імпортує його вкладено без -Force, як AgentBase — V8), інших залежностей
