@@ -1,7 +1,7 @@
 // Ядро git (ADR-0014) — ЄДИНЕ місце, де Rust-код kit запускає git; поза цим модулем
 // запуск git ловить запобіжник rust/tests/git_guard.rs.
 //
-// Кожен запуск: `git -C <repo> -c core.quotepath=false <аргументи>`, `GIT_TERMINAL_PROMPT=0`, решта
+// Кожен запуск: `git -C <repo> -c core.quotepath=false <аргументи>`, `GIT_TERMINAL_PROMPT=0`, `GIT_NO_LAZY_FETCH=1`, решта
 // оточення успадкована. Вивід — байти, без декодування: текстове декодування псує бінарні блоби
 // (262 байти → 524) і знімало б BOM на початку потоку (виміряно). Контракт збою явний: ненульовий
 // код без дозволу — помилка з дослівним stderr git; з дозволом — `Output` з кодом. Режиму «тихо
@@ -76,6 +76,8 @@ fn command<S: AsRef<OsStr>>(repo: &Path, args: &[S]) -> Command {
         .arg("core.quotepath=false");
     cmd.args(args);
     cmd.env("GIT_TERMINAL_PROMPT", "0");
+    // Запити ядра локальні; прихований lazy fetch у partial clone — мережа, якої команда не просила.
+    cmd.env("GIT_NO_LAZY_FETCH", "1");
     cmd
 }
 

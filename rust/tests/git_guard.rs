@@ -58,6 +58,11 @@ const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
         "&exe",
         "gh для session-board: програма знайдена в PATH",
     ),
+    (
+        "src/session_start.rs",
+        "&exe",
+        "хук старту сесії: дочірній session-check — сам kit.exe (current_exe), не з PATH",
+    ),
 ];
 
 /// Дозволені літерали правила (а): (файл відносно rust/, літерал, навіщо). Кожен запис — рівно одне місце.

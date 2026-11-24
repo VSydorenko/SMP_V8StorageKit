@@ -11,7 +11,8 @@
 //
 // Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell),
 // `session-check` (блок B4: сигнал сховищ без PowerShell). Модулі `check.psm1` і `session-check.psm1` лишаються
-// до видалення в задачі 4 блоку B4; хук старту сесії поки кличе PowerShell-диспетчер напряму (задача 3).
+// до видалення в задачі 4 блоку B4. Хук старту сесії кличе `session-check` дочірнім `kit.exe` (current_exe), не
+// диспетчер.
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
@@ -109,8 +110,8 @@ fn source_fingerprint(args: &[String]) -> i32 {
 }
 
 /// Процес PowerShell-диспетчера з токенами в KIT_ARGV, ще не запущений: його запускає передача
-/// команди (`dispatch`) і хук старту (`session_start`) — одне місце запуску `pwsh`.
-pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
+/// команди (`dispatch`) — одне місце запуску `pwsh`.
+fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
     let script = root.join("tools").join("kit.ps1");
     if !script.is_file() {
         return Err(format!("диспетчер {} не знайдено", script.display()));
