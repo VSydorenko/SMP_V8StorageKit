@@ -14,9 +14,9 @@
 // маніфестом), 4 (стеля `runner::version`), 5 (збій git ≠ «немає»), 9 (scope Уніки), 10 (`unique-keys` без
 // регістру), 11 (одна `agent-base-required` на воркспейс).
 
-mod branch;
 mod gitq;
 mod guards;
+mod hooks;
 mod local;
 mod machine;
 mod sources;
@@ -216,6 +216,7 @@ pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
     } else {
         // Рішення 6: страж файла з паролем не мовчить, коли конфіг зламаний.
         guards::overlay_ignored(&mut c, root);
+        hooks::check(&mut c, root);
     }
 
     let has_error = c.findings.iter().any(|f| f.level == Level::Error);

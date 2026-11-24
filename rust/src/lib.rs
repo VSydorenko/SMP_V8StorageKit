@@ -10,10 +10,13 @@ pub mod cli;
 pub mod config;
 pub mod gh;
 pub mod git;
+pub mod hooks;
 pub mod proc;
 pub mod profile;
 pub mod runner;
 pub mod session_board;
+pub mod storage_branch;
+pub mod supply;
 pub mod unica;
 
 /// Хук паніки всього `kit.exe` (спека §6, ADR-0014): невиловлена паніка друкує сталий текст без payload і місця.

@@ -7,22 +7,9 @@
 // `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
 
 use crate::case_guard::fold;
-use crate::git;
 use std::path::Path;
 
-/// Код з переліку `ok` — відповідь команди; будь-який інший чи збій запуску — помилка з дослівним stderr git.
-pub(super) fn query(root: &Path, args: &[&str], ok: &[i32]) -> Result<git::Output, String> {
-    let out = git::run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
-    if ok.contains(&out.code) {
-        return Ok(out);
-    }
-    Err(format!(
-        "git {} завершився з кодом {}: {}",
-        args.join(" "),
-        out.code,
-        String::from_utf8_lossy(&out.stderr).trim_end()
-    ))
-}
+pub(super) use crate::storage_branch::query;
 
 /// Шлях у формі git: роздільники `/`, без кінцевої скісної риски.
 pub(super) fn slashed(path: &str) -> String {

@@ -1,11 +1,11 @@
 // Перевірки маніфесту й воркспейсів: `manifest` (зведення), `agent-base-required`, `main-branch`, `unique-keys`,
 // `undeclared-source`. Фільтр джерел за `truth` — лише через `config::Truth`.
 
-use super::branch::{BranchState, branch_state};
-use super::{Collector, Options, guards, local, selected_sources, sources};
+use super::{Collector, Options, guards, hooks, local, selected_sources, sources};
 use crate::config::agent_base::InfobaseKind;
 use crate::config::manifest::Manifest;
 use crate::config::{Context, Level, Truth, Workspace, yaml::eq_ci};
+use crate::storage_branch::{BranchState, branch_state};
 use std::path::Path;
 
 pub(super) fn check(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts: &Options) {
@@ -13,7 +13,7 @@ pub(super) fn check(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts:
     agent_base_required(c, ctx, opts);
     main_branch(c, ctx, manifest);
     unique_keys(c, ctx);
-    // Далі в PowerShell-порядку: накладка, джерела, воркспейси. Хуки — задача 3 плану B3.
+    // Далі в PowerShell-порядку: накладка, джерела, воркспейси, хуки.
     let root = Path::new(&ctx.repo_root);
     guards::overlay_ignored(c, root);
     local::overlay_connection(c, ctx);
@@ -43,7 +43,7 @@ pub(super) fn check(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts:
             local::local_audit(c, ctx, ws);
         }
     }
-    // [задача 3] hooks, hook-shim.
+    hooks::check(c, root);
 }
 
 /// `manifest`: зведення за МАНІФЕСТОМ, а не за розв'язаним контекстом: воркспейс із помилкою конфігу до

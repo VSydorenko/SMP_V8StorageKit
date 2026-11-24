@@ -239,10 +239,42 @@ fn break_head_tree(root: &Path) {
     std::fs::remove_file(&object).unwrap();
 }
 
+/// Хуки плагіна в `.githooks` як у здорового репозиторію: копії шаблонів, закомічені з бітом виконання, і
+/// `core.hooksPath`. Шаблони — з дерева розробки (так їх бачить і сам `check` від `current_exe`).
+fn install_hooks(root: &Path) {
+    let templates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("templates")
+        .join("githooks");
+    let dir = root.join(".githooks");
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["pre-commit", "pre-merge-commit"] {
+        std::fs::copy(templates.join(name), dir.join(name)).unwrap();
+        let rel = format!(".githooks/{name}");
+        git(root, &["add", "--", &rel]);
+        git(root, &["update-index", "--chmod=+x", "--", &rel]);
+    }
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "hooks",
+        ],
+    );
+    git(root, &["config", "core.hooksPath", ".githooks"]);
+}
+
 fn healthy(tag: &str) -> Healthy {
     let tmp = TempDir::new(tag);
     let root = tmp.0.join("repo");
     init_repo(&root, "main", true);
+    install_hooks(&root);
     write_workspace(&root, "ws", &["cf"]);
     write_manifest(&root, None, &[("ws", &[("cf", "storage")])]);
     let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
@@ -283,7 +315,14 @@ fn exit_codes_0_1_3_follow_errors_and_unchecked() {
         "{}",
         cc[0].message
     );
-    assert_eq!(r.not_checked.len(), 1, "{:?}", r.findings);
+    // Той самий збій (немає кореневого дерева HEAD) бачить і перевірка режиму хуків у HEAD: по одній на хук.
+    assert_eq!(r.not_checked.len(), 3, "{:?}", r.findings);
+    assert_eq!(by(&r, "hooks").len(), 2, "{:?}", r.findings);
+    assert!(
+        by(&r, "hooks")
+            .iter()
+            .all(|f| f.level == Level::Warn && f.message.starts_with("не перевірено: "))
+    );
     assert_eq!(r.code, 3, "{:?}", r.findings);
 
     // error сильніший за «не перевірено»: код 1.
@@ -626,6 +665,9 @@ fn main_branch_exists_unborn_or_misspelled() {
     let setup = |name: &str, git_branch: &str, commit: bool, manifest_branch: Option<&str>| {
         let root = tmp.0.join(name);
         init_repo(&root, git_branch, commit);
+        if commit {
+            install_hooks(&root);
+        }
         write_workspace(&root, "ws", &["a"]);
         write_manifest(&root, manifest_branch, &[("ws", &[("a", "vendor")])]);
         root
@@ -686,6 +728,7 @@ fn undeclared_source_set_is_a_warning_per_set() {
     let tmp = TempDir::new("undeclared");
     let root = tmp.0.join("repo");
     init_repo(&root, "main", true);
+    install_hooks(&root);
     write_workspace(&root, "ws", &["a", "Stray"]);
     write_manifest(&root, None, &[("ws", &[("A", "vendor")])]);
     let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
@@ -751,9 +794,12 @@ fn broken_nested_git_dir_does_not_fall_through_to_the_outer_repository() {
 // ---- Задача 2: git-стражі й локальні файли ----
 
 fn commit(root: &Path, message: &str) {
+    // Без хуків репозиторію: тест кладе в коміт фантом регістру, який pre-commit плагіна відхилив би.
     git(
         root,
         &[
+            "-c",
+            "core.hooksPath=.без-хуків",
             "-c",
             "user.name=t",
             "-c",
@@ -1297,4 +1343,773 @@ fn source_path_escaping_the_repository_is_an_unchecked_guard_error() {
         "{f:?}"
     );
     assert_eq!(r.code, 1);
+}
+
+// ---- Задача 3: поставка, сховище, `storage/*`, `config-name`, хуки ----
+
+fn git_stdin(dir: &Path, args: &[&str], stdin: &str) -> String {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+/// Дерево з файлами `files` (усі з однаковим вмістом) без індексу й робочого дерева.
+fn make_tree(root: &Path, files: &[&str]) -> String {
+    fn build(root: &Path, blob: &str, files: &[&str]) -> String {
+        let mut entries = Vec::new();
+        let mut dirs: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for f in files {
+            match f.split_once('/') {
+                None => entries.push(format!("100644 blob {blob}\t{f}\n")),
+                Some((d, rest)) => dirs
+                    .entry(d.to_string())
+                    .or_default()
+                    .push(rest.to_string()),
+            }
+        }
+        for (d, rest) in dirs {
+            let refs: Vec<&str> = rest.iter().map(String::as_str).collect();
+            let t = build(root, blob, &refs);
+            entries.push(format!("040000 tree {t}\t{d}\n"));
+        }
+        git_stdin(root, &["mktree"], &entries.concat())
+    }
+    let blob = git_stdin(root, &["hash-object", "-w", "--stdin"], "x");
+    build(root, &blob, files)
+}
+
+fn commit_tree(root: &Path, tree: &str, parents: &[&str], trailers: &str) -> String {
+    let mut args = vec!["commit-tree", tree];
+    for p in parents {
+        args.extend(["-p", p]);
+    }
+    args.extend(["-m", "s", "-m", trailers]);
+    git_stdin(root, &args, "")
+}
+
+fn set_ref(root: &Path, branch: &str, sha: &str) {
+    git(root, &["update-ref", &format!("refs/heads/{branch}"), sha]);
+}
+
+/// Видаляє незапакований об'єкт: ref і решта цілі, а читання самого об'єкта падає.
+fn remove_object(root: &Path, sha: &str) {
+    let object = root
+        .join(".git")
+        .join("objects")
+        .join(&sha[..2])
+        .join(&sha[2..]);
+    let mut perms = std::fs::metadata(&object).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&object, perms).unwrap();
+    std::fs::remove_file(&object).unwrap();
+}
+
+/// Файл, відкритий монопольно (без спільного доступу): метадані читаються, вміст — ні.
+fn lock_file(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .unwrap()
+}
+
+fn run_h(h: &Healthy) -> Report {
+    run_check(&h.root, &opts(&h.registry)).unwrap()
+}
+
+fn all_texts(r: &Report) -> String {
+    r.findings
+        .iter()
+        .map(|f| f.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// supply
+
+const SUPPLY: &str = "ws/cf/Ext/ParentConfigurations";
+
+/// `.bin` описує поставку (понад 16 байт); `rule` — рядок ігнору теки поставки в `.gitignore`.
+fn supply_fixture(h: &Healthy, rule: bool) {
+    write_file(
+        &h.root,
+        "ws/cf/Ext/ParentConfigurations.bin",
+        &"b".repeat(40),
+    );
+    if rule {
+        let mut ignore = std::fs::read_to_string(h.root.join(".gitignore")).unwrap();
+        ignore.push_str("**/Ext/ParentConfigurations/\n");
+        write_file(&h.root, ".gitignore", &ignore);
+    }
+}
+
+#[test]
+fn supply_state_missing_stale_current_and_unknown() {
+    let h = healthy("supply");
+    // Без `.bin` і з порожнім `.bin` (16 байт) поставки немає — мовчання.
+    assert!(by(&run_h(&h), "supply").is_empty());
+    write_file(
+        &h.root,
+        "ws/cf/Ext/ParentConfigurations.bin",
+        &"b".repeat(16),
+    );
+    assert!(by(&run_h(&h), "supply").is_empty());
+
+    supply_fixture(&h, true);
+    // Немає ні .cf, ні позначки: «відсутня», рецепт для гілки main — kit verify.
+    let r = run_h(&h);
+    let f = by(&r, "supply");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message.starts_with("ws/cf: поставка вендора відсутня"),
+        "{}",
+        f[0].message
+    );
+    assert!(
+        f[0].message.contains("на гілці main") && f[0].message.contains("kit verify -Source cf"),
+        "{}",
+        f[0].message
+    );
+    assert_eq!(r.code, 0, "{:?}", r.findings);
+
+    // На гілці задачі рецепт каже «спершу поставка на головній гілці».
+    git(&h.root, &["checkout", "-q", "-b", "task"]);
+    let r = run_h(&h);
+    assert!(
+        by(&r, "supply")[0]
+            .message
+            .contains("спершу поставка на головній гілці main"),
+        "{:?}",
+        r.findings
+    );
+    git(&h.root, &["checkout", "-q", "main"]);
+
+    // .cf є, позначка не збігається — «застаріла».
+    write_file(&h.root, &format!("{SUPPLY}/a.cf"), "cf");
+    write_file(&h.root, &format!("{SUPPLY}/.kit-bin-sha1"), "0000");
+    let r = run_h(&h);
+    assert!(
+        by(&r, "supply")[0]
+            .message
+            .contains("поставка вендора застаріла"),
+        "{:?}",
+        r.findings
+    );
+
+    // Позначка = SHA-1 .bin — без знахідок.
+    let sha = kit::supply::bin_sha1(&h.root.join("ws").join("cf")).unwrap();
+    write_file(&h.root, &format!("{SUPPLY}/.kit-bin-sha1"), &sha);
+    let r = run_h(&h);
+    assert!(by(&r, "supply").is_empty(), "{:?}", r.findings);
+    assert_eq!(r.code, 0);
+
+    // `.bin` не читається (монопольно відкритий): стан unknown у тексті «не перевірено» — код 3.
+    let _lock = lock_file(&h.root.join("ws/cf/Ext/ParentConfigurations.bin"));
+    let r = run_h(&h);
+    let f = by(&r, "supply");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message
+            .starts_with("не перевірено: ws/cf: поставка вендора — ")
+            && f[0].message.contains("стан поставки вендора не обчислено"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.contains(f[0]));
+    assert_eq!(r.code, 3, "{:?}", r.findings);
+}
+
+#[test]
+fn supply_git_rules_cf_not_ignored_bin_ignored_and_tracked() {
+    let h = healthy("supply-git");
+    supply_fixture(&h, false);
+    // Правила: тека поставки не під ігнором.
+    let r = run_h(&h);
+    let f = by(&r, "gitignore");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+    assert!(
+        f[0].message
+            .contains("тека поставки вендора 'ws/cf/Ext/ParentConfigurations/' не гітігнорована"),
+        "{}",
+        f[0].message
+    );
+    assert_eq!(r.code, 1);
+
+    // Ігнор лише `*.cf` без позначки — друга проба ловить.
+    write_file(
+        &h.root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\n*.cf\n",
+    );
+    let r = run_h(&h);
+    assert_eq!(by(&r, "gitignore").len(), 1, "{:?}", r.findings);
+
+    // `.bin` під ігнором — error.
+    write_file(
+        &h.root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\n**/Ext/ParentConfigurations/\n*.bin\n",
+    );
+    let r = run_h(&h);
+    let f = by(&r, "gitignore");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("ознаки підтримки"),
+        "{}",
+        f[0].message
+    );
+
+    // .cf закомічено силою — відстежується.
+    write_file(
+        &h.root,
+        ".gitignore",
+        "v8storagekit.local.yaml\nv8project.local.yaml\n**/Ext/ParentConfigurations/\n",
+    );
+    write_file(&h.root, &format!("{SUPPLY}/a.cf"), "cf");
+    git(&h.root, &["add", "-f", "--", &format!("{SUPPLY}/a.cf")]);
+    let r = run_h(&h);
+    let f = by(&r, "gitignore");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .contains("поставка вендора відстежується git (1 файл(ів)")
+            && f[0]
+                .message
+                .contains("git rm -r --cached -- 'ws/cf/Ext/ParentConfigurations'"),
+        "{}",
+        f[0].message
+    );
+}
+
+// storage-path
+
+fn set_storage_path(h: &Healthy, path: &str) {
+    write_file(
+        &h.root,
+        "v8storagekit.yaml",
+        &format!(
+            "version: 1
+product: P
+workspaces:
+  - path: ws
+    sources:
+      cf: {{ truth: storage, storage: {{ path: '{path}' }} }}
+"
+        ),
+    );
+}
+
+#[test]
+fn storage_path_directory_server_address_and_userinfo_mask() {
+    let h = healthy("storage-path");
+    // Існуючий каталог — тиша.
+    set_storage_path(&h, &h.tmp.0.to_string_lossy());
+    assert!(by(&run_h(&h), "storage-path").is_empty());
+
+    // Немає каталогу — warn (як зараз).
+    set_storage_path(&h, "C:\\нема-такого-каталогу-kit");
+    let r = run_h(&h);
+    let f = by(&r, "storage-path");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message.contains("каталог сховища недоступний на цій машині: 'C:\\нема-такого-каталогу-kit', як записано в v8storagekit.yaml"),
+        "{}",
+        f[0].message
+    );
+
+    // Серверна адреса — info, файлово не пробується; userinfo не друкується нікуди.
+    const MARKER: &str = "МАРКЕР-pw-7731";
+    set_storage_path(&h, &format!("tcp://user:{MARKER}@srv/repo"));
+    let r = run_h(&h);
+    let f = by(&r, "storage-path");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Info);
+    assert!(
+        f[0].message
+            .contains("серверне сховище — доступність check не перевіряє")
+            && f[0].message.contains("tcp://***@srv/repo"),
+        "{}",
+        f[0].message
+    );
+    assert!(!all_texts(&r).contains(MARKER), "{:?}", r.findings);
+    assert_eq!(r.code, 0);
+
+    // Перевизначення накладкою: у тексті обидва шляхи, обидва без userinfo.
+    write_file(
+        &h.root,
+        "v8storagekit.local.yaml",
+        "storages:\n  cf: { path: 'C:\\нема-такого-каталогу-kit' }\n",
+    );
+    let r = run_h(&h);
+    let f = by(&r, "storage-path");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("перевизначено в v8storagekit.local.yaml на 'C:\\нема-такого-каталогу-kit'; у самому v8storagekit.yaml записано: 'tcp://***@srv/repo'"),
+        "{}",
+        f[0].message
+    );
+    assert!(!all_texts(&r).contains(MARKER), "{:?}", r.findings);
+
+    // Контроль маски: функція справді прибирає облікові дані й не чіпає адресу без них.
+    assert_eq!(
+        config::mask_storage_path(&format!("https://u:{MARKER}/x@h/r")),
+        "https://***@h/r"
+    );
+    assert_eq!(
+        config::mask_storage_path("tcp://srv/repo"),
+        "tcp://srv/repo"
+    );
+    assert_eq!(config::mask_storage_path("C:\\a@b"), "C:\\a@b");
+    assert!(
+        config::is_server_storage_path("HTTPS://h") && !config::is_server_storage_path("C:\\h")
+    );
+}
+
+// storage-branch
+
+#[test]
+fn storage_branch_absent_good_and_every_invariant_violation() {
+    let h = healthy("storage-branch");
+    // Гілки немає — info.
+    let r = run_h(&h);
+    let f = by(&r, "storage-branch");
+    assert_eq!((f.len(), f[0].level), (1, Level::Info), "{:?}", r.findings);
+    assert!(f[0].message.contains("гілки storage/cf ще немає"));
+
+    // Здорова гілка: Source = ключ (без регістру), версії зростають, дерево лише під шляхом джерела.
+    let good = make_tree(&h.root, &["ws/cf/Configuration.xml"]);
+    let c1 = commit_tree(
+        &h.root,
+        &good,
+        &[],
+        "Storage-Source: cf\nStorage-Version: 1",
+    );
+    let c2 = commit_tree(
+        &h.root,
+        &good,
+        &[&c1],
+        "Storage-Source: CF\nStorage-Version: 2",
+    );
+    set_ref(&h.root, "storage/cf", &c2);
+    let r = run_h(&h);
+    assert!(by(&r, "storage-branch").is_empty(), "{:?}", r.findings);
+    assert_eq!(r.code, 0, "{:?}", r.findings);
+
+    // Кожне порушення — своя знахідка error.
+    let bad_tree = make_tree(
+        &h.root,
+        &[
+            "ws/cf/A.xml",
+            "ws/cf/a.xml",
+            "stray/x",
+            "ws/cf/Configuration.xml",
+        ],
+    );
+    let b1 = commit_tree(&h.root, &good, &[], "просто текст");
+    let b2 = commit_tree(
+        &h.root,
+        &good,
+        &[&b1],
+        "Storage-Source: інше\nStorage-Version: 5",
+    );
+    let b3 = commit_tree(
+        &h.root,
+        &good,
+        &[&b2],
+        "Storage-Source: cf\nStorage-Version: 5",
+    );
+    let b4 = commit_tree(
+        &h.root,
+        &bad_tree,
+        &[&b3, &b1],
+        "Storage-Source: cf\nStorage-Version: 6",
+    );
+    set_ref(&h.root, "storage/cf", &b4);
+    let r = run_h(&h);
+    let msgs = messages(&r, "storage-branch");
+    let joined = msgs.join("\n");
+    for needle in [
+        "без трейлера Storage-Source:",
+        "без числового трейлера Storage-Version:",
+        "має Storage-Source: 'інше', а гілка належить джерелу 'cf'",
+        "версії не зростають строго — після 5 іде 5",
+        "має 2 батьків — merge-коміт",
+        "у дереві 1 файл(ів) поза шляхом джерела 'ws/cf': stray/x",
+        "у вершині 1 груп(и) шляхів, що різняться лише регістром",
+        "ws/cf/A.xml | ws/cf/a.xml",
+    ] {
+        assert!(joined.contains(needle), "{needle}: {joined}");
+    }
+    assert!(
+        by(&r, "storage-branch")
+            .iter()
+            .all(|f| f.level == Level::Error)
+    );
+    assert_eq!(r.code, 1);
+}
+
+#[test]
+fn storage_branch_git_failure_is_unchecked_not_absent() {
+    let h = healthy("storage-branch-fail");
+    let tree = make_tree(&h.root, &["ws/cf/Configuration.xml"]);
+    let c1 = commit_tree(
+        &h.root,
+        &tree,
+        &[],
+        "Storage-Source: cf\nStorage-Version: 1",
+    );
+    set_ref(&h.root, "storage/cf", &c1);
+    remove_object(&h.root, &tree);
+    let r = run_h(&h);
+    let f = by(&r, "storage-branch");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message
+            .starts_with("не перевірено: ws/cf: інваріанти гілки storage/cf — git ls-tree")
+            && f[0].message.contains("not a tree object"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.contains(f[0]));
+    assert_eq!(r.code, 3, "{:?}", r.findings);
+}
+
+// config-name
+
+fn extension_repo(tag: &str) -> Healthy {
+    let tmp = TempDir::new(tag);
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    install_hooks(&root);
+    write_file(
+        &root,
+        "ws/v8project.yaml",
+        "providers: { push: designer, pull: designer, download: designer }\nsource-set:\n  - { name: Ext, type: EXTENSION, path: ext }\n",
+    );
+    write_manifest(&root, None, &[("ws", &[("Ext", "git")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    Healthy {
+        tmp,
+        root,
+        registry,
+    }
+}
+
+#[test]
+fn config_name_absent_match_mismatch_missing_name_and_unreadable() {
+    let h = extension_repo("config-name");
+    let cfg = "ws/ext/Configuration.xml";
+    // Файла ще немає — info.
+    let r = run_h(&h);
+    let f = by(&r, "config-name");
+    assert_eq!((f.len(), f[0].level), (1, Level::Info), "{:?}", r.findings);
+    assert!(f[0].message.contains("ws/ext/Configuration.xml ще немає"));
+
+    // <Name> збігається з ключем без регістру — тиша.
+    write_file(
+        &h.root,
+        cfg,
+        "<MetaDataObject><Name>EXT</Name></MetaDataObject>",
+    );
+    assert!(by(&run_h(&h), "config-name").is_empty());
+
+    // Не збігається — error.
+    write_file(&h.root, cfg, "<x><name>Інше</name></x>");
+    let r = run_h(&h);
+    let f = by(&r, "config-name");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+    assert!(
+        f[0].message.contains(
+            "<Name>Інше</Name> у ws/ext/Configuration.xml не збігається з ключем джерела 'Ext'"
+        ),
+        "{}",
+        f[0].message
+    );
+
+    // Немає <Name> — warn.
+    write_file(&h.root, cfg, "<x/>");
+    let r = run_h(&h);
+    let f = by(&r, "config-name");
+    assert_eq!((f.len(), f[0].level), (1, Level::Warn), "{:?}", r.findings);
+    assert!(f[0].message.contains("не знайдено <Name>"));
+    assert!(r.not_checked.is_empty());
+
+    // Файл не читається — «не перевірено» (код 3), а не втрата звіту.
+    write_file(&h.root, cfg, "<Name>Ext</Name>");
+    let _lock = lock_file(&h.root.join(cfg));
+    let r = run_h(&h);
+    let f = by(&r, "config-name");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .starts_with("не перевірено: ws/Ext: ws/ext/Configuration.xml — ")
+    );
+    assert!(r.not_checked.contains(f[0]));
+    assert_eq!(r.code, 3, "{:?}", r.findings);
+}
+
+// hooks
+
+fn hook_findings(r: &Report) -> Vec<&Finding> {
+    by(r, "hooks")
+}
+
+#[test]
+fn hooks_path_missing_files_content_mode_and_not_committed() {
+    let h = healthy("hooks");
+    assert!(hook_findings(&run_h(&h)).is_empty(), "healthy");
+
+    // `./.githooks` і абсолютний шлях до тієї самої теки — не помилка.
+    git(&h.root, &["config", "core.hooksPath", "./.githooks/"]);
+    assert!(hook_findings(&run_h(&h)).is_empty());
+    let abs = h.root.join(".githooks").to_string_lossy().into_owned();
+    git(&h.root, &["config", "core.hooksPath", &abs]);
+    assert!(hook_findings(&run_h(&h)).is_empty());
+
+    // Інша тека — error, у тексті — що зараз.
+    git(&h.root, &["config", "core.hooksPath", "elsewhere"]);
+    let r = run_h(&h);
+    let f = hook_findings(&r);
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Error);
+    assert!(
+        f[0].message.contains("зараз: 'elsewhere'"),
+        "{}",
+        f[0].message
+    );
+    git(&h.root, &["config", "--unset", "core.hooksPath"]);
+    assert!(hook_findings(&run_h(&h))[0].message.contains("зараз: ''"));
+    git(&h.root, &["config", "core.hooksPath", ".githooks"]);
+
+    // Вміст відрізняється — warn; відмінність лише в CRLF — ні.
+    let hook = h.root.join(".githooks/pre-commit");
+    let original = std::fs::read_to_string(&hook).unwrap();
+    std::fs::write(&hook, original.replace('\n', "\r\n")).unwrap();
+    assert!(hook_findings(&run_h(&h)).is_empty(), "CRLF");
+    std::fs::write(&hook, format!("{original}echo local\n")).unwrap();
+    let r = run_h(&h);
+    let f = hook_findings(&r);
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(f[0].message.contains("відрізняється від шаблону плагіна"));
+    std::fs::write(&hook, &original).unwrap();
+
+    // Режим 100644 в індексі й коміті — warn.
+    git(
+        &h.root,
+        &[
+            "update-index",
+            "--chmod=-x",
+            "--",
+            ".githooks/pre-merge-commit",
+        ],
+    );
+    let r = run_h(&h);
+    let f = hook_findings(&r);
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .contains("закомічено без біта виконання (режим 100644)")
+    );
+
+    // Індекс 100755, а HEAD 100644 (стан після `commit --only` на Windows): спершу коміт без біта, далі біт в індексі.
+    commit(&h.root, "без біта");
+    git(
+        &h.root,
+        &[
+            "update-index",
+            "--chmod=+x",
+            "--",
+            ".githooks/pre-merge-commit",
+        ],
+    );
+    let r = run_h(&h);
+    let f = hook_findings(&r);
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .contains("у коміті HEAD без біта виконання (100644), хоч в індексі 100755")
+    );
+
+    // Файла хука немає — error; хук на диску, але не в git — warn.
+    std::fs::remove_file(h.root.join(".githooks/pre-commit")).unwrap();
+    git(
+        &h.root,
+        &["rm", "-q", "--cached", "--", ".githooks/pre-merge-commit"],
+    );
+    let r = run_h(&h);
+    let texts: Vec<_> = hook_findings(&r)
+        .iter()
+        .map(|f| f.message.clone())
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("Хука .githooks/pre-commit немає")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t
+            .contains("Хук .githooks/pre-merge-commit лежить на диску, але не закомічений у git")),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn hooks_missing_plugin_template_and_git_failure_are_unchecked() {
+    let h = healthy("hooks-unchecked");
+    // Шаблонів немає в плагіні — «не перевірено», а не тиша.
+    let empty = h.tmp.0.join("порожньо");
+    std::fs::create_dir_all(&empty).unwrap();
+    let out = kit::hooks::audit(&h.root, Some(&empty));
+    assert_eq!(out.len(), 2, "{out:?}");
+    for o in &out {
+        match o {
+            kit::hooks::Outcome::Unchecked { reason, .. } => {
+                assert!(reason.contains("не знайдено в плагіні"), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    let out = kit::hooks::audit(&h.root, None);
+    assert_eq!(out.len(), 2, "{out:?}");
+
+    // Індекс зіпсовано: `ls-files -s` падає — «не перевірено» на кожен хук, а не «закомічено».
+    std::fs::write(h.root.join(".git").join("index"), b"garbage").unwrap();
+    let r = run_h(&h);
+    let f = hook_findings(&r);
+    assert_eq!(f.len(), 2, "{:?}", r.findings);
+    assert!(
+        f.iter()
+            .all(|x| x.level == Level::Warn && x.message.starts_with("не перевірено: режим хука")),
+        "{f:?}"
+    );
+    assert!(f.iter().all(|x| r.not_checked.contains(x)));
+}
+
+#[test]
+fn hooks_and_hook_shim_run_when_the_manifest_is_unread() {
+    // Рішення 6: страж не залежить від розв'язаного контексту.
+    let h = healthy("hooks-ctx");
+    write_file(&h.root, "v8storagekit.yaml", "це: [не маніфест\n");
+    git(&h.root, &["config", "--unset", "core.hooksPath"]);
+    write_file(&h.root, ".claude/hooks/session-start.ps1", "x");
+    let r = run_h(&h);
+    assert_eq!(hook_findings(&r).len(), 1, "{:?}", r.findings);
+    assert_eq!(by(&r, "hook-shim").len(), 1, "{:?}", r.findings);
+    assert_eq!(r.code, 1);
+}
+
+// hook-shim
+
+#[test]
+fn hook_shim_legacy_settings_shim_file_not_json_structure_and_unreadable() {
+    let h = healthy("hook-shim");
+    assert!(by(&run_h(&h), "hook-shim").is_empty());
+
+    // Старий хук у settings.json і файл-шим — одна знахідка називає обидва.
+    write_file(
+        &h.root,
+        ".claude/settings.json",
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"pwsh -File .claude/hooks/SESSION-START.PS1"}]}]}}"#,
+    );
+    write_file(&h.root, ".claude/hooks/session-start.ps1", "x");
+    let r = run_h(&h);
+    let f = by(&r, "hook-shim");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert_eq!(f[0].level, Level::Warn);
+    assert!(
+        f[0].message.contains(".claude/settings.json (hooks.SessionStart з командою на session-start.ps1); .claude/hooks/session-start.ps1"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.is_empty());
+
+    // Чужий хук SessionStart без session-start.ps1 — тиша.
+    std::fs::remove_file(h.root.join(".claude/hooks/session-start.ps1")).unwrap();
+    write_file(
+        &h.root,
+        ".claude/settings.json",
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"echo"}]}]},"permissions":{}}"#,
+    );
+    assert!(by(&run_h(&h), "hook-shim").is_empty());
+
+    // Не JSON: «не перевірено», текст не цитує вміст файла.
+    const MARKER: &str = "МАРКЕР-секрет-4417";
+    write_file(
+        &h.root,
+        ".claude/settings.json",
+        &format!("{{\"k\": \"{MARKER}\" ,,}}"),
+    );
+    let r = run_h(&h);
+    let f = by(&r, "hook-shim");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("файл не JSON (рядок 1, колонка "),
+        "{}",
+        f[0].message
+    );
+    assert!(!all_texts(&r).contains(MARKER));
+    assert!(r.not_checked.contains(f[0]));
+    assert_eq!(r.code, 3, "{:?}", r.findings);
+    let not_json = f[0].message.clone();
+
+    // Валідний JSON неочікуваної структури — інший текст.
+    write_file(
+        &h.root,
+        ".claude/settings.json",
+        r#"{"hooks":{"SessionStart":"x"}}"#,
+    );
+    let r = run_h(&h);
+    let f = by(&r, "hook-shim");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .contains("неочікувана структура файла: hooks.SessionStart — не масив")
+    );
+    assert_ne!(f[0].message, not_json);
+    assert!(r.not_checked.contains(f[0]));
+
+    // IO-збій читання — «не перевірено» (код 3), текст — помилка ОС.
+    write_file(&h.root, ".claude/settings.json", "{}");
+    let _lock = lock_file(&h.root.join(".claude/settings.json"));
+    let r = run_h(&h);
+    let f = by(&r, "hook-shim");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("файл не прочитано: "),
+        "{}",
+        f[0].message
+    );
+    assert_eq!(r.code, 3, "{:?}", r.findings);
 }
