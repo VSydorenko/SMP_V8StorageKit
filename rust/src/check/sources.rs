@@ -12,10 +12,29 @@ use crate::supply::{self, Purpose, RecipeState, State};
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::time::Duration;
 
-/// Стеля проби каталогу сховища (рішення 4): недоступний мережевий диск не повісить `check`.
-const STORAGE_PROBE_CEILING: Duration = Duration::from_secs(5);
+use super::PROBE_CEILING as STORAGE_PROBE_CEILING;
+
+fn dir_exists(path: &str) -> bool {
+    fs::metadata(path).is_ok()
+}
+
+/// Стартує проби каталогів сховищ усіх джерел `truth: storage` заздалегідь (паралельно): кожна зі стелею 5 с від
+/// свого старту; `storage_path` потім збирає результати в порядку джерел.
+pub(super) fn prefetch_storage_probes(c: &mut Collector, ctx: &Context, opts: &super::Options) {
+    if ctx.manifest.is_none() {
+        return;
+    }
+    for src in super::selected_sources(ctx, opts) {
+        if src.truth != Truth::Storage {
+            continue;
+        }
+        let path = src.storage_path.clone().unwrap_or_default();
+        if !is_server_storage_path(&path) {
+            c.probes.start(&path, STORAGE_PROBE_CEILING, dir_exists);
+        }
+    }
+}
 
 pub(super) fn check_source(c: &mut Collector, ctx: &Context, src: &Source) {
     let root = Path::new(&ctx.repo_root);
@@ -334,14 +353,6 @@ fn on_main_branch(root: &Path, main_branch: &str) -> bool {
     })
 }
 
-/// Проба існування каталогу з потоку зі стелею: `None` — не вклався.
-pub(super) fn probe_with_ceiling<F>(path: String, ceiling: Duration, probe: F) -> Option<bool>
-where
-    F: FnOnce(&str) -> bool + Send + 'static,
-{
-    crate::ceiling::run(ceiling, move || probe(&path))
-}
-
 /// `storage-path`: каталог сховища (файловий) існує на цій машині. Серверна адреса файлово не пробується (рішення
 /// 4). Будь-який текст зі шляхом — без userinfo.
 fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
@@ -356,9 +367,7 @@ fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
             ),
         );
     }
-    let exists = probe_with_ceiling(effective.clone(), STORAGE_PROBE_CEILING, |p| {
-        fs::metadata(p).is_ok()
-    });
+    let exists = c.probes.wait(&effective, STORAGE_PROBE_CEILING, dir_exists);
     match exists {
         Some(true) => {}
         None => c.unchecked(
@@ -500,21 +509,65 @@ fn config_name(c: &mut Collector, tag: &str, src: &Source) {
 
 #[cfg(test)]
 mod tests {
-    use super::{configuration_name, probe_with_ceiling};
+    use super::configuration_name;
+    use crate::check::DirProbes;
     use std::time::{Duration, Instant};
 
     // Стеля проби каталогу сховища (рішення 4): повільна проба не повісить `check`; швидка відповідає як є.
     #[test]
     fn probe_ceiling_cuts_a_hanging_probe_and_passes_a_fast_one() {
+        let mut probes = DirProbes::default();
         let started = Instant::now();
-        let slow = probe_with_ceiling("x".into(), Duration::from_millis(100), |_| {
+        let slow = probes.wait("s", Duration::from_millis(100), |_| {
             std::thread::sleep(Duration::from_secs(3));
             true
         });
         assert_eq!(slow, None);
         assert!(started.elapsed() < Duration::from_secs(2));
-        let fast = probe_with_ceiling("x".into(), Duration::from_secs(5), |p| p == "x");
+        let fast = probes.wait("x", Duration::from_secs(5), |p| p == "x");
         assert_eq!(fast, Some(true));
+    }
+
+    // Рішення архітектора (п. 7): проби стартують разом, результат — той самий, що послідовно, і в порядку запитів.
+    #[test]
+    fn parallel_probes_with_different_delays_give_the_sequential_answers_in_request_order() {
+        let delays = [("a", 300u64, true), ("b", 50, false), ("c", 200, true)];
+        let probe = |name: &'static str, ms: u64, ans: bool| {
+            move |_: &str| {
+                std::thread::sleep(Duration::from_millis(ms));
+                let _ = name;
+                ans
+            }
+        };
+        // Послідовно: кожна проба стартує, коли до неї дійшла черга.
+        let mut seq = DirProbes::default();
+        let t = Instant::now();
+        let sequential: Vec<_> = delays
+            .iter()
+            .map(|(n, ms, ans)| seq.wait(n, Duration::from_secs(5), probe(n, *ms, *ans)))
+            .collect();
+        let sequential_time = t.elapsed();
+        // Паралельно: усі стартують заздалегідь, збір — у тому самому порядку.
+        let mut par = DirProbes::default();
+        let t = Instant::now();
+        for (n, ms, ans) in delays {
+            par.start(n, Duration::from_secs(5), probe(n, ms, ans));
+        }
+        let parallel: Vec<_> = delays
+            .iter()
+            .map(|(n, ms, ans)| par.wait(n, Duration::from_secs(5), probe(n, *ms, *ans)))
+            .collect();
+        let parallel_time = t.elapsed();
+        assert_eq!(parallel, sequential);
+        assert_eq!(parallel, vec![Some(true), Some(false), Some(true)]);
+        assert!(
+            sequential_time >= Duration::from_millis(550),
+            "{sequential_time:?}"
+        );
+        assert!(
+            parallel_time < Duration::from_millis(500),
+            "{parallel_time:?}"
+        );
     }
 
     #[test]

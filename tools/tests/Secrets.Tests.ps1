@@ -240,7 +240,8 @@ Describe 'секрети не у виводі' {
                 $out | Should -Not -BeLike "*$m*"
                 $err | Should -Not -BeLike "*$m*"
             }
-            $out | Should -BeLike '*://***@host/x*'
+            # Contains, не -BeLike: `*` у шаблоні збіглась би з будь-чим, і маска лишилась би неперевіреною.
+            $out.Contains('tcp://***@host/x') | Should -BeTrue -Because $out
         }
     }
 

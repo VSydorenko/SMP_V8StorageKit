@@ -282,7 +282,7 @@ Describe 'kit check — версія Уніки й раннера' {
     It 'властивість: без -RunnerPath і з фальшивим реєстром без раннера — теж error (kit не йде до справжньої Уніки)' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'forgot-runner') -WithHooks -WithGitignore -WithGitattributes
         # Прямий запуск, без Invoke-KitCommand: фікстура сама підставила б фальшивий раннер.
-        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry -Version '0.16.0') 2>&1 | Out-String
+        $out = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry -Version '0.16.0') 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 1 -Because $out
         $out | Should -BeLike '*[[]-] Раннер Уніки недоступний*'
     }
@@ -290,7 +290,7 @@ Describe 'kit check — версія Уніки й раннера' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'no-unica') -WithHooks -WithGitignore -WithGitattributes
         $reg = Join-Path $TestDrive 'no-unica.json'
         Set-Content -LiteralPath $reg -Encoding UTF8 -Value '{"version":2,"plugins":{}}'
-        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $repo -InstalledPluginsPath $reg 2>&1 | Out-String
+        $out = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo -InstalledPluginsPath $reg 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 1 -Because $out
         $out | Should -BeLike '*[[]-] Раннер Уніки недоступний: Раннер не знайдено: Unica не встановлена*kit dump працює*'
         ([regex]::Matches($out, '\[-\]')).Count | Should -Be 1 -Because 'два error про одну причину — шум'

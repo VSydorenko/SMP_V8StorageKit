@@ -1207,6 +1207,22 @@ fn global_git_failure_gives_guard_errors_code_1() {
     let ba = by(&r, "build-artifacts");
     assert_eq!(ba[0].level, Level::Warn);
     assert!(ba[0].message.starts_with("не перевірено: "));
+    // `git config --get core.hooksPath` на нерозпізнаному репозиторії дає код 1, як для незаданого ключа: це не
+    // «значення не задано» — `hooks` каже «не перевірено», а не error «не вказує на .githooks (зараз: '')».
+    let hooks = by(&r, "hooks");
+    assert!(
+        hooks
+            .iter()
+            .any(|x| x.level == Level::Warn
+                && x.message.starts_with("не перевірено: core.hooksPath")),
+        "{hooks:?}"
+    );
+    assert!(
+        hooks
+            .iter()
+            .all(|x| !x.message.contains("не вказує на .githooks")),
+        "{hooks:?}"
+    );
     // Інваріант: not_checked ⊆ findings, той самий рівень.
     for x in &r.not_checked {
         assert!(r.findings.contains(x), "{x:?}");

@@ -12,6 +12,7 @@
 //    рядок і колонка: текст `serde_json` може цитувати дані файла).
 
 use crate::case_guard::fold;
+use crate::ceiling::Pending;
 use crate::config::Level;
 use crate::storage_branch::query;
 use serde_json::Value;
@@ -56,46 +57,102 @@ pub fn plugin_templates_dir() -> Option<PathBuf> {
         .find(|d| d.is_dir())
 }
 
-/// Шлях `core.hooksPath` за коренем: `./.githooks`, `.githooks/`, абсолютний шлях до тієї самої теки — та сама
-/// тека. Порівняння без регістру (NTFS).
-///
-/// `Err` — абсолютний шлях не вдалося розв'язати за стелю (недоступний UNC-хост): `canonicalize` ходить у мережу,
-/// тож іде з потоку зі стелею. Спершу — порівняння рядків (збіг не потребує мережі).
-fn hooks_path_is_default(
+/// Розв'язання `core.hooksPath`: відповідь уже відома (збіг рядків — без мережі) або проба, що йде в потоці.
+pub enum Resolution {
+    Known(bool),
+    Probe {
+        pending: Pending<(io::Result<PathBuf>, io::Result<PathBuf>)>,
+        secs: u64,
+    },
+}
+
+impl Resolution {
+    /// `Err` — абсолютний шлях не вдалося розв'язати за стелю.
+    fn finish(self) -> Result<bool, String> {
+        match self {
+            Resolution::Known(v) => Ok(v),
+            Resolution::Probe { pending, secs } => match pending.wait() {
+                None => Err(format!("шлях core.hooksPath не розв'язався за {secs} с")),
+                Some((Ok(a), Ok(b))) => {
+                    Ok(fold(&a.to_string_lossy()) == fold(&b.to_string_lossy()))
+                }
+                // Не розв'язується (шляху немає) — не та сама тека.
+                Some(_) => Ok(false),
+            },
+        }
+    }
+}
+
+/// Початок розв'язання `core.hooksPath` за коренем: `./.githooks`, `.githooks/`, абсолютний шлях до тієї самої
+/// теки — та сама тека. Порівняння без регістру (NTFS). Спершу — порівняння рядків (збіг не потребує мережі);
+/// інакше `canonicalize` ходить у мережу, тож стартує в потоці зі стелею.
+fn begin_hooks_path(
     root: &Path,
     configured: &str,
     ceiling: Duration,
     canon: fn(&Path) -> io::Result<PathBuf>,
-) -> Result<bool, String> {
+) -> Resolution {
     let unified = configured.replace('\\', "/");
     let mut rel = unified.trim_end_matches('/');
     while let Some(rest) = rel.strip_prefix("./") {
         rel = rest.trim_start_matches('/');
     }
     if rel == HOOKS_DIR {
-        return Ok(true);
+        return Resolution::Known(true);
     }
     if !Path::new(configured).is_absolute() {
-        return Ok(false);
+        return Resolution::Known(false);
     }
     let want = root.join(HOOKS_DIR);
     let want_text = want.to_string_lossy().replace('\\', "/");
     if fold(unified.trim_end_matches('/')) == fold(want_text.trim_end_matches('/')) {
-        return Ok(true);
+        return Resolution::Known(true);
     }
-    let (configured_path, want_path) = (PathBuf::from(configured), want);
-    let resolved = crate::ceiling::run(ceiling, move || {
-        (canon(&configured_path), canon(&want_path))
-    });
-    match resolved {
-        None => Err(format!(
-            "шлях core.hooksPath не розв'язався за {} с",
-            ceiling.as_secs().max(1)
-        )),
-        Some((Ok(a), Ok(b))) => Ok(fold(&a.to_string_lossy()) == fold(&b.to_string_lossy())),
-        // Не розв'язується (шляху немає) — не та сама тека.
-        Some(_) => Ok(false),
+    let configured_path = PathBuf::from(configured);
+    Resolution::Probe {
+        pending: crate::ceiling::start(ceiling, move || (canon(&configured_path), canon(&want))),
+        secs: ceiling.as_secs().max(1),
     }
+}
+
+/// Те саме одним викликом (початок + очікування).
+#[cfg(test)]
+fn hooks_path_is_default(
+    root: &Path,
+    configured: &str,
+    ceiling: Duration,
+    canon: fn(&Path) -> io::Result<PathBuf>,
+) -> Result<bool, String> {
+    begin_hooks_path(root, configured, ceiling, canon).finish()
+}
+
+/// `core.hooksPath` із git. `rev-parse --git-dir` розрізняє «значення не задано» й «git не бачить репозиторій»
+/// (напр. `core.repositoryformatversion=99`: `config --get` тоді дає код 1, як для незаданого ключа).
+fn read_hooks_path(root: &Path) -> Result<String, String> {
+    query(root, &["rev-parse", "--git-dir"], &[0])?;
+    let o = query(root, &["config", "--get", "core.hooksPath"], &[0, 1])?;
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Налаштований `core.hooksPath` і розв'язання, що вже йде.
+pub struct HooksPrefetch {
+    configured: String,
+    resolution: Resolution,
+}
+
+fn begin_prefetch(root: &Path) -> Result<HooksPrefetch, String> {
+    let configured = read_hooks_path(root)?;
+    let resolution = begin_hooks_path(root, &configured, PATH_CEILING, |p| fs::canonicalize(p));
+    Ok(HooksPrefetch {
+        configured,
+        resolution,
+    })
+}
+
+/// Стартує розв'язання `core.hooksPath` заздалегідь, щоб мережеві проби `check` ішли паралельно. `None` — git не
+/// відповів: `audit_with` сам повідомить причину.
+pub fn prefetch_hooks_path(root: &Path) -> Option<HooksPrefetch> {
+    begin_prefetch(root).ok()
 }
 
 /// Вміст без BOM і з `\n` замість `\r\n`: CR — окрема біда, і про неї каже `.gitattributes`.
@@ -125,21 +182,28 @@ fn is_file(path: &Path) -> io::Result<bool> {
 /// Аудит хуків (`Test-KitGitHooks`): `core.hooksPath` увімкнено, обидва файли є, вміст = шаблон плагіна, біт
 /// виконання в git. `templates` — тека шаблонів (`None` — не знайдено).
 pub fn audit(root: &Path, templates: Option<&Path>) -> Vec<Outcome> {
+    audit_with(root, templates, None)
+}
+
+/// `audit` із розв'язанням `core.hooksPath`, що вже стартувало (`prefetch_hooks_path`).
+pub fn audit_with(
+    root: &Path,
+    templates: Option<&Path>,
+    prefetch: Option<HooksPrefetch>,
+) -> Vec<Outcome> {
     let mut out = Vec::new();
-    match query(root, &["config", "--get", "core.hooksPath"], &[0, 1]) {
-        Ok(o) => {
-            let configured = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            match hooks_path_is_default(root, &configured, PATH_CEILING, |p| fs::canonicalize(p)) {
-                Ok(true) => {}
-                Err(reason) => out.push(unchecked("core.hooksPath", reason)),
-                Ok(false) => out.push(finding(
-                    Level::Error,
-                    format!(
-                        "core.hooksPath не вказує на {HOOKS_DIR} (зараз: '{configured}') — хуки захисту storage/* не працюють. Увімкнути: git config core.hooksPath {HOOKS_DIR} (скіл onboarding робить це сам)."
-                    ),
-                )),
-            }
-        }
+    match prefetch.map_or_else(|| begin_prefetch(root), Ok) {
+        Ok(p) => match p.resolution.finish() {
+            Ok(true) => {}
+            Err(reason) => out.push(unchecked("core.hooksPath", reason)),
+            Ok(false) => out.push(finding(
+                Level::Error,
+                format!(
+                    "core.hooksPath не вказує на {HOOKS_DIR} (зараз: '{}') — хуки захисту storage/* не працюють. Увімкнути: git config core.hooksPath {HOOKS_DIR} (скіл onboarding робить це сам).",
+                    p.configured
+                ),
+            )),
+        },
         Err(reason) => out.push(unchecked("core.hooksPath", reason)),
     }
 

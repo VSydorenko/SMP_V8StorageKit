@@ -37,6 +37,12 @@ const EMBEDDED_FINGERPRINT: &str = env!("KIT_SOURCE_FINGERPRINT");
 /// Прихована підкоманда запобіжника «бінарник = джерело»: не в довідці, не команда для людини.
 const FINGERPRINT_COMMAND: &str = "source-fingerprint";
 
+/// Імена команд — без регістру, як у диспетчері PowerShell (`-notcontains`): інакше `kit.exe Check` пішов би в
+/// `pwsh` і виконав би старий PowerShell-`check` (з сирим шляхом сховища у виводі).
+fn is_command(given: &str, name: &str) -> bool {
+    given.eq_ignore_ascii_case(name)
+}
+
 fn fail(command: &str, message: &str, code: i32) -> ! {
     eprintln!("{command}: ERROR {message}");
     exit(code)
@@ -334,7 +340,11 @@ fn check_command(args: &[String]) -> i32 {
 fn main() {
     kit::install_panic_hook();
     let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if raw.first().is_some_and(|a| a == RUNNER_EXEC_COMMAND) {
+    if raw
+        .first()
+        .and_then(|a| a.to_str())
+        .is_some_and(|a| is_command(a, RUNNER_EXEC_COMMAND))
+    {
         exit(runner_exec(&raw[1..]));
     }
     let mut tokens = Vec::new();
@@ -355,13 +365,13 @@ fn main() {
             2,
         );
     };
-    if command == FINGERPRINT_COMMAND {
+    if is_command(&command, FINGERPRINT_COMMAND) {
         exit(source_fingerprint(&tokens[1..]));
     }
-    if command == VERDICTS_COMMAND {
+    if is_command(&command, VERDICTS_COMMAND) {
         exit(tool_verdicts(&tokens[1..]));
     }
-    if command == session_start::COMMAND {
+    if is_command(&command, session_start::COMMAND) {
         // Хук старту сесії (ADR-0014): код 0 завжди, вивід — одним записом або жодного.
         let out = plugin_root()
             .ok()
@@ -374,7 +384,7 @@ fn main() {
         }
         exit(0);
     }
-    if command == subagent_start::COMMAND {
+    if is_command(&command, subagent_start::COMMAND) {
         // Хук SubagentStart: код 0 завжди, вивід — одним записом або жодного (блокувати хук не може).
         let out = plugin_root()
             .ok()
@@ -387,13 +397,13 @@ fn main() {
         }
         exit(0);
     }
-    if command == "config-preflight" {
+    if is_command(&command, "config-preflight") {
         exit(config_preflight(&tokens[1..]));
     }
-    if command == CHECK_COMMAND {
+    if is_command(&command, CHECK_COMMAND) {
         exit(check_command(&tokens[1..]));
     }
-    if command == "session-board" {
+    if is_command(&command, "session-board") {
         // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.
         let cwd = std::env::current_dir().unwrap_or_else(|e| {
             fail(

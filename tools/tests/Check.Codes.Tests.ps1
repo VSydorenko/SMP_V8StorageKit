@@ -116,5 +116,56 @@ Describe 'kit check — коди виходу, межі запису й ранн
             $line = @($h -split "`r?`n" | Where-Object { $_ -like 'команди:*' })[0]
             @($line -replace '^команди:\s*', '' -split ',\s*' | Where-Object { $_ -ceq 'check' }).Count | Should -Be 1
         }
+        It 'домашня тека не визначена (порожні USERPROFILE і HOME) без -InstalledPluginsPath — код 2, перший рядок stderr «check: ERROR»' {
+            $repo = New-GoodRepo 'codes-nohome'
+            $errFile = Join-Path $TestDrive 'nohome-err.txt'
+            $saved = @{ U = $env:USERPROFILE; H = $env:HOME }
+            try {
+                $env:USERPROFILE = ''
+                $env:HOME = ''
+                & (Get-KitExe -Kit $script:Kit) check -RepoRoot $repo 2>$errFile | Out-Null
+                $code = $LASTEXITCODE
+            } finally {
+                $env:USERPROFILE = $saved.U
+                $env:HOME = $saved.H
+            }
+            $code | Should -Be 2
+            @(Get-Content -LiteralPath $errFile -Encoding UTF8)[0] | Should -BeLike 'check: ERROR*домашню теку не визначено*'
+        }
+    }
+
+    Context 'на глобальному збої git hooks — «не перевірено», не error' {
+        It 'core.repositoryformatversion=99: hooks дає [!] «не перевірено: core.hooksPath», рядка «не вказує на .githooks» немає' {
+            $repo = New-GoodRepo 'codes-hooks-global'
+            $cfg = Join-Path $repo '.git/config'
+            $text = Get-Content -LiteralPath $cfg -Raw -Encoding UTF8
+            Set-Content -LiteralPath $cfg -Value ($text -replace 'repositoryformatversion = 0', 'repositoryformatversion = 99') -Encoding UTF8 -NoNewline
+            $r = Invoke-Check -Repo $repo
+            $r.ExitCode | Should -Be 1 -Because $r.Output
+            $r.Output | Should -Match '(?m)^\[!\] не перевірено: core\.hooksPath'
+            $r.Output | Should -Not -BeLike '*не вказує на .githooks*'
+        }
+    }
+
+    # Рішення архітектора (п. 7 доповнення): мережеві проби (каталог сховища кожного джерела, core.hooksPath) йдуть
+    # паралельно, кожна зі стелею 5 с. Адреса 10.255.255.x мережею не відповідає: проба стоїть до стелі.
+    Context 'мережеві проби паралельно' {
+        It 'три недоступні UNC-сховища й core.hooksPath на недоступному UNC — kit.exe check завершується не довше 9 с' {
+            $ws = [ordered]@{ 'W1' = @{ Infobase = 'File=build/ib'; Sets = @(
+                        @{ Name = 's1'; Type = 'CONFIGURATION'; Path = 'a/src'; Truth = 'storage' }
+                        @{ Name = 's2'; Type = 'EXTENSION'; Path = 'b/src'; Truth = 'storage' }
+                        @{ Name = 's3'; Type = 'EXTENSION'; Path = 'c/src'; Truth = 'storage' }) } }
+            # Випадкові адреси: клієнт SMB кешує невдалу відповідь хоста, і повторний прогін на тих самих адресах був би швидким.
+            $o3 = Get-Random -Minimum 2 -Maximum 250; $o4 = Get-Random -Minimum 2 -Maximum 240; $bs = '\'
+            $overlay = "storages:`n  s1: '${bs}${bs}10.255.$o3.$o4${bs}share${bs}a'`n  s2: '${bs}${bs}10.255.$o3.$($o4 + 1)${bs}share${bs}b'`n  s3: '${bs}${bs}10.255.$o3.$($o4 + 2)${bs}share${bs}c'"
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'codes-parallel') -WithHooks -WithGitattributes -WithGitignore -Workspaces $ws -OverlayText $overlay
+            git -C $repo config core.hooksPath "//10.255.$o3.$($o4 + 3)/share/hooks"
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $r = Invoke-Check -Repo $repo
+            $sw.Stop()
+            $sw.Elapsed.TotalSeconds | Should -BeLessThan 9 -Because "послідовно було б ≈ 20 с; вивід:`n$($r.Output)"
+            $r.Output | Should -Match '(?m)^\[!\] не перевірено: core\.hooksPath'
+            @([regex]::Matches($r.Output, '(?m)^\[!\] (W1/s\d: каталог сховища недоступний|не перевірено: W1/s\d: каталог сховища)')).Count | Should -Be 3
+        }
     }
 }

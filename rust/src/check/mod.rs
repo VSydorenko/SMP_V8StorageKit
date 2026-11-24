@@ -23,8 +23,10 @@ mod sources;
 mod workspaces;
 
 use crate::config::{Context, Finding, Level, Source, manifest::Manifest, yaml::eq_ci};
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Перевірки стану машини, а не репозиторію: сигнали `session-check` їх не блокують (рішення 16).
 pub const MACHINE_STATE_CHECKS: &[&str] = &["runner-version", "unica-version"];
@@ -60,6 +62,55 @@ pub struct Report {
     pub code: i32,
 }
 
+/// Стеля проби мережевого ресурсу (каталог сховища, `core.hooksPath`; рішення 4): кожна проба має свою.
+pub(crate) const PROBE_CEILING: Duration = Duration::from_secs(5);
+
+enum Probe {
+    Pending(crate::ceiling::Pending<bool>),
+    Done(Option<bool>),
+}
+
+/// Проби каталогів: стартують усі заздалегідь і йдуть паралельно (кожна зі стелею від свого старту), а знахідки
+/// збираються в порядку перевірок. Проба на стелі лишає потік, заблокований на ОС; вихід процесу його не чекає.
+#[derive(Default)]
+pub(crate) struct DirProbes {
+    map: HashMap<String, Probe>,
+}
+
+impl DirProbes {
+    /// Стартує пробу шляху, якщо її ще немає.
+    pub fn start<F>(&mut self, path: &str, ceiling: Duration, probe: F)
+    where
+        F: FnOnce(&str) -> bool + Send + 'static,
+    {
+        if !self.map.contains_key(path) {
+            let owned = path.to_string();
+            let pending = crate::ceiling::start(ceiling, move || probe(&owned));
+            self.map.insert(path.to_string(), Probe::Pending(pending));
+        }
+    }
+
+    /// Результат проби (стартує її, якщо заздалегідь не стартувала): `None` — не вклалась у стелю.
+    pub fn wait<F>(&mut self, path: &str, ceiling: Duration, probe: F) -> Option<bool>
+    where
+        F: FnOnce(&str) -> bool + Send + 'static,
+    {
+        self.start(path, ceiling, probe);
+        match self.map.remove(path) {
+            Some(Probe::Pending(p)) => {
+                let r = p.wait();
+                self.map.insert(path.to_string(), Probe::Done(r));
+                r
+            }
+            Some(Probe::Done(r)) => {
+                self.map.insert(path.to_string(), Probe::Done(r));
+                r
+            }
+            None => None,
+        }
+    }
+}
+
 /// Збирач знахідок: єдине місце, де народжується «не перевірено».
 pub(crate) struct Collector {
     pub findings: Vec<Finding>,
@@ -67,6 +118,9 @@ pub(crate) struct Collector {
     /// Індекс і неігноровані файли читаються один раз за прогін.
     index: Option<Result<Vec<String>, String>>,
     unignored: Option<Result<Vec<String>, String>>,
+    /// Мережеві проби, що стартували заздалегідь (паралельно).
+    pub probes: DirProbes,
+    pub hooks_prefetch: Option<crate::hooks::HooksPrefetch>,
 }
 
 impl Collector {
@@ -207,8 +261,13 @@ pub fn run(ctx: &Context, opts: &Options) -> Result<Report, UsageError> {
         not_checked: Vec::new(),
         index: None,
         unignored: None,
+        probes: DirProbes::default(),
+        hooks_prefetch: None,
     };
     let root = Path::new(&ctx.repo_root);
+    // Усі мережеві проби стартують разом; звіт збирається в порядку перевірок, а не завершення проб.
+    c.hooks_prefetch = crate::hooks::prefetch_hooks_path(root);
+    sources::prefetch_storage_probes(&mut c, ctx, opts);
 
     machine::check(&mut c, opts, root);
     if let Some(manifest) = &ctx.manifest {

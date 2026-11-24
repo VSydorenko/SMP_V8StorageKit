@@ -16,6 +16,11 @@ fn push(c: &mut Collector, check: &str, outcomes: Vec<Outcome>) {
 
 pub(super) fn check(c: &mut Collector, root: &Path) {
     let templates = hooks::plugin_templates_dir();
-    push(c, "hooks", hooks::audit(root, templates.as_deref()));
+    let prefetch = c.hooks_prefetch.take();
+    push(
+        c,
+        "hooks",
+        hooks::audit_with(root, templates.as_deref(), prefetch),
+    );
     push(c, "hook-shim", hooks::legacy_session_hook(root));
 }
