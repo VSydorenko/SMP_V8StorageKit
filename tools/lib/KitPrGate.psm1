@@ -476,6 +476,19 @@ function Invoke-PrGateStart {
     $localBranches = @((Get-PgGit -GitArgs @('for-each-ref', '--format=%(refname:short)', "refs/heads/$prefix*") -Cwd $root) -split "\r?\n" | Where-Object { $_ })
     $remoteBranches = @((Get-PgGit -GitArgs @('for-each-ref', '--format=%(refname:short)', "refs/remotes/origin/$prefix*") -Cwd $root) -split "\r?\n" | Where-Object { $_ } | ForEach-Object { $_ -replace '^origin/', '' })
     $wts = @(Get-PgWorktrees -Cwd $root)
+    # Гілка, вміщена в origin/<base>, — не «робота вже почата»: локальну (без worktree) видаляємо
+    # `branch -D` (верхівку доведено в origin/<base>; `-d` на [gone]-upstream звіряє з HEAD і може хибно відмовити), віддалену лише пропускаємо. Незлита блокує як раніше.
+    $baseRef = "origin/$base"
+    $isMerged = { param($ref) (Invoke-PgGit -GitArgs @('merge-base', '--is-ancestor', $ref, $baseRef) -Cwd $root).Ok }
+    $liveLocal = [System.Collections.Generic.List[string]]::new()
+    foreach ($b in $localBranches) {
+        $heldBy = $wts | Where-Object { $_.Branch -ceq $b } | Select-Object -First 1
+        if (-not $heldBy -and (& $isMerged "refs/heads/$b") -and (Invoke-PgGit -GitArgs @('branch', '-D', $b) -Cwd $root).Ok) {
+            & $Say "видалено злиту локальну гілку $b (вміщена в $baseRef)"
+        } else { $liveLocal.Add($b) }
+    }
+    $localBranches = @($liveLocal)
+    $remoteBranches = @($remoteBranches | Where-Object { $localBranches -ccontains $_ -or -not (& $isMerged "refs/remotes/origin/$_") })
     $existing = if ($localBranches.Count) { $localBranches[0] } elseif ($remoteBranches.Count) { $remoteBranches[0] } else { $null }
     if ($existing) {
         $held = $wts | Where-Object { $_.Branch -ceq $existing } | Select-Object -First 1
@@ -755,10 +768,23 @@ function Remove-PgWorktree {
     $cwd = (Get-Location).Path
     $inside = Move-PgOutOf -Path $path -To $Ctx.MainRoot
     # Без --force: брудне дерево git відмовиться видаляти, і це правильно.
+    $stuck = $false
     try { $null = Get-PgGit -GitArgs @('worktree', 'remove', $path) -Cwd $Ctx.MainRoot }
     catch {
-        if ($inside) { Set-Location -LiteralPath $cwd; [System.Environment]::CurrentDirectory = $cwd }
-        throw
+        # Тека зайнята процесом: git міг уже зняти реєстрацію (стерши `.git` дерева), але не теку. Тоді
+        # prune прибирає запис, а решта кроків іде далі. Реєстрація лишилась (брудне дерево тощо) — відмова.
+        $null = Invoke-PgGit -GitArgs @('worktree', 'prune') -Cwd $Ctx.MainRoot
+        $still = @(Get-PgWorktrees -Cwd $Ctx.MainRoot) | Where-Object { Test-PgSamePath $_.Path $path }
+        if ($still) {
+            if ($inside) { Set-Location -LiteralPath $cwd; [System.Environment]::CurrentDirectory = $cwd }
+            throw
+        }
+        $stuck = Test-Path -LiteralPath $path
+    }
+    if ($stuck) {
+        & $Say "реєстрацію worktree $path прибрано"
+        & $Say "теку $path тримає процес — прибери після його завершення"
+        return $inside
     }
     & $Say $(if ($journals.Count) { "видалено журнал $($journals -join ', ')" } else { 'у worktree немає журналу' })
     & $Say "видалено worktree $path"
