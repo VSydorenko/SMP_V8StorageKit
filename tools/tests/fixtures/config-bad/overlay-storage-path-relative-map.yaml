@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, storages.Alpha_SMB.path — шлях сховища має форму абсолютного шляху з диском (X:\…), UNC (\\сервер\…) або адреси tcp://…, http://…, https://… (значення не друкується). Перевірте пробіл після ':' і форму 'ключ: значення'.
+storages:
+  Alpha_SMB: { path: 'rel/x' }

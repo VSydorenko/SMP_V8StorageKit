@@ -1,0 +1,11 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — поле kitVersion прибрано: версію проєкту тримає .agents/kit.profile.json (v8storagekit.version); видаліть рядок і запустіть /v8storagekit:onboarding.
+kitVersion: 1
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

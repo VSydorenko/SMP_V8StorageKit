@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить ключ 'Pwd' (логін чи пароль): логін і пароль не задаються в рядку підключення, у ньому лишаються лише Srvr=/Ref= або File=. Логін і пароль б
+infobases:
+  origin: { connection: 'File=a;Pwd=x' }

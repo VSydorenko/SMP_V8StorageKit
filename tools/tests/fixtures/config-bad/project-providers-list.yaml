@@ -1,0 +1,7 @@
+#@ target: project
+#@ check: workspace
+#@ starts: {path}: немає providers — запис і завантаження бази агента мусить робити один виконавець (дефект раннера #459). Додайте: providers: { push: designer, pull: designer, download: designer }.
+providers: [designer]
+source-set:
+  - { name: base, type: CONFIGURATION, path: cf/src }
+  - { name: Alpha_SMB, type: EXTENSION, path: cfe/src }

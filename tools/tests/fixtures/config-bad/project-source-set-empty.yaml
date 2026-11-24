@@ -1,0 +1,5 @@
+#@ target: project
+#@ check: workspace
+#@ starts: Розділ source-set: у {path} має бути непорожнім списком.
+providers: { push: designer, pull: designer, download: designer }
+source-set: []

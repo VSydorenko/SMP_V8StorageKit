@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — storages.Alpha_SMB порожній.
+storages:
+  Alpha_SMB: ''

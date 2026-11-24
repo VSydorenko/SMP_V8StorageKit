@@ -1,0 +1,6 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — workspaces: має бути непорожнім списком.
+version: 1
+product: Fake
+workspaces: []

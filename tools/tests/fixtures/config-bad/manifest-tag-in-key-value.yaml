@@ -1,0 +1,14 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ decision: KD-4
+#@ rust-check: manifest
+#@ rust-starts: {path}: YAML-тег (`!…`) у рядку 9, колонці 13 не підтримується — приберіть тег.
+version: 1
+product: Fake
+mainBranch: !t develop
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

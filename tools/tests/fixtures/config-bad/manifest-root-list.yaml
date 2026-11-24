@@ -1,0 +1,5 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Файл {path} на верхньому рівні має бути мапою (ключ: значення), а не List`1.
+- a
+- b

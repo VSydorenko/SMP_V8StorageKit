@@ -1,0 +1,12 @@
+#@ target: manifest
+#@ check: manifest
+#@ parity: class
+#@ decision: KD-9
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' має бути мапою (ключ: значення).
+#@ rust-starts: Маніфест {path}, воркспейс 'Alpha_SMB', sources — запис №1 без значення (ім'я не друкується).
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: 

@@ -1,0 +1,8 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB' — sources: має бути непорожньою мапою «ключ джерела → опис».
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources: [a, b]

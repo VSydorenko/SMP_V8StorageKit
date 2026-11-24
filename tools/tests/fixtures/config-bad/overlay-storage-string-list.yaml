@@ -1,0 +1,8 @@
+#@ target: overlay
+#@ check: none
+#@ parity: class
+#@ decision: KD-5
+#@ rust-check: overlay
+#@ rust-starts: Накладка {path}, storages.Alpha_SMB — має бути шляхом (скалярне значення) чи мапою { path, user, password }, а не списком (значення не друкується).
+storages:
+  Alpha_SMB: ['R:\x']

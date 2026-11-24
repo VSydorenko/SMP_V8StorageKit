@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, storages.Alpha_SMB — містить невідомий ключ (ім'я не друкується). Дозволені: path, user, password. Перевірте пробіл після ':' і форму 'ключ: значення'.
+storages:
+  Alpha_SMB: { pass: x }

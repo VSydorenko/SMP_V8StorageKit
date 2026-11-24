@@ -1,0 +1,11 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — mainBranch: 'a b' не схоже на ім'я гілки або лежить у просторі storage/, зарезервованому для дзеркал сховищ.
+version: 1
+product: Fake
+mainBranch: 'a b'
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

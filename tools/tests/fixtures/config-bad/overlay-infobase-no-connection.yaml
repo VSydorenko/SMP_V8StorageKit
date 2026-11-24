@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, infobases.dev — бракує обов'язкового ключа 'connection'.
+infobases:
+  dev: { user: u }

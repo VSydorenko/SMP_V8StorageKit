@@ -1,0 +1,8 @@
+#@ target: local
+#@ check: agentBase
+#@ parity: class
+#@ decision: KD-6
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить '=' у значенні ключа 'ss' — найімовірніше, пропущено ';' між елементами. Шлях у File= не може містити '=' (як і ';').
+#@ rust-starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить '=' у значенні невідомого ключа (ім'я не друкується) — найімовірніше, пропущено ';' між елементами. Шлях у File= не може містити '=' (як і '
+infobases:
+  origin: { connection: 'Srvr=a;Ref=b;ss=x=y' }

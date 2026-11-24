@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, infobases.dev має бути мапою (ключ: значення).
+infobases:
+  dev: x

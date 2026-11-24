@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, workspaces.Alpha_SMB.agentBase — містить невідомий ключ (ім'я не друкується). Дозволені: template. Перевірте пробіл після ':' і форму 'ключ: значення'.
+workspaces:
+  Alpha_SMB: { agentBase: { dt: x } }

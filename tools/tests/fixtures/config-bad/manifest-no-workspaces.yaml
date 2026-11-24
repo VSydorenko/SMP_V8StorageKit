@@ -1,0 +1,5 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — бракує обов'язкового ключа 'workspaces'.
+version: 1
+product: Fake

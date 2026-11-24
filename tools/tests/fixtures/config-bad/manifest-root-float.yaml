@@ -1,0 +1,4 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Файл {path} на верхньому рівні має бути мапою (ключ: значення), а не Decimal.
+1.5

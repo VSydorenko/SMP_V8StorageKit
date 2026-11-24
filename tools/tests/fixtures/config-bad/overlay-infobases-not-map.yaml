@@ -1,0 +1,4 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — infobases: має бути мапою «ім'я → { connection, user }».
+infobases: x

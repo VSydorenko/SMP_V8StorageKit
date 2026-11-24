@@ -1,0 +1,9 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base', storage.path — шлях сховища має форму абсолютного шляху з диском (X:\…), UNC (\\сервер\…) або адреси tcp://…, http://…, https://… (значення не друкується). Перевірте пробіл після ':' і форму 'ключ: значен
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: storage, storage: { path: 'rel/x' } }

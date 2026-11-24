@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path} — infobases.dev.connection порожній.
+infobases:
+  dev: { connection: '  ' }

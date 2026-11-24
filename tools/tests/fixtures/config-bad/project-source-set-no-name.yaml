@@ -1,0 +1,6 @@
+#@ target: project
+#@ check: workspace
+#@ starts: У source-set файлу {path} бракує ключа 'name'.
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { type: EXTENSION, path: x }

@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення містить непарні лапки у значенні ключа 'File': лапки допускаються лише парою навколо всього значення (Srvr="SRV";Ref="BASE";). Шлях у File= не може 
+infobases:
+  origin: { connection: 'File=a"b' }

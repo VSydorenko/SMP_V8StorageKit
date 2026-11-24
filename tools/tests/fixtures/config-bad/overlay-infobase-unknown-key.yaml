@@ -1,0 +1,8 @@
+#@ target: overlay
+#@ check: agentBase
+#@ parity: class
+#@ decision: KD-6
+#@ starts: Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — дев-база 'dev' у v8storagekit.local.yaml. Рядок підключення містить невідомий ключ 'ss'. Дозволені ключі: Srvr, Ref, File. Очікується File=<абсолютний шлях> або Srvr=<сервер>;Ref=
+#@ rust-starts: Kit не може однозначно розібрати й звірити два підключення до бази: нерозбірне — дев-база 'dev' у v8storagekit.local.yaml. Рядок підключення містить невідомий ключ (ім'я не друкується). Дозволені ключі: Srvr, Ref, File. Очікується File=<абсолютний шлях> або Sr
+infobases:
+  dev: { connection: 'Srvr=a;Ref=b;ss=x' }

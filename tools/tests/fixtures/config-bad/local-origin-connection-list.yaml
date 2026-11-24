@@ -1,0 +1,8 @@
+#@ target: local
+#@ check: none
+#@ parity: class
+#@ decision: KD-5
+#@ rust-check: workspace
+#@ rust-starts: У {path} — infobases.origin.connection: має бути скалярним значенням
+infobases:
+  origin: { connection: ['File=build/ib'] }

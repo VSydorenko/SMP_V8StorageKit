@@ -1,0 +1,5 @@
+#@ target: local
+#@ check: agentBase
+#@ starts: infobases.origin.connection воркспейсу 'Alpha_SMB' (v8project.local.yaml або v8project.yaml): Рядок підключення — голий шлях без ключа. Голий шлях більше не приймається: вкажіть File=<шлях>.
+infobases:
+  origin: { connection: 'C:\x' }

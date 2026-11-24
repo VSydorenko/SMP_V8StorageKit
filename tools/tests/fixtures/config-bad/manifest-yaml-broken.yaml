@@ -1,0 +1,8 @@
+#@ target: manifest
+#@ check: manifest
+#@ parity: class
+#@ decision: KD-1
+#@ starts: Файл {path} не розбирається як YAML
+#@ rust-starts: Файл {path} не розбирається як YAML
+version: [1
+product: Fake

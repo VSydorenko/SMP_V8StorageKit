@@ -1,0 +1,6 @@
+#@ target: project
+#@ check: workspace
+#@ starts: source-set 'base' у {path} має невідомий type 'LIBRARY'. Kit знає: CONFIGURATION, EXTENSION, EXTERNAL_DATA_PROCESSORS.
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: LIBRARY, path: x }

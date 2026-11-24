@@ -1,0 +1,11 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path} — має бути рівно один із ключів product: або client: (вказано обидва).
+version: 1
+product: A
+client: B
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: dev } }
+      Alpha_SMB: { truth: git }

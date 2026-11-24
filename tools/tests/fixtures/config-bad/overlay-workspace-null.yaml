@@ -1,0 +1,5 @@
+#@ target: overlay
+#@ check: overlay
+#@ starts: Накладка {path}, workspaces — запис №1 без значення (ім'я не друкується). Перевірте пробіл після ':' і форму 'ключ: значення'.
+workspaces:
+  Alpha_SMB:

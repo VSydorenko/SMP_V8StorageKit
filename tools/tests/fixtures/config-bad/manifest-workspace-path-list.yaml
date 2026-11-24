@@ -1,0 +1,12 @@
+#@ target: manifest
+#@ check: source
+#@ parity: class
+#@ decision: KD-5
+#@ starts: Ключ sources воркспейсу 'Alpha_SMB' (ім'я не друкується) не відповідає жодному name: source-set у Alpha_SMB/v8project.yaml (є: base, Alpha_SMB).
+#@ rust-check: manifest
+#@ rust-starts: Маніфест {path}, елемент workspaces — path: має бути скалярним значенням
+version: 1
+product: Fake
+workspaces:
+  - path: [Alpha_SMB]
+    sources: { x: { truth: git } }

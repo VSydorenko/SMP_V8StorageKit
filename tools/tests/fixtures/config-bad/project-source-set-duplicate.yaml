@@ -1,0 +1,7 @@
+#@ target: project
+#@ check: workspace
+#@ starts: source-set 'base' оголошено в {path} двічі.
+providers: { push: designer, pull: designer, download: designer }
+source-set:
+  - { name: base, type: EXTENSION, path: x }
+  - { name: base, type: EXTENSION, path: y }

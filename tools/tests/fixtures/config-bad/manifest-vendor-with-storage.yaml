@@ -1,0 +1,9 @@
+#@ target: manifest
+#@ check: manifest
+#@ starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base' — truth: vendor не поєднується зі storage:.
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: vendor, dump: { from: d }, storage: { path: 'R:\x' } }

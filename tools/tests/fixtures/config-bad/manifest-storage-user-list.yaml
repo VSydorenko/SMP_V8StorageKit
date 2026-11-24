@@ -1,0 +1,12 @@
+#@ target: manifest
+#@ check: none
+#@ parity: class
+#@ decision: KD-5
+#@ rust-check: manifest
+#@ rust-starts: Маніфест {path}, воркспейс 'Alpha_SMB', джерело 'base', storage — user: має бути скалярним значенням
+version: 1
+product: Fake
+workspaces:
+  - path: Alpha_SMB
+    sources:
+      base: { truth: storage, storage: { path: 'R:\x', user: [u] } }

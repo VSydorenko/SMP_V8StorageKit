@@ -1,0 +1,7 @@
+#@ target: overlay
+#@ check: overlay
+#@ parity: class
+#@ decision: KD-1
+#@ starts: Файл {path} не розбирається як YAML
+#@ rust-starts: Файл {path} не розбирається як YAML
+infobases: [

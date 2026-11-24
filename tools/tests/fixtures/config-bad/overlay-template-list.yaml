@@ -1,0 +1,8 @@
+#@ target: overlay
+#@ check: none
+#@ parity: class
+#@ decision: KD-5
+#@ rust-check: overlay
+#@ rust-starts: Накладка {path}, workspaces.Alpha_SMB.agentBase — template: має бути скалярним значенням
+workspaces:
+  Alpha_SMB: { agentBase: { template: ['D:\t.dt'] } }
