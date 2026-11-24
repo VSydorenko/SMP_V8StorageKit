@@ -107,14 +107,48 @@ PowerShell-версії, а не відтворює їх (принцип вла�
 
 ## 8. Задачі
 
-| # | Задача | Файли | Готово, коли | Після | Перевірка |
-|---|---|---|---|---|---|
-| 0 | Якорі й еталон | тека .agents/out/b3-etalon (гітігнорована) | `doc anchors` плану без зламаних якорів (крім «після B1 #113»); еталон PowerShell `check` (stdout, код) на кожному сценарії `Check.*` знято на `origin/main` скриптом у теці виводу .agents/out; таблиця відмінностей і скрипт звірки (рішення 18); перелік Pester-тестів, що пінять дефект PowerShell, з рішенням, яке змінює кожен | — | лише документи |
-| 1 | Каркас `check`, машина, маніфест | нова тека rust/src/check (каркас, машина, маніфест і воркспейси), `runner.rs` (стеля `version`), `rust/tests/support/fake_runner.rs` (сон на `--version`), `lib.rs` | `Report`, `run`, `print`, коди за рішенням 2; `unica-version`, `runner-version` за рішеннями 4 і 9; зведення `manifest`, `agent-base-required` (рішення 11), `main-branch`, `unique-keys`, `undeclared-source`; рішення 3 (код 2); Rust-тести на синтетичних репозиторіях і фальшивому реєстрі/раннері для кожної перевірки й кожного коду | 0 | `cargo test`, `cargo clippy --all-targets -- -D warnings` |
-| 2 | Git-стражі й локальні файли | нова тека rust/src/check (стражі), перенесені функції гілок, атрибутів, регістру | `overlay-ignored`, `local-ignored`, `gitattributes`, `gitignore` (дерево, vendor — правила й факт), `case-collision`, `build-artifacts`, `local-audit`, `overlay-connection`, `dump-from` за рішеннями 5–7, 10, 11, 13, 14; Rust-тести, зокрема два випадки збою git: глобальний (`core.repositoryformatversion=99` чи відмова `safe.directory`) → error стражів, код 1; точковий у неохоронній перевірці → «не перевірено», код 3 | 1 | `cargo test`, clippy |
-| 3 | Джерела, `storage/*`, поставка, хуки | нова тека rust/src/check (джерела, хуки), перенесені `storage_branch`, `supply`, `hooks` | `supply`, `storage-path` (рішення 4), `storage-branch` (інваріанти `storage/*`), `config-name`, `hooks`, `hook-shim` за рішеннями 8, 10, 12; Rust-тести | 2 | `cargo test`, clippy |
-| 4 | Маршрут `kit.exe check` і тести-підпроцеси | `main.rs`, `KitFixtures.psm1` (`Invoke-KitCommand`), `Check.*.Tests.ps1`, `Secrets.Tests.ps1`, `Kit.Tests.ps1`, `InstallHooks.Tests.ps1`, `Sync.Storage.Tests.ps1`, `.claude/settings.json`, новий тест дозволів | `kit.exe check` виконує сам; `print_help` називає `check` (без дубля, поки `check.psm1` існує); фікстура кличе для `check` `bin/kit.exe` копії `Copy-KitTools` (ніколи `kit` з `PATH`) з фальшивим `pwsh.exe` першим у `PATH`, що лишає маркер, — маркера немає (постійний тест `KitFixtures`: `check` через фікстуру не запускає `pwsh`); прямі виклики `kit.ps1 check` (`InstallHooks`, `Sync.Storage`, `Kit` — пісочниця дістає свій `bin/kit.exe`) — на `kit.exe`; усі `Check.*` і `Describe` файла `Secrets` з підпроцесом зелені проти `kit.exe`; тести, що пінили дефект PowerShell (перелік — задача 0), оновлено точними значеннями (код, ідентифікатор, рівень, текст, де визначений), кожне оновлене твердження показано червоним проти еталона PowerShell; підпроцесні тести коду: здоровий синтетичний репозиторій без сховищ → рівно 0; глобальний збій git (`core.repositoryformatversion=99` — кожна команда git дає 128, виміряно аудитом) → рівно 1 і рядок error `overlay-ignored` (страж fail-closed, рішення 2); точковий збій git у неохоронній перевірці (напр. ref `storage/*` на відсутній об'єкт — виконавець спершу вимірює, що git дає код поза «є/немає») → рівно 3; error разом із точковим збоєм → рівно 1; рішення 17; маркерні тести §6 зелені для `check`; звірка з еталоном (рішення 18) зелена; тест «нічого не пише» | 3 | `cargo test`; `-Only Check.*,Secrets,Kit,KitFixtures,KitExe,InstallHooks,Sync.Storage,Adopt,Provision,Verify,SessionCheck.*,SessionStartHook` |
-| 5 | Споживачі коду й версія | `skills/` (пошук: grep -rn "kit check" по skills, agents, hooks, templates і README), `CHANGELOG.md`, `skills/onboarding/references/upgrades.md`, `plugin.json`, `bin/kit.exe` | кожен текст, що чекає від `kit check` лише 0/1, знає код 3 («не перевірено — не зелено, див. рядки `не перевірено:`») і код 2; бамп patch 2.0.x, запис журналу (чекліст: «Нічого робити не треба.» чи пункт про код 3 для скриптів споживача, що перевіряють код `kit check`) і розділ `skills/onboarding/references/upgrades.md`; збірка поставки з новою версією | 4 | `-Full` (фінал блоку) |
+### Задача 0 — Якорі й еталон
+
+- **Файли:** тека .agents/out/b3-etalon (гітігнорована)
+- **Готово, коли:** `doc anchors` плану без зламаних якорів (крім «після B1 #113»); еталон PowerShell `check` (stdout, код) на кожному сценарії `Check.*` знято на `origin/main` скриптом у теці виводу .agents/out; таблиця відмінностей і скрипт звірки (рішення 18); перелік Pester-тестів, що пінять дефект PowerShell, з рішенням, яке змінює кожен
+- **Після:** —
+- **Перевірка:** лише документи
+
+### Задача 1 — Каркас `check`, машина, маніфест
+
+- **Файли:** нова тека rust/src/check (каркас, машина, маніфест і воркспейси), `runner.rs` (стеля `version`), `rust/tests/support/fake_runner.rs` (сон на `--version`), `lib.rs`
+- **Готово, коли:** `Report`, `run`, `print`, коди за рішенням 2; `unica-version`, `runner-version` за рішеннями 4 і 9; зведення `manifest`, `agent-base-required` (рішення 11), `main-branch`, `unique-keys`, `undeclared-source`; рішення 3 (код 2); Rust-тести на синтетичних репозиторіях і фальшивому реєстрі/раннері для кожної перевірки й кожного коду
+- **Після:** 0
+- **Перевірка:** `cargo test`, `cargo clippy --all-targets -- -D warnings`
+
+### Задача 2 — Git-стражі й локальні файли
+
+- **Файли:** нова тека rust/src/check (стражі), перенесені функції гілок, атрибутів, регістру
+- **Готово, коли:** `overlay-ignored`, `local-ignored`, `gitattributes`, `gitignore` (дерево, vendor — правила й факт), `case-collision`, `build-artifacts`, `local-audit`, `overlay-connection`, `dump-from` за рішеннями 5–7, 10, 11, 13, 14; Rust-тести, зокрема два випадки збою git: глобальний (`core.repositoryformatversion=99` чи відмова `safe.directory`) → error стражів, код 1; точковий у неохоронній перевірці → «не перевірено», код 3
+- **Після:** 1
+- **Перевірка:** `cargo test`, clippy
+
+### Задача 3 — Джерела, `storage/*`, поставка, хуки
+
+- **Файли:** нова тека rust/src/check (джерела, хуки), перенесені `storage_branch`, `supply`, `hooks`
+- **Готово, коли:** `supply`, `storage-path` (рішення 4), `storage-branch` (інваріанти `storage/*`), `config-name`, `hooks`, `hook-shim` за рішеннями 8, 10, 12; Rust-тести
+- **Після:** 2
+- **Перевірка:** `cargo test`, clippy
+
+### Задача 4 — Маршрут `kit.exe check` і тести-підпроцеси
+
+- **Файли:** `main.rs`, `KitFixtures.psm1` (`Invoke-KitCommand`), `Check.*.Tests.ps1`, `Secrets.Tests.ps1`, `Kit.Tests.ps1`, `InstallHooks.Tests.ps1`, `Sync.Storage.Tests.ps1`, `.claude/settings.json`, новий тест дозволів
+- **Готово, коли:** `kit.exe check` виконує сам; `print_help` називає `check` (без дубля, поки `check.psm1` існує); фікстура кличе для `check` `bin/kit.exe` копії `Copy-KitTools` (ніколи `kit` з `PATH`) з фальшивим `pwsh.exe` першим у `PATH`, що лишає маркер, — маркера немає (постійний тест `KitFixtures`: `check` через фікстуру не запускає `pwsh`); прямі виклики `kit.ps1 check` (`InstallHooks`, `Sync.Storage`, `Kit` — пісочниця дістає свій `bin/kit.exe`) — на `kit.exe`; усі `Check.*` і `Describe` файла `Secrets` з підпроцесом зелені проти `kit.exe`; тести, що пінили дефект PowerShell (перелік — задача 0), оновлено точними значеннями (код, ідентифікатор, рівень, текст, де визначений), кожне оновлене твердження показано червоним проти еталона PowerShell; підпроцесні тести коду: здоровий синтетичний репозиторій без сховищ → рівно 0; глобальний збій git (`core.repositoryformatversion=99` — кожна команда git дає 128, виміряно аудитом) → рівно 1 і рядок error `overlay-ignored` (страж fail-closed, рішення 2); точковий збій git у неохоронній перевірці (напр. ref `storage/*` на відсутній об'єкт — виконавець спершу вимірює, що git дає код поза «є/немає») → рівно 3; error разом із точковим збоєм → рівно 1; рішення 17; маркерні тести §6 зелені для `check`; звірка з еталоном (рішення 18) зелена; тест «нічого не пише»
+- **Після:** 3
+- **Перевірка:** `cargo test`; `-Only Check.*,Secrets,Kit,KitFixtures,KitExe,InstallHooks,Sync.Storage,Adopt,Provision,Verify,SessionCheck.*,SessionStartHook`
+
+### Задача 5 — Споживачі коду й версія
+
+- **Файли:** `skills/` (пошук: grep -rn "kit check" по skills, agents, hooks, templates і README), `CHANGELOG.md`, `skills/onboarding/references/upgrades.md`, `plugin.json`, `bin/kit.exe`
+- **Готово, коли:** кожен текст, що чекає від `kit check` лише 0/1, знає код 3 («не перевірено — не зелено, див. рядки `не перевірено:`») і код 2; бамп patch 2.0.x, запис журналу (чекліст: «Нічого робити не треба.» чи пункт про код 3 для скриптів споживача, що перевіряють код `kit check`) і розділ `skills/onboarding/references/upgrades.md`; збірка поставки з новою версією
+- **Після:** 4
+- **Перевірка:** `-Full` (фінал блоку)
+
 
 **«Готово, коли» блоку** (спека §3, дослівно): усі Pester-файли `Check.*` і ті `Describe` файла `Secrets`, що запускають
 команду підпроцесом, зелені проти `kit.exe` (фікстура `Invoke-KitCommand` кличе `kit.exe check`); еталон виводу PowerShell
