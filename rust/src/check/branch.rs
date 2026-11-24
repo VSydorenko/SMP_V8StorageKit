@@ -16,7 +16,7 @@ pub(super) enum BranchState {
 
 /// Код 0 чи 1 — відповідь команди; будь-який інший код чи збій запуску — помилка з дослівним stderr git.
 fn query(root: &Path, args: &[&str]) -> Result<git::Output, String> {
-    let out = git::run(root, args, None, true).map_err(|e| e.to_string())?;
+    let out = git::run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
     if out.code == 0 || out.code == 1 {
         return Ok(out);
     }

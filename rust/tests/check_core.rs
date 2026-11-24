@@ -630,3 +630,46 @@ fn undeclared_source_set_is_a_warning_per_set() {
     assert!(f[0].message.contains("рядок 'Stray/** -text'"));
     assert_eq!(r.code, 0);
 }
+
+/// Зламаний `.git` вкладеного репозиторію всередині зовнішнього: git не мусить піднятись до зовнішнього й
+/// відповісти на його рефи — `main-branch` «не перевірено», код 3. Контроль: без `GIT_CEILING_DIRECTORIES`
+/// (`git::run`) той самий запит дає відповідь зовнішнього репозиторію.
+#[test]
+fn broken_nested_git_dir_does_not_fall_through_to_the_outer_repository() {
+    let tmp = TempDir::new("nested");
+    init_repo(&tmp.0, "main", true); // зовнішній, із гілкою main
+    let root = tmp.0.join("inner");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["a"]);
+    write_manifest(&root, None, &[("ws", &[("a", "vendor")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    std::fs::write(
+        root.join(".git").join("HEAD"),
+        "сміття, не ref
+",
+    )
+    .unwrap();
+
+    // Контроль: звичайний запит git піднімається до зовнішнього репозиторію й бачить `main`.
+    let out = kit::git::run(
+        &root,
+        &["rev-parse", "--verify", "--quiet", "refs/heads/main"],
+        None,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        out.code, 0,
+        "контроль: без стелі відповідає зовнішній репозиторій"
+    );
+
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let mb = by(&r, "main-branch");
+    assert_eq!(mb.len(), 1, "{:?}", r.findings);
+    assert!(
+        mb[0].message.starts_with("не перевірено: "),
+        "{}",
+        mb[0].message
+    );
+    assert_eq!(r.code, 3, "{:?}", r.findings);
+}

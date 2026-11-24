@@ -87,7 +87,32 @@ pub fn run<S: AsRef<OsStr>>(
     stdin: Option<&[u8]>,
     allow_fail: bool,
 ) -> Result<Output, GitError> {
+    run_with(repo, args, stdin, allow_fail, false)
+}
+
+/// Запит від кореня репозиторію: `GIT_CEILING_DIRECTORIES` = батько кореня, тож git не піднімається вище. Інакше
+/// зламаний `.git` у корені (зіпсований `HEAD`, порожня тека) git пропускає й мовчки відповідає на рефи
+/// репозиторію вище. Для `check`, де корінь уже розв'язано префлайтом.
+pub fn run_at_root<S: AsRef<OsStr>>(
+    repo: &Path,
+    args: &[S],
+    stdin: Option<&[u8]>,
+    allow_fail: bool,
+) -> Result<Output, GitError> {
+    run_with(repo, args, stdin, allow_fail, true)
+}
+
+fn run_with<S: AsRef<OsStr>>(
+    repo: &Path,
+    args: &[S],
+    stdin: Option<&[u8]>,
+    allow_fail: bool,
+    ceiling: bool,
+) -> Result<Output, GitError> {
     let mut cmd = command(repo, args);
+    if let (true, Some(parent)) = (ceiling, repo.parent()) {
+        cmd.env("GIT_CEILING_DIRECTORIES", parent);
+    }
     cmd.stdin(if stdin.is_some() {
         Stdio::piped()
     } else {
