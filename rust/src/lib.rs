@@ -16,6 +16,7 @@ pub mod proc;
 pub mod profile;
 pub mod runner;
 pub mod session_board;
+pub mod session_check;
 pub mod storage_branch;
 pub mod supply;
 pub mod unica;

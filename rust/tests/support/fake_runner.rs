@@ -17,7 +17,8 @@
 //  code7     — код виходу 7.
 //
 // `--version` спить N с, коли поруч з exe є файл `version-sleep.txt` з числом N (порожній — 60): стеля
-// `runner::version`.
+// `runner::version`. Файл `version-grandchild.txt` (будь-який вміст) додає до цього сну онука, що тримає канали
+// (див. код); pid онука — `grandchild-pid.txt`.
 
 use std::io::Write;
 
@@ -32,6 +33,21 @@ fn main() {
         .collect();
     if args.first().map(String::as_str) == Some("--version") {
         let exe = std::env::current_exe().unwrap();
+        // Файл `version-grandchild.txt` поруч з exe: до сну `--version` породжує онука (режим hold), що успадковує
+        // канали stdout/stderr і переживає батька; його pid — у `grandchild-pid.txt` поруч (не в stdout: вивід
+        // `--version` розбирає `runner::version`). Для тестів хука: онук, що тримає вивід, не має підвісити хук.
+        if exe.with_file_name("version-grandchild.txt").exists() {
+            #[allow(clippy::zombie_processes)] // онук навмисно переживає батька
+            let child = std::process::Command::new(&exe)
+                .arg("hold")
+                .spawn()
+                .unwrap();
+            std::fs::write(
+                exe.with_file_name("grandchild-pid.txt"),
+                child.id().to_string(),
+            )
+            .unwrap();
+        }
         // Файл `version-sleep.txt` поруч з exe: `--version` спить стільки секунд, скільки в файлі (порожній чи
         // не число — 60), потім відповідає як зазвичай.
         if let Ok(text) = std::fs::read_to_string(exe.with_file_name("version-sleep.txt")) {
