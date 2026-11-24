@@ -12,8 +12,8 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Сирий результат запуску: код і дослівний вивід (UTF-8 із заміною непридатних байтів).
@@ -51,31 +51,62 @@ pub enum RunError {
     /// Раннер не запустився.
     Spawn { runner: String, message: String },
     /// Стеля часу: процес убито; вивід — те, що встигло прийти.
-    Timeout { runner: String, seconds: u64, stdout: String, stderr: String },
+    Timeout {
+        runner: String,
+        seconds: u64,
+        stdout: String,
+        stderr: String,
+    },
     /// Відповідь не JSON.
-    NotJson { args: String, exit_code: i32, stdout: String, stderr: String },
+    NotJson {
+        args: String,
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    },
     /// JSON без поля `ok` (чи `ok` не логічне).
-    NoOk { args: String, exit_code: i32, stdout: String, stderr: String },
+    NoOk {
+        args: String,
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    },
 }
 
 impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RunError::NotFound(path) => write!(f, "Раннер не знайдено: {path}"),
-            RunError::Spawn { runner, message } => write!(f, "Раннер {runner} не запустився: {message}"),
-            RunError::Timeout { runner, seconds, stdout, stderr } => write!(
+            RunError::Spawn { runner, message } => {
+                write!(f, "Раннер {runner} не запустився: {message}")
+            }
+            RunError::Timeout {
+                runner,
+                seconds,
+                stdout,
+                stderr,
+            } => write!(
                 f,
                 "Раннер {runner}: стеля часу {seconds} с, процес убито; вивід, що встиг прийти: {} {}",
                 stdout.trim(),
                 stderr.trim()
             ),
-            RunError::NotJson { args, exit_code, stdout, stderr } => write!(
+            RunError::NotJson {
+                args,
+                exit_code,
+                stdout,
+                stderr,
+            } => write!(
                 f,
                 "Раннер на '{args}' відповів не JSON-ом: код виходу {exit_code}, вивід: {} {}",
                 stdout.trim(),
                 stderr.trim()
             ),
-            RunError::NoOk { args, stdout, .. } => write!(f, "Відповідь раннера на '{args}' без поля ok: {}", stdout.trim()),
+            RunError::NoOk { args, stdout, .. } => write!(
+                f,
+                "Відповідь раннера на '{args}' без поля ok: {}",
+                stdout.trim()
+            ),
         }
     }
 }
@@ -107,14 +138,25 @@ pub fn installed_runner(registry: &Path, repo_root: Option<&Path>) -> Result<Pat
         return Err(format!("Раннер не знайдено: {}", u.reason));
     }
     if !u.installed {
-        return Err(format!("Раннер не знайдено: Unica не встановлена. {}", u.reason));
+        return Err(format!(
+            "Раннер не знайдено: Unica не встановлена. {}",
+            u.reason
+        ));
     }
     if !u.path_exists {
         return Err(format!("Раннер не знайдено: {}", u.reason));
     }
-    let runner = Path::new(&u.install_path).join("bin").join("win-x64").join("v8-runner-windows-x86_64").join("v8-runner.exe");
+    let runner = Path::new(&u.install_path)
+        .join("bin")
+        .join("win-x64")
+        .join("v8-runner-windows-x86_64")
+        .join("v8-runner.exe");
     if !runner.is_file() {
-        return Err(format!("Раннер не знайдено: у встановленій Уніці ({}) немає файла {}", u.install_path, runner.display()));
+        return Err(format!(
+            "Раннер не знайдено: у встановленій Уніці ({}) немає файла {}",
+            u.install_path,
+            runner.display()
+        ));
     }
     Ok(runner)
 }
@@ -136,7 +178,10 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> Drain {
             if n == 0 {
                 break;
             }
-            shared.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(&chunk[..n]);
+            shared
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .extend_from_slice(&chunk[..n]);
         }
     });
     Drain { buf, handle }
@@ -157,17 +202,28 @@ impl Drain {
 const KILL_GRACE: Duration = Duration::from_secs(1);
 
 fn describe(args: &[&OsStr]) -> String {
-    args.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Сирий запуск без `--config`: stdin закритий, stdout і stderr читаються потоками до очікування (без
 /// дедлоку на великому виводі). Стеля часу — `proc::kill_tree` і `RunError::Timeout`.
-pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration>) -> Result<RawOutput, RunError> {
+pub fn exec(
+    runner: &Path,
+    cwd: &Path,
+    args: &[&OsStr],
+    timeout: Option<Duration>,
+) -> Result<RawOutput, RunError> {
     let mut cmd = runner_command(runner, cwd, args)?;
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| RunError::Spawn { runner: runner.display().to_string(), message: e.to_string() })?;
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| RunError::Spawn {
+        runner: runner.display().to_string(),
+        message: e.to_string(),
+    })?;
     let out = drain(child.stdout.take());
     let err = drain(child.stderr.take());
     let deadline = timeout.map(|t| Instant::now() + t);
@@ -181,7 +237,11 @@ pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration
     };
     match status {
         // Очікування каналів після виходу обмежене рештою стелі: онук, що успадкував канали, не тримає виклик.
-        Ok(s) => Ok(RawOutput { exit_code: s.code().unwrap_or(-1), stdout: out.finish(deadline), stderr: err.finish(deadline) }),
+        Ok(s) => Ok(RawOutput {
+            exit_code: s.code().unwrap_or(-1),
+            stdout: out.finish(deadline),
+            stderr: err.finish(deadline),
+        }),
         Err(cause) => {
             proc::kill_tree(&mut child);
             let until = Some(Instant::now() + KILL_GRACE);
@@ -193,7 +253,10 @@ pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration
                     stdout,
                     stderr,
                 }),
-                Some(e) => Err(RunError::Spawn { runner: runner.display().to_string(), message: e.to_string() }),
+                Some(e) => Err(RunError::Spawn {
+                    runner: runner.display().to_string(),
+                    message: e.to_string(),
+                }),
             }
         }
     }
@@ -203,29 +266,51 @@ pub fn exec(runner: &Path, cwd: &Path, args: &[&OsStr], timeout: Option<Duration
 /// код раннера.
 pub fn exec_inherit(runner: &Path, cwd: &Path, args: &[OsString]) -> Result<i32, RunError> {
     let mut cmd = runner_command(runner, cwd, args)?;
-    cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
-    let status = cmd
-        .status()
-        .map_err(|e| RunError::Spawn { runner: runner.display().to_string(), message: e.to_string() })?;
+    cmd.stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    let status = cmd.status().map_err(|e| RunError::Spawn {
+        runner: runner.display().to_string(),
+        message: e.to_string(),
+    })?;
     Ok(status.code().unwrap_or(1))
 }
 
 /// Запуск з `--config <workspace_dir>/v8project.yaml`, аргументами й `--json-message`; робоча тека —
 /// `workspace_dir`. Успіх — поле `ok` конверта, а не код виходу (`Invoke-KitRunner`).
-pub fn run(runner: &Path, workspace_dir: &Path, args: &[&OsStr], timeout: Option<Duration>) -> Result<Envelope, RunError> {
+pub fn run(
+    runner: &Path,
+    workspace_dir: &Path,
+    args: &[&OsStr],
+    timeout: Option<Duration>,
+) -> Result<Envelope, RunError> {
     let config = workspace_dir.join("v8project.yaml").into_os_string();
     let mut all: Vec<&OsStr> = vec![OsStr::new("--config"), &config];
     all.extend_from_slice(args);
     all.push(OsStr::new("--json-message"));
     let raw = exec(runner, workspace_dir, &all, timeout)?;
     let shown = describe(args);
-    let RawOutput { exit_code, stdout, stderr } = raw;
+    let RawOutput {
+        exit_code,
+        stdout,
+        stderr,
+    } = raw;
     let text = stdout.strip_prefix('\u{feff}').unwrap_or(&stdout).trim();
     let Ok(json) = serde_json::from_str::<Value>(text) else {
-        return Err(RunError::NotJson { args: shown, exit_code, stdout, stderr });
+        return Err(RunError::NotJson {
+            args: shown,
+            exit_code,
+            stdout,
+            stderr,
+        });
     };
     let Some(ok) = json.get("ok").and_then(Value::as_bool) else {
-        return Err(RunError::NoOk { args: shown, exit_code, stdout, stderr });
+        return Err(RunError::NoOk {
+            args: shown,
+            exit_code,
+            stdout,
+            stderr,
+        });
     };
     let field = |v: &Value, name: &str| match v.get(name) {
         Some(Value::String(s)) => Some(s.clone()),
@@ -242,7 +327,11 @@ pub fn run(runner: &Path, workspace_dir: &Path, args: &[&OsStr], timeout: Option
             _ => Vec::new(),
         },
         error: match json.get("error") {
-            Some(e @ Value::Object(_)) => Some(EnvelopeError { code: field(e, "code"), kind: field(e, "kind"), message: field(e, "message") }),
+            Some(e @ Value::Object(_)) => Some(EnvelopeError {
+                code: field(e, "code"),
+                kind: field(e, "kind"),
+                message: field(e, "message"),
+            }),
             _ => None,
         },
         raw: json,
@@ -262,14 +351,17 @@ fn parse_version(stdout: &str) -> Option<String> {
         let first = digits(token);
         let ok = first > 0
             && !token.contains(char::is_whitespace)
-            && token[first..].strip_prefix('.').is_some_and(|t| digits(t) > 0);
+            && token[first..]
+                .strip_prefix('.')
+                .is_some_and(|t| digits(t) > 0);
         ok.then(|| token.to_string())
     })
 }
 
 /// Версія раннера з `--version` (`Get-KitRunnerVersion`): з `v8-runner 0.18.1` береться `0.18.1`.
 pub fn version(runner: &Path) -> Result<String, String> {
-    let o = exec(runner, Path::new("."), &[OsStr::new("--version")], None).map_err(|e| e.to_string())?;
+    let o = exec(runner, Path::new("."), &[OsStr::new("--version")], None)
+        .map_err(|e| e.to_string())?;
     parse_version(&o.stdout).ok_or_else(|| {
         format!(
             "Раннер {} на --version відповів не рядком 'v8-runner <версія>': код виходу {}, вивід: {} {}",

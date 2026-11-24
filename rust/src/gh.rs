@@ -36,7 +36,11 @@ impl fmt::Display for GhError {
 }
 
 fn first_line(text: &str) -> &str {
-    text.trim().split('\n').next().unwrap_or("").trim_end_matches('\r')
+    text.trim()
+        .split('\n')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('\r')
 }
 
 /// stderr, за яким gh «не залогінений» (`(?i)auth login|not logged`).
@@ -48,9 +52,14 @@ fn is_auth_problem(stderr: &str) -> bool {
 /// `gh <args>` у теці `cwd`; stdout без країв. З `Some(json)` ... див. `run_json`.
 pub fn run(args: &[&str], cwd: &Path, timeout: Duration) -> Result<String, GhError> {
     let Some(exe) = proc::find_program("gh") else {
-        return Err(GhError::Unavailable("gh CLI не знайдено в PATH".to_string()));
+        return Err(GhError::Unavailable(
+            "gh CLI не знайдено в PATH".to_string(),
+        ));
     };
-    let label = format!("gh {}", args.iter().take(2).copied().collect::<Vec<_>>().join(" "));
+    let label = format!(
+        "gh {}",
+        args.iter().take(2).copied().collect::<Vec<_>>().join(" ")
+    );
     let mut child = Command::new(&exe)
         .args(args)
         .current_dir(cwd)
@@ -69,8 +78,18 @@ pub fn run(args: &[&str], cwd: &Path, timeout: Duration) -> Result<String, GhErr
             buf
         })
     };
-    let out_thread = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let err_thread = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let out_thread = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err_thread = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
 
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -78,7 +97,10 @@ pub fn run(args: &[&str], cwd: &Path, timeout: Duration) -> Result<String, GhErr
             Ok(Some(s)) => break s,
             Ok(None) if Instant::now() >= deadline => {
                 proc::kill_tree(&mut child);
-                return Err(GhError::Failed(format!("{label}: немає відповіді за {} с", timeout.as_secs())));
+                return Err(GhError::Failed(format!(
+                    "{label}: немає відповіді за {} с",
+                    timeout.as_secs()
+                )));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(e) => {
@@ -93,9 +115,15 @@ pub fn run(args: &[&str], cwd: &Path, timeout: Duration) -> Result<String, GhErr
     if code != 0 {
         let first = first_line(&stderr);
         if is_auth_problem(&stderr) {
-            return Err(GhError::Unavailable(format!("gh не залогінений (gh auth login): {first}")));
+            return Err(GhError::Unavailable(format!(
+                "gh не залогінений (gh auth login): {first}"
+            )));
         }
-        let first = if first.is_empty() { format!("код виходу {code}") } else { first.to_string() };
+        let first = if first.is_empty() {
+            format!("код виходу {code}")
+        } else {
+            first.to_string()
+        };
         return Err(GhError::Failed(format!("{label}: {first}")));
     }
     Ok(stdout.trim().to_string())
@@ -118,7 +146,9 @@ pub fn run_json(args: &[&str], cwd: &Path) -> Result<Vec<Value>, GhError> {
             })
             .collect()),
         Ok(other) => Ok(vec![other]),
-        Err(e) => Err(GhError::BadJson(format!("Conversion from JSON failed with error: {e}"))),
+        Err(e) => Err(GhError::BadJson(format!(
+            "Conversion from JSON failed with error: {e}"
+        ))),
     }
 }
 
@@ -129,7 +159,9 @@ mod tests {
     #[test]
     fn stderr_classes() {
         assert_eq!(first_line("\n boom \r\nsecond\r\n"), "boom ");
-        assert!(is_auth_problem("To get started, please run:  gh auth login"));
+        assert!(is_auth_problem(
+            "To get started, please run:  gh auth login"
+        ));
         assert!(is_auth_problem("You are NOT LOGGED into any hosts"));
         assert!(!is_auth_problem("HTTP 404"));
     }

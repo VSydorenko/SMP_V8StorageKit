@@ -32,7 +32,10 @@ const DOMAIN_DIR: [&str; 2] = ["hooks", "domain-1c"];
 /// Вивід хука (JSON SubagentStart з переносом рядка) для stdin процесу або None — тиша.
 pub fn run_stdin(plugin: &Path) -> Option<String> {
     let mut input = String::new();
-    std::io::stdin().take(STDIN_LIMIT).read_to_string(&mut input).ok()?;
+    std::io::stdin()
+        .take(STDIN_LIMIT)
+        .read_to_string(&mut input)
+        .ok()?;
     run(plugin, &input)
 }
 
@@ -56,19 +59,27 @@ pub fn run(plugin: &Path, input: &str) -> Option<String> {
         return None;
     }
     let ctx = serde_json::to_string(text).ok()?;
-    Some(format!("{{\"hookSpecificOutput\":{{\"hookEventName\":\"SubagentStart\",\"additionalContext\":{ctx}}}}}\n"))
+    Some(format!(
+        "{{\"hookSpecificOutput\":{{\"hookEventName\":\"SubagentStart\",\"additionalContext\":{ctx}}}}}\n"
+    ))
 }
 
 /// Ім'я агента плагіна без префікса — лише `[a-z0-9-]+`; інакше None.
 fn agent_name(agent_type: &str) -> Option<&str> {
     let name = agent_type.strip_prefix(AGENT_PREFIX)?;
-    let ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    let ok = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     ok.then_some(name)
 }
 
 /// Чи `cwd` — у репозиторії 1С (див. шапку файлу).
 fn is_1c_repo(cwd: &Path) -> bool {
-    if cwd.ancestors().any(|d| d.join("v8storagekit.yaml").is_file()) {
+    if cwd
+        .ancestors()
+        .any(|d| d.join("v8storagekit.yaml").is_file())
+    {
         return true;
     }
     let Some(root) = cwd.ancestors().find(|d| d.join(".git").exists()) else {
@@ -80,9 +91,9 @@ fn is_1c_repo(cwd: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(root) else {
         return false;
     };
-    entries
-        .flatten()
-        .any(|e| e.file_type().is_ok_and(|t| t.is_dir()) && e.path().join("v8project.yaml").is_file())
+    entries.flatten().any(|e| {
+        e.file_type().is_ok_and(|t| t.is_dir()) && e.path().join("v8project.yaml").is_file()
+    })
 }
 
 #[cfg(test)]
@@ -92,9 +103,22 @@ mod tests {
     #[test]
     fn agent_name_accepts_only_plugin_agents_with_safe_names() {
         assert_eq!(agent_name("v8storagekit:implementer"), Some("implementer"));
-        assert_eq!(agent_name("v8storagekit:code-review-verifier"), Some("code-review-verifier"));
-        for bad in ["implementer", "Explore", "other:implementer", "v8storagekit:", "v8storagekit:../x",
-            "v8storagekit:a/b", "v8storagekit:a\\b", "v8storagekit:Implementer", "v8storagekit:a.md", "v8storagekit:a b"] {
+        assert_eq!(
+            agent_name("v8storagekit:code-review-verifier"),
+            Some("code-review-verifier")
+        );
+        for bad in [
+            "implementer",
+            "Explore",
+            "other:implementer",
+            "v8storagekit:",
+            "v8storagekit:../x",
+            "v8storagekit:a/b",
+            "v8storagekit:a\\b",
+            "v8storagekit:Implementer",
+            "v8storagekit:a.md",
+            "v8storagekit:a b",
+        ] {
             assert_eq!(agent_name(bad), None, "{bad}");
         }
     }

@@ -162,7 +162,9 @@ fn resolve_root(path: &str) -> Result<String, PreflightStop> {
 /// Порядок імен у переліках (знахідка `DT-INF`, «Є: …»): не залежить від культури машини. Спершу ординальне
 /// порівняння рядків у нижньому регістрі (за кодами символів), при рівності — ординальне порівняння вихідних рядків.
 fn name_order(a: &str, b: &str) -> Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
 }
 
 fn sort_unique(mut items: Vec<String>) -> Vec<String> {

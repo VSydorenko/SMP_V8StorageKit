@@ -40,7 +40,9 @@ pub struct UsageError(pub String);
 fn split_name(t: &str) -> Option<(&str, Option<&str>)> {
     let t = t.strip_suffix('\n').unwrap_or(t);
     let rest = t.strip_prefix('-')?;
-    let end = rest.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_alphanumeric())
+        .unwrap_or(rest.len());
     let name = &rest[..end];
     if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
         return None;
@@ -73,7 +75,11 @@ fn camel(dashed: &str) -> String {
 }
 
 pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageError> {
-    let lookup = |raw: &str| spec.iter().find(|(n, _)| n.eq_ignore_ascii_case(raw)).copied();
+    let lookup = |raw: &str| {
+        spec.iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(raw))
+            .copied()
+    };
     let is_name = |t: &str| match split_name(t) {
         Some((raw, _)) => lookup(raw).is_some() || raw.eq_ignore_ascii_case("Help"),
         None => false,
@@ -89,7 +95,10 @@ pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageErro
             continue;
         }
         if let Some(rest) = t.strip_prefix("--") {
-            let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-').collect();
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
             if name.starts_with(|c: char| c.is_ascii_alphabetic()) {
                 return Err(UsageError(format!(
                     "форма '{t}' не підтримується: параметри пишуться як -Ім'я ({})",
@@ -111,17 +120,30 @@ pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageErro
             let tail = if known.is_empty() {
                 " (команда не має іменованих параметрів)".to_string()
             } else {
-                format!(" (відомі: {})", known.iter().map(|n| format!("-{n}")).collect::<Vec<_>>().join(", "))
+                format!(
+                    " (відомі: {})",
+                    known
+                        .iter()
+                        .map(|n| format!("-{n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
             return Err(UsageError(format!("невідомий параметр -{raw}{tail}")));
         };
         if kind == Kind::Switch {
             let v = match inline {
                 None => true,
-                Some(v) if v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("$true") => true,
-                Some(v) if v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("$false") => false,
+                Some(v) if v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("$true") => {
+                    true
+                }
+                Some(v) if v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("$false") => {
+                    false
+                }
                 Some(_) => {
-                    return Err(UsageError(format!("-{name}: прапорець без значення (або -{name}:true|false)")));
+                    return Err(UsageError(format!(
+                        "-{name}: прапорець без значення (або -{name}:true|false)"
+                    )));
                 }
             };
             out.named.insert(name.to_string(), Value::Switch(v));
@@ -138,7 +160,11 @@ pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageErro
             }
         };
         if kind == Kind::List {
-            match out.named.entry(name.to_string()).or_insert_with(|| Value::List(Vec::new())) {
+            match out
+                .named
+                .entry(name.to_string())
+                .or_insert_with(|| Value::List(Vec::new()))
+            {
                 Value::List(l) => l.push(value),
                 _ => unreachable!("ім'я зі специфікації List має лише значення List"),
             }
@@ -153,10 +179,17 @@ pub fn parse(args: &[String], spec: &[(&str, Kind)]) -> Result<Parsed, UsageErro
 mod tests {
     use super::*;
 
-    const SPEC: &[(&str, Kind)] = &[("Model", Kind::Str), ("Path", Kind::List), ("Apply", Kind::Switch)];
+    const SPEC: &[(&str, Kind)] = &[
+        ("Model", Kind::Str),
+        ("Path", Kind::List),
+        ("Apply", Kind::Switch),
+    ];
 
     fn p(args: &[&str]) -> Result<Parsed, UsageError> {
-        parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>(), SPEC)
+        parse(
+            &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            SPEC,
+        )
     }
 
     fn err(args: &[&str]) -> String {
@@ -165,31 +198,64 @@ mod tests {
 
     #[test]
     fn forms() {
-        let r = p(&["refs", "-model", "sonnet", "-Path:a b", "-Path", "-x", "-5", "-Apply:false"]).unwrap();
+        let r = p(&[
+            "refs",
+            "-model",
+            "sonnet",
+            "-Path:a b",
+            "-Path",
+            "-x",
+            "-5",
+            "-Apply:false",
+        ])
+        .unwrap();
         assert_eq!(r.positional, vec!["refs", "-5"]);
         assert_eq!(r.named["Model"], Value::Str("sonnet".into()));
         // `-Path -x`: наступний токен — не ім'я зі специфікації, тож значення.
-        assert_eq!(r.named["Path"], Value::List(vec!["a b".into(), "-x".into()]));
+        assert_eq!(
+            r.named["Path"],
+            Value::List(vec!["a b".into(), "-x".into()])
+        );
         assert_eq!(r.named["Apply"], Value::Switch(false));
         assert!(!r.help);
 
         assert_eq!(p(&["-Apply"]).unwrap().named["Apply"], Value::Switch(true));
-        assert_eq!(p(&["-Apply:$TRUE"]).unwrap().named["Apply"], Value::Switch(true));
-        assert_eq!(p(&["-Model:"]).unwrap().named["Model"], Value::Str(String::new()));
-        for h in ["-Help", "-help", "-HELP", "--help", "--HELP", "--Help", "-h", "-H"] {
+        assert_eq!(
+            p(&["-Apply:$TRUE"]).unwrap().named["Apply"],
+            Value::Switch(true)
+        );
+        assert_eq!(
+            p(&["-Model:"]).unwrap().named["Model"],
+            Value::Str(String::new())
+        );
+        for h in [
+            "-Help", "-help", "-HELP", "--help", "--HELP", "--Help", "-h", "-H",
+        ] {
             assert!(p(&[h]).unwrap().help, "{h}");
         }
         // .NET `$` — і перед одним кінцевим `\n`; два `\n` чи `\n` посередині — уже не ім'я.
-        assert_eq!(p(&["-Model:abc\n"]).unwrap().named["Model"], Value::Str("abc".into()));
-        assert_eq!(p(&["-Apply\n"]).unwrap().named["Apply"], Value::Switch(true));
+        assert_eq!(
+            p(&["-Model:abc\n"]).unwrap().named["Model"],
+            Value::Str("abc".into())
+        );
+        assert_eq!(
+            p(&["-Apply\n"]).unwrap().named["Apply"],
+            Value::Switch(true)
+        );
         assert_eq!(p(&["-Model:a\nb"]).unwrap().positional, vec!["-Model:a\nb"]);
         assert_eq!(p(&["-Apply\n\n"]).unwrap().positional, vec!["-Apply\n\n"]);
     }
 
     #[test]
     fn usage_errors() {
-        assert_eq!(err(&["--dry-run"]), "форма '--dry-run' не підтримується: параметри пишуться як -Ім'я (DryRun)");
-        assert_eq!(err(&["-Nope"]), "невідомий параметр -Nope (відомі: -Apply, -Model, -Path)");
+        assert_eq!(
+            err(&["--dry-run"]),
+            "форма '--dry-run' не підтримується: параметри пишуться як -Ім'я (DryRun)"
+        );
+        assert_eq!(
+            err(&["-Nope"]),
+            "невідомий параметр -Nope (відомі: -Apply, -Model, -Path)"
+        );
         assert_eq!(
             parse(&["-X".to_string()], &[]).unwrap_err().0,
             "невідомий параметр -X (команда не має іменованих параметрів)"
@@ -197,6 +263,9 @@ mod tests {
         assert_eq!(err(&["-Model"]), "-Model потребує значення");
         assert_eq!(err(&["-Model", "-Apply"]), "-Model потребує значення");
         assert_eq!(err(&["-Model", "-Help"]), "-Model потребує значення");
-        assert_eq!(err(&["-Apply:yes"]), "-Apply: прапорець без значення (або -Apply:true|false)");
+        assert_eq!(
+            err(&["-Apply:yes"]),
+            "-Apply: прапорець без значення (або -Apply:true|false)"
+        );
     }
 }

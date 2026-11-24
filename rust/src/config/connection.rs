@@ -29,7 +29,10 @@ pub struct ConnectionError {
 
 impl ConnectionError {
     fn plain(message: impl Into<String>) -> Self {
-        ConnectionError { message: message.into(), credentials: false }
+        ConnectionError {
+            message: message.into(),
+            credentials: false,
+        }
     }
 
     pub fn message(&self) -> &str {
@@ -69,7 +72,11 @@ fn split_pair(piece: &str) -> Option<(&str, &str)> {
 
 /// Як `ключа 'X'` для відомого імені й без імені для невідомого.
 fn key_label(key: &str, lkey: &str) -> String {
-    if KNOWN_KEYS.contains(&lkey) { format!("ключа '{key}'") } else { "невідомого ключа (ім'я не друкується)".to_string() }
+    if KNOWN_KEYS.contains(&lkey) {
+        format!("ключа '{key}'")
+    } else {
+        "невідомого ключа (ім'я не друкується)".to_string()
+    }
 }
 
 pub fn parse(raw: &super::RawConnection) -> Result<Connection, ConnectionError> {
@@ -78,7 +85,9 @@ pub fn parse(raw: &super::RawConnection) -> Result<Connection, ConnectionError> 
 
 pub(crate) fn parse_str(connection: &str) -> Result<Connection, ConnectionError> {
     if connection.trim().is_empty() {
-        return Err(ConnectionError::plain("Рядок підключення до інформаційної бази порожній."));
+        return Err(ConnectionError::plain(
+            "Рядок підключення до інформаційної бази порожній.",
+        ));
     }
     let value = connection.trim();
     if !value.contains('=') {
@@ -94,12 +103,16 @@ pub(crate) fn parse_str(connection: &str) -> Result<Connection, ConnectionError>
             continue;
         }
         let Some((key, val)) = split_pair(piece) else {
-            return Err(ConnectionError::plain("Рядок підключення містить елемент без '='."));
+            return Err(ConnectionError::plain(
+                "Рядок підключення містить елемент без '='.",
+            ));
         };
         let key = key.trim();
         let mut val = val.trim().to_string();
         if key.contains('"') {
-            return Err(ConnectionError::plain("Рядок підключення містить лапки в імені ключа."));
+            return Err(ConnectionError::plain(
+                "Рядок підключення містить лапки в імені ключа.",
+            ));
         }
         let lkey = key.to_lowercase();
         if lkey == "usr" || lkey == "pwd" {
@@ -111,7 +124,12 @@ pub(crate) fn parse_str(connection: &str) -> Result<Connection, ConnectionError>
             });
         }
         if val.chars().count() >= 2 && val.starts_with('"') && val.ends_with('"') {
-            val = val.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or("").trim().to_string();
+            val = val
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or("")
+                .trim()
+                .to_string();
         }
         let label = key_label(key, &lkey);
         if val.contains('"') {
@@ -125,18 +143,29 @@ pub(crate) fn parse_str(connection: &str) -> Result<Connection, ConnectionError>
             )));
         }
         if val.trim().is_empty() {
-            return Err(ConnectionError::plain(format!("Рядок підключення містить порожнє значення для {label}.")));
+            return Err(ConnectionError::plain(format!(
+                "Рядок підключення містить порожнє значення для {label}."
+            )));
         }
         if !["srvr", "ref", "file"].contains(&lkey.as_str()) {
-            return Err(ConnectionError::plain("Рядок підключення містить невідомий ключ (ім'я не друкується). Дозволені ключі: Srvr, Ref, File."));
+            return Err(ConnectionError::plain(
+                "Рядок підключення містить невідомий ключ (ім'я не друкується). Дозволені ключі: Srvr, Ref, File.",
+            ));
         }
         if fields.iter().any(|(k, _)| *k == lkey) {
-            return Err(ConnectionError::plain(format!("Рядок підключення містить ключ '{key}' двічі.")));
+            return Err(ConnectionError::plain(format!(
+                "Рядок підключення містить ключ '{key}' двічі."
+            )));
         }
         fields.push((lkey, val));
     }
 
-    let field = |name: &str| fields.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.clone())
+    };
     let (srvr, reference, file) = (field("srvr"), field("ref"), field("file"));
 
     if srvr.is_some() && file.is_some() {
@@ -149,14 +178,18 @@ pub(crate) fn parse_str(connection: &str) -> Result<Connection, ConnectionError>
             (Some(server), Some(reference)) => Ok(Connection::Server { server, reference }),
             (srvr, _) => {
                 let missing = if srvr.is_some() { "Ref=" } else { "Srvr=" };
-                Err(ConnectionError::plain(format!("Рядок підключення — серверна база потребує і Srvr=, і Ref= разом; бракує {missing}.")))
+                Err(ConnectionError::plain(format!(
+                    "Рядок підключення — серверна база потребує і Srvr=, і Ref= разом; бракує {missing}."
+                )))
             }
         };
     }
     if let Some(file) = file {
         return Ok(Connection::File { file });
     }
-    Err(ConnectionError::plain("Рядок підключення не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>."))
+    Err(ConnectionError::plain(
+        "Рядок підключення не описує базу: очікується Srvr=<сервер>;Ref=<база>; або File=<шлях>.",
+    ))
 }
 
 /// Рецепт для помилки з `Usr`/`Pwd` залежно від походження рядка; порожній, якщо причина інша.
@@ -184,7 +217,12 @@ pub fn assert_secret_quote_free(value: &Secret, origin: &str) -> Result<(), Conf
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
@@ -196,13 +234,25 @@ mod tests {
     fn parses_server_and_file_forms() {
         assert_eq!(
             parse_str(" Ref=\"B\" ; SRVR = s ;").unwrap(),
-            Connection::Server { server: "s".into(), reference: "B".into() }
+            Connection::Server {
+                server: "s".into(),
+                reference: "B".into()
+            }
         );
-        assert_eq!(parse_str("File=D:\\Bases\\X").unwrap(), Connection::File { file: "D:\\Bases\\X".into() });
+        assert_eq!(
+            parse_str("File=D:\\Bases\\X").unwrap(),
+            Connection::File {
+                file: "D:\\Bases\\X".into()
+            }
+        );
         assert!(err("C:\\x").message().contains("голий шлях"));
         assert!(err("Srvr=a").message().ends_with("бракує Ref=."));
         assert!(err("Srvr=a;Ref=b;File=c").message().contains("одночасно"));
-        assert!(err("File=a;file=b").message().ends_with("ключ 'file' двічі."));
+        assert!(
+            err("File=a;file=b")
+                .message()
+                .ends_with("ключ 'file' двічі.")
+        );
     }
 
     // Відома відмінність (рішення 9): невідомий ключ — без імені, відомий — з іменем; порядок перевірок — контракт.
@@ -227,8 +277,15 @@ mod tests {
         );
         // usr/pwd відмовляють раніше за невідомий ключ, що стоїть правіше; відомий ключ друкується.
         let e = err("Srvr=a;Pwd=x;zz=1");
-        assert!(e.is_credentials() && e.message().contains("ключ 'Pwd'") && !e.message().contains('x'), "{e}");
-        assert!(err("Srvr=a;zz=1;Pwd=x").message().contains("невідомий ключ"));
+        assert!(
+            e.is_credentials() && e.message().contains("ключ 'Pwd'") && !e.message().contains('x'),
+            "{e}"
+        );
+        assert!(
+            err("Srvr=a;zz=1;Pwd=x")
+                .message()
+                .contains("невідомий ключ")
+        );
         assert!(err("File=a=b").message().contains("значенні ключа 'File'"));
         // Значення відомого ключа не цитується; багатобайтові символи біля роздільників не панікують.
         let e = err(&format!("File=\"{marker};ʼ\"=ʼ;Srvr=a"));
@@ -240,11 +297,18 @@ mod tests {
         let e = err("File=a;Usr=u");
         assert!(credentials_recipe(&e, CredentialsKind::Agent).contains("infobases.origin"));
         assert!(credentials_recipe(&e, CredentialsKind::Overlay).contains("накладки"));
-        assert_eq!(credentials_recipe(&err("File=a;x=1"), CredentialsKind::Agent), "");
+        assert_eq!(
+            credentials_recipe(&err("File=a;x=1"), CredentialsKind::Agent),
+            ""
+        );
 
         let marker = "п\"ароль-МАРКЕР";
         let e = assert_secret_quote_free(&Secret::new(marker), "пароль бази агента").unwrap_err();
-        assert!(e.message().starts_with("пароль бази агента містить подвійну лапку") && !e.message().contains("МАРКЕР"));
+        assert!(
+            e.message()
+                .starts_with("пароль бази агента містить подвійну лапку")
+                && !e.message().contains("МАРКЕР")
+        );
         assert!(assert_secret_quote_free(&Secret::new("ok"), "x").is_ok());
     }
 }

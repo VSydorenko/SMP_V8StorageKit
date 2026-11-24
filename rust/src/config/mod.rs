@@ -31,8 +31,9 @@ pub mod v8project;
 pub mod yaml;
 
 pub use preflight::{
-    Context, Finding, Level, Mode, PreflightStop, Source, Workspace, agent_base, agent_base_collisions, agent_base_missing_message,
-    local_has_dev_infobase_line, preflight, select_sources, workspace_needs_agent_base,
+    Context, Finding, Level, Mode, PreflightStop, Source, Workspace, agent_base,
+    agent_base_collisions, agent_base_missing_message, local_has_dev_infobase_line, preflight,
+    select_sources, workspace_needs_agent_base,
 };
 
 use std::fmt;
@@ -167,7 +168,12 @@ impl Truth {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
@@ -177,7 +183,10 @@ mod tests {
         let marker = "МАРКЕР-пароль;=\"ʼ";
         let secret = format!("{:?}", Secret::new(marker));
         let conn = format!("{:?}", RawConnection::new(marker));
-        assert!(!secret.contains(marker) && secret.contains("задано"), "{secret}");
+        assert!(
+            !secret.contains(marker) && secret.contains("задано"),
+            "{secret}"
+        );
         assert!(!conn.contains(marker) && conn.contains("задано"), "{conn}");
     }
 

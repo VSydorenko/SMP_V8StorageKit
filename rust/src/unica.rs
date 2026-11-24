@@ -70,7 +70,11 @@ impl Candidate {
             self.key,
             self.scope,
             self.project_path.as_deref().unwrap_or("-"),
-            if self.version.is_empty() { "-" } else { &self.version }
+            if self.version.is_empty() {
+                "-"
+            } else {
+                &self.version
+            }
         )
     }
 }
@@ -95,7 +99,12 @@ pub fn default_registry() -> Option<PathBuf> {
     if home.is_empty() {
         return None;
     }
-    Some(PathBuf::from(home).join(".claude").join("plugins").join("installed_plugins.json"))
+    Some(
+        PathBuf::from(home)
+            .join(".claude")
+            .join("plugins")
+            .join("installed_plugins.json"),
+    )
 }
 
 /// Шлях для порівняння: розділювачі `/`, без кінцевих, без регістру (Windows).
@@ -111,7 +120,10 @@ fn norm_path(p: &str) -> String {
 
 /// `project_path` — корінь репозиторію чи його предок.
 fn covers(project_path: &str, repo_root: &Path) -> bool {
-    let (pp, root) = (norm_path(project_path), norm_path(&repo_root.to_string_lossy()));
+    let (pp, root) = (
+        norm_path(project_path),
+        norm_path(&repo_root.to_string_lossy()),
+    );
     !pp.is_empty() && (root == pp || root.starts_with(&format!("{pp}/")))
 }
 
@@ -124,7 +136,10 @@ fn str_field(v: &Value, name: &str) -> Option<String> {
 }
 
 fn not_installed(reason: String) -> Installation {
-    Installation { reason, ..Installation::default() }
+    Installation {
+        reason,
+        ..Installation::default()
+    }
 }
 
 /// Читає реєстр і вибирає запис Уніки. Не падає: причина — текстом у `reason`. `repo_root == None` —
@@ -136,13 +151,21 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
     }
     let bytes = match std::fs::read(registry) {
         Ok(b) => b,
-        Err(e) => return not_installed(format!("Реєстр плагінів не читається як JSON ({shown}): {e}")),
+        Err(e) => {
+            return not_installed(format!(
+                "Реєстр плагінів не читається як JSON ({shown}): {e}"
+            ));
+        }
     };
     let raw = String::from_utf8_lossy(&bytes);
     let raw = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
     let json: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
-        Err(e) => return not_installed(format!("Реєстр плагінів не читається як JSON ({shown}): {e}")),
+        Err(e) => {
+            return not_installed(format!(
+                "Реєстр плагінів не читається як JSON ({shown}): {e}"
+            ));
+        }
     };
     let Some(plugins) = json.get("plugins").and_then(Value::as_object) else {
         return not_installed(format!("У реєстрі {shown} немає розділу 'plugins'"));
@@ -153,7 +176,9 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
         .filter(|(k, _)| k.split('@').next().unwrap_or("").to_lowercase() == PLUGIN_NAME)
         .collect();
     if keys.is_empty() {
-        return not_installed(format!("Плагін '{PLUGIN_NAME}' не значиться в реєстрі {shown}"));
+        return not_installed(format!(
+            "Плагін '{PLUGIN_NAME}' не значиться в реєстрі {shown}"
+        ));
     }
 
     // Значення ключа — масив записів або один об'єкт.
@@ -166,7 +191,9 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
         }
     }
     if records.is_empty() {
-        return not_installed(format!("Плагін '{PLUGIN_NAME}' є в реєстрі, але без жодного запису про встановлення"));
+        return not_installed(format!(
+            "Плагін '{PLUGIN_NAME}' є в реєстрі, але без жодного запису про встановлення"
+        ));
     }
 
     let mut candidates = Vec::new();
@@ -177,7 +204,9 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
         let scope = str_field(rec, "scope").unwrap_or_default();
         let project_path = str_field(rec, "projectPath");
         let qualifies = scope.eq_ignore_ascii_case("user")
-            || (["project", "local"].iter().any(|s| scope.eq_ignore_ascii_case(s))
+            || (["project", "local"]
+                .iter()
+                .any(|s| scope.eq_ignore_ascii_case(s))
                 && matches!((repo_root, &project_path), (Some(root), Some(pp)) if covers(pp, root)));
         if qualifies {
             candidates.push(Candidate {
@@ -191,7 +220,9 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
     }
 
     match candidates.len() {
-        0 => not_installed(format!("Плагін '{PLUGIN_NAME}' не значиться в реєстрі {shown}")),
+        0 => not_installed(format!(
+            "Плагін '{PLUGIN_NAME}' не значиться в реєстрі {shown}"
+        )),
         1 => {
             let c = candidates[0].clone();
             let mut r = Installation {
@@ -207,12 +238,19 @@ pub fn installation(registry: &Path, repo_root: Option<&Path>) -> Installation {
             }
             r.path_exists = Path::new(&c.install_path).exists();
             if !r.path_exists {
-                r.reason = format!("Реєстр вказує на теку, якої немає на диску: {}", c.install_path);
+                r.reason = format!(
+                    "Реєстр вказує на теку, якої немає на диску: {}",
+                    c.install_path
+                );
             }
             r
         }
         _ => {
-            let list = candidates.iter().map(Candidate::describe).collect::<Vec<_>>().join("; ");
+            let list = candidates
+                .iter()
+                .map(Candidate::describe)
+                .collect::<Vec<_>>()
+                .join("; ");
             let steps = candidates
                 .iter()
                 .map(|c| format!("claude plugin uninstall {} --scope {}", c.key, c.scope))
@@ -249,7 +287,11 @@ fn parse_major_minor(raw: &str) -> Option<(u64, u64)> {
 /// Висновок про версію встановленої Уніки (`Get-KitUnicaVersionVerdict`): ok | warn (новіша чи
 /// нерозбірна) | error (немає, не та тека, старіша за 0.16, кілька кандидатів).
 pub fn unica_verdict(inst: &Installation) -> Verdict {
-    let v = |level, message: String, version: &str| Verdict { level, message, version: version.to_string() };
+    let v = |level, message: String, version: &str| Verdict {
+        level,
+        message,
+        version: version.to_string(),
+    };
     if inst.candidates.len() > 1 {
         return v(Level::Error, inst.reason.clone(), "");
     }
@@ -267,7 +309,11 @@ pub fn unica_verdict(inst: &Installation) -> Verdict {
     }
     let raw = &inst.version;
     let Some(minor) = parse_major_minor(raw) else {
-        return v(Level::Warn, format!("Версію плагіна unica '{raw}' не розібрано — kit перевірено на Уніці 0.16.x."), raw);
+        return v(
+            Level::Warn,
+            format!("Версію плагіна unica '{raw}' не розібрано — kit перевірено на Уніці 0.16.x."),
+            raw,
+        );
     };
     if minor < TESTED_MINOR {
         return v(
@@ -309,13 +355,19 @@ pub fn runner_verdict(runner: Option<&Path>, registry: &Path, repo_root: Option<
     let version = match version {
         Ok(v) => v,
         Err(e) => {
-            return Verdict { level: Level::Error, version: String::new(), message: format!("Раннер Уніки недоступний: {e} {notice}") };
+            return Verdict {
+                level: Level::Error,
+                version: String::new(),
+                message: format!("Раннер Уніки недоступний: {e} {notice}"),
+            };
         }
     };
     let Some(minor) = parse_major_minor(&version) else {
         return Verdict {
             level: Level::Warn,
-            message: format!("Версію раннера '{version}' не розібрано — kit перевірено на v8-runner 0.18.x."),
+            message: format!(
+                "Версію раннера '{version}' не розібрано — kit перевірено на v8-runner 0.18.x."
+            ),
             version,
         };
     };
@@ -329,5 +381,9 @@ pub fn runner_verdict(runner: Option<&Path>, registry: &Path, repo_root: Option<
             version,
         };
     }
-    Verdict { level: Level::Ok, message: format!("Раннер v8-runner {version}."), version }
+    Verdict {
+        level: Level::Ok,
+        message: format!("Раннер v8-runner {version}."),
+        version,
+    }
 }

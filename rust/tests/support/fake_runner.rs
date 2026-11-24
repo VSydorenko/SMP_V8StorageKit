@@ -23,10 +23,14 @@ fn json_array(items: &[String]) -> String {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     if args.first().map(String::as_str) == Some("--version") {
         let exe = std::env::current_exe().unwrap();
-        let version = std::fs::read_to_string(exe.with_file_name("version.txt")).unwrap_or_else(|_| "0.18.1".to_string());
+        let version = std::fs::read_to_string(exe.with_file_name("version.txt"))
+            .unwrap_or_else(|_| "0.18.1".to_string());
         println!("v8-runner {}", version.trim());
         return;
     }
@@ -42,7 +46,9 @@ fn main() {
             }
         }
     }
-    let Some(at) = mode_at else { std::process::exit(64) };
+    let Some(at) = mode_at else {
+        std::process::exit(64)
+    };
     let rest = &args[at + 1..];
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -80,7 +86,10 @@ fn main() {
         "hold" => std::thread::sleep(std::time::Duration::from_secs(10)),
         "grandchild" => {
             #[allow(clippy::zombie_processes)] // онук навмисно переживає батька
-            let child = std::process::Command::new(std::env::current_exe().unwrap()).arg("hold").spawn().unwrap();
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("hold")
+                .spawn()
+                .unwrap();
             writeln!(out, "pid:{}", child.id()).unwrap();
         }
         "code7" => {

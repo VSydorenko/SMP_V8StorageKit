@@ -12,8 +12,12 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(name: &str) -> Self {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("kit-unica-{name}-{}-{nanos}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("kit-unica-{name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
     }
@@ -57,22 +61,46 @@ fn registry_unavailable_states_name_the_cause() {
     let missing = tmp.0.join("ніякого-реєстру.json");
     let i = unica::installation(&missing, None);
     assert!(!i.installed);
-    assert_eq!(i.reason, format!("Реєстр плагінів не знайдено: {}", missing.display()));
+    assert_eq!(
+        i.reason,
+        format!("Реєстр плагінів не знайдено: {}", missing.display())
+    );
 
     let broken = tmp.registry("{ \"plugins\": { ");
     let i = unica::installation(&broken, None);
-    assert!(i.reason.starts_with(&format!("Реєстр плагінів не читається як JSON ({}): ", broken.display())), "{}", i.reason);
+    assert!(
+        i.reason.starts_with(&format!(
+            "Реєстр плагінів не читається як JSON ({}): ",
+            broken.display()
+        )),
+        "{}",
+        i.reason
+    );
 
     let no_section = tmp.registry("{ \"version\": 2 }");
-    assert_eq!(unica::installation(&no_section, None).reason, format!("У реєстрі {} немає розділу 'plugins'", no_section.display()));
+    assert_eq!(
+        unica::installation(&no_section, None).reason,
+        format!("У реєстрі {} немає розділу 'plugins'", no_section.display())
+    );
 
     let empty = tmp.registry(&plugins(json!({"unica@unica": []})));
-    assert_eq!(unica::installation(&empty, None).reason, "Плагін 'unica' є в реєстрі, але без жодного запису про встановлення");
+    assert_eq!(
+        unica::installation(&empty, None).reason,
+        "Плагін 'unica' є в реєстрі, але без жодного запису про встановлення"
+    );
 
-    let lookalike = tmp.registry(&plugins(json!({"unica-extras@somewhere": [rec("user", None, "1.0.0", &tmp.0)]})));
+    let lookalike = tmp.registry(&plugins(
+        json!({"unica-extras@somewhere": [rec("user", None, "1.0.0", &tmp.0)]}),
+    ));
     let i = unica::installation(&lookalike, None);
     assert!(!i.installed);
-    assert_eq!(i.reason, format!("Плагін 'unica' не значиться в реєстрі {}", lookalike.display()));
+    assert_eq!(
+        i.reason,
+        format!(
+            "Плагін 'unica' не значиться в реєстрі {}",
+            lookalike.display()
+        )
+    );
 }
 
 #[test]
@@ -95,7 +123,10 @@ fn name_is_case_insensitive_and_value_may_be_object_or_array() {
 fn utf8_bom_is_stripped() {
     let tmp = TempDir::new("bom");
     let install = tmp.dir("u");
-    let body = format!("\u{feff}{}", plugins(json!({"unica@unica": [rec("user", None, "0.16.0", &install)]})));
+    let body = format!(
+        "\u{feff}{}",
+        plugins(json!({"unica@unica": [rec("user", None, "0.16.0", &install)]}))
+    );
     assert!(unica::installation(&tmp.registry(&body), None).installed);
 }
 
@@ -103,10 +134,26 @@ fn utf8_bom_is_stripped() {
 fn registry_and_disk_may_disagree() {
     let tmp = TempDir::new("disk");
     let gone = tmp.0.join("видалена-тека");
-    let i = unica::installation(&tmp.registry(&plugins(json!({"unica@unica": [rec("user", None, "0.12.3", &gone)]}))), None);
+    let i = unica::installation(
+        &tmp.registry(&plugins(
+            json!({"unica@unica": [rec("user", None, "0.12.3", &gone)]}),
+        )),
+        None,
+    );
     assert!(i.installed && !i.path_exists);
-    assert_eq!(i.reason, format!("Реєстр вказує на теку, якої немає на диску: {}", gone.display()));
-    let i = unica::installation(&tmp.registry(&plugins(json!({"unica@unica": [{"scope": "user", "version": "0.12.3"}]}))), None);
+    assert_eq!(
+        i.reason,
+        format!(
+            "Реєстр вказує на теку, якої немає на диску: {}",
+            gone.display()
+        )
+    );
+    let i = unica::installation(
+        &tmp.registry(&plugins(
+            json!({"unica@unica": [{"scope": "user", "version": "0.12.3"}]}),
+        )),
+        None,
+    );
     assert!(i.installed && !i.path_exists);
     assert_eq!(i.reason, "Запис про 'unica' є, але без installPath");
 }
@@ -116,7 +163,11 @@ fn registry_and_disk_may_disagree() {
 #[test]
 fn foreign_project_entry_first_is_not_chosen() {
     let tmp = TempDir::new("foreign");
-    let (foreign, mine, repo) = (tmp.dir("foreign-install"), tmp.dir("user-install"), tmp.dir("repo"));
+    let (foreign, mine, repo) = (
+        tmp.dir("foreign-install"),
+        tmp.dir("user-install"),
+        tmp.dir("repo"),
+    );
     // Ключ чужого проєкту стоїть першим і в алфавіті ключів.
     let reg = tmp.registry(&plugins(json!({
         "unica@a": [rec("project", Some(&tmp.0.join("чужий-репо")), "0.15.0", &foreign)],
@@ -127,14 +178,19 @@ fn foreign_project_entry_first_is_not_chosen() {
     assert_eq!(i.install_path, mine.to_string_lossy());
     assert_eq!(i.version, "0.16.0");
     // Без репозиторію — теж лише user.
-    assert_eq!(unica::installation(&reg, None).install_path, mine.to_string_lossy());
+    assert_eq!(
+        unica::installation(&reg, None).install_path,
+        mine.to_string_lossy()
+    );
 }
 
 #[test]
 fn only_foreign_project_entry_means_not_installed() {
     let tmp = TempDir::new("onlyforeign");
     let foreign = tmp.dir("f");
-    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&tmp.0.join("чужий")), "0.16.0", &foreign)]})));
+    let reg = tmp.registry(&plugins(
+        json!({"unica@unica": [rec("project", Some(&tmp.0.join("чужий")), "0.16.0", &foreign)]}),
+    ));
     let i = unica::installation(&reg, Some(&tmp.dir("repo")));
     assert!(!i.installed && i.candidates.is_empty());
 }
@@ -145,14 +201,18 @@ fn extended_length_prefix_on_repo_root_is_ignored() {
     let tmp = TempDir::new("verbatim");
     let install = tmp.dir("install");
     let project = PathBuf::from(r"C:\x\repo");
-    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&project), "0.16.1", &install)]})));
+    let reg = tmp.registry(&plugins(
+        json!({"unica@unica": [rec("project", Some(&project), "0.16.1", &install)]}),
+    ));
     let i = unica::installation(&reg, Some(Path::new(r"\\?\C:\x\repo")));
     assert!(i.installed, "{}", i.reason);
     let i = unica::installation(&reg, Some(Path::new(r"\\?\C:\x\other")));
     assert!(!i.installed);
     // UNC: `\\?\UNC\srv\share\repo` ≡ `\\srv\share\repo`.
     let unc = PathBuf::from(r"\\srv\share\repo");
-    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&unc), "0.16.1", &install)]})));
+    let reg = tmp.registry(&plugins(
+        json!({"unica@unica": [rec("project", Some(&unc), "0.16.1", &install)]}),
+    ));
     assert!(unica::installation(&reg, Some(Path::new(r"\\?\UNC\srv\share\repo"))).installed);
 }
 
@@ -163,14 +223,18 @@ fn own_project_entry_and_ancestor_project_path_are_candidates() {
     let repo = tmp.dir("work").join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     for project in [repo.clone(), tmp.0.join("work")] {
-        let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("project", Some(&project), "0.16.1", &install)]})));
+        let reg = tmp.registry(&plugins(
+            json!({"unica@unica": [rec("project", Some(&project), "0.16.1", &install)]}),
+        ));
         let i = unica::installation(&reg, Some(&repo));
         assert!(i.installed, "{}", i.reason);
         assert_eq!(i.version, "0.16.1");
     }
     // Спільний префікс рядка, але не предок: wor не охоплює work/repo.
     let sibling = tmp.0.join("wor");
-    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("local", Some(&sibling), "0.16.1", &install)]})));
+    let reg = tmp.registry(&plugins(
+        json!({"unica@unica": [rec("local", Some(&sibling), "0.16.1", &install)]}),
+    ));
     assert!(!unica::installation(&reg, Some(&repo)).installed);
 }
 
@@ -197,7 +261,12 @@ fn user_plus_own_project_is_an_error_naming_both_and_the_uninstall_step() {
     // Раннер за двозначного вибору — теж error, без запуску.
     let rv = unica::runner_verdict(None, &reg, Some(&repo));
     assert_eq!(rv.level, Level::Error);
-    assert!(rv.message.starts_with("Раннер Уніки недоступний: Раннер не знайдено: У реєстрі"), "{}", rv.message);
+    assert!(
+        rv.message
+            .starts_with("Раннер Уніки недоступний: Раннер не знайдено: У реєстрі"),
+        "{}",
+        rv.message
+    );
 }
 
 #[test]
@@ -209,10 +278,15 @@ fn two_user_entries_are_an_error_and_one_user_entry_is_chosen() {
     assert!(!i.installed);
     assert_eq!(i.candidates.len(), 2);
     assert!(
-        i.reason.contains("claude plugin uninstall unica@x --scope user") && i.reason.contains("claude plugin uninstall unica@y --scope user")
+        i.reason
+            .contains("claude plugin uninstall unica@x --scope user")
+            && i.reason
+                .contains("claude plugin uninstall unica@y --scope user")
     );
     // Контроль: один user-запис обирається.
-    let one = tmp.registry(&plugins(json!({"unica@x": [rec("user", None, "0.16.0", &a)]})));
+    let one = tmp.registry(&plugins(
+        json!({"unica@x": [rec("user", None, "0.16.0", &a)]}),
+    ));
     let i = unica::installation(&one, None);
     assert!(i.installed && i.candidates.len() == 1);
 }
@@ -252,8 +326,14 @@ fn unica_verdict_table() {
         verdict_for("0.17.0").message,
         "Плагін unica 0.17.0 новіший за перевірену 0.16.x: перед роботою звірте контракт за процедурою docs/unica-contract.md (у репозиторії плагіна v8storagekit)."
     );
-    assert_eq!(verdict_for("dev").message, "Версію плагіна unica 'dev' не розібрано — kit перевірено на Уніці 0.16.x.");
-    let none = unica::unica_verdict(&unica::Installation { reason: "немає в реєстрі".into(), ..Default::default() });
+    assert_eq!(
+        verdict_for("dev").message,
+        "Версію плагіна unica 'dev' не розібрано — kit перевірено на Уніці 0.16.x."
+    );
+    let none = unica::unica_verdict(&unica::Installation {
+        reason: "немає в реєстрі".into(),
+        ..Default::default()
+    });
     assert_eq!(none.level, Level::Error);
     assert_eq!(
         none.message,
@@ -275,21 +355,33 @@ fn runner_with_version(tmp: &TempDir, name: &str, line: &str) -> PathBuf {
 fn runner_verdict_table() {
     let tmp = TempDir::new("rv");
     let none = tmp.0.join("не-реєстр.json");
-    for (line, level) in [("0.18.1", Level::Ok), ("0.18.9-fork.3", Level::Ok), ("0.19.0", Level::Warn), ("0.17.4", Level::Warn)] {
+    for (line, level) in [
+        ("0.18.1", Level::Ok),
+        ("0.18.9-fork.3", Level::Ok),
+        ("0.19.0", Level::Warn),
+        ("0.17.4", Level::Warn),
+    ] {
         let exe = runner_with_version(&tmp, &format!("r{line}"), line);
         let v = unica::runner_verdict(Some(&exe), &none, None);
         assert_eq!(v.level, level, "{line}");
         assert_eq!(v.version, line);
     }
     let exe = runner_with_version(&tmp, "ok", "0.18.1");
-    assert_eq!(unica::runner_verdict(Some(&exe), &none, None).message, "Раннер v8-runner 0.18.1.");
+    assert_eq!(
+        unica::runner_verdict(Some(&exe), &none, None).message,
+        "Раннер v8-runner 0.18.1."
+    );
     let exe = runner_with_version(&tmp, "warn", "0.19.0");
     assert_eq!(
         unica::runner_verdict(Some(&exe), &none, None).message,
         "Раннер v8-runner 0.19.0 — kit перевірено на 0.18.x: перед роботою звірте контракт за процедурою docs/unica-contract.md (у репозиторії плагіна v8storagekit)."
     );
     // Файла раннера немає — error із шляхом і нагадуванням про kit dump.
-    let v = unica::runner_verdict(Some(&tmp.0.join("немає").join("v8-runner.exe")), &none, None);
+    let v = unica::runner_verdict(
+        Some(&tmp.0.join("немає").join("v8-runner.exe")),
+        &none,
+        None,
+    );
     assert_eq!(v.level, Level::Error);
     assert!(
         v.message.starts_with("Раннер Уніки недоступний: Раннер не знайдено: ")
@@ -307,16 +399,31 @@ fn runner_verdict_table() {
 fn installed_runner_is_built_from_install_path_only() {
     let tmp = TempDir::new("installed");
     let install = tmp.dir("unica");
-    let reg = tmp.registry(&plugins(json!({"unica@unica": [rec("user", None, "0.16.0", &install)]})));
+    let reg = tmp.registry(&plugins(
+        json!({"unica@unica": [rec("user", None, "0.16.0", &install)]}),
+    ));
     let err = kit::runner::installed_runner(&reg, None).unwrap_err();
-    let expected = install.join("bin").join("win-x64").join("v8-runner-windows-x86_64").join("v8-runner.exe");
-    assert_eq!(err, format!("Раннер не знайдено: у встановленій Уніці ({}) немає файла {}", install.display(), expected.display()));
+    let expected = install
+        .join("bin")
+        .join("win-x64")
+        .join("v8-runner-windows-x86_64")
+        .join("v8-runner.exe");
+    assert_eq!(
+        err,
+        format!(
+            "Раннер не знайдено: у встановленій Уніці ({}) немає файла {}",
+            install.display(),
+            expected.display()
+        )
+    );
     std::fs::create_dir_all(expected.parent().unwrap()).unwrap();
     std::fs::copy(FAKE, &expected).unwrap();
     assert_eq!(kit::runner::installed_runner(&reg, None).unwrap(), expected);
     // Реєстр без Уніки.
     let empty = tmp.registry(r#"{"version":2,"plugins":{}}"#);
-    assert!(kit::runner::installed_runner(&empty, None)
-        .unwrap_err()
-        .starts_with("Раннер не знайдено: Unica не встановлена. Плагін 'unica' не значиться"));
+    assert!(
+        kit::runner::installed_runner(&empty, None)
+            .unwrap_err()
+            .starts_with("Раннер не знайдено: Unica не встановлена. Плагін 'unica' не значиться")
+    );
 }

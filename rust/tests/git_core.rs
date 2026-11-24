@@ -22,8 +22,12 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(name: &str) -> Self {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("kit-git-{name}-{}-{nanos}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("kit-git-{name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
     }
@@ -53,7 +57,19 @@ fn fixture(name: &str) -> (TempDir, PathBuf) {
     }
     ok(&["add", "-A"], None);
     // Повідомлення коміту — через stdin ядра.
-    ok(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-F", "-"], Some("коміт".as_bytes()));
+    ok(
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-F",
+            "-",
+        ],
+        Some("коміт".as_bytes()),
+    );
     (tmp, repo)
 }
 
@@ -66,7 +82,10 @@ fn cyrillic_paths_without_octal_escapes() {
     let (_tmp, repo) = fixture("octal");
     // Без -z: саме тут core.quotepath=true дав би "\320\272…" у лапках.
     let plain = git::run(&repo, &["ls-files"], None, false).unwrap();
-    assert_eq!(utf8(&plain.stdout).lines().collect::<Vec<_>>(), vec![BLOB_PATH, CYR_PATH]);
+    assert_eq!(
+        utf8(&plain.stdout).lines().collect::<Vec<_>>(),
+        vec![BLOB_PATH, CYR_PATH]
+    );
     let z = git::run(&repo, &["ls-files", "-z"], None, false).unwrap();
     assert_eq!(z.stdout, format!("{BLOB_PATH}\0{CYR_PATH}\0").into_bytes());
 }
@@ -79,7 +98,12 @@ fn nul_records_keep_cyrillic() {
         .stdout
         .split(|b| *b == 0)
         .filter(|r| !r.is_empty())
-        .map(|r| utf8(r).split_once('\t').expect("запис ls-tree: <meta>\\t<шлях>").1)
+        .map(|r| {
+            utf8(r)
+                .split_once('\t')
+                .expect("запис ls-tree: <meta>\\t<шлях>")
+                .1
+        })
         .collect();
     assert_eq!(paths, vec![BLOB_PATH, CYR_PATH]);
 }
@@ -101,7 +125,10 @@ fn failure_contract() {
     // З дозволом — код і stderr як є.
     let allowed = git::run(&repo, &args, None, true).unwrap();
     assert_ne!(allowed.code, 0);
-    assert!(!allowed.stderr.is_empty(), "git мав надрукувати причину в stderr");
+    assert!(
+        !allowed.stderr.is_empty(),
+        "git мав надрукувати причину в stderr"
+    );
     // Без дозволу — помилка з дослівним stderr того самого виклику, не порожній результат.
     match git::run(&repo, &args, None, false) {
         Err(GitError::Failed { code, stderr, .. }) => {
@@ -116,7 +143,11 @@ fn failure_contract() {
 fn failure_stderr_is_byte_exact() {
     let (_tmp, repo) = fixture("fail-bytes");
     // Псевдонім-оболонка git друкує в stderr байти, що не є UTF-8: помилка несе їх дослівно.
-    let args = ["-c", "alias.bad=!printf '\\377\\376збій' >&2; exit 3", "bad"];
+    let args = [
+        "-c",
+        "alias.bad=!printf '\\377\\376збій' >&2; exit 3",
+        "bad",
+    ];
     match git::run(&repo, &args, None, false) {
         Err(GitError::Failed { code, stderr, .. }) => {
             assert_eq!(code, Some(3));

@@ -57,7 +57,12 @@ fn print_help(root: Option<&Path>) {
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".psm1")).map(str::to_string))
+        .filter_map(|e| {
+            e.file_name()
+                .to_str()
+                .and_then(|n| n.strip_suffix(".psm1"))
+                .map(str::to_string)
+        })
         .collect();
     // Команди, перенесені на Rust, модуля .psm1 не мають.
     names.push("session-board".to_string());
@@ -79,7 +84,11 @@ fn source_fingerprint(args: &[String]) -> i32 {
                 println!("computed {hash:016x} {files}");
                 0
             }
-            Err(e) => fail(FINGERPRINT_COMMAND, &format!("відбиток {dir} не обчислено: {e}"), 1),
+            Err(e) => fail(
+                FINGERPRINT_COMMAND,
+                &format!("відбиток {dir} не обчислено: {e}"),
+                1,
+            ),
         },
         _ => fail(FINGERPRINT_COMMAND, "очікувалась одна тека крейта", 2),
     }
@@ -95,9 +104,13 @@ pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, Stri
     let Some(pwsh) = kit::proc::find_program("pwsh") else {
         return Err("pwsh (PowerShell 7+) не знайдено в PATH".to_string());
     };
-    let argv = serde_json::to_string(tokens).map_err(|e| format!("KIT_ARGV не серіалізовано: {e}"))?;
+    let argv =
+        serde_json::to_string(tokens).map_err(|e| format!("KIT_ARGV не серіалізовано: {e}"))?;
     let mut cmd = Command::new(&pwsh);
-    cmd.arg("-NoProfile").arg("-File").arg(&script).env("KIT_ARGV", argv);
+    cmd.arg("-NoProfile")
+        .arg("-File")
+        .arg(&script)
+        .env("KIT_ARGV", argv);
     Ok(cmd)
 }
 
@@ -106,7 +119,14 @@ fn dispatch(root: &Path, tokens: &[String]) -> i32 {
     let mut cmd = dispatcher(root, tokens).unwrap_or_else(|e| fail("kit", &e, 1));
     match cmd.status() {
         Ok(s) => s.code().unwrap_or(1),
-        Err(e) => fail("kit", &format!("{} не запустився: {e}", Path::new(cmd.get_program()).display()), 1),
+        Err(e) => fail(
+            "kit",
+            &format!(
+                "{} не запустився: {e}",
+                Path::new(cmd.get_program()).display()
+            ),
+            1,
+        ),
     }
 }
 
@@ -134,13 +154,20 @@ fn config_preflight(args: &[String]) -> i32 {
     };
     let mode = match text("Mode") {
         None => config::Mode::Strict,
-        Some(m) => config::Mode::parse(&m).unwrap_or_else(|| fail(NAME, "-Mode: Strict, Lenient або Check", 2)),
+        Some(m) => config::Mode::parse(&m)
+            .unwrap_or_else(|| fail(NAME, "-Mode: Strict, Lenient або Check", 2)),
     };
     let truth = match parsed.named.get("Truth") {
         Some(cli::Value::List(l)) => l.clone(),
         _ => Vec::new(),
     };
-    let report = config::preflight::report_json(Path::new(&root), mode, text("Workspace").as_deref(), text("Source").as_deref(), &truth);
+    let report = config::preflight::report_json(
+        Path::new(&root),
+        mode,
+        text("Workspace").as_deref(),
+        text("Source").as_deref(),
+        &truth,
+    );
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{report}").and_then(|_| stdout.flush());
     0
@@ -153,7 +180,11 @@ const RUNNER_EXEC_COMMAND: &str = "runner-exec";
 
 fn runner_exec(args: &[OsString]) -> i32 {
     let [runner_path, cwd, rest @ ..] = args else {
-        fail(RUNNER_EXEC_COMMAND, "очікувалось: <шлях раннера> <робоча тека> [аргумент…]", 2);
+        fail(
+            RUNNER_EXEC_COMMAND,
+            "очікувалось: <шлях раннера> <робоча тека> [аргумент…]",
+            2,
+        );
     };
     match runner::exec_inherit(Path::new(runner_path), Path::new(cwd), rest) {
         Ok(code) => code,
@@ -172,9 +203,12 @@ fn tool_verdicts(args: &[String]) -> i32 {
         ("RunnerPath", cli::Kind::Str),
         ("RepoRoot", cli::Kind::Str),
     ];
-    let parsed = cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(VERDICTS_COMMAND, &m, 2));
+    let parsed =
+        cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(VERDICTS_COMMAND, &m, 2));
     if parsed.help {
-        println!("usage: kit tool-verdicts [-InstalledPluginsPath <реєстр>] [-RunnerPath <раннер>] [-RepoRoot <корінь репозиторію>]");
+        println!(
+            "usage: kit tool-verdicts [-InstalledPluginsPath <реєстр>] [-RunnerPath <раннер>] [-RepoRoot <корінь репозиторію>]"
+        );
         return 0;
     }
     if !parsed.positional.is_empty() {
@@ -187,12 +221,19 @@ fn tool_verdicts(args: &[String]) -> i32 {
     let registry = named("InstalledPluginsPath")
         .map(PathBuf::from)
         .or_else(unica::default_registry)
-        .unwrap_or_else(|| fail(VERDICTS_COMMAND, "домашню теку не визначено: вкажіть -InstalledPluginsPath", 2));
+        .unwrap_or_else(|| {
+            fail(
+                VERDICTS_COMMAND,
+                "домашню теку не визначено: вкажіть -InstalledPluginsPath",
+                2,
+            )
+        });
     let repo_root = named("RepoRoot").map(PathBuf::from);
     let installation = unica::installation(&registry, repo_root.as_deref());
     let unica_verdict = unica::unica_verdict(&installation);
     let runner_path = named("RunnerPath").map(PathBuf::from);
-    let runner_verdict = unica::runner_verdict(runner_path.as_deref(), &registry, repo_root.as_deref());
+    let runner_verdict =
+        unica::runner_verdict(runner_path.as_deref(), &registry, repo_root.as_deref());
     let json = serde_json::json!({
         "unica": {
             "Installed": installation.installed,
@@ -224,11 +265,19 @@ fn main() {
     for a in raw {
         match a.into_string() {
             Ok(s) => tokens.push(s),
-            Err(raw) => fail("kit", &format!("аргумент {raw:?} — не коректний Unicode"), 2),
+            Err(raw) => fail(
+                "kit",
+                &format!("аргумент {raw:?} — не коректний Unicode"),
+                2,
+            ),
         }
     }
     let Some(command) = tokens.first().cloned() else {
-        fail("kit", "команду не вказано; usage: kit <команда> [аргументи] (kit -Help)", 2);
+        fail(
+            "kit",
+            "команду не вказано; usage: kit <команда> [аргументи] (kit -Help)",
+            2,
+        );
     };
     if command == FINGERPRINT_COMMAND {
         exit(source_fingerprint(&tokens[1..]));
@@ -238,19 +287,27 @@ fn main() {
     }
     if command == session_start::COMMAND {
         // Хук старту сесії (ADR-0014): код 0 завжди, вивід — одним записом або жодного.
-        let out = plugin_root().ok().and_then(|root| session_start::run(&root));
+        let out = plugin_root()
+            .ok()
+            .and_then(|root| session_start::run(&root));
         if let Some(text) = out {
             let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
+            let _ = stdout
+                .write_all(text.as_bytes())
+                .and_then(|_| stdout.flush());
         }
         exit(0);
     }
     if command == subagent_start::COMMAND {
         // Хук SubagentStart: код 0 завжди, вивід — одним записом або жодного (блокувати хук не може).
-        let out = plugin_root().ok().and_then(|root| subagent_start::run_stdin(&root));
+        let out = plugin_root()
+            .ok()
+            .and_then(|root| subagent_start::run_stdin(&root));
         if let Some(text) = out {
             let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(text.as_bytes()).and_then(|_| stdout.flush());
+            let _ = stdout
+                .write_all(text.as_bytes())
+                .and_then(|_| stdout.flush());
         }
         exit(0);
     }
@@ -259,12 +316,22 @@ fn main() {
     }
     if command == "session-board" {
         // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.
-        let cwd = std::env::current_dir().unwrap_or_else(|e| fail("session-board", &format!("поточна тека не визначена: {e}"), 1));
+        let cwd = std::env::current_dir().unwrap_or_else(|e| {
+            fail(
+                "session-board",
+                &format!("поточна тека не визначена: {e}"),
+                1,
+            )
+        });
         let o = session_board::run(&tokens[1..], &cwd);
         let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(o.stdout.as_bytes()).and_then(|_| stdout.flush());
+        let _ = stdout
+            .write_all(o.stdout.as_bytes())
+            .and_then(|_| stdout.flush());
         let mut stderr = std::io::stderr().lock();
-        let _ = stderr.write_all(o.stderr.as_bytes()).and_then(|_| stderr.flush());
+        let _ = stderr
+            .write_all(o.stderr.as_bytes())
+            .and_then(|_| stderr.flush());
         exit(o.code);
     }
     let root = plugin_root();
@@ -276,7 +343,11 @@ fn main() {
                 exit(0);
             }
             Ok(_) => {}
-            Err(cli::UsageError(msg)) => fail("kit", &format!("{msg}; usage: kit <команда> [аргументи]"), 2),
+            Err(cli::UsageError(msg)) => fail(
+                "kit",
+                &format!("{msg}; usage: kit <команда> [аргументи]"),
+                2,
+            ),
         }
     }
     let root = root.unwrap_or_else(|e| fail("kit", &e, 1));
