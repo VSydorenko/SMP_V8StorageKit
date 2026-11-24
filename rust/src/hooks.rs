@@ -5,7 +5,8 @@
 // Відмінності від PowerShell (рішення 5, 8, 12 плану B3):
 //  - `core.hooksPath` нормалізується відносно кореня: `./.githooks` і абсолютний шлях до тієї самої теки — не
 //    помилка;
-//  - збій git чи читання файла — «не перевірено» цієї перевірки, а не втрата звіту;
+//  - збій git чи читання файла — «не перевірено» цієї перевірки, а не втрата звіту; абсолютний `core.hooksPath`,
+//    що не відповів за стелю, — warn «недоступний з цієї машини» (відповідь, не збій);
 //  - відсутній шаблон плагіна — «не перевірено: шаблон <ім'я> не знайдено в плагіні», а не тиша;
 //  - шаблони шукаються від `current_exe` (корінь плагіна), не від поточної теки;
 //  - `hook-shim`: «не JSON» і «неочікувана структура» — різні тексти; текст розбору JSON не друкується (лише
@@ -67,12 +68,13 @@ pub enum Resolution {
 }
 
 impl Resolution {
-    /// `Err` — абсолютний шлях не вдалося розв'язати за стелю.
-    fn finish(self) -> Result<bool, String> {
+    /// `Err(секунди)` — абсолютний шлях не відповів за стелю: це відповідь («недоступний з цієї машини»), а не збій
+    /// власного читання kit.
+    fn finish(self) -> Result<bool, u64> {
         match self {
             Resolution::Known(v) => Ok(v),
             Resolution::Probe { pending, secs } => match pending.wait() {
-                None => Err(format!("шлях core.hooksPath не розв'язався за {secs} с")),
+                None => Err(secs),
                 Some((Ok(a), Ok(b))) => {
                     Ok(fold(&a.to_string_lossy()) == fold(&b.to_string_lossy()))
                 }
@@ -122,7 +124,7 @@ fn hooks_path_is_default(
     configured: &str,
     ceiling: Duration,
     canon: fn(&Path) -> io::Result<PathBuf>,
-) -> Result<bool, String> {
+) -> Result<bool, u64> {
     begin_hooks_path(root, configured, ceiling, canon).finish()
 }
 
@@ -202,7 +204,13 @@ pub fn audit_with(
     match prefetch.map_or_else(|| begin_prefetch(root, canon), Ok) {
         Ok(p) => match p.resolution.finish() {
             Ok(true) => {}
-            Err(reason) => out.push(unchecked("core.hooksPath", reason)),
+            Err(secs) => out.push(finding(
+                Level::Warn,
+                format!(
+                    "каталог хуків не відповів за {secs} с — хуки з цієї машини, ймовірно, не спрацюють: core.hooksPath '{}'. Якщо це мережевий шлях без зв'язку — повторіть із мережею або вкажіть локальну теку: git config core.hooksPath {HOOKS_DIR}.",
+                    p.configured
+                ),
+            )),
             Ok(false) => out.push(finding(
                 Level::Error,
                 format!(
@@ -476,7 +484,7 @@ mod tests {
         let root = Path::new("C:\\repo");
         let started = Instant::now();
         let r = hooks_path_is_default(root, r"\\srv\share\h", Duration::from_millis(100), hang);
-        assert!(r.is_err_and(|e| e.contains("не розв'язався")));
+        assert_eq!(r, Err(1));
         assert!(started.elapsed() < Duration::from_secs(2));
         // Збіг рядків — без звернення до розв'язувача (той висів би).
         let r = hooks_path_is_default(root, "C:/repo/.githooks/", Duration::from_millis(100), hang);

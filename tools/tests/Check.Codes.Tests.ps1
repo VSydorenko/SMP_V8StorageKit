@@ -164,8 +164,10 @@ Describe 'kit check — коди виходу, межі запису й ранн
             $r = Invoke-Check -Repo $repo
             $sw.Stop()
             $sw.Elapsed.TotalSeconds | Should -BeLessThan 9 -Because "послідовно було б ≈ 20 с; вивід:`n$($r.Output)"
-            $r.Output | Should -Match '(?m)^\[!\] не перевірено: core\.hooksPath'
-            @([regex]::Matches($r.Output, '(?m)^\[!\] (W1/s\d: каталог сховища недоступний|не перевірено: W1/s\d: каталог сховища)')).Count | Should -Be 3
+            $r.Output | Should -Match '(?m)^\[!\] каталог хуків не відповів за 5 с — хуки з цієї машини, ймовірно, не спрацюють'
+            @([regex]::Matches($r.Output, '(?m)^\[!\] W1/s\d: каталог сховища не відповів за 5 с — недоступний з цієї машини')).Count | Should -Be 3
+            $r.Output | Should -Not -Match 'не перевірено'
+            $r.ExitCode | Should -Be 0 -Because $r.Output
         }
     }
 }

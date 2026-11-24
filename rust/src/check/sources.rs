@@ -354,6 +354,12 @@ fn on_main_branch(root: &Path, main_branch: &str) -> bool {
     })
 }
 
+fn overlay_recipe(key: &str) -> String {
+    format!(
+        "Якщо шлях правильний, а диска зараз немає — перевизначте його в накладці storages: {key}: {{ path: … }}; якщо диск є, а шлях помилковий — виправте v8storagekit.yaml."
+    )
+}
+
 /// `storage-path`: каталог сховища (файловий) існує на цій машині. Серверна адреса файлово не пробується (рішення
 /// 4). Будь-який текст зі шляхом — без userinfo.
 fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
@@ -372,14 +378,20 @@ fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
     let exists = c.probes.wait(&effective, STORAGE_PROBE_CEILING, probe);
     match exists {
         Some(true) => {}
-        None => c.unchecked(
-            "storage-path",
-            &format!("{tag}: каталог сховища '{}'", mask_storage_path(&effective)),
-            &format!(
-                "каталог сховища не відповів за {} с",
-                STORAGE_PROBE_CEILING.as_secs()
-            ),
-        ),
+        // Стеля — відповідь на питання перевірки «чи доступний шлях з цієї машини» (практично ні), а не невідомість:
+        // код 3 лишається для збоїв власного читання kit, повтор на такій машині нічого б не змінив.
+        None => {
+            let shown = mask_storage_path(&effective);
+            c.add(
+                Level::Warn,
+                "storage-path",
+                format!(
+                    "{tag}: каталог сховища не відповів за {} с — недоступний з цієї машини або мережа повільна: '{shown}'. {}",
+                    STORAGE_PROBE_CEILING.as_secs(),
+                    overlay_recipe(&src.key)
+                ),
+            );
+        }
         // warn: check не відрізнить «немає доступу до диска» (законно) від описки в маніфесті — тож текст показує
         // обидві розвилки, а не одну.
         Some(false) => {
@@ -406,8 +418,8 @@ fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
                 Level::Warn,
                 "storage-path",
                 format!(
-                    "{tag}: каталог сховища недоступний на цій машині: {note}. Якщо шлях правильний, а диска зараз немає — перевизначте його в накладці storages: {}: {{ path: … }}; якщо диск є, а шлях помилковий — виправте v8storagekit.yaml.",
-                    src.key
+                    "{tag}: каталог сховища недоступний на цій машині: {note}. {}",
+                    overlay_recipe(&src.key)
                 ),
             );
         }

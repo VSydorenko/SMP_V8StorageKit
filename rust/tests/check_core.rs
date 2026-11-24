@@ -2319,3 +2319,74 @@ fn run_starts_network_probes_ahead_and_keeps_finding_order() {
         r.findings
     );
 }
+
+// Рішення архітектора (приймання PR #124): мережева проба, що не вклалась у стелю, — відповідь «недоступно з цієї
+// машини» (warn, код 0), а не «не перевірено» (код 3): повтор на такій машині нічого б не змінив.
+fn hanging_dir_exists(_: &str) -> bool {
+    std::thread::sleep(Duration::from_secs(7));
+    true
+}
+
+fn hanging_canonicalize(_: &Path) -> std::io::Result<PathBuf> {
+    std::thread::sleep(Duration::from_secs(7));
+    Ok(PathBuf::new())
+}
+
+#[test]
+fn probes_that_hit_the_ceiling_are_warns_not_unchecked_and_code_stays_zero() {
+    let h = healthy("ceiling-warn");
+    write_workspace(&h.root, "ws", &["cf"]);
+    let storage = h.tmp.0.join("unreachable").to_string_lossy().into_owned();
+    write_file(
+        &h.root,
+        "v8storagekit.yaml",
+        &format!(
+            "version: 1\nproduct: P\nworkspaces:\n  - path: ws\n    sources:\n      cf: {{ truth: storage, storage: {{ path: '{storage}' }} }}\n"
+        ),
+    );
+    let hooks_dir = h.tmp.0.join("net-hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    git(
+        &h.root,
+        &["config", "core.hooksPath", &hooks_dir.to_string_lossy()],
+    );
+    let ctx = config::preflight(&h.root, Mode::Check).unwrap();
+    let r = check::run_with(
+        &ctx,
+        &opts(&h.registry),
+        check::Probes {
+            dir_exists: hanging_dir_exists,
+            canonicalize: hanging_canonicalize,
+        },
+    )
+    .unwrap();
+    let sp = by(&r, "storage-path");
+    assert_eq!(sp.len(), 1, "{:?}", r.findings);
+    assert_eq!(sp[0].level, Level::Warn);
+    assert!(
+        sp[0]
+            .message
+            .starts_with("ws/cf: каталог сховища не відповів за 5 с — недоступний з цієї машини або мережа повільна: '"),
+        "{}",
+        sp[0].message
+    );
+    assert!(
+        sp[0]
+            .message
+            .contains("перевизначте його в накладці storages: cf:"),
+        "{}",
+        sp[0].message
+    );
+    let hk = by(&r, "hooks");
+    assert_eq!(hk.len(), 1, "{:?}", r.findings);
+    assert_eq!(hk[0].level, Level::Warn);
+    assert!(
+        hk[0].message.starts_with(
+            "каталог хуків не відповів за 5 с — хуки з цієї машини, ймовірно, не спрацюють: "
+        ),
+        "{}",
+        hk[0].message
+    );
+    assert!(r.not_checked.is_empty(), "{:?}", r.not_checked);
+    assert_eq!(r.code, 0, "{:?}", r.findings);
+}
