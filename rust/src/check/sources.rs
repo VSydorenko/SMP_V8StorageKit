@@ -72,7 +72,7 @@ pub(super) fn check_source(c: &mut Collector, ctx: &Context, src: &Source) {
     }
 }
 
-/// `gitattributes` (рішення 14): питаємо САМ git про один файл `<шлях>/Configuration.xml` — правила `-text`
+/// `gitattributes`: питаємо САМ git про один файл `<шлях>/Configuration.xml` — правила `-text`
 /// прив'язані до шляху, а `git status` при хибній політиці чистий завжди.
 fn gitattributes(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let probe = format!("{}/Configuration.xml", slashed(&src.repo_path));
@@ -94,7 +94,7 @@ fn gitattributes(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     }
 }
 
-/// `case-collision` (рішення 13): групи регістру в HEAD під шляхом джерела. Немає `HEAD` — не застосовується.
+/// `case-collision`: групи регістру в HEAD під шляхом джерела. Немає `HEAD` — не застосовується.
 fn case_collision(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let what = format!("{tag}: регістр шляхів у HEAD");
     let paths = match has_head(root) {
@@ -151,7 +151,7 @@ fn tree_not_ignored(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     }
 }
 
-/// vendor — два РІЗНІ питання: ПРАВИЛА (дерево ігнорується) і ФАКТ (дерево не в індексі). Страж (рішення 2):
+/// vendor — два РІЗНІ питання: ПРАВИЛА (дерево ігнорується) і ФАКТ (дерево не в індексі). Страж (ADR-0021 п. 2):
 /// збій git — error «не перевірено».
 fn vendor_tree(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let probe = format!("{}/Configuration.xml", src.repo_path);
@@ -200,7 +200,7 @@ fn vendor_tree(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
 }
 
 /// `dump-from`: джерело `dump`/`vendor` береться з дев-бази накладки. Накладки немає — warn; накладка є, але не
-/// розібрана (рішення 7), — мовчимо: помилка `overlay` уже error, а казати «накладки немає» було б неправдою.
+/// розібрана, — мовчимо: помилка `overlay` уже error, а казати «накладки немає» було б неправдою.
 fn dump_from(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
     let from = src.dump_from.as_deref().unwrap_or_default();
     match (&ctx.overlay, &ctx.overlay_path) {
@@ -227,7 +227,7 @@ fn dump_from(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
     }
 }
 
-/// Поставка вендора (рішення 8): `.bin` у git, тека поставки й позначка поза git, стан поставки на цій машині.
+/// Поставка вендора: `.bin` у git, тека поставки й позначка поза git, стан поставки на цій машині.
 /// Проба ігнору теки — питанням про вигаданий файл у ній, НЕ про теку з кінцевою скісною рискою: у `.gitignore` з
 /// CRLF порожній рядок змушує `check-ignore` відповідати 0 на будь-який шлях із кінцевою рискою.
 fn supply_checks(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
@@ -262,7 +262,7 @@ fn supply_checks(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
         ),
     }
 
-    // `.bin` не прочитано — один рядок «не перевірено» на збій читання (рішення 8): стан поставки нижче його не
+    // `.bin` не прочитано — один рядок «не перевірено» на збій читання (ADR-0021 п. 2): стан поставки нижче його не
     // повторює.
     let mut bin_unreadable = false;
     match supply::is_described(tree) {
@@ -426,7 +426,7 @@ fn storage_path(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
     }
 }
 
-/// `storage-branch`: гілка дзеркала є — аудит інваріантів; немає — info. Збій git — «не перевірено» (рішення 5).
+/// `storage-branch`: гілка дзеркала є — аудит інваріантів; немає — info. Збій git — «не перевірено» (ADR-0021 п. 3).
 fn storage_branch_audit(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let Some(branch) = src.branch.as_deref() else {
         return;
@@ -458,8 +458,7 @@ fn storage_branch_audit(c: &mut Collector, root: &Path, tag: &str, src: &Source)
     }
 }
 
-/// `<Name>` кореневого об'єкта з `Configuration.xml` — перше входження, як у Designer XML (без XML-парсера,
-/// рішення 10): `<Name>` без регістру, далі одна чи більше літер без `<` і `</Name>`.
+/// `<Name>` кореневого об'єкта з `Configuration.xml` — перше входження, як у Designer XML (без XML-парсера): `<Name>` без регістру, далі одна чи більше літер без `<` і `</Name>`.
 pub(super) fn configuration_name(text: &str) -> Option<String> {
     const OPEN: &str = "<name>";
     let lower = text.to_ascii_lowercase();
@@ -527,7 +526,7 @@ mod tests {
     use crate::check::DirProbes;
     use std::time::{Duration, Instant};
 
-    // Стеля проби каталогу сховища (рішення 4): повільна проба не повісить `check`; швидка відповідає як є.
+    // Стеля проби каталогу сховища (ADR-0021 п. 6): повільна проба не повісить `check`; швидка відповідає як є.
     #[test]
     fn probe_ceiling_cuts_a_hanging_probe_and_passes_a_fast_one() {
         let mut probes = DirProbes::default();
@@ -542,7 +541,7 @@ mod tests {
         assert_eq!(fast, Some(true));
     }
 
-    // Рішення архітектора (п. 7): проби стартують разом, результат — той самий, що послідовно, і в порядку запитів.
+    // Проби стартують разом, результат — той самий, що послідовно, і в порядку запитів.
     #[test]
     fn parallel_probes_with_different_delays_give_the_sequential_answers_in_request_order() {
         let delays = [("a", 300u64, true), ("b", 50, false), ("c", 200, true)];

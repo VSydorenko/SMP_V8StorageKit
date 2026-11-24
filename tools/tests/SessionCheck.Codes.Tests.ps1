@@ -1,6 +1,6 @@
 #Requires -Version 7
-# kit.exe session-check: коди виходу (рішення 2, 18), відбиток сховища як точна відповідь (рішення 4, 5), стан «сховище
-# прочитано не повністю» (рішення 3), серверне сховище (рішення 5), паралельні читання (рішення 24, 25). Підпроцес —
+# kit.exe session-check: коди виходу, відбиток сховища як точна відповідь, стан «сховище
+# прочитано не повністю», серверне сховище, паралельні читання (ADR-0021 п. 2, 6). Підпроцес —
 # справжній bin/kit.exe копії (Invoke-KitCommand), синтетичні сховища й репозиторії; платформи, мережі, Уніки немає.
 Describe 'kit session-check — коди, відбиток, читання сховищ' {
     BeforeAll {
@@ -41,7 +41,7 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         }
     }
 
-    Context 'виклик (рішення 18)' {
+    Context 'виклик' {
         It 'корінь не git-репозиторій → код 1, перший рядок «session-check: ERROR …»' {
             $dir = Join-Path $TestDrive 'not-git'; New-Item -ItemType Directory -Path $dir -Force | Out-Null
             $r = Invoke-SessionCheck -Repo $dir
@@ -66,7 +66,7 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         }
     }
 
-    Context 'відбиток сховища: паритет із sync і звірка без допуску (рішення 4, 5)' {
+    Context 'відбиток сховища: паритет із sync і звірка без допуску' {
         # sync пише відбиток зі StoragePath джерела, яке дав PowerShell-префлайт (Write-KitStorageImprint -StoragePath
         # $src.StoragePath). Шлях у накладці навмисно в формі, яку легко записати інакше, ніж прочитати: `/` замість `\`
         # після диска і кінцевий `\` (відносний шлях префлайт відхиляє формою, тож його тут бути не може). Rust-префлайт
@@ -134,7 +134,7 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         }
     }
 
-    Context 'серверне сховище (tcp://): відбиток ніколи не актуальний, причина server, код 0 (рішення 5)' {
+    Context 'серверне сховище (tcp://): відбиток ніколи не актуальний, причина server, код 0' {
         It 'відбиток PowerShell sync для tcp:// не дає «синхронне»; NewInStorageReason = server; код рівно 0; без next:' {
             $repo = New-Repo -Name 'server-imprint' -StoragePath 'tcp://srv.invalid/stor' -MirrorDate $script:Old -Merge
             # sync пише відбиток і для серверної адреси: порожній стан диска «збігається» з порожнім.
@@ -152,7 +152,7 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         }
     }
 
-    Context 'сховище прочитано не повністю: partial-read → код 3 (рішення 2, 3)' {
+    Context 'сховище прочитано не повністю: partial-read → код 3' {
         It 'заборона читання підтеки data/objects посеред обходу → код РІВНО 3, текст із класом помилки без шляху, причина partial-read' {
             $s = New-FakeStorage -Name 'partial' -ObjectsWrite $script:Old -DbWrite $script:Old
             $repo = New-Repo -Name 'partial' -StoragePath $s -MirrorDate $script:Old -Merge
@@ -189,7 +189,7 @@ Describe 'kit session-check — коди, відбиток, читання сх�
         }
     }
 
-    Context 'кілька недоступних сховищ не гальмують решту (рішення 24, 25)' {
+    Context 'кілька недоступних сховищ не гальмують решту' {
         # Справжньої «висячої» теки без мережі не зробити (мережевий шлях без хоста відмовляє одразу): що читання йдуть
         # паралельно й зі стелею, доводить Rust-тест `several_hanging_sources_cost_one_ceiling_not_a_sum` на шві
         # читання; цей тест перевіряє лише порядок рядків і те, що недоступні джерела не роблять решту «невідомими»

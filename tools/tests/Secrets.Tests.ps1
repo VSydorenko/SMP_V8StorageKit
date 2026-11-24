@@ -227,7 +227,7 @@ Describe 'секрети не у виводі' {
             $r = Invoke-Kit -Command 'check' -Repo $repo
             $r.Output | Should -Not -BeLike '*шлях сховища має форму*'
             if ($V -eq 'tcp://srv/repo') {
-                # Рішення 4 плану B3: адреса сервера файлово не пробується — info, а не вічний warn «каталог недоступний».
+                # ADR-0021 п. 2: адреса сервера файлово не пробується — info, а не вічний warn «каталог недоступний».
                 $r.Output | Should -Match '(?m)^\[i\] Alpha_SMB/Alpha_SMB: .*серверне сховище — доступність check не перевіряє'
                 $r.Output | Should -Not -Match '(?m)^\[!\].*каталог сховища недоступний'
             }

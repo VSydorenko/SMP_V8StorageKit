@@ -105,7 +105,7 @@ pub fn run_at_root<S: AsRef<OsStr>>(
 }
 
 /// Запит від кореня: код з переліку `ok` — відповідь команди; будь-який інший чи збій запуску — помилка з
-/// дослівним stderr git (рішення 5 плану B3: «так / ні / збій», а не «немає»).
+/// дослівним stderr git (ADR-0021 п. 3: «так / ні / збій», а не «немає»).
 pub fn query(root: &Path, args: &[&str], ok: &[i32]) -> Result<Output, String> {
     let out = run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
     if ok.contains(&out.code) {

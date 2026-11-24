@@ -386,7 +386,7 @@ function Invoke-KitCommand {
         $cmdArgs.Add('-RunnerPath'); $cmdArgs.Add((Join-Path $PSScriptRoot 'runner/v8-runner.cmd'))
     }
     if ($Command -in @('check', 'session-check')) {
-        # check (блок B3) і session-check (блок B4) виконує сам kit.exe: диспетчер їх більше не отримує. Бінарник — із копії Copy-KitTools
+        # check і session-check виконує сам kit.exe: диспетчер їх більше не отримує. Бінарник — із копії Copy-KitTools
         # (bin/kit.exe поруч із tools/), ніколи не `kit` з PATH. Фальшивий pwsh.exe першим у PATH лишає маркер,
         # якщо команда усе ж запустить pwsh: тоді виклик падає, а не мовчки лишається на PowerShell.
         $exe = Get-KitExe -Kit $Kit

@@ -227,7 +227,7 @@ Describe 'kit.exe session-start — хук SessionStart плагіна' -Tag 'Do
         }
     }
 
-    Context 'без pwsh і без чужого kit.exe (§6)' {
+    Context 'без pwsh і без чужого kit.exe' {
         BeforeAll {
             # Фальшивий pwsh.exe (саме .exe: заглушку-скрипт пошук pwsh за PATHEXT не знайде) пише маркер і
             # виходить з кодом 0; його копія kit.exe — так само. Обидва — у теці першою в PATH процесу хука і в

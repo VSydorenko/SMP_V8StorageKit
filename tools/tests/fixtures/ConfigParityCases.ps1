@@ -79,7 +79,7 @@ function script:Get-ConfigParityCases {
     Add-Case 'templates/v8storagekit.local.yaml.example як накладка' @{ Manifest = $simple; Overlay = $lEx; Projects = @{ Alpha_SMB = $pEx } } @()
     Add-Case 'templates/v8project.yaml.example як v8project.yaml' @{ Manifest = $simple; Projects = @{ Alpha_SMB = $pEx } } @()
 
-    # --- Шлях сховища зі схемою: userinfo маскується (scheme://***@host/…) з обох боків паритету (B3, доповнення) ---
+    # --- Шлях сховища зі схемою: userinfo маскується (scheme://***@host/…) з обох боків паритету ---
     Add-Case 'накладка: шлях сховища «tcp://user:pass@host/x» — маска userinfo з обох боків' @{ Overlay = "storages:`n  Alpha_SMB: 'tcp://user:pass@host/x'`n" } @()
 
     # --- kitVersion у маніфесті: три режими — три різні результати ---
@@ -146,7 +146,7 @@ function script:Get-ConfigParityCases {
     Add-Case 'база агента збігається з дев-базою людини з накладки' @{ Manifest = $abMan; Workspaces = $abWs; Overlay = "infobases:`n  human: { connection: 'File={repo}\A\build\ib' }`n" } @()
     Add-Case 'база агента всередині теки дев-бази людини; серверна людини' @{ Manifest = $abMan; Workspaces = $abWs; Overlay = "infobases:`n  human: { connection: 'File={repo}\A\build' }`n  srv: { connection: 'Srvr=s;Ref=r;' }`n" } @()
 
-    # --- Junction (§6): перетин, якого лексичне порівняння не бачить ---
+    # --- Junction (ADR-0021 п. 7): перетин, якого лексичне порівняння не бачить ---
     Add-Case 'junction: база агента лягає в теку дев-бази людини' @{
         Overlay = "infobases:`n  human: { connection: 'File={repo}\human\ib' }`n"
         Dirs = @('human'); Junctions = @(@{ Link = 'Alpha_SMB/build'; Target = 'human' })

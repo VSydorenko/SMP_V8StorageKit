@@ -16,7 +16,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         $r.Output | Should -BeLike '*v8storagekit.yaml*onboarding*'
     }
 
-    # check виконує kit.exe сам (блок B3). Фікстура ставить фальшивий pwsh.exe першим у PATH: якщо маршрут
+    # check виконує kit.exe сам. Фікстура ставить фальшивий pwsh.exe першим у PATH: якщо маршрут
     # `check` у main.rs не спрацював (чи фікстура взяла `kit` з PATH), `kit.exe` передав би команду диспетчеру —
     # і фальшивий pwsh лишив би маркер.
     It 'check через фікстуру не запускає pwsh (маркера немає); без маніфесту — звичайний звіт, а не помилка диспетчера' {
@@ -26,7 +26,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         (Get-KitFakePwsh -Kit $script:Kit).Marker | Should -Not -Exist
     }
 
-    # session-check виконує kit.exe сам (блок B4): та сама гарантія фікстури, що для check.
+    # session-check виконує kit.exe сам: та сама гарантія фікстури, що для check.
     It 'session-check через фікстуру не запускає pwsh (маркера немає); звичайний звіт, а не помилка диспетчера' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'marker-session-check') -WithHooks -WithGitattributes -WithGitignore
         $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo

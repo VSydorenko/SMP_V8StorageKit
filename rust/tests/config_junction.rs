@@ -1,5 +1,5 @@
-// Інваріант спеки §6: перетин бази агента з базою людини й пам'яттю раннера не пропускається через junction
-// (принцип 3: kit ніколи не пише в базу людини). Тест на СПРАВЖНЬОМУ junction (`mklink /J` через `cmd`: тести
+// Інваріант (ADR-0021 п. 7): перетин бази агента з базою людини й пам'яттю раннера не пропускається через junction
+// (ADR-0021 п. 8: kit ніколи не пише в базу людини). Тест на СПРАВЖНЬОМУ junction (`mklink /J` через `cmd`: тести
 // rust/tests/ поза обсягом запобіжника git_guard) і з контролем, що лексичне порівняння дає інший результат —
 // тест, що проходить і на лексиці, нічого б не доводив.
 
@@ -54,7 +54,7 @@ fn canonical_form_follows_junction_and_lexical_form_does_not() {
         canon.to_lowercase().ends_with("\\real\\deep\\ib"),
         "{canon}"
     );
-    // Префікс пристрою на вході — відмова (рішення архітектора 2026-11-23), а не мовчазне зняття.
+    // Префікс пристрою на вході — відмова (ADR-0021 п. 7), а не мовчазне зняття.
     let verbatim = format!("\\\\?\\{}", via_link.display());
     assert!(canonical_path(&verbatim).is_err());
 
@@ -67,7 +67,7 @@ fn canonical_form_follows_junction_and_lexical_form_does_not() {
     ));
 }
 
-// Фікстура (1) плану §6: база агента воркспейсу через junction лягає в теку дев-бази людини.
+// Фікстура: база агента воркспейсу через junction лягає в теку дев-бази людини.
 #[test]
 fn agent_base_behind_junction_is_refused_against_human_dev_base() {
     let d = tmp("human");

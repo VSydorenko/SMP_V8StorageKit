@@ -276,7 +276,7 @@ Describe 'Контракт кодів — кожен код справжньою
             $errFile = Join-Path $TestDrive "codes-err-$([guid]::NewGuid()).txt"
             Push-Location $Cwd
             try {
-                # check (блок B3) і session-check (блок B4) виконує kit.exe сам, решту — диспетчер.
+                # check і session-check виконує kit.exe сам, решту — диспетчер.
                 if ($Arguments[0] -in 'check', 'session-check') { $out = & (Get-KitExe -Kit $script:Kit) @Arguments 2>$errFile }
                 else { $out = & pwsh -NoProfile -File $script:Kit @Arguments 2>$errFile }
                 $code = $LASTEXITCODE

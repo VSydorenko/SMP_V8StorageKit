@@ -41,7 +41,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*у самому v8storagekit.yaml записано*'
     }
 
-    # Ім'я воркспейсу, якого немає в МАНІФЕСТІ, — помилка виклику (рішення 3 плану B3): код 2, один рядок
+    # Ім'я воркспейсу, якого немає в МАНІФЕСТІ, — помилка виклику (ADR-0021 п. 2): код 2, один рядок
     # `check: ERROR …` з переліком імен маніфесту, без шапки, знахідок і підсумку. Раніше (PowerShell) це був
     # код 1. Воркспейс, який Є в маніфесті, але не розв'язався (помилка конфігу), — звичайний звіт із error
     # префлайту, код 1 (тест нижче).
@@ -64,7 +64,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # "git status fails"), який ламає САМЕ git-виклики, що читають індекс (тут — git
     # ls-files -s усередині Test-KitGitHooks), і не займає команд, що індекс не читають.
     #
-    # Рішення 2, 5, 6, 8 плану B3: збій git — «не перевірено» з дослівним stderr git, а не «немає». Код 1 дають
+    # ADR-0021 п. 2, 3: збій git — «не перевірено» з дослівним stderr git, а не «немає». Код 1 дають
     # стражі файла з паролем (`overlay-ignored`, `local-ignored`, vendor-`gitignore`): вони лишаються fail-closed
     # і на збої git — error «не перевірено: …». Неохоронні перевірки (`hooks`, `gitattributes`, `build-artifacts`)
     # стають [!] «не перевірено: …». Рядка «Аудит хуків впав» більше немає.
@@ -100,7 +100,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $fs = [System.IO.File]::Open($settingsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
         try {
             $r = Invoke-Check -Repo $repo
-            # Рішення 2, 8, 12: файл не прочитано — «не перевірено» (код 3, не зелений), а не «не читається як JSON».
+            # ADR-0021 п. 2: файл не прочитано — «не перевірено» (код 3, не зелений), а не «не читається як JSON».
             $r.ExitCode | Should -Be 3
             $r.Output | Should -BeLike '*Маніфест:*'
             $r.Output | Should -Match '(?m)^\[!\] не перевірено:.*settings\.json'
@@ -120,7 +120,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # ("fatal: not a tree object") — саме цей виклик і кидає виняток, який перетворюється
     # на знахідку error, а не зносить решту звіту.
     It 'збій git усередині аудиту інваріантів гілки storage/X не губить решти зібраних знахідок' {
-        # Рішення 2, 5: точковий збій неохоронної перевірки — «не перевірено» (код 3), не error (код 1).
+        # ADR-0021 п. 2, 3: точковий збій неохоронної перевірки — «не перевірено» (код 3), не error (код 1).
         $repo = New-GoodRepo 'branch-invariants-git-fails'
         $blob = (git -C $repo hash-object -w -- (Join-Path $repo 'v8storagekit.yaml') | Out-String).Trim()
         $refDir = Join-Path $repo '.git/refs/heads/storage'

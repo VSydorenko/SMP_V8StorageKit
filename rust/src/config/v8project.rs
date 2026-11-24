@@ -1,9 +1,9 @@
 // `v8project.yaml` і `v8project.local.yaml` Уніки — як `Read-V8Project`, `Read-V8ProjectLocalInfobase`,
-// `Resolve-V8AgentInfobase` і `Get-V8ProjectConfigProblems` (PowerShell-версія видалена в B4; історія git): ті самі правила й тексти.
+// `Resolve-V8AgentInfobase` і `Get-V8ProjectConfigProblems` (PowerShell-версії немає; історія git): ті самі правила й тексти.
 //
 // Kit читає лише те, від чого залежить: source-set-и (name/type/path), `workPath`, `providers` (як дерево) і
 // `infobases.origin` у локальному файлі. Секрети — типом: пароль — `Secret`, рядок підключення — `RawConnection`,
-// піддерево `dbms` — непрозорий `SecretTree` (спека §6). Усі рядкові поля читаються тією самою `get_string`, що й
+// піддерево `dbms` — непрозорий `SecretTree` (ADR-0021 п. 5). Усі рядкові поля читаються тією самою `get_string`, що й
 // решта конфігурації: вихідний текст скаляра, список чи мапа на місці скаляра — відмова без значення, — пароль не має
 // окремого шляху.
 
@@ -251,7 +251,7 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
                     }
                 }
                 if let Some(origin) = get(map, "origin") {
-                    // Список чи мапа в `connection` — «описано» (відмову дає читання бази агента: KD-5), а не «без connection».
+                    // Список чи мапа в `connection` — «описано» (відмову дає читання бази агента; ADR-0021 п. 4), а не «без connection».
                     let described = matches!(origin, Value::Mapping(o) if get(o, "connection").is_some_and(
                         |c| matches!(c, Value::Sequence(_) | Value::Mapping(_)) || !is_blank(&ps_string(c))));
                     if !described {
@@ -302,7 +302,7 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
 }
 
 /// Ознака: у `v8project.local.yaml` є рядок, що починається з `devInfobase:` (сирий текст, не YAML) — як
-/// `-match '(?m)^\s*devInfobase\s*:'` у PowerShell-версії `check` (видалена в B4) (без регістру, пробіли довкола ключа дозволені).
+/// `-match '(?m)^\s*devInfobase\s*:'` у PowerShell-версії `check` (видалена; історія git) (без регістру, пробіли довкола ключа дозволені).
 pub fn local_has_dev_infobase_line(directory: &Path) -> bool {
     let local = join_ps(&directory.to_string_lossy(), LOCAL_FILE_NAME);
     let Ok(bytes) = std::fs::read(&local) else {
@@ -355,7 +355,7 @@ mod tests {
     const PROVIDERS: &str = "providers: { push: designer, pull: Designer, download: designer }\n";
 
     // `$null` (порожній чи суто коментований файл) PowerShell пропускає, а явна порожня мапа `{}` — перевіряє (знахідка
-    // про providers): паритет із `Get-V8ProjectConfigProblems` (задача 4).
+    // про providers): паритет із `Get-V8ProjectConfigProblems`.
     #[test]
     fn config_problems_skips_null_file_but_checks_empty_map() {
         let d = tmp("nullfile");
@@ -412,7 +412,7 @@ mod tests {
         }
     }
 
-    // Інваріант §6: пароль і піддерево dbms не потрапляють у Debug; пароль іде через `ps_string` (вихідний текст скаляра).
+    // Інваріант (ADR-0021 п. 5): пароль і піддерево dbms не потрапляють у Debug; пароль іде через `ps_string` (вихідний текст скаляра).
     #[test]
     fn local_infobase_keeps_secrets_opaque() {
         let d = tmp("local");

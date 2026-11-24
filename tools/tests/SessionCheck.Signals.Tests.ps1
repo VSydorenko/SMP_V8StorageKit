@@ -42,7 +42,7 @@ Describe 'kit session-check — сигнал без платформи' {
 
     It 'git log на НАЯВНІЙ гілці не відповів → код 1: [!] «не перевірено» від check І рядок сигналу GitProblem, без «Сигнали не обчислювались»' {
         # Гілка є (ref розв'язується), а об'єкт вершини видалено: rev-parse проходить, log/rev-list падають.
-        # check (B3) на збої git дає warn «не перевірено», а не error, тож сигнали ОБЧИСЛЮЮТЬСЯ (раніше: error check і
+        # check на збої git дає warn «не перевірено», а не error, тож сигнали ОБЧИСЛЮЮТЬСЯ (раніше: error check і
         # «Сигнали не обчислювались»); збій git джерела — GitProblem, код 1 (пріоритет 1 > 3). Крок — kit check.
         $s = New-FakeStorage -Name 'gitbroken' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-Repo -Name 'git-broken' -StoragePath $s -MirrorDate $script:Old -Merge
