@@ -1,4 +1,4 @@
-// Конфігурація kit : маніфест `v8storagekit.yaml`, його накладка `v8storagekit.local.yaml`
+// Конфігурація kit: маніфест `v8storagekit.yaml`, його накладка `v8storagekit.local.yaml`
 // і, далі, `v8project.yaml`, рядок підключення, база агента й префлайт. Еталон поведінки — PowerShell
 // (`tools/lib/Yaml.psm1`, `Manifest.psm1`): ті самі правила й ті самі тексти помилок.
 //

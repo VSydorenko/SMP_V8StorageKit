@@ -1,5 +1,5 @@
 // Тести модуля `check` (коди 0/1/2/3, машина (`unica-version`, `runner-version`, стеля
-// `version`), зведення маніфесту, `agent-base-required`, `main-branch`, `unique-keys`, `undeclared-source`.
+// `version`), зведення маніфесту, `agent-base-required`, `main-branch`, `unique-keys`, `undeclared-source`).
 // Лише синтетичні репозиторії (справжній git у тимчасовій теці), фальшивий реєстр і фальшивий раннер.
 
 use kit::check::{self, Options, Report};
@@ -463,7 +463,7 @@ fn missing_unica_is_reported_only_by_runner_version() {
 
 #[test]
 fn project_scope_unica_is_seen_through_the_repo_root() {
-    // Уніка лише зі scope project, чий projectPath — корінь репозиторію: бачиться (виправлений дефект PowerShell, ADR-0021 п. 7);
+    // Уніка лише зі scope project, чий projectPath — корінь репозиторію: бачиться (виправлений дефект Rust-блоку раннера: `check` не передавав корінь репозиторію в `unica::installation`);
     // з чужим projectPath — не бачиться.
     let h = healthy("scope");
     let (reg, _) = install_unica(&h.tmp, "project", Some(&h.root), "0.16.0", "0.18.1");

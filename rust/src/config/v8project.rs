@@ -251,7 +251,7 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
                     }
                 }
                 if let Some(origin) = get(map, "origin") {
-                    // Список чи мапа в `connection` — «описано» (відмову дає читання бази агента; ADR-0021 п. 4), а не «без connection».
+                    // Список чи мапа в `connection` — «описано» (відмову дає читання бази агента; ADR-0021 п. 4, закритий перелік відмінностей `KD-5` у `tools/tests/fixtures/ConfigParitySetup.ps1`), а не «без connection».
                     let described = matches!(origin, Value::Mapping(o) if get(o, "connection").is_some_and(
                         |c| matches!(c, Value::Sequence(_) | Value::Mapping(_)) || !is_blank(&ps_string(c))));
                     if !described {
