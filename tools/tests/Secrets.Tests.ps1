@@ -29,6 +29,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: помилка, маркера немає, рецепт infobases.origin є' -TestCases @(
             @{ Cmd = 'check'; More = @() }
             @{ Cmd = 'provision'; More = @() }
+            @{ Cmd = 'session-check'; More = @() }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoA -More $More
             $r.ExitCode | Should -Not -Be 0
@@ -47,6 +48,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: помилка з Origin, маркера немає' -TestCases @(
             @{ Cmd = 'check' }
             @{ Cmd = 'sync' }
+            @{ Cmd = 'session-check' }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoB
             $r.ExitCode | Should -Not -Be 0
@@ -58,7 +60,7 @@ Describe 'секрети не у виводі' {
 
     Context '(д) "=" у значенні рядка підключення' {
         It '<Cmd>: помилка без значення, маркера немає' -TestCases @(
-            @{ Cmd = 'check' }, @{ Cmd = 'provision' }
+            @{ Cmd = 'check' }, @{ Cmd = 'provision' }, @{ Cmd = 'session-check' }
         ) {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "d-$Cmd") -WithHooks -WithGitattributes -WithGitignore
             Set-KitFakeAgentBase -Repo $repo -Connection 'File=C:\x,Pwd=SECRETI1МАРКЕР-И1'
@@ -243,6 +245,52 @@ Describe 'секрети не у виводі' {
             # Contains, не -BeLike: `*` у шаблоні збіглась би з будь-чим, і маска лишилась би неперевіреною.
             $out.Contains('tcp://***@host/x') | Should -BeTrue -Because $out
         }
+        It 'пароль у userinfo шляху сховища «<Scheme>://user:МАРКЕР@host/x» — ні в stdout, ні в stderr kit.exe session-check (текст і -AsJson); рядок джерела друкується' -TestCases @(
+            foreach ($scheme in 'tcp', 'http') { foreach ($more in @(@{ M = @() }, @{ M = @('-AsJson') })) { @{ Scheme = $scheme; More = $more.M } } }
+        ) {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ("h6-$Scheme-" + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitattributes -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '${Scheme}://user:MARKZ9МАРКЗ9@host/x'"
+            $errFile = Join-Path $TestDrive ("h6-err-$Scheme.txt")
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') @More 2>$errFile | Out-String
+            $err = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw -Encoding UTF8 } else { '' }
+            foreach ($m in 'MARKZ9', 'МАРКЗ9') {
+                $out | Should -Not -BeLike "*$m*"
+                $err | Should -Not -BeLike "*$m*"
+            }
+            # Тест не зеленіє від мовчання: сигнал джерела надруковано (для tcp/http — «серверне сховище»).
+            if ($More -contains '-AsJson') { @($out | ConvertFrom-Json)[0].NewInStorageReason | Should -Be 'server' }
+            else { $out | Should -BeLike '*- Alpha_SMB: серверне сховище:*' }
+        }
+        It 'пароль у userinfo шляху, що йде гілкою «сховище недоступне» (файловий шлях із «tcp://user:МАРКЕР@») — ні в stdout, ні в stderr session-check (текст і -AsJson); маска є' -TestCases @(
+            @{ More = @() }, @{ More = @('-AsJson') }
+        ) {
+            $leakPath = 'C:\kit-no-such-dir\tcp://user:MARKZ9МАРКЗ9@host\x'
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ("h7-" + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitattributes -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '$leakPath'"
+            $errFile = Join-Path $TestDrive ("h7-err-" + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.txt')
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') @More 2>$errFile | Out-String
+            $err = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw -Encoding UTF8 } else { '' }
+            foreach ($m in 'MARKZ9', 'МАРКЗ9') {
+                $out | Should -Not -BeLike "*$m*"
+                $err | Should -Not -BeLike "*$m*"
+            }
+            # Позитивна асерція: гілку «недоступне» пройдено (без неї відсутність маркера нічого б не доводила).
+            if ($More -contains '-AsJson') { $out.Contains('сховище недоступне') | Should -BeTrue -Because $out }
+            else {
+                $out.Contains('- Alpha_SMB: сховище недоступне') | Should -BeTrue -Because $out
+                $out.Contains('C:\kit-no-such-dir\tcp://***@host\x') | Should -BeTrue -Because $out
+            }
+        }
+        It 'контроль харнеса: помилка kit.exe session-check іде в stderr, а не в stdout; обидва потоки прочитано' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h8-stderr') -WithHooks -WithGitattributes -WithGitignore
+            $errFile = Join-Path $TestDrive 'h8-err.txt'
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -Apply 2>$errFile | Out-String
+            $err = Get-Content -LiteralPath $errFile -Raw -Encoding UTF8
+            $err | Should -BeLike '*session-check: ERROR*'
+            $out | Should -Not -BeLike '*session-check: ERROR*'
+        }
+        It 'контроль маркера: вивід, у який маркер потрапив, перевірку не проходить' {
+            $leaked = "- Alpha_SMB: сховище недоступне (каталог недоступний: tcp://user:MARKZ9МАРКЗ9@host/x)"
+            { $leaked | Should -Not -BeLike '*MARKZ9*' } | Should -Throw
+        }
     }
 
     Context '(в) Usr/Pwd у підключенні дев-бази людини з накладки' {
@@ -253,6 +301,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: маркера немає ні в stdout, ні в stderr' -TestCases @(
             @{ Cmd = 'check' }
             @{ Cmd = 'provision' }
+            @{ Cmd = 'session-check' }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoC
             $r.Output | Should -Not -BeLike '*СЕКРЕТ-Ж7*'

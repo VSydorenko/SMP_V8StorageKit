@@ -30,8 +30,8 @@ Describe 'kit session-check — сигнал без платформи' {
 
     # Префлайт `session-check` тепер поблажливий (-Lenient), як і `check`: помилка
     # РІВНЯ ПРЕФЛАЙТУ (тут — маніфест без обов'язкового workspaces:) має стати [-]-рядком і
-    # «сигнали не обчислювались» через той самий шлях check.psm1, а не сирим текстом винятку
-    # ДО виклику Invoke-KitCheck.
+    # «сигнали не обчислювались» через той самий шлях check (rust/src/check/), а не сирим текстом помилки
+    # ДО запуску check.
     It 'префлайт лінивий для session-check: маніфест без workspaces → код 1, [-], «workspaces», «не обчислювались»' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'bad-manifest') -ManifestText "version: 1`n"
         $r = Invoke-SessionCheck -Repo $repo
@@ -47,6 +47,20 @@ Describe 'kit session-check — сигнал без платформи' {
         @($json).Count | Should -Be 1
         @($json)[0].Key | Should -Be 'Alpha_SMB'
         @($json)[0].NewInStorage | Should -BeTrue
+    }
+
+    # Рішення 15 плану B4: JSON — типізована структура, порядок полів — порядок оголошення, як у PowerShell. Порядок
+    # перевіряється на СИРОМУ тексті (розібраний об'єкт його не показує); дати — як ConvertTo-Json PowerShell: ISO UTC
+    # з Z, а дріб — рівно 7 цифр і лише коли він ненульовий.
+    It '-AsJson: поля сигналу йдуть у порядку PowerShell (сирий текст); дати — ISO UTC з Z, 7 цифр дробу лише коли він є' {
+        $mtime = $script:Old.ToUniversalTime().AddTicks(1234567)
+        $s = New-FakeStorage -Name 'json-raw' -ObjectsWrite $mtime -DbWrite $script:Old
+        $r = Invoke-SessionCheck -Repo (New-Repo -Name 'json-raw' -StoragePath $s -MirrorDate $script:Old -Merge) -More @('-AsJson')
+        $topLevel = @([regex]::Matches($r.Output, '(?m)^    "(\w+)":') | ForEach-Object { $_.Groups[1].Value })
+        $topLevel -join ',' | Should -BeExactly 'Key,Branch,MirrorExists,LastMirrorDate,StorageWrite,NewInStorage,NewInStorageReason,UnmergedCommits,Accessible,GitProblem,Text,OriginGap'
+        $r.Output | Should -Match '"LastMirrorDate": "\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"'
+        $expected = $mtime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff", [cultureinfo]::InvariantCulture) + 'Z'
+        $r.Output | Should -Match ('"StorageWrite": "' + [regex]::Escape($expected) + '"')
     }
 
     # Недоступність сховища раніше "з'їдала" сигнал незлитих комітів — текст
@@ -165,7 +179,7 @@ Describe 'kit session-check — сигнал без платформи' {
     # його вже прочитали»), тому тут — знімок усього дерева репозиторію (включно з build/, БЕЗ
     # .git/ — там і без нашого коду постійно щось міняється: пакування, commit-graph тощо, і це
     # не те, що обіцяє інваріант) байт у байт і mtime у mtime, ДО і ПІСЛЯ прогону, з наявним
-    # відбитком (щоб гілка Read-KitStorageImprint + Test-KitStorageImprintCurrent справді
+    # відбитком (щоб гілка читання й звірки відбитка (rust/src/session_check/imprint.rs) справді
     # виконалась, а не пропустилась через відсутність файла).
     It 'доказ інваріанта: з наявним відбитком — жодного байта, жодного mtime не змінено ніде в дереві репозиторію' {
         $s = New-FakeStorage -Name 'invariant' -ObjectsWrite $script:Old -DbWrite $script:Old

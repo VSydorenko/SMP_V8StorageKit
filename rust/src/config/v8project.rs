@@ -1,5 +1,5 @@
 // `v8project.yaml` і `v8project.local.yaml` Уніки — як `Read-V8Project`, `Read-V8ProjectLocalInfobase`,
-// `Resolve-V8AgentInfobase` і `Get-V8ProjectConfigProblems` (tools/lib/V8Project.psm1): ті самі правила й тексти.
+// `Resolve-V8AgentInfobase` і `Get-V8ProjectConfigProblems` (PowerShell-версія видалена в B4; історія git): ті самі правила й тексти.
 //
 // Kit читає лише те, від чого залежить: source-set-и (name/type/path), `workPath`, `providers` (як дерево) і
 // `infobases.origin` у локальному файлі. Секрети — типом: пароль — `Secret`, рядок підключення — `RawConnection`,
@@ -302,7 +302,7 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
 }
 
 /// Ознака: у `v8project.local.yaml` є рядок, що починається з `devInfobase:` (сирий текст, не YAML) — як
-/// `-match '(?m)^\s*devInfobase\s*:'` у `check.psm1` (без регістру, пробіли довкола ключа дозволені).
+/// `-match '(?m)^\s*devInfobase\s*:'` у PowerShell-версії `check` (видалена в B4) (без регістру, пробіли довкола ключа дозволені).
 pub fn local_has_dev_infobase_line(directory: &Path) -> bool {
     let local = join_ps(&directory.to_string_lossy(), LOCAL_FILE_NAME);
     let Ok(bytes) = std::fs::read(&local) else {

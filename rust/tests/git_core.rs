@@ -156,3 +156,85 @@ fn failure_stderr_is_byte_exact() {
         other => panic!("очікувалась GitError::Failed, отримано {other:?}"),
     }
 }
+
+/// `GIT_NO_LAZY_FETCH=1` ядра (рішення архітектора 2026-11-24): у partial clone запит, якому бракує об'єкта, не
+/// ходить до promisor-віддаленого, а одразу завершується помилкою. Контроль, що тест уміє впасти: той самий запит
+/// голим git без змінної намагається fetch (stderr «could not fetch … from promisor remote»).
+#[test]
+fn partial_clone_missing_object_fails_fast_without_lazy_fetch() {
+    let tmp = TempDir::new("lazy-fetch");
+    let src = tmp.0.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let ok = |dir: &std::path::Path, args: &[&str]| git::run(dir, args, None, false).unwrap();
+    ok(&src, &["init", "-q"]);
+    std::fs::write(src.join("a.txt"), "вміст блоба\n").unwrap();
+    ok(&src, &["add", "a.txt"]);
+    ok(
+        &src,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "i",
+        ],
+    );
+    let blob = utf8(&ok(&src, &["rev-parse", "HEAD:a.txt"]).stdout)
+        .trim()
+        .to_string();
+    let bare = tmp.0.join("bare.git");
+    let bare_s = bare.to_str().unwrap();
+    ok(&tmp.0, &["clone", "-q", "--bare", "src", bare_s]);
+    ok(&bare, &["config", "uploadpack.allowFilter", "true"]);
+    let url = format!("file:///{}", bare_s.replace('\\', "/"));
+    let part = tmp.0.join("part");
+    ok(
+        &tmp.0,
+        &[
+            "clone",
+            "-q",
+            "--filter=blob:none",
+            "--no-checkout",
+            &url,
+            part.to_str().unwrap(),
+        ],
+    );
+    // promisor-віддалений — на неіснуючий шлях: будь-яка спроба fetch видна в stderr.
+    let gone = tmp.0.join("нема.git");
+    ok(
+        &part,
+        &["remote", "set-url", "origin", gone.to_str().unwrap()],
+    );
+    let args = ["cat-file", "-p", blob.as_str()];
+
+    // Контроль: без змінної git справді пробує lazy fetch.
+    let raw = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&part)
+        .args(args)
+        .env_remove("GIT_NO_LAZY_FETCH")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .unwrap();
+    let raw_err = String::from_utf8_lossy(&raw.stderr);
+    assert!(!raw.status.success());
+    assert!(
+        raw_err.contains("promisor remote"),
+        "контроль: без GIT_NO_LAZY_FETCH git мав спробувати fetch: {raw_err}"
+    );
+
+    // Ядро: помилка без спроби fetch.
+    let started = std::time::Instant::now();
+    match git::run(&part, &args, None, false) {
+        Err(GitError::Failed { stderr, .. }) => {
+            let text = String::from_utf8_lossy(&stderr);
+            assert!(!text.contains("promisor"), "ядро пробувало fetch: {text}");
+            assert!(!text.contains("fetch"), "ядро пробувало fetch: {text}");
+        }
+        other => panic!("очікувалась GitError::Failed, отримано {other:?}"),
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}

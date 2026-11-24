@@ -109,7 +109,7 @@ Describe 'kit check — інваріанти репозиторію-спожив
         } finally { $fs.Close() }
     }
     # Той самий зразок, що вище для хуків, — тепер для другого захищеного виклику
-    # (check.psm1: try/catch навколо Test-KitStorageBranchInvariants). Дешевий, детермінований
+    # (rust/src/check/: помилка git-виклику інваріантів гілок storage/* не валить check). Дешевий, детермінований
     # спосіб зламати саме git-виклики StorageBranch.psm1 (не крихке пошкодження бази об'єктів):
     # `git update-ref` відмовляється писати НЕ-коміт у гілку ("trying to write non-commit
     # object … to branch"), але ref-файл можна створити повз нього. Пишемо в

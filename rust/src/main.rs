@@ -9,8 +9,9 @@
 // Коди (ADR-0014): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
-// Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell; `check.psm1`
-// лишається бібліотекою `session-check` до B4).
+// Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell),
+// `session-check` (блок B4: сигнал сховищ без PowerShell). Модулів `.psm1` вони не мають. Хук старту сесії
+// кличе `session-check` дочірнім `kit.exe` (current_exe), не диспетчер.
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
@@ -25,7 +26,7 @@ mod fingerprint;
 mod session_start;
 mod subagent_start;
 
-use kit::{check, cli, config, runner, session_board, unica};
+use kit::{check, cli, config, runner, session_board, session_check, unica};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ const EMBEDDED_FINGERPRINT: &str = env!("KIT_SOURCE_FINGERPRINT");
 const FINGERPRINT_COMMAND: &str = "source-fingerprint";
 
 /// Імена команд — без регістру, як у диспетчері PowerShell (`-notcontains`): інакше `kit.exe Check` пішов би в
-/// `pwsh` і виконав би старий PowerShell-`check` (з сирим шляхом сховища у виводі).
+/// `pwsh` як невідома диспетчеру команда (перенесені команди в диспетчері вже відсутні).
 fn is_command(given: &str, name: &str) -> bool {
     given.eq_ignore_ascii_case(name)
 }
@@ -73,10 +74,8 @@ fn print_help(root: Option<&Path>) {
         .collect();
     // Команди, перенесені на Rust, модуля .psm1 не мають.
     names.push("session-board".to_string());
-    // `check` поки має й модуль .psm1 (бібліотека `session-check`) — без дубля в переліку.
-    if !names.iter().any(|n| n == "check") {
-        names.push("check".to_string());
-    }
+    names.push("check".to_string());
+    names.push(SESSION_CHECK_COMMAND.to_string());
     names.sort();
     if !names.is_empty() {
         println!("команди: {}", names.join(", "));
@@ -106,8 +105,8 @@ fn source_fingerprint(args: &[String]) -> i32 {
 }
 
 /// Процес PowerShell-диспетчера з токенами в KIT_ARGV, ще не запущений: його запускає передача
-/// команди (`dispatch`) і хук старту (`session_start`) — одне місце запуску `pwsh`.
-pub(crate) fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
+/// команди (`dispatch`) — одне місце запуску `pwsh`.
+fn dispatcher(root: &Path, tokens: &[String]) -> Result<Command, String> {
     let script = root.join("tools").join("kit.ps1");
     if !script.is_file() {
         return Err(format!("диспетчер {} не знайдено", script.display()));
@@ -337,6 +336,77 @@ fn check_command(args: &[String]) -> i32 {
     report.code
 }
 
+const SESSION_CHECK_COMMAND: &str = "session-check";
+
+/// `kit session-check [-RepoRoot p] [-Workspace w] [-Source s] [-AsJson] [-InstalledPluginsPath p] [-RunnerPath p]`
+/// (блок B4): префлайт `Mode::Lenient` → `check::run` → сигнали джерел `truth: storage`. Коди — шапка модуля
+/// `session_check::command`; виклик (рішення 18): невідомий параметр (зокрема `-Apply`) — 2, `-Help` — 0, корінь не
+/// існує чи не git — `session-check: ERROR …`, код 1.
+fn session_check_command(args: &[String]) -> i32 {
+    const NAME: &str = SESSION_CHECK_COMMAND;
+    let spec = [
+        ("RepoRoot", cli::Kind::Str),
+        ("Workspace", cli::Kind::Str),
+        ("Source", cli::Kind::Str),
+        ("AsJson", cli::Kind::Switch),
+        ("InstalledPluginsPath", cli::Kind::Str),
+        ("RunnerPath", cli::Kind::Str),
+    ];
+    let parsed = cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(NAME, &m, 2));
+    if parsed.help {
+        println!(
+            "usage: kit session-check [-AsJson] [-InstalledPluginsPath <значення>] [-RepoRoot <значення>] [-RunnerPath <значення>] [-Source <значення>] [-Workspace <значення>]"
+        );
+        return 0;
+    }
+    if let Some(first) = parsed.positional.first() {
+        fail(
+            NAME,
+            &format!(
+                "позиційний токен '{first}': команди сховища приймають лише -Ім'я значення і -Прапорець (pwsh -File розщеплює -Ім'я:значення на два токени — пиши -Ім'я значення)"
+            ),
+            2,
+        );
+    }
+    let text = |n: &str| match parsed.named.get(n) {
+        Some(cli::Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let as_json = matches!(parsed.named.get("AsJson"), Some(cli::Value::Switch(true)));
+    let registry = text("InstalledPluginsPath")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(unica::default_registry)
+        .unwrap_or_else(|| {
+            fail(
+                NAME,
+                "домашню теку не визначено: вкажіть -InstalledPluginsPath",
+                2,
+            )
+        });
+    let repo_root = match text("RepoRoot") {
+        Some(r) => PathBuf::from(r),
+        None => std::env::current_dir()
+            .unwrap_or_else(|e| fail(NAME, &format!("поточна тека не визначена: {e}"), 1)),
+    };
+    let ctx = config::preflight(&repo_root, config::Mode::Lenient)
+        .unwrap_or_else(|stop| fail(NAME, &stop.message, 1));
+    let opts = session_check::command::Options {
+        check: check::Options {
+            workspace: text("Workspace"),
+            source: text("Source"),
+            registry,
+            runner: text("RunnerPath")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from),
+        },
+        as_json,
+    };
+    let mut stdout = std::io::stdout().lock();
+    session_check::command::run(&ctx, &opts, &mut stdout)
+        .unwrap_or_else(|check::UsageError(m)| fail(NAME, &m, 2))
+}
+
 fn main() {
     kit::install_panic_hook();
     let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -402,6 +472,9 @@ fn main() {
     }
     if is_command(&command, CHECK_COMMAND) {
         exit(check_command(&tokens[1..]));
+    }
+    if is_command(&command, SESSION_CHECK_COMMAND) {
+        exit(session_check_command(&tokens[1..]));
     }
     if is_command(&command, "session-board") {
         // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.

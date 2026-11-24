@@ -16,6 +16,9 @@ pub mod proc;
 pub mod profile;
 pub mod runner;
 pub mod session_board;
+pub mod session_check;
+// Чисті функції хука старту сесії: токени, стеля, текст «Стан сховищ» (блок B4, рішення 16).
+pub mod session_hook;
 pub mod storage_branch;
 pub mod supply;
 pub mod unica;

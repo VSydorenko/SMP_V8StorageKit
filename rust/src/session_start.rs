@@ -8,7 +8,7 @@
 // профіль спільного agent-kit без версії хука не вмикає): v8storagekit.yaml шукається в теці проєкту сесії (CLAUDE_PROJECT_DIR) і в її предках; профіль —
 // <корінь git>/.agents/kit.profile.json (корінь git — перша тека вгору від проєкту з .git, текою чи
 // файлом; git не запускається). Ні маніфесту, ні профілю (або змінної немає) — нічого не друкується, код
-// 0, і `pwsh` не запускається: PowerShell потрібен лише `session-check`, тобто лише з маніфестом.
+// 0, і дочірній процес не запускається: `session-check` потрібен лише з маніфестом. `pwsh` хук не запускає ніколи.
 // - маніфест у самій теці проєкту — контекст «Стан сховищ» і наприкінці блок правил;
 // - маніфест лише в предку — те саме з -RepoRoot <предок> плюс попередження: Уніка бачитиме лише теку
 //   сесії, а воркспейси лежать у корені репозиторію;
@@ -21,13 +21,15 @@
 // нижче, дає None — тишу. Код не панікує: у release `panic = "abort"`, тож розпакування без перевірки
 // тут заборонене.
 //
-// session-check — фаза 2 (#53): хук кличе його передачею PowerShell-диспетчеру (main.rs,
-// `dispatcher`) зі стелею часу. Вивід дочірнього процесу — у тимчасові файли, не в канали: онук, що
-// успадкував дескриптор, не блокує читання. Власні стандартні потоки kit.exe перед запуском стають
-// неуспадковуваними: інакше нащадок, що пережив session-check, тримав би читання виводу хука в Claude
-// Code до власного кінця. На стелі хук убиває ДЕРЕВО процесів (`taskkill /T /F`):
-// session-check сам запускає git і раннер. Убивати дозволено рівно тому, що session-check нічого не
-// мутує; -Apply хук не передає ніколи — список токенів закритий.
+// session-check (блок B4, #53): хук запускає САМ СЕБЕ — `std::env::current_exe()` з токенами рівно
+// `session-check -RepoRoot <корінь>` (`kit::session_hook::child_tokens`), stdin закрито, зі стелею часу. Шлях
+// дочірнього процесу не перевизначається нічим (ні змінною, ні параметром): `kit.exe` з `PATH` чи з поточної теки
+// хук не запускає. Вивід дочірнього процесу — у тимчасові файли, не в канали: онук, що успадкував дескриптор, не
+// блокує читання; файли прибираються й після вбивства на стелі. Власні стандартні потоки kit.exe перед запуском
+// стають неуспадковуваними: інакше нащадок, що пережив session-check, тримав би читання виводу хука в Claude
+// Code до власного кінця. На стелі хук убиває ДЕРЕВО процесів (`kit::proc::kill_tree`): session-check сам
+// запускає git і раннер. Убивати дозволено рівно тому, що session-check нічого не мутує; -Apply хук не передає
+// ніколи — список токенів закритий. У контекст іде лише stdout дочірнього процесу (`kit::session_hook::status_text`).
 //
 // Матчери (hooks.json): startup|clear|compact — сесія без раніше доданого контексту. resume і fork
 // успадковують транскрипт, у якому «Стан сховищ» уже є.
@@ -38,14 +40,11 @@
 use kit::profile::{is_version, parse_version, strip_json_comments};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Ім'я прихованої підкоманди.
 pub const COMMAND: &str = "session-start";
-
-/// Стеля часу session-check за умовчанням, с; змінна V8KIT_SESSION_CHECK_TIMEOUT — 1–600.
-const DEFAULT_TIMEOUT_SEC: u64 = 15;
 
 /// Вивід хука (JSON SessionStart з переносом рядка) або None — тиша.
 pub fn run(plugin: &Path) -> Option<String> {
@@ -57,11 +56,8 @@ pub fn run(plugin: &Path) -> Option<String> {
         .map(trim_separators);
     let (repo, git_root) = match &project {
         Some(p) => {
-            let repo = if plugin.join("tools").join("kit.ps1").is_file() {
-                find_up(p, |d| d.join("v8storagekit.yaml").is_file())
-            } else {
-                None
-            };
+            // Критерій — лише маніфест: session-check — підкоманда самого kit.exe, диспетчер не потрібен.
+            let repo = find_up(p, |d| d.join("v8storagekit.yaml").is_file());
             (repo, find_up(p, |d| d.join(".git").exists()))
         }
         None => (None, None),
@@ -88,7 +84,7 @@ pub fn run(plugin: &Path) -> Option<String> {
 
     match (repo, project) {
         (Some(repo), Some(project)) => {
-            let context = match storage_context(plugin, &repo, &project, &rules_block) {
+            let context = match storage_context(&repo, &project, &rules_block) {
                 Ok(c) => c,
                 Err(e) => format!(
                     "<v8storagekit>\nХук v8storagekit не зміг зібрати стан: {e}\n</v8storagekit>"
@@ -305,13 +301,8 @@ fn is_checklist_item(line: &str) -> bool {
 
 /// Контекст «Стан сховищ»: session-check зі стелею часу, попередження про предка, вказівка на скіл,
 /// правила. Err — хук не зміг зібрати стан (текст іде в контекст).
-fn storage_context(
-    plugin: &Path,
-    repo: &Path,
-    project: &Path,
-    rules_block: &str,
-) -> Result<String, String> {
-    let status = session_check_status(plugin, repo)?;
+fn storage_context(repo: &Path, project: &Path, rules_block: &str) -> Result<String, String> {
+    let status = session_check_status(repo)?;
     let warning = if repo != project {
         format!(
             "УВАГА: сесію відкрито в {}, а корінь репозиторію kit — {}. Уніка бачитиме лише цей воркспейс, а не весь репозиторій; відкрийте сесію в корені репозиторію.\n\n",
@@ -334,14 +325,11 @@ fn storage_context(
     ))
 }
 
-/// Стеля з V8KIT_SESSION_CHECK_TIMEOUT (ціле 1–600), інакше 15 с. Стеля — через змінну, а не накладку:
-/// хук за конструкцією не читає YAML.
+/// Стеля з V8KIT_SESSION_CHECK_TIMEOUT (`kit::session_hook::timeout_sec`: 1–55, більше — 55, інакше 15 с).
+/// Стеля — через змінну, а не накладку: хук за конструкцією не читає YAML.
 fn timeout_sec() -> u64 {
-    std::env::var("V8KIT_SESSION_CHECK_TIMEOUT")
-        .ok()
-        .and_then(|v| v.trim().parse::<i64>().ok())
-        .filter(|v| (1..=600).contains(v))
-        .map_or(DEFAULT_TIMEOUT_SEC, |v| v as u64)
+    let value = std::env::var("V8KIT_SESSION_CHECK_TIMEOUT").ok();
+    kit::session_hook::timeout_sec(value.as_deref())
 }
 
 /// Тимчасовий файл виводу; прибирається на виході з області.
@@ -403,30 +391,28 @@ impl Drop for TempFile {
     }
 }
 
-/// Текст розділу «Стан сховищ». Коди session-check: 0 — як є (порожньо — штатна тиша); 1 і 4 — як є, коли
-/// вивід непорожній, а без виводу — «НЕВІДОМИЙ»; будь-який інший — «неочікуваний код»: порожній текст
-/// читався б як «нових версій немає».
-fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
+/// Текст розділу «Стан сховищ»: запуск `current_exe() session-check -RepoRoot <корінь>` зі стелею; відображення
+/// коду й виводу в текст — `kit::session_hook::status_text` (у контекст — лише stdout). Err — дочірній процес не
+/// запустився чи очікування зламалось.
+fn session_check_status(repo: &Path) -> Result<String, String> {
     let timeout = timeout_sec();
     let repo_arg = repo
         .to_str()
         .ok_or_else(|| format!("шлях {} — не коректний Unicode", repo.display()))?;
-    let tokens = [
-        "session-check".to_string(),
-        "-RepoRoot".to_string(),
-        repo_arg.to_string(),
-    ];
     let out = TempFile::new("out")?;
     let err = TempFile::new("err")?;
-    let mut cmd = crate::dispatcher(plugin, &tokens)?;
-    cmd.stdin(Stdio::null())
+    let mut cmd = Command::new(
+        std::env::current_exe().map_err(|e| format!("шлях kit.exe не визначено: {e}"))?,
+    );
+    cmd.args(kit::session_hook::child_tokens(repo_arg))
+        .stdin(Stdio::null())
         .stdout(out.stdio()?)
         .stderr(err.stdio()?);
     std_handles_not_inheritable();
     let mut child = cmd.spawn().map_err(|e| {
         format!(
             "{} не запустився: {e}",
-            Path::new(cmd.get_program()).display()
+            std::path::Path::new(cmd.get_program()).display()
         )
     })?;
     // Дескриптори-копії в `cmd` закриваються: файли тримає лише дочірній процес.
@@ -444,31 +430,16 @@ fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
             }
         }
     };
-
-    let Some(code) = code else {
+    if code.is_none() {
         kit::proc::kill_tree(&mut child);
-        let mut status = format!(
-            "УВАГА: kit session-check не вклався в {timeout} с — стан сховищ НЕВІДОМИЙ, не «без змін». Найчастіша причина — повільний доступ до сховища (SMB); перевірити вручну: kit session-check -RepoRoot ."
-        );
-        // Те, що kit устиг надрукувати, не пропадає; позначка «частково» обов'язкова.
-        let partial = out.text().trim().to_string();
-        if !partial.is_empty() {
-            status.push_str(&format!("\n\nЧастково (kit устиг надрукувати до зупинки; повнота НЕ гарантована):\n{partial}"));
-        }
-        return Ok(status);
-    };
-
-    let raw = format!("{}{}", out.text(), err.text()).trim().to_string();
-    Ok(match code {
-        0 => raw,
-        1 | 4 if !raw.is_empty() => raw,
-        1 | 4 => format!(
-            "УВАГА: kit session-check завершився кодом {code} без жодного виводу — стан сховищ НЕВІДОМИЙ, не «без змін». Перевірити вручну: kit session-check -RepoRoot ."
-        ),
-        _ => format!(
-            "УВАГА: kit session-check завершився неочікуваним кодом {code} (очікувалось 0, 1 або 4) — стан сховищ НЕВІДОМИЙ, не «без змін». Зупинка:\n{raw}"
-        ),
-    })
+    }
+    // Тимчасові файли прибирає `Drop` і на стелі: вбите дерево їх уже не тримає.
+    Ok(kit::session_hook::status_text(
+        code,
+        &out.text(),
+        &err.text(),
+        timeout,
+    ))
 }
 
 #[link(name = "kernel32")]
@@ -479,7 +450,7 @@ unsafe extern "system" {
 const HANDLE_FLAG_INHERIT: u32 = 0x1;
 
 /// Власні stdin, stdout і stderr kit.exe — неуспадковувані. Rust std на Windows запускає дочірній процес з
-/// `bInheritHandles=TRUE` без переліку дескрипторів, тож pwsh і його нащадки дістали б і канал stdout хука,
+/// `bInheritHandles=TRUE` без переліку дескрипторів, тож дочірній session-check і його нащадки (git, раннер) дістали б і канал stdout хука,
 /// який kit.exe отримав від батька успадковуваним. Нащадок, що пережив session-check (або осиротів, і
 /// `taskkill /T` його не бачить), тримав би тоді читання виводу хука в Claude Code до власного кінця.
 /// Дескрипторам дочірнього це не шкодить: `Stdio::from(File)` і `Stdio::null()` std дублює як

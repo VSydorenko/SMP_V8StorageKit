@@ -232,3 +232,134 @@ pub fn invariants(root: &Path, branch: &str, source_key: &str, repo_path: &str) 
     }
     result
 }
+
+// --- Перенесене для `session-check` (B4, рішення 23 плану). PowerShell-копії лишаються: їх кличуть `sync`/`adopt`.
+// Усі запити розрізняють «так», «ні» і «git відповів збоєм» (збій — `Err` з дослівним stderr).
+
+/// SHA, на який указує повне ім'я рефа (`refs/heads/…`, `refs/remotes/…`): `Some` — є, `None` — немає,
+/// `Err` — збій git. Код 1 з повідомленням у stderr (`warning: ignoring broken ref …`) — збій, а не «немає».
+pub fn ref_sha(root: &Path, full_name: &str) -> Result<Option<String>, String> {
+    // Без `^{commit}`: з ним `--quiet` ковтає відсутній об'єкт коміту (код 1 без stderr) і зламаний ref виглядав би як
+    // «гілки немає». Відсутній об'єкт покаже перший запит від SHA (`log`, `rev-list`) — збоєм git джерела.
+    let spec = full_name;
+    let out = query(root, &["rev-parse", "--verify", "--quiet", spec], &[0, 1])?;
+    if out.code == 1 {
+        if out.stderr.iter().all(u8::is_ascii_whitespace) {
+            return Ok(None);
+        }
+        return Err(format!(
+            "git rev-parse --verify --quiet {spec} завершився з кодом 1: {}",
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        ));
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if sha.len() < 40 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "git rev-parse --verify --quiet {spec}: нерозбірна відповідь «{sha}»"
+        ));
+    }
+    Ok(Some(sha))
+}
+
+/// Дзеркало є лише на `origin` (`Test-KitRemoteOnlyMirror`, #101): локальної `refs/heads/<гілка>` немає, а
+/// `refs/remotes/origin/<гілка>` є. Без мережі, лише наявні рефи.
+pub fn remote_only(root: &Path, branch: &str) -> Result<bool, String> {
+    if ref_sha(root, &format!("refs/heads/{branch}"))?.is_some() {
+        return Ok(false);
+    }
+    Ok(ref_sha(root, &format!("refs/remotes/origin/{branch}"))?.is_some())
+}
+
+/// Крок відновлення локального дзеркала з origin (`Get-KitRestoreMirrorStep`) — той самий текст, що в `sync`/`adopt`.
+pub fn restore_mirror_step(branch: &str) -> String {
+    format!("git branch --track {branch} origin/{branch}")
+}
+
+/// Номер `Storage-Version` з вершини `rev` (SHA чи реф). Трейлера немає чи він не число — `Err`: гілку писав не
+/// `sync`, вгадувати стан не можна.
+pub fn storage_version_at(root: &Path, rev: &str) -> Result<u64, String> {
+    let out = query(
+        root,
+        &[
+            "log",
+            "-1",
+            "--format=%(trailers:key=Storage-Version,valueonly)",
+            rev,
+        ],
+        &[0],
+    )?;
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!(
+            "Вершина {rev} не має числового трейлера Storage-Version: — гілку писав не sync. Розбір: kit check."
+        ));
+    }
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("Storage-Version на вершині {rev} поза діапазоном: {value}"))
+}
+
+/// «Остання залита версія» джерела (`Get-KitStorageBranchLastVersion`): трейлер вершини `refs/heads/<гілка>`;
+/// гілки немає — `None`.
+pub fn last_storage_version(root: &Path, branch: &str) -> Result<Option<u64>, String> {
+    match ref_sha(root, &format!("refs/heads/{branch}"))? {
+        Some(sha) => storage_version_at(root, &sha).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Розходження локальної гілки з `origin/<гілка>` без мережі (`Get-KitOriginGap`). `has_remote = false` —
+/// `origin/<гілка>` немає (легальний стан: репозиторій без origin, гілку не пушено); це не збій git.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OriginGap {
+    pub has_remote: bool,
+    pub ahead: u64,
+    pub behind: u64,
+}
+
+impl OriginGap {
+    pub const NONE: OriginGap = OriginGap {
+        has_remote: false,
+        ahead: 0,
+        behind: 0,
+    };
+}
+
+/// `rev-list --left-right --count local...origin` від двох SHA: ліворуч — лише локальні (ahead), праворуч —
+/// лише на origin (behind). Нерозбірна відповідь — `Err`.
+pub fn origin_gap_between(
+    root: &Path,
+    local_sha: &str,
+    origin_sha: &str,
+) -> Result<OriginGap, String> {
+    let range = format!("{local_sha}...{origin_sha}");
+    let out = query(root, &["rev-list", "--left-right", "--count", &range], &[0])?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    let parsed = match parts.as_slice() {
+        [a, b] => a.parse::<u64>().ok().zip(b.parse::<u64>().ok()),
+        _ => None,
+    };
+    match parsed {
+        Some((ahead, behind)) => Ok(OriginGap {
+            has_remote: true,
+            ahead,
+            behind,
+        }),
+        None => Err(format!(
+            "git rev-list --left-right --count {range}: нерозбірна відповідь «{}»",
+            text.trim()
+        )),
+    }
+}
+
+/// Розходження гілки з origin за іменем: рефи читаються тут (для викликачів без знімка).
+pub fn origin_gap(root: &Path, branch: &str) -> Result<OriginGap, String> {
+    let Some(origin) = ref_sha(root, &format!("refs/remotes/origin/{branch}"))? else {
+        return Ok(OriginGap::NONE);
+    };
+    let Some(local) = ref_sha(root, &format!("refs/heads/{branch}"))? else {
+        return Ok(OriginGap::NONE);
+    };
+    origin_gap_between(root, &local, &origin)
+}

@@ -19,10 +19,12 @@ test = false
 # Залежності — мінімум, кожна з обґрунтуванням: serde_json — JSON-масив
 # KIT_ARGV для диспетчера, далі профіль, файл сесій і JSON хука; serde_yaml — читання маніфесту,
 # накладки й v8project.yaml (ADR-0018): точно та версія, що в Уніки й раннера, оновлюється лише разом із ними;
-# serde — лише трейти десеріалізації для читання скалярів вихідним текстом (config/yaml.rs), крейт уже в lock.
+# serde — трейти десеріалізації для читання скалярів вихідним текстом (config/yaml.rs) і `derive(Serialize)` для
+# JSON сигналу `session-check` (рішення 15 плану B4: порядок полів — порядок оголошення); `serde_derive`,
+# `syn`, `quote`, `proc-macro2` уже в Cargo.lock — нових крейтів немає.
 [dependencies]
 serde_json = "1"
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_yaml = "=0.9.34"
 
 [profile.release]

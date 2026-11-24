@@ -63,7 +63,7 @@ Describe 'kit check — поставка вендора основної кон�
         Remove-Item -LiteralPath (Join-Path $repo "$script:Cfg/Ext/ParentConfigurations/Vendor.cf") -Force
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 0 -Because $r.Output
-        # [!] — рівень warn у виводі check (Invoke-KitCheck: error → [-], warn → [!]).
+        # [!] — рівень warn у виводі check (kit check: error → [-], warn → [!]).
         $r.Output | Should -Match '\[!\][^\r\n]*поставка вендора відсутня'
         # Та сама розрізняльна фраза, що в Recipe зупинки blocked (UnicaStep.Tests.ps1): єдине джерело — Get-KitSupplyRecipe.
         $r.Output | Should -BeLike '*поставка вендора відсутня*Відновлення поставки вендора: на гілці main*kit verify -Source base*зупинку поставки*'

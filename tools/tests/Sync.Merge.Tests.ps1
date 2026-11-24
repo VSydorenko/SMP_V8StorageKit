@@ -244,9 +244,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
 
         $imprintPath = Join-Path $repo 'build/session-check/Alpha_SMB.json'
         $imprintPath | Should -Exist
-        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint = Get-Content -LiteralPath (Join-Path $repo 'build/session-check/Alpha_SMB.json') -Raw | ConvertFrom-Json
         $imprint | Should -Not -BeNullOrEmpty
-        $imprint.Version | Should -Be 5
+        $imprint.version | Should -Be 5
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
@@ -272,9 +272,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $result.ExitCode | Should -Be 0
         (git -C $repo branch --list 'storage/*') | Should -BeNullOrEmpty   # прев'ю нічого не комітить — контракт "-Apply лише за проханням" не порушено
 
-        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint = Get-Content -LiteralPath (Join-Path $repo 'build/session-check/Alpha_SMB.json') -Raw | ConvertFrom-Json
         $imprint | Should -Not -BeNullOrEmpty
-        $imprint.Version | Should -Be 9
+        $imprint.version | Should -Be 9
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
@@ -294,9 +294,9 @@ Describe 'kit sync — злиття в головну гілку: гейт -Appl
         $result.ExitCode | Should -Be 0
         Get-KitStorageBranchLastVersion -RepoRoot $repo -Branch 'storage/Alpha_SMB' | Should -Be 7
 
-        $imprint = Read-KitStorageImprint -RepoRoot $repo -Key 'Alpha_SMB'
+        $imprint = Get-Content -LiteralPath (Join-Path $repo 'build/session-check/Alpha_SMB.json') -Raw | ConvertFrom-Json
         $imprint | Should -Not -BeNullOrEmpty
-        $imprint.Version | Should -Be 7
+        $imprint.version | Should -Be 7
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 2
     }
 

@@ -40,17 +40,27 @@ Describe 'kit session-check — сигнал без платформи' {
         $r2.Output | Should -BeLike '*недоступн*Дзеркала*немає*'
     }
 
-    It 'git log на НАЯВНІЙ гілці не відповів → код 1; рядок — або від check (інваріанти storage/*), або від сигналу' {
+    It 'git log на НАЯВНІЙ гілці не відповів → код 1: [!] «не перевірено» від check І рядок сигналу GitProblem, без «Сигнали не обчислювались»' {
         # Гілка є (ref розв'язується), а об'єкт вершини видалено: rev-parse проходить, log/rev-list падають.
-        # check обходить лог storage/* першим і, найімовірніше, зупиниться раніше за сигнал — закріпити той рядок,
-        # який реально з'являється; обидва називають гілку.
+        # check (B3) на збої git дає warn «не перевірено», а не error, тож сигнали ОБЧИСЛЮЮТЬСЯ (раніше: error check і
+        # «Сигнали не обчислювались»); збій git джерела — GitProblem, код 1 (пріоритет 1 > 3). Крок — kit check.
         $s = New-FakeStorage -Name 'gitbroken' -ObjectsWrite $script:Old -DbWrite $script:Old
         $repo = New-Repo -Name 'git-broken' -StoragePath $s -MirrorDate $script:Old -Merge
         $sha = (git -C $repo rev-parse storage/Alpha_SMB).Trim()
         Remove-Item -LiteralPath (Join-Path $repo ".git/objects/$($sha.Substring(0,2))/$($sha.Substring(2))") -Force
         $r = Invoke-SessionCheck -Repo $repo
-        $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike '*storage/Alpha_SMB*'
+        $r.ExitCode | Should -Be 1 -Because $r.Output
+        $r.Output | Should -BeLike '*[[]!] не перевірено:*storage/Alpha_SMB*'
+        $r.Output | Should -BeLike '*- Alpha_SMB: стан git не прочитано (*bad object*) — сигнал недоступний; розбір: kit check.*'
+        $r.Output | Should -Not -BeLike '*Сигнали не обчислювались*'
+        @($r.Output -split "`r?`n" | Where-Object { $_.Trim() })[-1] | Should -BeExactly 'next: kit check'
+        $j = Invoke-SessionCheck -Repo $repo -More @('-AsJson')
+        $j.ExitCode | Should -Be 1
+        $signals = @($j.Output | ConvertFrom-Json)
+        $signals.Count | Should -Be 1
+        $signals[0].GitProblem | Should -Not -BeNullOrEmpty
+        $signals[0].Accessible | Should -BeTrue
+        $signals[0].MirrorExists | Should -BeTrue
     }
 
     It 'гілки mainBranch немає, HEAD деінде (описка) → [!] від check, код 4, «перевірте mainBranch:»' {

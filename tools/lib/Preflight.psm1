@@ -34,6 +34,8 @@ function Invoke-KitPreflight {
         Strict (типово) — кидає на першій проблемі. Lenient — не кидає, а збирає знахідки в Findings і
         виставляє Ok=$false (session-check); kitVersion у маніфесті там — зупинка на знахідці manifest.
         Check — як Lenient, але kitVersion у маніфесті — окрема знахідка error kit-version, решта розбирається.
+        Режими Lenient і Check лишаються еталоном для tools/tests/ConfigParity.Tests.ps1 (паритет PowerShell-префлайту
+        з Rust `config`); команди kit їх більше не вживають — `check` і `session-check` у Rust.
     #>
     [CmdletBinding()]
     param(
