@@ -102,6 +102,47 @@ pub fn run_at_root<S: AsRef<OsStr>>(
     run_with(repo, args, stdin, allow_fail, true)
 }
 
+/// Запит від кореня: код з переліку `ok` — відповідь команди; будь-який інший чи збій запуску — помилка з
+/// дослівним stderr git (рішення 5 плану B3: «так / ні / збій», а не «немає»).
+pub fn query(root: &Path, args: &[&str], ok: &[i32]) -> Result<Output, String> {
+    let out = run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
+    if ok.contains(&out.code) {
+        return Ok(out);
+    }
+    Err(format!(
+        "git {} завершився з кодом {}: {}",
+        args.join(" "),
+        out.code,
+        String::from_utf8_lossy(&out.stderr).trim_end()
+    ))
+}
+
+/// Чи існує реф (`HEAD` чи повне ім'я): так / ні / збій. Код 1 з порожнім stderr — рефа немає; код 1 з
+/// повідомленням (`warning: ignoring broken ref …` на порожньому чи зіпсованому loose-ref) — збій, а не «немає».
+pub fn ref_exists(root: &Path, name: &str) -> Result<bool, String> {
+    let out = query(root, &["rev-parse", "--verify", "--quiet", name], &[0, 1])?;
+    if out.code == 0 {
+        return Ok(true);
+    }
+    if out.stderr.iter().all(u8::is_ascii_whitespace) {
+        // `HEAD` на битому рефі гілки git мовчить (попередження дає лише розбір самої гілки): питаємо про ціль.
+        if name == "HEAD" {
+            let sym = query(root, &["symbolic-ref", "-q", "HEAD"], &[0, 1])?;
+            if sym.code == 0 {
+                let target = String::from_utf8_lossy(&sym.stdout).trim().to_string();
+                if target != "HEAD" && !target.is_empty() {
+                    return ref_exists(root, &target);
+                }
+            }
+        }
+        return Ok(false);
+    }
+    Err(format!(
+        "git rev-parse --verify --quiet {name} завершився з кодом 1: {}",
+        String::from_utf8_lossy(&out.stderr).trim_end()
+    ))
+}
+
 fn run_with<S: AsRef<OsStr>>(
     repo: &Path,
     args: &[S],

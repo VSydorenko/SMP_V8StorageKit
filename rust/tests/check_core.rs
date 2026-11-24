@@ -1029,6 +1029,94 @@ fn case_collision_groups_in_head_and_no_head_is_not_applicable() {
     );
 }
 
+/// Кладе в `main` коміт із деревом `files` (HEAD репозиторію вказує на `main`).
+fn set_head_tree(root: &Path, files: &[&str]) {
+    let tree = make_tree(root, files);
+    let c = commit_tree(root, &tree, &[], "x");
+    set_ref(root, "main", &c);
+}
+
+#[test]
+fn case_collision_ignores_the_case_of_the_source_root_and_manifest_path() {
+    // Колізія в регістрі самого кореня джерела: `ws/CF/…` поруч `ws/cf/…` (pathspec git регістр розрізняє).
+    let h = healthy("case-root");
+    set_head_tree(&h.root, &["ws/CF/A.xml", "ws/cf/A.xml"]);
+    let r = run_h(&h);
+    let f = by(&r, "case-collision");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("ws/CF/A.xml | ws/cf/A.xml"),
+        "{}",
+        f[0].message
+    );
+
+    // Маніфест з `path:` в іншому регістрі, ніж дерево.
+    let h = healthy("case-manifest");
+    set_head_tree(&h.root, &["ws/cf/A.xml", "ws/cf/a.xml"]);
+    write_manifest(&h.root, None, &[("WS", &[("cf", "storage")])]);
+    let r = run_h(&h);
+    let f = by(&r, "case-collision");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.contains("ws/cf/A.xml | ws/cf/a.xml"),
+        "{}",
+        f[0].message
+    );
+
+    // Контроль: чужа тека з колізією не чіпає джерело, чисте дерево мовчить.
+    let h = healthy("case-clean");
+    set_head_tree(&h.root, &["ws/cf/A.xml", "other/X", "other/x"]);
+    let r = run_h(&h);
+    assert!(by(&r, "case-collision").is_empty(), "{:?}", r.findings);
+}
+
+#[test]
+fn broken_ref_is_unchecked_while_a_missing_ref_stays_no() {
+    // Порожній loose-ref storage/cf: git відповідає кодом 1 з `warning: ignoring broken ref` — це збій.
+    let h = healthy("broken-storage-ref");
+    let refs = h
+        .root
+        .join(".git")
+        .join("refs")
+        .join("heads")
+        .join("storage");
+    std::fs::create_dir_all(&refs).unwrap();
+    std::fs::write(refs.join("cf"), "").unwrap();
+    let r = run_h(&h);
+    let f = by(&r, "storage-branch");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.starts_with("не перевірено:") && !f[0].message.contains("ще немає"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.contains(f[0]));
+
+    // HEAD на гілці з обнуленим рефом: case-collision не мовчить.
+    let h = healthy("broken-head-ref");
+    std::fs::write(
+        h.root.join(".git").join("refs").join("heads").join("main"),
+        "",
+    )
+    .unwrap();
+    let r = run_h(&h);
+    let f = by(&r, "case-collision");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message.starts_with("не перевірено:"),
+        "{}",
+        f[0].message
+    );
+    assert!(r.not_checked.contains(f[0]));
+
+    // Контроль: відсутній реф — «ні», як було.
+    let h = healthy("missing-ref");
+    let r = run_h(&h);
+    let f = by(&r, "storage-branch");
+    assert_eq!((f.len(), f[0].level), (1, Level::Info), "{:?}", r.findings);
+    assert!(f[0].message.contains("гілки storage/cf ще немає"));
+}
+
 #[test]
 fn build_artifacts_outside_the_work_path_are_a_warning() {
     let h = healthy("artifacts");

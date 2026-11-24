@@ -4,17 +4,18 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-/// Простий верхній регістр посимвольно (без розширення довжини) — як `OrdinalIgnoreCase`.
+/// Простий верхній регістр символу (без розширення довжини) — як `OrdinalIgnoreCase`.
+pub(crate) fn fold_char(c: char) -> char {
+    let mut up = c.to_uppercase();
+    match (up.next(), up.next()) {
+        (Some(x), None) => x,
+        _ => c,
+    }
+}
+
+/// Те саме для рядка.
 pub(crate) fn fold(path: &str) -> String {
-    path.chars()
-        .map(|c| {
-            let mut up = c.to_uppercase();
-            match (up.next(), up.next()) {
-                (Some(x), None) => x,
-                _ => c,
-            }
-        })
-        .collect()
+    path.chars().map(fold_char).collect()
 }
 
 /// Групи (по два шляхи й більше), що збігаються без регістру: усередині групи й між групами — ординальний порядок.

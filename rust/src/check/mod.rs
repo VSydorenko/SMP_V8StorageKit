@@ -6,9 +6,9 @@
 // (tools/commands/check.psm1): машина → маніфест → воркспейси.
 //
 // Коди (рішення 2 плану B3): 0 — немає error і немає «не перевірено»; 1 — є error; 3 — немає error, але є
-// «не перевірено»; 2 — помилка виклику (`UsageError`, ім'я поза маніфестом). «Не перевірено» — знахідка рівня
-// warn з тим самим ідентифікатором і текстом «не перевірено: <що> — <причина>»: перевірку треба було виконати,
-// а вона не вдалася. «Не застосовується» (немає джерел потрібного `truth`, немає `HEAD`) — не код 3.
+// «не перевірено»; 2 — помилка виклику (`UsageError`, ім'я поза маніфестом). «Не перевірено» — ознака знахідки
+// (`not_checked`) з текстом «не перевірено: <що> — <причина>» і ідентифікатором перевірки: перевірку треба було
+// виконати, а вона не вдалася. Рівень звичайної знахідки — warn; для стражів секрету — error (код 1). «Не застосовується» (немає джерел потрібного `truth`, немає `HEAD`) — не код 3.
 //
 // Відомі відмінності від PowerShell (ADR-0014 п. 7; кожна — рішення плану B3): 2 (код 3), 3 (код 2 на імені поза
 // маніфестом), 4 (стеля `runner::version`), 5 (збій git ≠ «немає»), 9 (scope Уніки), 10 (`unique-keys` без
@@ -118,6 +118,8 @@ pub(crate) struct Collector {
     /// Індекс і неігноровані файли читаються один раз за прогін.
     index: Option<Result<Vec<String>, String>>,
     unignored: Option<Result<Vec<String>, String>>,
+    /// Усі шляхи `HEAD` (без pathspec: він чутливий до регістру), теж один раз за прогін.
+    head: Option<Result<Vec<String>, String>>,
     /// Мережеві проби, що стартували заздалегідь (паралельно).
     pub probes: DirProbes,
     pub hooks_prefetch: Option<crate::hooks::HooksPrefetch>,
@@ -141,6 +143,16 @@ impl Collector {
         let list = self
             .unignored
             .get_or_insert_with(|| gitq::unignored_files(root))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        gitq::under_ci(list, path)
+    }
+
+    /// Файли `HEAD` під шляхом без регістру (файл чи тека).
+    pub fn head_under(&mut self, root: &Path, path: &str) -> Result<Vec<String>, String> {
+        let list = self
+            .head
+            .get_or_insert_with(|| gitq::head_paths(root))
             .as_ref()
             .map_err(Clone::clone)?;
         gitq::under_ci(list, path)
@@ -286,6 +298,7 @@ pub fn run_with(ctx: &Context, opts: &Options, seam: Probes) -> Result<Report, U
         not_checked: Vec::new(),
         index: None,
         unignored: None,
+        head: None,
         probes: DirProbes::default(),
         hooks_prefetch: None,
         probes_seam: seam,

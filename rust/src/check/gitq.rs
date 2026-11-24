@@ -4,12 +4,12 @@
 // а не відповідь зовнішнього репозиторію. Факт відстеження й неігновані файли беруться списком без pathspec
 // (git звіряє pathspec з урахуванням регістру) і фільтруються в Rust за нормалізованим шляхом без регістру
 // (`under_ci`): `[`, `*`, `?` у шляху — літерали; `.`, `..`, `//` згортаються, вихід за корінь — помилка.
-// `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
+// `check-ignore` і `check-attr` приймають шлях як є.
 
 use crate::case_guard::fold;
 use std::path::Path;
 
-pub(super) use crate::storage_branch::query;
+pub(super) use crate::git::query;
 
 /// Шлях у формі git: роздільники `/`, без кінцевої скісної риски.
 pub(super) fn slashed(path: &str) -> String {
@@ -80,16 +80,13 @@ pub(super) fn under_ci(list: &[String], path: &str) -> Result<Vec<String>, Strin
 
 /// Чи є в репозиторії `HEAD` (немає — свіжий репозиторій до першого коміту).
 pub(super) fn has_head(root: &Path) -> Result<bool, String> {
-    Ok(query(root, &["rev-parse", "-q", "--verify", "HEAD"], &[0, 1])?.code == 0)
+    crate::git::ref_exists(root, "HEAD")
 }
 
-/// Повні шляхи файлів `HEAD` під шляхом, сирі UTF-8 (`-z`: без квотування).
-pub(super) fn head_paths(root: &Path, path: &str) -> Result<Vec<String>, String> {
-    let out = query(
-        root,
-        &["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", path],
-        &[0],
-    )?;
+/// Усі повні шляхи файлів `HEAD`, сирі UTF-8 (`-z`: без квотування). Без pathspec: він чутливий до регістру
+/// (`--icase-pathspecs` для `ls-tree` не підтримується); фільтр — `under_ci`.
+pub(super) fn head_paths(root: &Path) -> Result<Vec<String>, String> {
+    let out = query(root, &["ls-tree", "-r", "-z", "--name-only", "HEAD"], &[0])?;
     Ok(nul_split(&out.stdout))
 }
 

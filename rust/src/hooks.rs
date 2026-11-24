@@ -14,7 +14,7 @@
 use crate::case_guard::fold;
 use crate::ceiling::Pending;
 use crate::config::Level;
-use crate::storage_branch::query;
+use crate::git::query;
 use serde_json::Value;
 use std::fs;
 use std::io;
@@ -214,9 +214,7 @@ pub fn audit_with(
         Err(reason) => out.push(unchecked("core.hooksPath", reason)),
     }
 
-    let head =
-        crate::storage_branch::query(root, &["rev-parse", "-q", "--verify", "HEAD"], &[0, 1])
-            .map(|o| o.code == 0);
+    let head = crate::git::ref_exists(root, "HEAD");
     for name in HOOK_NAMES {
         let rel = format!("{HOOKS_DIR}/{name}");
         let installed = root.join(HOOKS_DIR).join(name);

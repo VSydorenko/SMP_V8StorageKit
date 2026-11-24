@@ -28,6 +28,7 @@ use super::overlay::Overlay;
 use super::v8project::{AgentInfobase, V8Project, full_path, join_ps, resolve_agent_infobase};
 use super::yaml::eq_ci;
 use super::{ConfigError, RawConnection, Secret, SecretTree};
+use crate::case_guard::fold_char;
 use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 
@@ -213,18 +214,9 @@ pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
     Err(ConfigError::new(ERR_LINK_CHAIN))
 }
 
-/// Порівняння без регістру посимвольно (`OrdinalIgnoreCase`): простий верхній регістр, без розширення довжини.
-fn fold(c: char) -> char {
-    let mut up = c.to_uppercase();
-    match (up.next(), up.next()) {
-        (Some(x), None) => x,
-        _ => c,
-    }
-}
-
 fn starts_with_ci(a: &str, b: &str) -> bool {
-    let mut ai = a.chars().map(fold);
-    b.chars().map(fold).all(|bc| ai.next() == Some(bc))
+    let mut ai = a.chars().map(fold_char);
+    b.chars().map(fold_char).all(|bc| ai.next() == Some(bc))
 }
 
 /// Єдиний предикат перетину для вже канонізованих шляхів: рівні, один під іншим чи над ним. Порівняння з

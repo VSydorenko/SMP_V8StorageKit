@@ -11,19 +11,7 @@ use crate::case_guard::case_collisions;
 use crate::git;
 use std::path::Path;
 
-/// Код з переліку `ok` — відповідь команди; будь-який інший чи збій запуску — помилка з дослівним stderr git.
-pub(crate) fn query(root: &Path, args: &[&str], ok: &[i32]) -> Result<git::Output, String> {
-    let out = git::run_at_root(root, args, None, true).map_err(|e| e.to_string())?;
-    if ok.contains(&out.code) {
-        return Ok(out);
-    }
-    Err(format!(
-        "git {} завершився з кодом {}: {}",
-        args.join(" "),
-        out.code,
-        String::from_utf8_lossy(&out.stderr).trim_end()
-    ))
-}
+use crate::git::query;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchState {
@@ -38,7 +26,7 @@ pub enum BranchState {
 /// Чи є локальна гілка (`Test-KitBranchExists`).
 pub fn branch_exists(root: &Path, branch: &str) -> Result<bool, String> {
     let full = format!("refs/heads/{branch}");
-    Ok(query(root, &["rev-parse", "--verify", "--quiet", &full], &[0, 1])?.code == 0)
+    git::ref_exists(root, &full)
 }
 
 /// Гілка є / ненароджена (`HEAD` на ній, ref немає) / немає (`Test-KitBranchUnborn`).

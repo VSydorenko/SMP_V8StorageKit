@@ -3,7 +3,7 @@
 // `storage-path`, `storage-branch`, `dump-from`, `config-name`.
 
 use super::Collector;
-use super::gitq::{has_head, head_paths, ignored, query, slashed, text_unset};
+use super::gitq::{has_head, ignored, query, slashed, text_unset};
 use crate::case_guard::case_collisions;
 use crate::config::yaml::eq_ci;
 use crate::config::{Context, Level, Source, Truth, is_server_storage_path, mask_storage_path};
@@ -99,7 +99,7 @@ fn case_collision(c: &mut Collector, root: &Path, tag: &str, src: &Source) {
     let what = format!("{tag}: регістр шляхів у HEAD");
     let paths = match has_head(root) {
         Ok(false) => return,
-        Ok(true) => head_paths(root, &slashed(&src.repo_path)),
+        Ok(true) => c.head_under(root, &slashed(&src.repo_path)),
         Err(reason) => Err(reason),
     };
     let paths = match paths {
