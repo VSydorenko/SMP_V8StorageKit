@@ -9,7 +9,7 @@
 //
 // Помилка читання запису посеред обходу — не мовчанка (PowerShell із `-ErrorAction SilentlyContinue` занижував час
 // і давав хибне «синхронне»): вона запам'ятовується класом ОС без шляху (`partial`). Запис, що зник між переліком
-// і читанням (`NotFound`), — не помилка читання: файла вже немає.
+// і читанням (код ОС 2 чи 3), — не помилка читання: файла вже немає; інше `NotFound` (15, 53, 67) — обрив.
 //
 // Читання кожного джерела — у власному потоці зі стелею (`ceiling`): недоступний мережевий шлях висить у ОС без
 // таймауту. Усі джерела стартують разом (`start_reading`), результат збирається в порядку джерел; на стелі —
@@ -71,6 +71,10 @@ impl ReadErrorClass {
         use io::ErrorKind as K;
         if e.kind() == K::PermissionDenied {
             return ReadErrorClass::AccessDenied;
+        }
+        // `NotFound`, що не є «запису немає» (15, 53, 67, без коду ОС): диск чи мережа зникли — обрив.
+        if e.kind() == K::NotFound {
+            return ReadErrorClass::Interrupted;
         }
         // 53/67 — мережевий шлях чи ім'я не знайдено, 59 — неочікувана мережева помилка, 64 — мережеве ім'я більше
         // недоступне, 121 — таймаут семафора, 1231/1236 — мережа недосяжна / з'єднання перервано.
@@ -161,7 +165,26 @@ pub enum StorageReading {
     Read(Activity),
 }
 
+/// Запису справді немає: `ERROR_FILE_NOT_FOUND` (2) чи `ERROR_PATH_NOT_FOUND` (3). Rust на Windows зводить до
+/// `ErrorKind::NotFound` ще й `ERROR_INVALID_DRIVE` (15), `ERROR_BAD_NETPATH` (53), `ERROR_BAD_NET_NAME` (67) — це
+/// не «немає», а недоступність, тож вид помилки для цього розрізнення не годиться. Єдина функція на три місця:
+/// перевірка кореня, `unavailable_of`, помилка посеред обходу.
+fn entry_absent(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::NotFound && matches!(e.raw_os_error(), Some(2 | 3))
+}
+
+/// Помилка читання запису: «зник між переліком і читанням» мовчить, решта — `partial` (перша перемагає).
+fn note_read_error(slot: &mut Option<ReadErrorClass>, e: &io::Error) {
+    if entry_absent(e) {
+        return;
+    }
+    slot.get_or_insert(ReadErrorClass::of(e));
+}
+
 fn unavailable_of(e: &io::Error) -> Unavailable {
+    if e.kind() == io::ErrorKind::NotFound && !entry_absent(e) {
+        return Unavailable::NoAnswer;
+    }
     match e.kind() {
         io::ErrorKind::NotFound => Unavailable::Missing,
         io::ErrorKind::PermissionDenied => Unavailable::Denied,
@@ -211,10 +234,7 @@ struct Walk {
 
 impl Walk {
     fn note(&mut self, e: &io::Error) {
-        if e.kind() == io::ErrorKind::NotFound {
-            return;
-        }
-        self.error.get_or_insert(ReadErrorClass::of(e));
+        note_read_error(&mut self.error, e);
     }
 
     fn visit(&mut self, dir: &Path) {
@@ -269,9 +289,7 @@ fn walk_dir(dir: &Path, error: &mut Option<ReadErrorClass>) -> Vec<Found> {
         Ok(m) if m.is_dir() => {}
         Ok(_) => return Vec::new(),
         Err(e) => {
-            if e.kind() != io::ErrorKind::NotFound {
-                error.get_or_insert(ReadErrorClass::of(&e));
-            }
+            note_read_error(error, &e);
             return Vec::new();
         }
     }
@@ -310,9 +328,7 @@ pub fn read_storage(storage_path: &str) -> StorageReading {
             return StorageReading::Read(result);
         }
         Err(e) => {
-            if e.kind() != io::ErrorKind::NotFound {
-                result.partial = Some(ReadErrorClass::of(&e));
-            }
+            note_read_error(&mut result.partial, &e);
             result.not_storage = Some(NotStorage::NoDatabase);
             return StorageReading::Read(result);
         }
@@ -379,4 +395,78 @@ where
     }
     let owned = storage_path.to_string();
     PendingReading::Running(ceiling::start(ceiling, move || reader(&owned)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(code: i32) -> io::Error {
+        io::Error::from_raw_os_error(code)
+    }
+
+    #[test]
+    fn only_codes_2_and_3_mean_the_entry_is_absent() {
+        for code in [2, 3] {
+            assert!(entry_absent(&os(code)), "{code}");
+            assert_eq!(unavailable_of(&os(code)), Unavailable::Missing, "{code}");
+        }
+        for code in [15, 53, 67] {
+            // Контроль допущення: std справді зводить їх до NotFound, інакше тест нічого не доводить.
+            assert_eq!(os(code).kind(), io::ErrorKind::NotFound, "{code}");
+            assert!(!entry_absent(&os(code)), "{code}");
+            assert_eq!(unavailable_of(&os(code)), Unavailable::NoAnswer, "{code}");
+        }
+        let bare = io::Error::from(io::ErrorKind::NotFound);
+        assert!(!entry_absent(&bare));
+        assert_eq!(unavailable_of(&bare), Unavailable::NoAnswer);
+    }
+
+    #[test]
+    fn walk_error_vanished_entry_is_silent_other_not_found_is_partial_interrupted() {
+        let mut walk = Walk::default();
+        walk.note(&os(2));
+        walk.note(&os(3));
+        assert_eq!(walk.error, None);
+        for code in [15, 53, 67] {
+            let mut walk = Walk::default();
+            walk.note(&os(code));
+            assert_eq!(walk.error, Some(ReadErrorClass::Interrupted), "{code}");
+        }
+        let mut slot = None;
+        note_read_error(&mut slot, &io::Error::from(io::ErrorKind::NotFound));
+        assert_eq!(slot, Some(ReadErrorClass::Interrupted));
+    }
+
+    #[test]
+    fn walk_does_not_follow_a_directory_junction_in_objects() {
+        use std::process::Command;
+        let base = std::env::temp_dir().join(format!("kit-junction-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let objects = base.join("objects");
+        let outside = base.join("outside");
+        fs::create_dir_all(&objects).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("f.bin"), "x").unwrap();
+        let made = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(objects.join("link"))
+            .arg(&outside)
+            .output()
+            .unwrap();
+        if !made.status.success() {
+            let _ = fs::remove_dir_all(&base);
+            panic!(
+                "mklink /J не спрацював: {}",
+                String::from_utf8_lossy(&made.stdout)
+            );
+        }
+        let mut error = None;
+        let files = walk_dir(&objects, &mut error);
+        // Знімаємо junction до видалення, щоб не зачепити цільову теку.
+        let _ = fs::remove_dir(objects.join("link"));
+        let _ = fs::remove_dir_all(&base);
+        assert!(files.is_empty(), "junction обійдено");
+        assert_eq!(error, None);
+    }
 }

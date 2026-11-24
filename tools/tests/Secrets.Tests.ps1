@@ -258,6 +258,33 @@ Describe 'секрети не у виводі' {
             if ($More -contains '-AsJson') { @($out | ConvertFrom-Json)[0].NewInStorageReason | Should -Be 'server' }
             else { $out | Should -BeLike '*- Alpha_SMB: серверне сховище:*' }
         }
+        It 'пароль у userinfo шляху, що йде гілкою «сховище недоступне» (файловий шлях із «tcp://user:МАРКЕР@») — ні в stdout, ні в stderr session-check (текст і -AsJson); маска є' -TestCases @(
+            @{ More = @() }, @{ More = @('-AsJson') }
+        ) {
+            $leakPath = 'C:\kit-no-such-dir\tcp://user:MARKZ9МАРКЗ9@host\x'
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ("h7-" + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitattributes -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '$leakPath'"
+            $errFile = Join-Path $TestDrive ("h7-err-" + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.txt')
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') @More 2>$errFile | Out-String
+            $err = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw -Encoding UTF8 } else { '' }
+            foreach ($m in 'MARKZ9', 'МАРКЗ9') {
+                $out | Should -Not -BeLike "*$m*"
+                $err | Should -Not -BeLike "*$m*"
+            }
+            # Позитивна асерція: гілку «недоступне» пройдено (без неї відсутність маркера нічого б не доводила).
+            if ($More -contains '-AsJson') { $out.Contains('сховище недоступне') | Should -BeTrue -Because $out }
+            else {
+                $out.Contains('- Alpha_SMB: сховище недоступне') | Should -BeTrue -Because $out
+                $out.Contains('C:\kit-no-such-dir\tcp://***@host\x') | Should -BeTrue -Because $out
+            }
+        }
+        It 'контроль харнеса: помилка kit.exe session-check іде в stderr, а не в stdout; обидва потоки прочитано' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'h8-stderr') -WithHooks -WithGitattributes -WithGitignore
+            $errFile = Join-Path $TestDrive 'h8-err.txt'
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -Apply 2>$errFile | Out-String
+            $err = Get-Content -LiteralPath $errFile -Raw -Encoding UTF8
+            $err | Should -BeLike '*session-check: ERROR*'
+            $out | Should -Not -BeLike '*session-check: ERROR*'
+        }
         It 'контроль маркера: вивід, у який маркер потрапив, перевірку не проходить' {
             $leaked = "- Alpha_SMB: сховище недоступне (каталог недоступний: tcp://user:MARKZ9МАРКЗ9@host/x)"
             { $leaked | Should -Not -BeLike '*MARKZ9*' } | Should -Throw
