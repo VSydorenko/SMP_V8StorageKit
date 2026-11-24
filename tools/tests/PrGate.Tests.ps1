@@ -355,4 +355,54 @@ Describe 'pr-gate — запобіжники' {
         @(git -C $r.Dir branch --list 'issue-12-fix-thing').Count | Should -Be 1
         Test-Path -LiteralPath (Join-Path $r.Dir '.worktrees/12-fix-thing') | Should -BeTrue
     }
+
+    It 'start: злита гілка issue-N-a ([gone]) не блокує start N b і видаляється; контроль: незлита блокує, гілку не видалено' {
+        $r = New-PgRepo -Name 'merged' -Profile @{ workspace = @{ mode = 'worktree' } }
+        $rules = @(@{ prefix = @('issue', 'view'); stdout = '{"number":7,"title":"Thing","state":"OPEN"}' })
+        # Незлита: коміт лише в гілці.
+        git -C $r.Dir switch -q -c issue-7-a
+        [System.IO.File]::WriteAllText((Join-Path $r.Dir 'a.txt'), "a`n")
+        git -C $r.Dir add a.txt
+        git -C $r.Dir commit -q -m a
+        git -C $r.Dir push -q -u origin issue-7-a
+        git -C $r.Dir switch -q main
+        $blocked = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('start', '7', 'b') -Rules $rules
+        $blocked.Code | Should -Be 1
+        $blocked.Err | Should -Match 'уже має гілку issue-7-a'
+        @(git -C $r.Dir branch --list 'issue-7-a').Count | Should -Be 1 -Because 'незлиту гілку не видаляють ніколи'
+
+        # Злили в main, віддалену гілку прибрано: локальна [gone].
+        git -C $r.Dir merge -q --no-ff issue-7-a -m merge
+        git -C $r.Dir push -q origin main
+        git -C $r.Dir push -q origin --delete issue-7-a
+        $ok = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('start', '7', 'b') -Rules $rules
+        $ok.Code | Should -Be 0 -Because $ok.Err
+        $ok.Out | Should -Match 'видалено злиту локальну гілку issue-7-a'
+        @(git -C $r.Dir branch --list 'issue-7-a') | Should -BeNullOrEmpty
+        @(git -C $r.Dir branch --list 'issue-7-b').Count | Should -Be 1
+    }
+
+    It 'cleanup: тека зайнята дескриптором — реєстрацію й злиту гілку прибрано, є рядок про теку, код 0; контроль: без дескриптора прибирається все' {
+        $r = New-PgRepo -Name 'locked' -Profile @{ workspace = @{ mode = 'worktree' } }
+        $rules = @(@{ prefix = @('issue', 'view'); stdout = '{"number":8,"title":"Thing","state":"OPEN"}' }, @{ prefix = @('pr', 'list'); stdout = '[]' })
+        $null = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('start', '8', 'c') -Rules $rules
+        $null = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('start', '9', 'd') -Rules $rules
+        $locked = Join-Path $r.Dir '.worktrees/8-c'
+        $free = Join-Path $r.Dir '.worktrees/9-d'
+        Test-Path -LiteralPath $locked | Should -BeTrue
+
+        $h = [System.IO.File]::Open((Join-Path $locked 'x.txt'), 'Open', 'Read', 'Read')
+        try { $a = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('cleanup', $locked) -Rules $rules }
+        finally { $h.Dispose() }
+        $a.Code | Should -Be 0 -Because "$($a.Out)`n$($a.Err)"
+        $a.Out | Should -Match 'тримає процес'
+        @(git -C $r.Dir worktree list).Count | Should -Be 2 -Because 'реєстрацію зайнятого worktree прибрано'
+        @(git -C $r.Dir branch --list 'issue-8-c') | Should -BeNullOrEmpty
+
+        $b = Invoke-PrGateCmd -Cwd $r.Dir -Arguments @('cleanup', $free) -Rules $rules
+        $b.Code | Should -Be 0 -Because "$($b.Out)`n$($b.Err)"
+        $b.Out | Should -Not -Match 'тримає процес'
+        Test-Path -LiteralPath $free | Should -BeFalse
+        @(git -C $r.Dir branch --list 'issue-9-d') | Should -BeNullOrEmpty
+    }
 }
