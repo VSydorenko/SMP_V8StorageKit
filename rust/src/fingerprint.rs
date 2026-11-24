@@ -62,7 +62,11 @@ fn fingerprint_collect(
         if rel.is_empty() && name == "target" {
             continue;
         }
-        let child = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+        let child = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
         let kind = entry.file_type()?;
         if kind.is_dir() {
             dirs.push(entry.path());

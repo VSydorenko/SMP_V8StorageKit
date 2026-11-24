@@ -17,8 +17,12 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(name: &str) -> Self {
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("kit-runner-{name}-{}-{nanos}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("kit-runner-{name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
     }
@@ -49,8 +53,14 @@ const TOKENS: &[&str] = &[
 ];
 
 fn echoed(out: &runner::RawOutput) -> Vec<String> {
-    let v: Value = serde_json::from_str(out.stdout.trim()).unwrap_or_else(|e| panic!("не JSON: {e}: {:?}", out.stdout));
-    v["argv"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+    let v: Value = serde_json::from_str(out.stdout.trim())
+        .unwrap_or_else(|e| panic!("не JSON: {e}: {:?}", out.stdout));
+    v["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect()
 }
 
 #[test]
@@ -59,7 +69,10 @@ fn arguments_reach_the_runner_verbatim() {
     args.extend_from_slice(TOKENS);
     let out = exec(&args).unwrap();
     assert_eq!(out.exit_code, 0);
-    assert_eq!(echoed(&out), TOKENS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(
+        echoed(&out),
+        TOKENS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -74,10 +87,21 @@ fn run_builds_config_and_json_message_and_keeps_the_envelope_as_is() {
     assert_eq!(env.command.as_deref(), Some("envelope"));
     assert_eq!(env.warnings, vec![Value::String("w1".into())]);
     assert!(env.error.is_none());
-    let argv: Vec<String> = env.data["argv"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect();
+    let argv: Vec<String> = env.data["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
     assert_eq!(
         argv,
-        vec!["--config".to_string(), ws.join("v8project.yaml").display().to_string(), "envelope".into(), "x y".into(), "--json-message".into()]
+        vec![
+            "--config".to_string(),
+            ws.join("v8project.yaml").display().to_string(),
+            "envelope".into(),
+            "x y".into(),
+            "--json-message".into()
+        ]
     );
     // Робоча тека — workspace_dir.
     let cwd = PathBuf::from(env.data["cwd"].as_str().unwrap());
@@ -101,24 +125,48 @@ fn run_does_not_reinterpret_ok_false_or_the_exit_code() {
 
 #[test]
 fn run_errors_carry_code_and_verbatim_output() {
-    let notjson = runner::run(Path::new(FAKE), Path::new("."), &[OsStr::new("notjson")], None).unwrap_err();
+    let notjson = runner::run(
+        Path::new(FAKE),
+        Path::new("."),
+        &[OsStr::new("notjson")],
+        None,
+    )
+    .unwrap_err();
     match &notjson {
-        RunError::NotJson { exit_code, stdout, .. } => {
+        RunError::NotJson {
+            exit_code, stdout, ..
+        } => {
             assert_eq!(*exit_code, 0);
             assert!(stdout.contains("это не json"));
         }
         other => panic!("{other:?}"),
     }
-    assert!(notjson.to_string().starts_with("Раннер на 'notjson' відповів не JSON-ом: код виходу 0, вивід: это не json"));
-    let noook = runner::run(Path::new(FAKE), Path::new("."), &[OsStr::new("noook")], None).unwrap_err();
+    assert!(
+        notjson.to_string().starts_with(
+            "Раннер на 'notjson' відповів не JSON-ом: код виходу 0, вивід: это не json"
+        )
+    );
+    let noook = runner::run(
+        Path::new(FAKE),
+        Path::new("."),
+        &[OsStr::new("noook")],
+        None,
+    )
+    .unwrap_err();
     assert!(matches!(noook, RunError::NoOk { .. }));
-    assert_eq!(noook.to_string(), "Відповідь раннера на 'noook' без поля ok: {\"data\":1}");
+    assert_eq!(
+        noook.to_string(),
+        "Відповідь раннера на 'noook' без поля ok: {\"data\":1}"
+    );
 }
 
 #[test]
 fn large_output_on_both_streams_does_not_deadlock() {
     let out = exec(&["big"]).unwrap();
-    assert_eq!((out.stdout.len(), out.stderr.len()), (2 * 1024 * 1024, 2 * 1024 * 1024));
+    assert_eq!(
+        (out.stdout.len(), out.stderr.len()),
+        (2 * 1024 * 1024, 2 * 1024 * 1024)
+    );
 }
 
 #[test]
@@ -130,8 +178,17 @@ fn exit_code_is_returned_raw() {
 fn ceiling_kills_the_process_and_keeps_what_arrived() {
     let a: Vec<&OsStr> = vec![OsStr::new("partial")];
     let started = std::time::Instant::now();
-    let err = runner::exec(Path::new(FAKE), Path::new("."), &a, Some(Duration::from_millis(1500))).unwrap_err();
-    assert!(started.elapsed() < Duration::from_secs(30), "процес не вбито");
+    let err = runner::exec(
+        Path::new(FAKE),
+        Path::new("."),
+        &a,
+        Some(Duration::from_millis(1500)),
+    )
+    .unwrap_err();
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "процес не вбито"
+    );
     match err {
         RunError::Timeout { stdout, stderr, .. } => {
             assert!(stdout.contains("pre-out"), "{stdout:?}");
@@ -146,20 +203,42 @@ fn ceiling_kills_the_process_and_keeps_what_arrived() {
 fn ceiling_bounds_the_wait_for_pipes_held_by_a_grandchild() {
     let a: Vec<&OsStr> = vec![OsStr::new("grandchild")];
     let started = std::time::Instant::now();
-    let res = runner::exec(Path::new(FAKE), Path::new("."), &a, Some(Duration::from_secs(2)));
+    let res = runner::exec(
+        Path::new(FAKE),
+        Path::new("."),
+        &a,
+        Some(Duration::from_secs(2)),
+    );
     let elapsed = started.elapsed();
     let out = res.unwrap();
     // Прибрати онука до перевірок.
-    let pid = out.stdout.trim().strip_prefix("pid:").expect(&out.stdout).to_string();
+    let pid = out
+        .stdout
+        .trim()
+        .strip_prefix("pid:")
+        .expect(&out.stdout)
+        .to_string();
     let _ = Command::new("taskkill").args(["/F", "/PID", &pid]).output();
     assert_eq!(out.exit_code, 0);
-    assert!(elapsed < Duration::from_secs(5), "очікування каналів без межі: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "очікування каналів без межі: {elapsed:?}"
+    );
 }
 
 #[test]
 fn missing_runner_is_not_found() {
-    let err = runner::exec(Path::new("C:\\немає\\v8-runner.exe"), Path::new("."), &[], None).unwrap_err();
-    assert_eq!(err.to_string(), "Раннер не знайдено: C:\\немає\\v8-runner.exe");
+    let err = runner::exec(
+        Path::new("C:\\немає\\v8-runner.exe"),
+        Path::new("."),
+        &[],
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Раннер не знайдено: C:\\немає\\v8-runner.exe"
+    );
 }
 
 /// Голе ім'я раннера: запускається той файл, що перевірений (в поточній теці), а не знайдений у PATH.
@@ -172,20 +251,31 @@ fn bare_runner_name_runs_the_checked_file_not_the_path_one() {
         std::fs::write(dir.0.join("version.txt"), version).unwrap();
     }
     let mut paths = vec![b.0.clone()];
-    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
     let out = Command::new(KIT)
         .current_dir(&a.0)
         .env("PATH", std::env::join_paths(paths).unwrap())
         .args(["runner-exec", "v8-runner.exe", ".", "--version"])
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "v8-runner 1.1.1", "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "v8-runner 1.1.1",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
 fn version_is_parsed_from_the_version_line() {
     let tmp = TempDir::new("ver");
-    for (line, expect) in [("0.18.1", Some("0.18.1")), ("0.18.9-fork.3", Some("0.18.9-fork.3")), ("dev", None)] {
+    for (line, expect) in [
+        ("0.18.1", Some("0.18.1")),
+        ("0.18.9-fork.3", Some("0.18.9-fork.3")),
+        ("dev", None),
+    ] {
         let exe = tmp.0.join("v8-runner.exe");
         std::fs::copy(FAKE, &exe).unwrap();
         std::fs::write(tmp.0.join("version.txt"), line).unwrap();
@@ -193,7 +283,9 @@ fn version_is_parsed_from_the_version_line() {
         match expect {
             Some(v) => assert_eq!(got.unwrap(), v),
             None => assert!(
-                got.unwrap_err().contains("відповів не рядком 'v8-runner <версія>': код виходу 0, вивід: v8-runner dev"),
+                got.unwrap_err().contains(
+                    "відповів не рядком 'v8-runner <версія>': код виходу 0, вивід: v8-runner dev"
+                ),
                 "{line}"
             ),
         }
@@ -204,17 +296,34 @@ fn version_is_parsed_from_the_version_line() {
 /// успадковані.
 #[test]
 fn runner_exec_passes_arguments_and_exit_code_through() {
-    let out = Command::new(KIT).args(["runner-exec", FAKE, ".", "echo"]).args(TOKENS).output().unwrap();
+    let out = Command::new(KIT)
+        .args(["runner-exec", FAKE, ".", "echo"])
+        .args(TOKENS)
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
-    let got: Vec<&str> = v["argv"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+    let got: Vec<&str> = v["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
     assert_eq!(got, TOKENS);
-    let out = Command::new(KIT).args(["runner-exec", FAKE, ".", "code7"]).output().unwrap();
+    let out = Command::new(KIT)
+        .args(["runner-exec", FAKE, ".", "code7"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(7));
     // Власна помилка — `runner-exec: ERROR …` у stderr і код 1.
-    let out = Command::new(KIT).args(["runner-exec", "C:\\немає\\v8-runner.exe", "."]).output().unwrap();
+    let out = Command::new(KIT)
+        .args(["runner-exec", "C:\\немає\\v8-runner.exe", "."])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stderr).starts_with("runner-exec: ERROR Раннер не знайдено"));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).starts_with("runner-exec: ERROR Раннер не знайдено")
+    );
 }
 
 /// tool-verdicts: один JSON; код 0 і на вердикті error.
@@ -238,7 +347,12 @@ fn tool_verdicts_prints_one_json() {
         .arg(&exe)
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["unica"]["Level"], "ok");
     assert_eq!(v["unica"]["Message"], "Плагін unica 0.16.0.");
@@ -259,6 +373,9 @@ fn tool_verdicts_prints_one_json() {
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["runner"]["Level"], "error");
     // Помилка виклику — код 2.
-    let out = Command::new(KIT).args(["tool-verdicts", "--nope"]).output().unwrap();
+    let out = Command::new(KIT)
+        .args(["tool-verdicts", "--nope"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }

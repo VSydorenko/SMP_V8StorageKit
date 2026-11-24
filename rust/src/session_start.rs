@@ -74,23 +74,31 @@ pub fn run(plugin: &Path) -> Option<String> {
     if repo.is_some() || profile.marks_repo() {
         let rules = rules_text(plugin).unwrap_or_default();
         let hint = match (&profile, &git_root) {
-            (Profile::Ok(version, _), Some(root)) => upgrade_hint(plugin, root, version).unwrap_or_default(),
+            (Profile::Ok(version, _), Some(root)) => {
+                upgrade_hint(plugin, root, version).unwrap_or_default()
+            }
             _ => String::new(),
         };
-        rules_block = [rules, hint].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n");
+        rules_block = [rules, hint]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
     }
 
     match (repo, project) {
         (Some(repo), Some(project)) => {
             let context = match storage_context(plugin, &repo, &project, &rules_block) {
                 Ok(c) => c,
-                Err(e) => format!("<v8storagekit>\nХук v8storagekit не зміг зібрати стан: {e}\n</v8storagekit>"),
+                Err(e) => format!(
+                    "<v8storagekit>\nХук v8storagekit не зміг зібрати стан: {e}\n</v8storagekit>"
+                ),
             };
             Some(hook_json(&context))
         }
-        _ if profile.marks_repo() && !rules_block.is_empty() => {
-            Some(hook_json(&format!("<v8storagekit>\n{rules_block}\n</v8storagekit>")))
-        }
+        _ if profile.marks_repo() && !rules_block.is_empty() => Some(hook_json(&format!(
+            "<v8storagekit>\n{rules_block}\n</v8storagekit>"
+        ))),
         _ => None,
     }
 }
@@ -98,7 +106,9 @@ pub fn run(plugin: &Path) -> Option<String> {
 /// JSON хука; ключі — у тому порядку, що й у PowerShell-хука до переносу на Rust.
 fn hook_json(context: &str) -> String {
     let ctx = serde_json::to_string(context).unwrap_or_else(|_| "\"\"".to_string());
-    format!("{{\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\"additionalContext\":{ctx}}}}}\n")
+    format!(
+        "{{\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\"additionalContext\":{ctx}}}}}\n"
+    )
 }
 
 /// Шлях без кінцевих роздільників (крім кореня диска): тека проєкту однакова з `/` наприкінці й без.
@@ -151,7 +161,9 @@ fn read_profile(git_root: &Path) -> Profile {
     if !file.is_file() {
         return Profile::None;
     }
-    let Ok(text) = read_text(&file) else { return Profile::Bad };
+    let Ok(text) = read_text(&file) else {
+        return Profile::Bad;
+    };
     // Як ConvertFrom-Json PowerShell-хука («як було»): порожній файл — профіль без полів,
     // коментарі `//` і `/* */` поза рядками дозволені. Решту його поблажливостей (одинарні лапки, ключі
     // без лапок, кома в кінці) kit сам не пише — тут вони дають Bad.
@@ -159,7 +171,9 @@ fn read_profile(git_root: &Path) -> Profile {
     if text.trim().is_empty() {
         return Profile::Ok("0.1.0".to_string(), false);
     }
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Profile::Bad };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Profile::Bad;
+    };
     // Версія — за єдиним правилом profile::project_version (ADR-0020): v8storagekit.version, тимчасово kit.version ≥ 1.0.0.
     match kit::profile::project_version(&json) {
         kit::profile::ProjectVersion::Unset => Profile::Ok("0.1.0".to_string(), false),
@@ -172,7 +186,10 @@ fn read_profile(git_root: &Path) -> Profile {
 fn rules_text(plugin: &Path) -> Option<String> {
     let text = read_text(&plugin.join("hooks").join("communication-rules.md")).ok()?;
     let lead = text.trim_start();
-    let body = match lead.strip_prefix("<!--").and_then(|rest| rest.find("-->").map(|p| &rest[p + 3..])) {
+    let body = match lead
+        .strip_prefix("<!--")
+        .and_then(|rest| rest.find("-->").map(|p| &rest[p + 3..]))
+    {
         Some(after) => after,
         None => text.as_str(),
     };
@@ -181,17 +198,29 @@ fn rules_text(plugin: &Path) -> Option<String> {
 
 /// Проєкт відстав від плагіна — один рядок із числом кроків чеклістів журналу. Нема що казати — None.
 fn upgrade_hint(plugin: &Path, git_root: &Path, project_version: &str) -> Option<String> {
-    let meta: serde_json::Value = serde_json::from_str(&read_text(&plugin.join(".claude-plugin").join("plugin.json")).ok()?).ok()?;
-    let plugin_version = meta.get("version").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let meta: serde_json::Value =
+        serde_json::from_str(&read_text(&plugin.join(".claude-plugin").join("plugin.json")).ok()?)
+            .ok()?;
+    let plugin_version = meta
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     if !is_version(&plugin_version) {
         return None;
     }
     // Корінь git проєкту — сам цей плагін: оновлювати нічого. Імена порівнюються без регістру, як -eq.
     let root_json = git_root.join(".claude-plugin").join("plugin.json");
     if root_json.is_file() {
-        let root_meta = read_text(&root_json).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        let root_meta = read_text(&root_json)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
         if let Some(root_meta) = root_meta {
-            let name = |v: &serde_json::Value| v.get("name").and_then(|n| n.as_str()).map(str::to_lowercase);
+            let name = |v: &serde_json::Value| {
+                v.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(str::to_lowercase)
+            };
             if name(&root_meta) == name(&meta) {
                 return None;
             }
@@ -253,7 +282,11 @@ fn version_heading(line: &str) -> Option<&str> {
 /// `^#{1,3}\s` — заголовок першого–третього рівня.
 fn is_heading(line: &str) -> bool {
     let hashes = line.bytes().take_while(|b| *b == b'#').count();
-    (1..=3).contains(&hashes) && line[hashes..].chars().next().is_some_and(char::is_whitespace)
+    (1..=3).contains(&hashes)
+        && line[hashes..]
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace)
 }
 
 /// `^###\s+Чекліст оновлення проєкту`.
@@ -265,12 +298,19 @@ fn checklist_heading(line: &str) -> bool {
 
 /// `^- \[[ xX]\] `.
 fn is_checklist_item(line: &str) -> bool {
-    ["- [ ] ", "- [x] ", "- [X] "].iter().any(|p| line.starts_with(p))
+    ["- [ ] ", "- [x] ", "- [X] "]
+        .iter()
+        .any(|p| line.starts_with(p))
 }
 
 /// Контекст «Стан сховищ»: session-check зі стелею часу, попередження про предка, вказівка на скіл,
 /// правила. Err — хук не зміг зібрати стан (текст іде в контекст).
-fn storage_context(plugin: &Path, repo: &Path, project: &Path, rules_block: &str) -> Result<String, String> {
+fn storage_context(
+    plugin: &Path,
+    repo: &Path,
+    project: &Path,
+    rules_block: &str,
+) -> Result<String, String> {
     let status = session_check_status(plugin, repo)?;
     let warning = if repo != project {
         format!(
@@ -284,8 +324,14 @@ fn storage_context(plugin: &Path, repo: &Path, project: &Path, rules_block: &str
     // Порядок: попередження → стан → вказівка на скіл → правила спілкування. Вступ скіла НЕ вклеюється:
     // Claude Code велику частину виводу хука показує агентові лише прев'ю, тож стан стоїть першим.
     let pointer = "Репозиторій під kit. Правила контуру — скіл `v8storagekit:storage-rules`: завантаж його перед першою командою kit, кроком Уніки над базою агента чи роботою зі сховищем.";
-    let tail = if rules_block.is_empty() { String::new() } else { format!("\n\n{rules_block}") };
-    Ok(format!("<v8storagekit>\n{warning}## Стан сховищ (kit session-check)\n\n{status}\n\n{pointer}{tail}\n</v8storagekit>"))
+    let tail = if rules_block.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{rules_block}")
+    };
+    Ok(format!(
+        "<v8storagekit>\n{warning}## Стан сховищ (kit session-check)\n\n{status}\n\n{pointer}{tail}\n</v8storagekit>"
+    ))
 }
 
 /// Стеля з V8KIT_SESSION_CHECK_TIMEOUT (ціле 1–600), інакше 15 с. Стеля — через змінну, а не накладку:
@@ -307,13 +353,28 @@ struct TempFile {
 impl TempFile {
     fn new(tag: &str) -> Result<Self, String> {
         let dir = std::env::temp_dir();
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
         for n in 0..100u32 {
-            let path = dir.join(format!("kit-session-check-{}-{stamp}-{n}.{tag}", std::process::id()));
+            let path = dir.join(format!(
+                "kit-session-check-{}-{stamp}-{n}.{tag}",
+                std::process::id()
+            ));
             match File::options().write(true).create_new(true).open(&path) {
-                Ok(file) => return Ok(TempFile { path, file: Some(file) }),
+                Ok(file) => {
+                    return Ok(TempFile {
+                        path,
+                        file: Some(file),
+                    });
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(format!("тимчасовий файл {} не створено: {e}", path.display())),
+                Err(e) => {
+                    return Err(format!(
+                        "тимчасовий файл {} не створено: {e}",
+                        path.display()
+                    ));
+                }
             }
         }
         Err(format!("тимчасовий файл у {} не створено", dir.display()))
@@ -321,7 +382,10 @@ impl TempFile {
 
     fn stdio(&self) -> Result<Stdio, String> {
         match &self.file {
-            Some(f) => f.try_clone().map(Stdio::from).map_err(|e| format!("тимчасовий файл {}: {e}", self.path.display())),
+            Some(f) => f
+                .try_clone()
+                .map(Stdio::from)
+                .map_err(|e| format!("тимчасовий файл {}: {e}", self.path.display())),
             None => Err(format!("тимчасовий файл {} закрито", self.path.display())),
         }
     }
@@ -344,16 +408,27 @@ impl Drop for TempFile {
 /// читався б як «нових версій немає».
 fn session_check_status(plugin: &Path, repo: &Path) -> Result<String, String> {
     let timeout = timeout_sec();
-    let repo_arg = repo.to_str().ok_or_else(|| format!("шлях {} — не коректний Unicode", repo.display()))?;
-    let tokens = ["session-check".to_string(), "-RepoRoot".to_string(), repo_arg.to_string()];
+    let repo_arg = repo
+        .to_str()
+        .ok_or_else(|| format!("шлях {} — не коректний Unicode", repo.display()))?;
+    let tokens = [
+        "session-check".to_string(),
+        "-RepoRoot".to_string(),
+        repo_arg.to_string(),
+    ];
     let out = TempFile::new("out")?;
     let err = TempFile::new("err")?;
     let mut cmd = crate::dispatcher(plugin, &tokens)?;
-    cmd.stdin(Stdio::null()).stdout(out.stdio()?).stderr(err.stdio()?);
+    cmd.stdin(Stdio::null())
+        .stdout(out.stdio()?)
+        .stderr(err.stdio()?);
     std_handles_not_inheritable();
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("{} не запустився: {e}", Path::new(cmd.get_program()).display()))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        format!(
+            "{} не запустився: {e}",
+            Path::new(cmd.get_program()).display()
+        )
+    })?;
     // Дескриптори-копії в `cmd` закриваються: файли тримає лише дочірній процес.
     drop(cmd);
 

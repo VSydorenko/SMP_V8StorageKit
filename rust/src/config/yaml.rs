@@ -24,10 +24,12 @@
 // стеля — час хука); якорі («мільярд сміхів») обмежує сам `serde_yaml`.
 
 use super::ConfigError;
-use std::collections::HashMap;
 use serde::Deserialize;
-use serde::de::{DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{
+    DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess, SeqAccess, Visitor,
+};
 use serde_yaml::{Mapping, Number, Value};
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
@@ -59,7 +61,8 @@ pub fn read_yaml_or_none(path: &Path) -> Result<Option<Mapping>, ConfigError> {
     if !path.is_file() {
         return Err(ConfigError::new(format!("Файл не знайдено: {shown}")));
     }
-    let bytes = std::fs::read(path).map_err(|e| ConfigError::new(format!("Файл {shown} не прочитано: {}", e.kind())))?;
+    let bytes = std::fs::read(path)
+        .map_err(|e| ConfigError::new(format!("Файл {shown} не прочитано: {}", e.kind())))?;
     // `Get-Content -Encoding UTF8`: BOM відкидається, некоректні байти — символ заміни.
     let text = String::from_utf8_lossy(&bytes);
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
@@ -71,7 +74,9 @@ pub fn read_yaml_or_none(path: &Path) -> Result<Option<Mapping>, ConfigError> {
             Ok(v) => v,
             Err(fail) => {
                 let msg = match fail {
-                    ParseFail::Syntax(Some((line, column))) => format!("Файл {shown} не розбирається як YAML (рядок {line}, колонка {column})."),
+                    ParseFail::Syntax(Some((line, column))) => format!(
+                        "Файл {shown} не розбирається як YAML (рядок {line}, колонка {column})."
+                    ),
                     ParseFail::Syntax(None) => format!("Файл {shown} не розбирається як YAML."),
                     ParseFail::MultiDocument(line, column) => format!(
                         "Файл {shown} містить кілька YAML-документів (другий починається в рядку {line}, колонка {column}); kit читає один документ."
@@ -89,8 +94,12 @@ pub fn read_yaml_or_none(path: &Path) -> Result<Option<Mapping>, ConfigError> {
             Err(TextFail::Tag(Some((line, column)))) => Err(ConfigError::new(format!(
                 "{shown}: YAML-тег (`!…`) у рядку {line}, колонці {column} не підтримується — приберіть тег."
             ))),
-            Err(TextFail::Tag(None)) => Err(ConfigError::new(format!("{shown}: YAML-тег (`!…`) не підтримується — приберіть тег."))),
-            _ => Err(ConfigError::new(format!("Файл {shown} не розбирається як YAML."))),
+            Err(TextFail::Tag(None)) => Err(ConfigError::new(format!(
+                "{shown}: YAML-тег (`!…`) не підтримується — приберіть тег."
+            ))),
+            _ => Err(ConfigError::new(format!(
+                "Файл {shown} не розбирається як YAML."
+            ))),
         },
         Some(other) => Err(ConfigError::new(format!(
             "Файл {shown} на верхньому рівні має бути мапою (ключ: значення), а не {}.",
@@ -152,10 +161,17 @@ fn parse_document(text: &str) -> Result<Option<Value>, ParseFail> {
     };
     let value = Value::deserialize(first).map_err(|e| ParseFail::Syntax(place(&e)))?;
     if let Some(second) = docs.next() {
-        return Err(match second.deserialize_any(Reject).err().as_ref().and_then(place) {
-            Some((line, _)) => ParseFail::MultiDocument(marker_line(text, line), 1),
-            None => ParseFail::Syntax(None),
-        });
+        return Err(
+            match second
+                .deserialize_any(Reject)
+                .err()
+                .as_ref()
+                .and_then(place)
+            {
+                Some((line, _)) => ParseFail::MultiDocument(marker_line(text, line), 1),
+                None => ParseFail::Syntax(None),
+            },
+        );
     }
     Ok(Some(value))
 }
@@ -173,10 +189,16 @@ fn marker_line(text: &str, content_line: usize) -> usize {
 
 /// Дерево першого документа, де кожен скаляр прочитано як рядок; форму (мапа, список, `null`) задає типове дерево.
 fn text_tree(text: &str, typed: &Mapping) -> Result<Value, TextFail> {
-    let first = serde_yaml::Deserializer::from_str(text).next().ok_or(TextFail::Other)?;
+    let first = serde_yaml::Deserializer::from_str(text)
+        .next()
+        .ok_or(TextFail::Other)?;
     let shape = Value::Mapping(typed.clone());
     let tree = TextSeed(&shape).deserialize(first).map_err(|e| {
-        if e.to_string().contains(TAG_MARK) { TextFail::Tag(place(&e)) } else { TextFail::Other }
+        if e.to_string().contains(TAG_MARK) {
+            TextFail::Tag(place(&e))
+        } else {
+            TextFail::Other
+        }
     })?;
     normalize(tree).ok_or(TextFail::Other)
 }
@@ -224,7 +246,9 @@ impl<'de> DeserializeSeed<'de> for TextSeed<'_> {
             Value::Sequence(shape) => d.deserialize_seq(SeqShape(shape)),
             Value::Null => d.deserialize_any(IgnoredAny).map(|_| Value::Null),
             Value::Tagged(_) => TagFail.deserialize(d),
-            Value::Bool(_) | Value::Number(_) | Value::String(_) => String::deserialize(d).map(Value::String),
+            Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                String::deserialize(d).map(Value::String)
+            }
         }
     }
 }
@@ -248,7 +272,9 @@ impl<'de> Visitor<'de> for MapShape<'_> {
             if matches!(key_shape, Value::Sequence(_) | Value::Mapping(_)) {
                 return Err(A::Error::custom("ключ не скаляр"));
             }
-            let Some(key) = a.next_key::<String>()? else { break };
+            let Some(key) = a.next_key::<String>()? else {
+                break;
+            };
             let value = a.next_value_seed(TextSeed(value_shape))?;
             out.insert(Value::String(key), value);
         }
@@ -282,7 +308,11 @@ impl<'de> Visitor<'de> for SeqShape<'_> {
 fn normalize(value: Value) -> Option<Value> {
     match value {
         Value::Tagged(t) => normalize(t.value),
-        Value::Sequence(items) => items.into_iter().map(normalize).collect::<Option<Vec<_>>>().map(Value::Sequence),
+        Value::Sequence(items) => items
+            .into_iter()
+            .map(normalize)
+            .collect::<Option<Vec<_>>>()
+            .map(Value::Sequence),
         Value::Mapping(map) => {
             // `OrderedDictionary` у PowerShell: ключ без регістру — одне місце (де вперше з'явився), а ім'я й значення
             // — з останнього запису (вимір 2026-11-24: `Alpha_SMB:` і `ALPHA_SMB:` дають ключ `ALPHA_SMB`).
@@ -328,7 +358,9 @@ pub fn eq_ci(a: &str, b: &str) -> bool {
 
 /// Значення за ключем без регістру.
 pub fn get<'a>(map: &'a Mapping, key: &str) -> Option<&'a Value> {
-    map.iter().find(|(k, _)| k.as_str().is_some_and(|k| eq_ci(k, key))).map(|(_, v)| v)
+    map.iter()
+        .find(|(k, _)| k.as_str().is_some_and(|k| eq_ci(k, key)))
+        .map(|(_, v)| v)
 }
 
 pub fn contains(map: &Mapping, key: &str) -> bool {
@@ -337,19 +369,30 @@ pub fn contains(map: &Mapping, key: &str) -> bool {
 
 /// Ключі мапи в порядку файла (після нормалізації всі — рядки).
 pub fn keys(map: &Mapping) -> Vec<String> {
-    map.iter().filter_map(|(k, _)| k.as_str().map(str::to_string)).collect()
+    map.iter()
+        .filter_map(|(k, _)| k.as_str().map(str::to_string))
+        .collect()
 }
 
 /// Скалярне поле: список чи мапа на його місці — відмова без значення (відома відмінність, рішення архітектора
 /// 2026-11-24: PowerShell кастить `[string]` без перевірки й тихо отримує «a b» чи ім'я типу). `where_` — початок
 /// повідомлення («Маніфест … — » тощо), `field` — ім'я поля для людини.
-pub fn assert_scalar(map: &Mapping, key: &str, where_: &str, field: &str) -> Result<(), ConfigError> {
+pub fn assert_scalar(
+    map: &Mapping,
+    key: &str,
+    where_: &str,
+    field: &str,
+) -> Result<(), ConfigError> {
     match get(map, key) {
-        Some(Value::Sequence(_) | Value::Mapping(_)) => Err(ConfigError::new(if key == "version" {
-            format!("{where_} — {field}: має бути числом (значення не друкується).")
-        } else {
-            format!("{where_} — {field}: має бути скалярним значенням (рядок чи число), а не списком чи мапою (значення не друкується).")
-        })),
+        Some(Value::Sequence(_) | Value::Mapping(_)) => {
+            Err(ConfigError::new(if key == "version" {
+                format!("{where_} — {field}: має бути числом (значення не друкується).")
+            } else {
+                format!(
+                    "{where_} — {field}: має бути скалярним значенням (рядок чи число), а не списком чи мапою (значення не друкується)."
+                )
+            }))
+        }
         _ => Ok(()),
     }
 }
@@ -402,9 +445,20 @@ fn number_text(n: &Number) -> (String, &'static str) {
     }
     if f.fract() == 0.0 {
         let digits = format!("{f:.0}");
-        return integer_text(if digits == "-0" { "0".to_string() } else { digits });
+        return integer_text(if digits == "-0" {
+            "0".to_string()
+        } else {
+            digits
+        });
     }
-    (format!("{f}"), if f.abs() < 7.9e28 { "Decimal" } else { "Double" })
+    (
+        format!("{f}"),
+        if f.abs() < 7.9e28 {
+            "Decimal"
+        } else {
+            "Double"
+        },
+    )
 }
 
 fn integer_text(digits: String) -> (String, &'static str) {
@@ -419,7 +473,12 @@ fn integer_text(digits: String) -> (String, &'static str) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
@@ -449,17 +508,35 @@ mod tests {
         // Порожній: обов'язковий — помилка з іменем файла, дозволений — порожня мапа.
         let empty = file(&d, "empty.yaml", "# лише коментар\n");
         let e = read_yaml(&empty, Emptiness::Required).unwrap_err();
-        assert!(e.message().contains("empty.yaml") && e.message().contains("порожній"), "{e}");
+        assert!(
+            e.message().contains("empty.yaml") && e.message().contains("порожній"),
+            "{e}"
+        );
         assert!(read_yaml(&empty, Emptiness::Allowed).unwrap().is_empty());
 
         // Корінь не мапа — з іменем типу .NET.
         let list = file(&d, "list.yaml", "- a\n- b\n");
-        assert!(read_yaml(&list, Emptiness::Required).unwrap_err().message().ends_with("а не List`1."));
+        assert!(
+            read_yaml(&list, Emptiness::Required)
+                .unwrap_err()
+                .message()
+                .ends_with("а не List`1.")
+        );
         let int = file(&d, "int.yaml", "5\n");
-        assert!(read_yaml(&int, Emptiness::Required).unwrap_err().message().ends_with("а не Int32."));
+        assert!(
+            read_yaml(&int, Emptiness::Required)
+                .unwrap_err()
+                .message()
+                .ends_with("а не Int32.")
+        );
 
         // Немає файла.
-        assert!(read_yaml(&d.join("none.yaml"), Emptiness::Required).unwrap_err().message().starts_with("Файл не знайдено: "));
+        assert!(
+            read_yaml(&d.join("none.yaml"), Emptiness::Required)
+                .unwrap_err()
+                .message()
+                .starts_with("Файл не знайдено: ")
+        );
     }
 
     // Інваріант §6: помилка розбору називає файл і місце, не цитує даних; дубль ключа не друкує ключ.
@@ -467,11 +544,20 @@ mod tests {
     fn parse_error_gives_place_without_data() {
         let d = tmp("place");
         let marker = "СЕКРЕТ-маркер";
-        for (name, text) in [("bad.yaml", format!("a: [{marker}\nb: ]]\n")), ("dup.yaml", format!("{marker}: 1\n{marker}: 2\n"))] {
+        for (name, text) in [
+            ("bad.yaml", format!("a: [{marker}\nb: ]]\n")),
+            ("dup.yaml", format!("{marker}: 1\n{marker}: 2\n")),
+        ] {
             let p = file(&d, name, &text);
             let e = read_yaml(&p, Emptiness::Required).unwrap_err();
-            assert!(e.message().contains(name) && e.message().contains("не розбирається як YAML"), "{e}");
-            assert!(!e.message().contains(marker) && !format!("{e:?}").contains(marker), "{e}");
+            assert!(
+                e.message().contains(name) && e.message().contains("не розбирається як YAML"),
+                "{e}"
+            );
+            assert!(
+                !e.message().contains(marker) && !format!("{e:?}").contains(marker),
+                "{e}"
+            );
         }
     }
 
@@ -479,7 +565,9 @@ mod tests {
     #[test]
     fn billion_laughs_terminates_with_error() {
         let d = tmp("laughs");
-        let mut text = String::from("a0: &a0 [\"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\"]\n");
+        let mut text = String::from(
+            "a0: &a0 [\"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\", \"lol\"]\n",
+        );
         for i in 1..10 {
             let prev = i - 1;
             let refs = vec![format!("*a{prev}"); 9].join(", ");
@@ -490,7 +578,10 @@ mod tests {
         let r = read_yaml(&p, Emptiness::Required);
         assert!(started.elapsed() < Duration::from_secs(20), "розбір завис");
         let e = r.unwrap_err();
-        assert!(e.message().contains("laughs.yaml") && e.message().contains("не розбирається як YAML"), "{e}");
+        assert!(
+            e.message().contains("laughs.yaml") && e.message().contains("не розбирається як YAML"),
+            "{e}"
+        );
     }
 
     // Тег у значенні чи ключі — відмова з місцем без тексту тега й значення.
@@ -504,8 +595,16 @@ mod tests {
             ("n.yaml", format!("a:\n  - x\n  - !{marker} [{marker}]\n")),
         ] {
             let e = read_yaml(&file(&d, name, &text), Emptiness::Required).unwrap_err();
-            assert!(e.message().contains("YAML-тег (`!…`) у рядку") && e.message().contains("колонці") && e.message().ends_with("приберіть тег."), "{name}: {e}");
-            assert!(!e.message().contains(marker) && !format!("{e:?}").contains(marker), "{name}: {e}");
+            assert!(
+                e.message().contains("YAML-тег (`!…`) у рядку")
+                    && e.message().contains("колонці")
+                    && e.message().ends_with("приберіть тег."),
+                "{name}: {e}"
+            );
+            assert!(
+                !e.message().contains(marker) && !format!("{e:?}").contains(marker),
+                "{name}: {e}"
+            );
         }
     }
 
@@ -514,7 +613,9 @@ mod tests {
     #[test]
     fn scalars_keep_source_text() {
         let d = tmp("scalars");
-        let cases = ["1.10", "0x1f", "0o7", "0123", "1e3", "1_000", "yes", "true", "1.0", "-0", ".inf"];
+        let cases = [
+            "1.10", "0x1f", "0o7", "0123", "1e3", "1_000", "yes", "true", "1.0", "-0", ".inf",
+        ];
         let mut text = String::new();
         for (i, c) in cases.iter().enumerate() {
             text.push_str(&format!("v{i}: {c}\n{c}: k{i}\n"));
@@ -525,7 +626,11 @@ mod tests {
             assert_eq!(get_string(&m, &format!("v{i}")), *c);
             assert_eq!(get_string(&m, c), format!("k{i}"), "ключ {c}");
         }
-        assert!(["n1", "n2", "n3"].iter().all(|k| contains(&m, k) && get_string(&m, k).is_empty()));
+        assert!(
+            ["n1", "n2", "n3"]
+                .iter()
+                .all(|k| contains(&m, k) && get_string(&m, k).is_empty())
+        );
     }
 
     // Кілька документів — відмова з іменем файла й місцем другого `---`, без тексту парсера й даних.
@@ -533,9 +638,16 @@ mod tests {
     fn several_documents_are_refused_with_place() {
         let d = tmp("multi");
         let marker = "СЕКРЕТ-маркер";
-        let p = file(&d, "multi.yaml", &format!("a: 1\n\n# коментар\n---\nb: {marker}\n"));
+        let p = file(
+            &d,
+            "multi.yaml",
+            &format!("a: 1\n\n# коментар\n---\nb: {marker}\n"),
+        );
         let e = read_yaml(&p, Emptiness::Required).unwrap_err();
-        assert!(e.message().contains("multi.yaml") && e.message().contains("кілька YAML-документів"), "{e}");
+        assert!(
+            e.message().contains("multi.yaml") && e.message().contains("кілька YAML-документів"),
+            "{e}"
+        );
         assert!(e.message().contains("рядку 4, колонка 1"), "{e}");
         assert!(!e.message().contains(marker), "{e}");
         // Порожній другий документ теж відхиляється.

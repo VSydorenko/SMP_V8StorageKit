@@ -8,13 +8,17 @@
 // окремого шляху.
 
 use super::manifest::is_blank;
-use super::yaml::{Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, ps_string, read_yaml, read_yaml_or_none};
+use super::yaml::{
+    Emptiness, assert_scalar, contains, eq_ci, get, get_string, keys, ps_string, read_yaml,
+    read_yaml_or_none,
+};
 use super::{ConfigError, RawConnection, Secret, SecretTree};
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
 
 /// Типи source-set, які kit уміє співставити з маніфестом.
-pub const KNOWN_SOURCE_SET_TYPES: [&str; 3] = ["CONFIGURATION", "EXTENSION", "EXTERNAL_DATA_PROCESSORS"];
+pub const KNOWN_SOURCE_SET_TYPES: [&str; 3] =
+    ["CONFIGURATION", "EXTENSION", "EXTERNAL_DATA_PROCESSORS"];
 
 pub const LOCAL_FILE_NAME: &str = "v8project.local.yaml";
 pub const PROJECT_FILE_NAME: &str = "v8project.yaml";
@@ -66,11 +70,18 @@ pub(crate) fn full_path(path: &str) -> Result<String, ConfigError> {
 
 /// `Join-Path`: розділювач рівно один між частинами.
 pub(crate) fn join_ps(dir: &str, rel: &str) -> String {
-    format!("{}\\{}", dir.trim_end_matches(['\\', '/']), rel.trim_start_matches(['\\', '/']))
+    format!(
+        "{}\\{}",
+        dir.trim_end_matches(['\\', '/']),
+        rel.trim_start_matches(['\\', '/'])
+    )
 }
 
 fn project_dir(full: &str) -> String {
-    Path::new(full).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+    Path::new(full)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
@@ -86,18 +97,26 @@ pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
     };
     let items = match raw_sets {
         Value::Sequence(items) if !items.is_empty() => items,
-        _ => return Err(ConfigError::new(format!("Розділ source-set: у {shown} має бути непорожнім списком."))),
+        _ => {
+            return Err(ConfigError::new(format!(
+                "Розділ source-set: у {shown} має бути непорожнім списком."
+            )));
+        }
     };
 
     let mut sets: Vec<SourceSet> = Vec::new();
     for item in items {
         let Value::Mapping(item) = item else {
-            return Err(ConfigError::new(format!("Елемент source-set у {shown} не є мапою з ключами name/type/path.")));
+            return Err(ConfigError::new(format!(
+                "Елемент source-set у {shown} не є мапою з ключами name/type/path."
+            )));
         };
         for key in ["name", "type", "path"] {
             assert_scalar(item, key, &format!("У source-set файлу {shown}"), key)?;
             if !contains(item, key) || is_blank(&get_string(item, key)) {
-                return Err(ConfigError::new(format!("У source-set файлу {shown} бракує ключа '{key}'.")));
+                return Err(ConfigError::new(format!(
+                    "У source-set файлу {shown} бракує ключа '{key}'."
+                )));
             }
         }
         let name = get_string(item, "name");
@@ -111,7 +130,9 @@ pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
             )));
         }
         if sets.iter().any(|s| eq_ci(&s.name, &name)) {
-            return Err(ConfigError::new(format!("source-set '{name}' оголошено в {shown} двічі.")));
+            return Err(ConfigError::new(format!(
+                "source-set '{name}' оголошено в {shown} двічі."
+            )));
         }
         let full_set = full_path(&join_ps(&dir, &rel))?;
         sets.push(SourceSet {
@@ -131,7 +152,13 @@ pub fn read_v8project(path: &Path) -> Result<V8Project, ConfigError> {
         Some(Value::Mapping(m)) => Some(m.clone()),
         _ => None,
     };
-    Ok(V8Project { path: PathBuf::from(full), directory: PathBuf::from(dir), work_path, providers, source_sets: sets })
+    Ok(V8Project {
+        path: PathBuf::from(full),
+        directory: PathBuf::from(dir),
+        work_path,
+        providers,
+        source_sets: sets,
+    })
 }
 
 /// `infobases.origin` з `v8project.local.yaml`; `None` — бази не налаштовано на цій машині (файла немає, немає
@@ -149,7 +176,12 @@ pub fn read_local_infobase(path: &Path) -> Result<Option<LocalInfobase>, ConfigE
     };
     let local_where = format!("У {}", path.display());
     for field in ["connection", "user", "password"] {
-        assert_scalar(origin, field, &local_where, &format!("infobases.origin.{field}"))?;
+        assert_scalar(
+            origin,
+            field,
+            &local_where,
+            &format!("infobases.origin.{field}"),
+        )?;
     }
     let connection = get_string(origin, "connection");
     if is_blank(&connection) {
@@ -170,13 +202,15 @@ pub fn read_local_infobase(path: &Path) -> Result<Option<LocalInfobase>, ConfigE
 
 pub fn resolve_agent_infobase(project: &V8Project) -> Result<Option<AgentInfobase>, ConfigError> {
     let local = join_ps(&project.directory.to_string_lossy(), LOCAL_FILE_NAME);
-    Ok(read_local_infobase(Path::new(&local))?.map(|o| AgentInfobase {
-        connection: o.connection,
-        origin: local,
-        user: o.user,
-        password: o.password,
-        dbms: o.dbms,
-    }))
+    Ok(
+        read_local_infobase(Path::new(&local))?.map(|o| AgentInfobase {
+            connection: o.connection,
+            origin: local,
+            user: o.user,
+            password: o.password,
+            dbms: o.dbms,
+        }),
+    )
 }
 
 /// Знахідки конфігу воркспейсу, з яким kit не працює (чи працює не тим виконавцем), — кожна з рецептом.
@@ -184,7 +218,10 @@ pub fn resolve_agent_infobase(project: &V8Project) -> Result<Option<AgentInfobas
 pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
     let dir = directory.to_string_lossy().into_owned();
     let local_path = join_ps(&dir, LOCAL_FILE_NAME);
-    let files = [(join_ps(&dir, PROJECT_FILE_NAME), true), (local_path.clone(), false)];
+    let files = [
+        (join_ps(&dir, PROJECT_FILE_NAME), true),
+        (local_path.clone(), false),
+    ];
     let mut problems = Vec::new();
     for (p, committed) in files {
         if !Path::new(&p).is_file() {
@@ -237,8 +274,15 @@ pub fn config_problems(directory: &Path) -> Result<Vec<String>, ConfigError> {
                 continue;
             };
             for op in ["push", "pull", "download"] {
-                let scalar = !matches!(get(providers, op), Some(Value::Sequence(_) | Value::Mapping(_)));
-                let v = if contains(providers, op) && scalar { get_string(providers, op) } else { String::new() };
+                let scalar = !matches!(
+                    get(providers, op),
+                    Some(Value::Sequence(_) | Value::Mapping(_))
+                );
+                let v = if contains(providers, op) && scalar {
+                    get_string(providers, op)
+                } else {
+                    String::new()
+                };
                 if !eq_ci(&v, "designer") {
                     let shown = if !scalar {
                         "не скаляр".to_string()
@@ -277,7 +321,10 @@ pub fn local_has_dev_infobase_line(directory: &Path) -> bool {
         let tail: String = head.chars().skip(11).collect();
         if tail.trim().is_empty() {
             // `\s*` перед `:` може перейти на наступні рядки.
-            let next = lines.iter().skip(i.saturating_add(1)).find(|l| !l.trim().is_empty());
+            let next = lines
+                .iter()
+                .skip(i.saturating_add(1))
+                .find(|l| !l.trim().is_empty());
             if next.is_some_and(|l| l.trim_start().starts_with(':')) {
                 return true;
             }
@@ -289,7 +336,12 @@ pub fn local_has_dev_infobase_line(directory: &Path) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
 
@@ -308,11 +360,18 @@ mod tests {
     fn config_problems_skips_null_file_but_checks_empty_map() {
         let d = tmp("nullfile");
         let p = d.join("v8project.yaml");
-        std::fs::write(&p, "# лише коментар
-").unwrap();
+        std::fs::write(
+            &p,
+            "# лише коментар
+",
+        )
+        .unwrap();
         assert!(config_problems(&d).unwrap().is_empty());
-        std::fs::write(&p, "{}
-").unwrap();
+        std::fs::write(
+            &p, "{}
+",
+        )
+        .unwrap();
         assert!(config_problems(&d).unwrap()[0].contains("немає providers"));
     }
 
@@ -324,16 +383,28 @@ mod tests {
         let v = read_v8project(&p).unwrap();
         assert_eq!(v.work_path, "out");
         assert_eq!(v.source_sets[0].path, "cf/src");
-        assert!(v.source_sets[0].full_path.ends_with("cf\\src") || v.source_sets[0].full_path.ends_with("cf\\src\\"));
+        assert!(
+            v.source_sets[0].full_path.ends_with("cf\\src")
+                || v.source_sets[0].full_path.ends_with("cf\\src\\")
+        );
         assert!(v.providers.is_some());
 
         for (text, expect) in [
             ("a: 1\n", "немає розділу source-set"),
             ("source-set: []\n", "має бути непорожнім списком"),
             ("source-set: [x]\n", "не є мапою"),
-            ("source-set: [{ name: a, type: cf }]\n", "бракує ключа 'path'"),
-            ("source-set: [{ name: a, type: BAD, path: p }]\n", "невідомий type 'BAD'"),
-            ("source-set: [{ name: a, type: EXTENSION, path: p }, { name: A, type: EXTENSION, path: q }]\n", "оголошено в"),
+            (
+                "source-set: [{ name: a, type: cf }]\n",
+                "бракує ключа 'path'",
+            ),
+            (
+                "source-set: [{ name: a, type: BAD, path: p }]\n",
+                "невідомий type 'BAD'",
+            ),
+            (
+                "source-set: [{ name: a, type: EXTENSION, path: p }, { name: A, type: EXTENSION, path: q }]\n",
+                "оголошено в",
+            ),
         ] {
             std::fs::write(&p, text).unwrap();
             let e = read_v8project(&p).unwrap_err();
@@ -351,13 +422,27 @@ mod tests {
         let o = read_local_infobase(&p).unwrap().unwrap();
         assert_eq!(o.password.expose(), "0123");
         assert!(o.dbms.is_some());
-        assert!(!format!("{o:?}").contains(marker) && !format!("{o:?}").contains("0123") && !format!("{o:?}").contains("build/ib"));
+        assert!(
+            !format!("{o:?}").contains(marker)
+                && !format!("{o:?}").contains("0123")
+                && !format!("{o:?}").contains("build/ib")
+        );
 
-        for text in ["", "infobases: 1\n", "infobases: { other: {} }\n", "infobases: { origin: x }\n", "infobases: { origin: { connection: ' ' } }\n"] {
+        for text in [
+            "",
+            "infobases: 1\n",
+            "infobases: { other: {} }\n",
+            "infobases: { origin: x }\n",
+            "infobases: { origin: { connection: ' ' } }\n",
+        ] {
             std::fs::write(&p, text).unwrap();
             assert!(read_local_infobase(&p).unwrap().is_none(), "{text}");
         }
-        assert!(read_local_infobase(&d.join("немає.yaml")).unwrap().is_none());
+        assert!(
+            read_local_infobase(&d.join("немає.yaml"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -365,12 +450,26 @@ mod tests {
         let d = tmp("policy");
         let committed = d.join(PROJECT_FILE_NAME);
         std::fs::write(&committed, "infobase: x\ninfobases: { origin: { connection: c } }\nsource-set: []\nproviders: { push: designer, pull: x }\n").unwrap();
-        std::fs::write(d.join(LOCAL_FILE_NAME), "infobase: y\ninfobases: { СЕКРЕТ: 1, origin: { user: u } }\n").unwrap();
+        std::fs::write(
+            d.join(LOCAL_FILE_NAME),
+            "infobase: y\ninfobases: { СЕКРЕТ: 1, origin: { user: u } }\n",
+        )
+        .unwrap();
         let problems = config_problems(&d).unwrap();
         let all = problems.join("\n");
-        assert!(all.contains("стара форма 'infobase:'") && all.contains("infobases у закоміченому"), "{all}");
-        assert!(all.contains("providers.pull — 'x'") && all.contains("providers.download — відсутній"), "{all}");
-        assert!(all.contains("ключ, відмінний від origin") && all.contains("infobases.origin без connection"), "{all}");
+        assert!(
+            all.contains("стара форма 'infobase:'") && all.contains("infobases у закоміченому"),
+            "{all}"
+        );
+        assert!(
+            all.contains("providers.pull — 'x'") && all.contains("providers.download — відсутній"),
+            "{all}"
+        );
+        assert!(
+            all.contains("ключ, відмінний від origin")
+                && all.contains("infobases.origin без connection"),
+            "{all}"
+        );
         assert!(!all.contains("СЕКРЕТ"), "ім'я ключа надрукували: {all}");
         assert_eq!(problems.len(), 7);
         // Файла немає — знахідок немає; чистий конфіг — теж.
@@ -383,7 +482,13 @@ mod tests {
     fn dev_infobase_line_is_raw_text_match() {
         let d = tmp("devib");
         let p = d.join(LOCAL_FILE_NAME);
-        for (text, expect) in [("devInfobase: x\n", true), ("a: 1\n  DEVINFOBASE : x\n", true), ("a: 1\n# devInfobase: x\n", false), ("xdevInfobase: 1\n", false), ("\u{feff}devInfobase: x\n", true)] {
+        for (text, expect) in [
+            ("devInfobase: x\n", true),
+            ("a: 1\n  DEVINFOBASE : x\n", true),
+            ("a: 1\n# devInfobase: x\n", false),
+            ("xdevInfobase: 1\n", false),
+            ("\u{feff}devInfobase: x\n", true),
+        ] {
             std::fs::write(&p, text).unwrap();
             assert_eq!(local_has_dev_infobase_line(&d), expect, "{text:?}");
         }

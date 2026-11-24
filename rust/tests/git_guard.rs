@@ -43,14 +43,29 @@ const ALLOWED_ENV: &[(&str, &str)] = &[("src/unica.rs", "default_registry")];
 /// Дозволені динамічні `Command::new`: (файл відносно rust/, текст аргументу, навіщо). Кожен запис
 /// мусить відповідати рівно одному місцю в коді — застарілий запис теж червоне.
 const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
-    ("src/main.rs", "&pwsh", "передача команди PowerShell-диспетчеру"),
-    ("src/proc.rs", "&taskkill", "убити дерево процесів на стелі часу: хук старту (session-check) і gh"),
-    ("src/gh.rs", "&exe", "gh для session-board: програма знайдена в PATH"),
+    (
+        "src/main.rs",
+        "&pwsh",
+        "передача команди PowerShell-диспетчеру",
+    ),
+    (
+        "src/proc.rs",
+        "&taskkill",
+        "убити дерево процесів на стелі часу: хук старту (session-check) і gh",
+    ),
+    (
+        "src/gh.rs",
+        "&exe",
+        "gh для session-board: програма знайдена в PATH",
+    ),
 ];
 
 /// Дозволені літерали правила (а): (файл відносно rust/, літерал, навіщо). Кожен запис — рівно одне місце.
-const ALLOWED_LITERAL: &[(&str, &str, &str)] =
-    &[("src/config/mod.rs", "git", "значення truth: git у словнику маніфесту, не програма")];
+const ALLOWED_LITERAL: &[(&str, &str, &str)] = &[(
+    "src/config/mod.rs",
+    "git",
+    "значення truth: git у словнику маніфесту, не програма",
+)];
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -111,14 +126,20 @@ fn lex(src: &str) -> Vec<(Tok, usize)> {
                         }
                         // `\xHH`: рівно дві шістнадцяткові цифри.
                         'x' => {
-                            let hex: String = c[(i + 2).min(c.len())..(i + 4).min(c.len())].iter().collect();
+                            let hex: String = c[(i + 2).min(c.len())..(i + 4).min(c.len())]
+                                .iter()
+                                .collect();
                             v.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
                             i += 4;
                         }
                         // `\u{…}`: до шести цифр, підкреслення дозволені.
                         'u' if c.get(i + 2) == Some(&'{') => {
-                            let close = c[i..].iter().position(|ch| *ch == '}').map_or(c.len(), |p| i + p);
-                            let hex: String = c[i + 3..close].iter().filter(|ch| **ch != '_').collect();
+                            let close = c[i..]
+                                .iter()
+                                .position(|ch| *ch == '}')
+                                .map_or(c.len(), |p| i + p);
+                            let hex: String =
+                                c[i + 3..close].iter().filter(|ch| **ch != '_').collect();
                             v.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
                             i = close + 1;
                         }
@@ -211,7 +232,9 @@ struct Hit {
 fn is_git_name(v: &str) -> bool {
     let v = v.to_lowercase();
     ["git", "git.exe"].contains(&v.as_str())
-        || ["/git", "\\git", "/git.exe", "\\git.exe"].iter().any(|s| v.ends_with(s))
+        || ["/git", "\\git", "/git.exe", "\\git.exe"]
+            .iter()
+            .any(|s| v.ends_with(s))
 }
 
 /// Ім'я раннера: останній сегмент шляху (після `/` чи `\`) — `v8-runner` або `v8-runner.exe`, без регістру.
@@ -222,14 +245,16 @@ fn is_runner_name(v: &str) -> bool {
 
 /// Рядок оболонки, де раннер — окреме слово (межі — як у `is_git_command_line`).
 fn is_runner_command_line(v: &str) -> bool {
-    v.split(|c: char| c.is_whitespace() || ";&|()'\"`".contains(c)).any(is_runner_name)
+    v.split(|c: char| c.is_whitespace() || ";&|()'\"`".contains(c))
+        .any(is_runner_name)
 }
 
 /// Рядок оболонки, де `git` — окреме слово команди в будь-якому місці: `git status`, `cd x && git status`,
 /// `& git status`, `(git status)`. Межі слова — пробіли й роздільники оболонки; `.git`, `--no-git`,
 /// `gitignore` словом `git` не є.
 fn is_git_command_line(v: &str) -> bool {
-    v.split(|c: char| c.is_whitespace() || ";&|()'\"`".contains(c)).any(is_git_name)
+    v.split(|c: char| c.is_whitespace() || ";&|()'\"`".contains(c))
+        .any(is_git_name)
 }
 
 fn ident(t: Option<&(Tok, usize)>, name: &str) -> bool {
@@ -242,7 +267,10 @@ fn punct(t: Option<&(Tok, usize)>, ch: char) -> bool {
 
 /// `Command :: new` на позиції i.
 fn is_command_new(toks: &[(Tok, usize)], i: usize) -> bool {
-    ident(toks.get(i), "Command") && punct(toks.get(i + 1), ':') && punct(toks.get(i + 2), ':') && ident(toks.get(i + 3), "new")
+    ident(toks.get(i), "Command")
+        && punct(toks.get(i + 1), ':')
+        && punct(toks.get(i + 2), ':')
+        && ident(toks.get(i + 3), "new")
 }
 
 /// Літерал на позиції `at` лежить в аргументах `.arg(`/`.args(`/`Command::new(` — на будь-якому рівні
@@ -258,7 +286,9 @@ fn inside_launch_args(toks: &[(Tok, usize)], at: usize) -> bool {
             Tok::Punct(';') if depth == 0 => return false,
             Tok::Punct('(') | Tok::Punct('[') | Tok::Punct('{') if depth > 0 => depth -= 1,
             Tok::Punct('(') => {
-                let method = i >= 2 && punct(toks.get(i - 2), '.') && (ident(toks.get(i - 1), "arg") || ident(toks.get(i - 1), "args"));
+                let method = i >= 2
+                    && punct(toks.get(i - 2), '.')
+                    && (ident(toks.get(i - 1), "arg") || ident(toks.get(i - 1), "args"));
                 let ctor = i >= 4 && is_command_new(toks, i - 4);
                 if method || ctor {
                     return true;
@@ -314,31 +344,71 @@ fn scan_full(src: &str) -> (Vec<Hit>, Vec<Dyn>) {
     for (i, (t, line)) in toks.iter().enumerate() {
         if let Tok::Lit(v) = t {
             if is_runner_name(v) {
-                hits.push(Hit { rule: "д", line: *line, detail: format!("{v:?}"), in_launch_args: false });
+                hits.push(Hit {
+                    rule: "д",
+                    line: *line,
+                    detail: format!("{v:?}"),
+                    in_launch_args: false,
+                });
             } else if is_runner_command_line(v) && inside_launch_args(&toks, i) {
-                hits.push(Hit { rule: "е", line: *line, detail: format!("{v:?}"), in_launch_args: false });
+                hits.push(Hit {
+                    rule: "е",
+                    line: *line,
+                    detail: format!("{v:?}"),
+                    in_launch_args: false,
+                });
             }
         }
         match t {
-            Tok::Lit(v) if is_git_name(v) => {
-                hits.push(Hit { rule: "а", line: *line, detail: format!("{v:?}"), in_launch_args: inside_launch_args(&toks, i) })
-            }
+            Tok::Lit(v) if is_git_name(v) => hits.push(Hit {
+                rule: "а",
+                line: *line,
+                detail: format!("{v:?}"),
+                in_launch_args: inside_launch_args(&toks, i),
+            }),
             Tok::Lit(v) if is_git_command_line(v) && inside_launch_args(&toks, i) => {
-                hits.push(Hit { rule: "б", line: *line, detail: format!("{v:?}"), in_launch_args: true })
+                hits.push(Hit {
+                    rule: "б",
+                    line: *line,
+                    detail: format!("{v:?}"),
+                    in_launch_args: true,
+                })
             }
             Tok::Ident(s) if s == "Command" => {
                 if ident(toks.get(i + 1), "as") {
-                    hits.push(Hit { rule: "г", line: *line, detail: "Command as …".into(), in_launch_args: false });
+                    hits.push(Hit {
+                        rule: "г",
+                        line: *line,
+                        detail: "Command as …".into(),
+                        in_launch_args: false,
+                    });
                 }
                 if punct(toks.get(i + 1), ';') {
-                    let start = toks[..i].iter().rposition(|(t, _)| matches!(t, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))).map_or(0, |p| p + 1);
-                    if toks[start..i].iter().any(|(t, _)| matches!(t, Tok::Ident(s) if s == "type")) {
-                        hits.push(Hit { rule: "г", line: *line, detail: format!("type … = {};", text(&toks[start..=i])), in_launch_args: false });
+                    let start = toks[..i]
+                        .iter()
+                        .rposition(|(t, _)| {
+                            matches!(t, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))
+                        })
+                        .map_or(0, |p| p + 1);
+                    if toks[start..i]
+                        .iter()
+                        .any(|(t, _)| matches!(t, Tok::Ident(s) if s == "type"))
+                    {
+                        hits.push(Hit {
+                            rule: "г",
+                            line: *line,
+                            detail: format!("type … = {};", text(&toks[start..=i])),
+                            in_launch_args: false,
+                        });
                     }
                 }
                 if is_command_new(&toks, i) {
                     if !punct(toks.get(i + 4), '(') {
-                        dynamic.push(Dyn { line: *line, arg: "<Command::new як значення>".to_string(), func: enclosing_fn(&toks, i) });
+                        dynamic.push(Dyn {
+                            line: *line,
+                            arg: "<Command::new як значення>".to_string(),
+                            func: enclosing_fn(&toks, i),
+                        });
                         continue;
                     }
                     let open = i + 4;
@@ -359,7 +429,11 @@ fn scan_full(src: &str) -> (Vec<Hit>, Vec<Dyn>) {
                     }
                     let arg = &toks[open + 1..close.max(open + 1)];
                     if !(arg.len() == 1 && matches!(arg[0].0, Tok::Lit(_))) {
-                        dynamic.push(Dyn { line: *line, arg: text(arg), func: enclosing_fn(&toks, i) });
+                        dynamic.push(Dyn {
+                            line: *line,
+                            arg: text(arg),
+                            func: enclosing_fn(&toks, i),
+                        });
                     }
                 }
             }
@@ -423,10 +497,15 @@ struct Report {
     runner_builders: usize,
 }
 
-fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)], allowed_literal: &[(&str, &str, &str)]) -> Report {
+fn scan_crate(
+    root: &Path,
+    allowed: &[(&str, &str, &str)],
+    allowed_literal: &[(&str, &str, &str)],
+) -> Report {
     let files = scope_files(root);
     let mut unused: Vec<(&str, &str)> = allowed.iter().map(|(f, a, _)| (*f, *a)).collect();
-    let mut unused_lit: Vec<(&str, &str)> = allowed_literal.iter().map(|(f, a, _)| (*f, *a)).collect();
+    let mut unused_lit: Vec<(&str, &str)> =
+        allowed_literal.iter().map(|(f, a, _)| (*f, *a)).collect();
     let mut violations = Vec::new();
     let (mut git_module_hits, mut runner_module_hits, mut runner_builders) = (0, 0, 0);
     for (rel, path) in &files {
@@ -441,13 +520,18 @@ fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)], allowed_literal: &[(&
                 runner_module_hits += 1;
             } else {
                 if h.rule == "а" && !h.in_launch_args {
-                    let pos = unused_lit.iter().position(|(f, lit)| *f == rel && format!("{lit:?}") == h.detail);
+                    let pos = unused_lit
+                        .iter()
+                        .position(|(f, lit)| *f == rel && format!("{lit:?}") == h.detail);
                     if let Some(p) = pos {
                         unused_lit.remove(p);
                         continue;
                     }
                 }
-                violations.push(format!("{rel}:{} правило ({}) {}", h.line, h.rule, h.detail));
+                violations.push(format!(
+                    "{rel}:{} правило ({}) {}",
+                    h.line, h.rule, h.detail
+                ));
             }
         }
         if in_git {
@@ -469,17 +553,30 @@ fn scan_crate(root: &Path, allowed: &[(&str, &str, &str)], allowed_literal: &[(&
                 Some(p) => {
                     unused.remove(p);
                 }
-                None => violations.push(format!("{rel}:{} правило (в) Command::new({}) поза переліком дозволених", d.line, d.arg)),
+                None => violations.push(format!(
+                    "{rel}:{} правило (в) Command::new({}) поза переліком дозволених",
+                    d.line, d.arg
+                )),
             }
         }
     }
     for (f, a) in unused {
-        violations.push(format!("застарілий запис переліку дозволених: {f} Command::new({a})"));
+        violations.push(format!(
+            "застарілий запис переліку дозволених: {f} Command::new({a})"
+        ));
     }
     for (f, lit) in unused_lit {
-        violations.push(format!("застарілий запис переліку дозволених літералів: {f} {lit:?}"));
+        violations.push(format!(
+            "застарілий запис переліку дозволених літералів: {f} {lit:?}"
+        ));
     }
-    Report { scanned: files.len(), violations, git_module_hits, runner_module_hits, runner_builders }
+    Report {
+        scanned: files.len(),
+        violations,
+        git_module_hits,
+        runner_module_hits,
+        runner_builders,
+    }
 }
 
 /// Читання оточення в модулях `unica`/`runner`: (рядок, функція). Ознаки: `env::{var,var_os,vars,vars_os}`,
@@ -495,7 +592,10 @@ fn scan_env(src: &str) -> Vec<(usize, String)> {
             "var_os" | "vars" | "vars_os" => true,
             "var" => after_path,
             "env" => {
-                (punct(toks.get(i + 1), ':') && punct(toks.get(i + 2), ':') && punct(toks.get(i + 3), '{')) || ident(toks.get(i + 1), "as")
+                (punct(toks.get(i + 1), ':')
+                    && punct(toks.get(i + 2), ':')
+                    && punct(toks.get(i + 3), '{'))
+                    || ident(toks.get(i + 1), "as")
             }
             _ => false,
         };
@@ -514,7 +614,10 @@ fn in_env_scope(rel: &str) -> bool {
 fn env_violations(root: &Path, allowed: &[(&str, &str)]) -> Vec<String> {
     let mut unused: Vec<(&str, &str)> = allowed.to_vec();
     let mut out = Vec::new();
-    for (rel, path) in scope_files(root).iter().filter(|(rel, _)| in_env_scope(rel)) {
+    for (rel, path) in scope_files(root)
+        .iter()
+        .filter(|(rel, _)| in_env_scope(rel))
+    {
         let src = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{rel}: {e}"));
         for (line, func) in scan_env(&src) {
             match unused.iter().position(|(f, g)| f == rel && *g == func) {
@@ -536,18 +639,39 @@ fn git_is_launched_only_in_git_module() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let r = scan_crate(root, ALLOWED_DYNAMIC, ALLOWED_LITERAL);
     assert!(r.scanned > 0, "сканер не бачить жодного файлу");
-    assert_eq!(r.scanned, count_rs(root), "відскановано не всі файли *.rs обсягу");
-    assert!(r.git_module_hits > 0, "у модулі git немає жодного влучення — сканер сліпий");
-    assert!(r.runner_module_hits > 0, "у модулі runner немає жодного влучення правила раннера — сканер сліпий");
-    assert_eq!(r.runner_builders, 1, "у модулі runner має бути рівно одна функція-будівник {RUNNER_BUILDER}");
-    assert!(r.violations.is_empty(), "запуск git чи раннера поза своїм модулем:\n{}", r.violations.join("\n"));
+    assert_eq!(
+        r.scanned,
+        count_rs(root),
+        "відскановано не всі файли *.rs обсягу"
+    );
+    assert!(
+        r.git_module_hits > 0,
+        "у модулі git немає жодного влучення — сканер сліпий"
+    );
+    assert!(
+        r.runner_module_hits > 0,
+        "у модулі runner немає жодного влучення правила раннера — сканер сліпий"
+    );
+    assert_eq!(
+        r.runner_builders, 1,
+        "у модулі runner має бути рівно одна функція-будівник {RUNNER_BUILDER}"
+    );
+    assert!(
+        r.violations.is_empty(),
+        "запуск git чи раннера поза своїм модулем:\n{}",
+        r.violations.join("\n")
+    );
 }
 
 #[test]
 fn unica_and_runner_do_not_read_the_environment() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let v = env_violations(root, ALLOWED_ENV);
-    assert!(v.is_empty(), "читання оточення в модулях unica/runner:\n{}", v.join("\n"));
+    assert!(
+        v.is_empty(),
+        "читання оточення в модулях unica/runner:\n{}",
+        v.join("\n")
+    );
 }
 
 /// Мутації R1–R14 правила і три з аудиту: кожна дає влучення (для (в) — динамічний запуск поза
@@ -555,30 +679,93 @@ fn unica_and_runner_do_not_read_the_environment() {
 #[test]
 fn launch_forms_are_caught() {
     let cases: &[(&str, &str)] = &[
-        ("R1 літерал", r#"fn f() { Command::new("git").arg("status"); }"#),
-        ("R2 git.exe", r#"fn f() { Command::new("git.exe").status(); }"#),
-        ("R3 повний шлях", r#"fn f() { Command::new(r"C:\Program Files\Git\cmd\git.exe").status(); }"#),
-        ("R4 змінна", r#"fn f() { let g = "git"; Command::new(g).status(); }"#),
-        ("R5 const", r#"const GIT: &str = "git"; fn f() { Command::new(GIT).status(); }"#),
-        ("R6 повний шлях типу", r#"fn f() { std::process::Command::new("git").status(); }"#),
-        ("R7 cmd /c", r#"fn f() { Command::new("cmd").args(["/c", "git status"]).status(); }"#),
-        ("R8 pwsh -c", r#"fn f() { Command::new("pwsh").arg("-c").arg("git status --short").status(); }"#),
-        ("R12 git посеред рядка cmd", r#"fn f() { Command::new("cmd").args(["/c", "cd x && git status"]).status(); }"#),
-        ("R13 git після & у pwsh", r#"fn f() { Command::new("pwsh").args(["-Command", "& git status"]).status(); }"#),
-        ("R14 git.exe у дужках", r#"fn f() { Command::new("pwsh").arg("-c").arg("(git.exe rev-parse HEAD)").status(); }"#),
-        ("R9 конкатенація", r#"fn f() { Command::new(format!("{}{}", "gi", "t")).status(); }"#),
-        ("R10 ім'я з оточення", r#"fn f() { Command::new(std::env::var("KIT_GIT").unwrap()).status(); }"#),
-        ("R11 сирий рядок", r##"fn f() { Command::new(r#"git"#).status(); }"##),
-        ("A1 псевдонім зі змінною", r#"use std::process::Command as Proc; fn f(v: &str) { Proc::new(v).status(); }"#),
-        ("A1 псевдонім type", r#"type Proc = std::process::Command; fn f(v: &str) { Proc::new(v).status(); }"#),
-        ("A3 /* у рядку", "fn f() { let s = \"/*\"; Command::new(\"git\").status(); let t = \"*/\"; }"),
-        ("A4 екранування \\x", r#"fn f() { Command::new("\x67it").status(); }"#),
-        ("A4 екранування \\u", r#"fn f() { Command::new("\u{67}\u{0069}t").status(); }"#),
-        ("A4 перенос рядка після \\", "fn f() { Command::new(\"g\\\n      it\").status(); }"),
+        (
+            "R1 літерал",
+            r#"fn f() { Command::new("git").arg("status"); }"#,
+        ),
+        (
+            "R2 git.exe",
+            r#"fn f() { Command::new("git.exe").status(); }"#,
+        ),
+        (
+            "R3 повний шлях",
+            r#"fn f() { Command::new(r"C:\Program Files\Git\cmd\git.exe").status(); }"#,
+        ),
+        (
+            "R4 змінна",
+            r#"fn f() { let g = "git"; Command::new(g).status(); }"#,
+        ),
+        (
+            "R5 const",
+            r#"const GIT: &str = "git"; fn f() { Command::new(GIT).status(); }"#,
+        ),
+        (
+            "R6 повний шлях типу",
+            r#"fn f() { std::process::Command::new("git").status(); }"#,
+        ),
+        (
+            "R7 cmd /c",
+            r#"fn f() { Command::new("cmd").args(["/c", "git status"]).status(); }"#,
+        ),
+        (
+            "R8 pwsh -c",
+            r#"fn f() { Command::new("pwsh").arg("-c").arg("git status --short").status(); }"#,
+        ),
+        (
+            "R12 git посеред рядка cmd",
+            r#"fn f() { Command::new("cmd").args(["/c", "cd x && git status"]).status(); }"#,
+        ),
+        (
+            "R13 git після & у pwsh",
+            r#"fn f() { Command::new("pwsh").args(["-Command", "& git status"]).status(); }"#,
+        ),
+        (
+            "R14 git.exe у дужках",
+            r#"fn f() { Command::new("pwsh").arg("-c").arg("(git.exe rev-parse HEAD)").status(); }"#,
+        ),
+        (
+            "R9 конкатенація",
+            r#"fn f() { Command::new(format!("{}{}", "gi", "t")).status(); }"#,
+        ),
+        (
+            "R10 ім'я з оточення",
+            r#"fn f() { Command::new(std::env::var("KIT_GIT").unwrap()).status(); }"#,
+        ),
+        (
+            "R11 сирий рядок",
+            r##"fn f() { Command::new(r#"git"#).status(); }"##,
+        ),
+        (
+            "A1 псевдонім зі змінною",
+            r#"use std::process::Command as Proc; fn f(v: &str) { Proc::new(v).status(); }"#,
+        ),
+        (
+            "A1 псевдонім type",
+            r#"type Proc = std::process::Command; fn f(v: &str) { Proc::new(v).status(); }"#,
+        ),
+        (
+            "A3 /* у рядку",
+            "fn f() { let s = \"/*\"; Command::new(\"git\").status(); let t = \"*/\"; }",
+        ),
+        (
+            "A4 екранування \\x",
+            r#"fn f() { Command::new("\x67it").status(); }"#,
+        ),
+        (
+            "A4 екранування \\u",
+            r#"fn f() { Command::new("\u{67}\u{0069}t").status(); }"#,
+        ),
+        (
+            "A4 перенос рядка після \\",
+            "fn f() { Command::new(\"g\\\n      it\").status(); }",
+        ),
     ];
     for (name, src) in cases {
         let (hits, dynamic) = scan_source(src);
-        assert!(!hits.is_empty() || !dynamic.is_empty(), "{name}: не спіймано\n{src}");
+        assert!(
+            !hits.is_empty() || !dynamic.is_empty(),
+            "{name}: не спіймано\n{src}"
+        );
     }
 }
 
@@ -612,7 +799,11 @@ fn nested_file_is_scanned() {
     std::fs::create_dir_all(tmp.join("src/a/b")).unwrap();
     std::fs::write(tmp.join("build.rs"), "fn main() {}").unwrap();
     std::fs::write(tmp.join("src/git.rs"), r#"fn g() { Command::new("git"); }"#).unwrap();
-    std::fs::write(tmp.join("src/a/b/deep.rs"), r#"fn f() { Command::new("git").status(); }"#).unwrap();
+    std::fs::write(
+        tmp.join("src/a/b/deep.rs"),
+        r#"fn f() { Command::new("git").status(); }"#,
+    )
+    .unwrap();
     let r = scan_crate(&tmp, &[("src/main.rs", "&pwsh", "")], &[]);
     let _ = std::fs::remove_dir_all(&tmp);
     assert_eq!(r.scanned, 3);
@@ -639,26 +830,59 @@ fn allowed_literal_is_exact_and_stale_entries_fail() {
     std::fs::write(tmp.join("src/other.rs"), r#"const B: &str = "git";"#).unwrap();
     let allowed = [("src/words.rs", "git", "слово словника")];
     let r = scan_crate(&tmp, &[], &allowed);
-    assert_eq!(r.violations, vec!["src/other.rs:1 правило (а) \"git\"".to_string()], "дозволений запис гасить лише своє місце");
+    assert_eq!(
+        r.violations,
+        vec!["src/other.rs:1 правило (а) \"git\"".to_string()],
+        "дозволений запис гасить лише своє місце"
+    );
     // Застарілий запис: у файлі літерала немає.
-    let stale = [("src/words.rs", "git", ""), ("src/other.rs", "git", ""), ("src/nowhere.rs", "git", "")];
+    let stale = [
+        ("src/words.rs", "git", ""),
+        ("src/other.rs", "git", ""),
+        ("src/nowhere.rs", "git", ""),
+    ];
     let r = scan_crate(&tmp, &[], &stale);
-    assert_eq!(r.violations, vec!["застарілий запис переліку дозволених літералів: src/nowhere.rs \"git\"".to_string()]);
+    assert_eq!(
+        r.violations,
+        vec!["застарілий запис переліку дозволених літералів: src/nowhere.rs \"git\"".to_string()]
+    );
     // Дозволений файл із запуском замість оголошення — червоне: перелік не гасить літерал в аргументах запуску.
-    std::fs::write(tmp.join("src/words.rs"), r#"pub fn probe() { let _ = std::process::Command::new("git").arg("status").status(); }"#).unwrap();
+    std::fs::write(
+        tmp.join("src/words.rs"),
+        r#"pub fn probe() { let _ = std::process::Command::new("git").arg("status").status(); }"#,
+    )
+    .unwrap();
     std::fs::write(tmp.join("src/other.rs"), "").unwrap();
     let r = scan_crate(&tmp, &[], &allowed);
-    assert!(r.violations.iter().any(|v| v.starts_with("src/words.rs:1 правило (а)")), "запуск у дозволеному файлі пройшов: {:?}", r.violations);
+    assert!(
+        r.violations
+            .iter()
+            .any(|v| v.starts_with("src/words.rs:1 правило (а)")),
+        "запуск у дозволеному файлі пройшов: {:?}",
+        r.violations
+    );
     // Той самий файл лише з оголошенням — зелене.
-    std::fs::write(tmp.join("src/words.rs"), r#"const TRUTH_GIT: &str = "git";"#).unwrap();
+    std::fs::write(
+        tmp.join("src/words.rs"),
+        r#"const TRUTH_GIT: &str = "git";"#,
+    )
+    .unwrap();
     let r = scan_crate(&tmp, &[], &allowed);
     let _ = std::fs::remove_dir_all(&tmp);
-    assert!(r.violations.is_empty(), "оголошення має проходити: {:?}", r.violations);
+    assert!(
+        r.violations.is_empty(),
+        "оголошення має проходити: {:?}",
+        r.violations
+    );
 }
 
 /// Тимчасовий крейт із заданими файлами `src/…` (шляхи з `/`) і порожнім build.rs.
 fn synthetic(name: &str, files: &[(&str, &str)]) -> Report {
-    let tmp = std::env::temp_dir().join(format!("kit-guard-{name}-{}-{}", std::process::id(), line!()));
+    let tmp = std::env::temp_dir().join(format!(
+        "kit-guard-{name}-{}-{}",
+        std::process::id(),
+        line!()
+    ));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(tmp.join("build.rs"), "fn main() {}").unwrap();
@@ -691,9 +915,18 @@ fn runner_module_rules() {
 
     // Контроль: другий динамічний Command::new поза будівником — червоне; другий усередині будівника теж.
     for (name, src) in [
-        ("rm-dyn", format!("{BUILDER} fn other(r: &Path) {{ Command::new(r).status(); }}")),
-        ("rm-dyn2", "fn runner_command(r: &Path) { Command::new(r); Command::new(r); }".to_string()),
-        ("rm-dyn-out", "fn other(r: &Path) { Command::new(r); }".to_string()),
+        (
+            "rm-dyn",
+            format!("{BUILDER} fn other(r: &Path) {{ Command::new(r).status(); }}"),
+        ),
+        (
+            "rm-dyn2",
+            "fn runner_command(r: &Path) { Command::new(r); Command::new(r); }".to_string(),
+        ),
+        (
+            "rm-dyn-out",
+            "fn other(r: &Path) { Command::new(r); }".to_string(),
+        ),
     ] {
         let r = synthetic(name, &[("src/runner.rs", &src)]);
         assert_eq!(r.violations.len(), 1, "{name}: {:?}", r.violations);
@@ -705,22 +938,55 @@ fn runner_module_rules() {
 #[test]
 fn runner_launch_forms_are_caught_outside_the_module() {
     let cases: &[(&str, &str)] = &[
-        ("літерал", r#"fn f() { Command::new("v8-runner.exe").status(); }"#),
-        ("повний шлях без регістру", r#"fn f() { let p = r"C:\U\V8-Runner.EXE"; }"#),
-        ("const", r#"const R: &str = "v8-runner"; fn f() { Command::new(R).status(); }"#),
-        ("format", r#"fn f(d: &str) { let p = format!("{d}\\v8-runner.exe"); }"#),
-        ("cmd /c", r#"fn f() { Command::new("cmd").args(["/c", "v8-runner --version"]).status(); }"#),
-        ("& у pwsh", r#"fn f() { Command::new("pwsh").arg("-c").arg("cd x && v8-runner.exe y").status(); }"#),
-        ("псевдонім", r#"use std::process::Command as P; fn f() { P::new("v8-runner").status(); }"#),
+        (
+            "літерал",
+            r#"fn f() { Command::new("v8-runner.exe").status(); }"#,
+        ),
+        (
+            "повний шлях без регістру",
+            r#"fn f() { let p = r"C:\U\V8-Runner.EXE"; }"#,
+        ),
+        (
+            "const",
+            r#"const R: &str = "v8-runner"; fn f() { Command::new(R).status(); }"#,
+        ),
+        (
+            "format",
+            r#"fn f(d: &str) { let p = format!("{d}\\v8-runner.exe"); }"#,
+        ),
+        (
+            "cmd /c",
+            r#"fn f() { Command::new("cmd").args(["/c", "v8-runner --version"]).status(); }"#,
+        ),
+        (
+            "& у pwsh",
+            r#"fn f() { Command::new("pwsh").arg("-c").arg("cd x && v8-runner.exe y").status(); }"#,
+        ),
+        (
+            "псевдонім",
+            r#"use std::process::Command as P; fn f() { P::new("v8-runner").status(); }"#,
+        ),
     ];
-    for (rel, host) in [("src/other.rs", "інший модуль"), ("src/git.rs", "модуль git")] {
+    for (rel, host) in [
+        ("src/other.rs", "інший модуль"),
+        ("src/git.rs", "модуль git"),
+    ] {
         for (name, src) in cases {
             let r = synthetic("rf", &[(rel, src)]);
-            assert!(r.violations.iter().any(|v| v.contains("правило (д)") || v.contains("правило (е)")), "{host}: {name}: {:?}", r.violations);
+            assert!(
+                r.violations
+                    .iter()
+                    .any(|v| v.contains("правило (д)") || v.contains("правило (е)")),
+                "{host}: {name}: {:?}",
+                r.violations
+            );
         }
     }
     // У модулі git правила git лишаються дозволеними (двійник схеми): git там не порушення.
-    let r = synthetic("rf-git", &[("src/git.rs", r#"fn g() { Command::new("git"); }"#)]);
+    let r = synthetic(
+        "rf-git",
+        &[("src/git.rs", r#"fn g() { Command::new("git"); }"#)],
+    );
     assert!(r.violations.is_empty(), "{:?}", r.violations);
 }
 
@@ -747,9 +1013,18 @@ fn environment_reads_are_caught() {
         ("var_os", r#"fn f() { let _ = std::env::var_os("X"); }"#),
         ("vars", r#"fn f() { for _ in std::env::vars() {} }"#),
         ("vars_os", r#"fn f() { for _ in std::env::vars_os() {} }"#),
-        ("use var", r#"use std::env::var; fn f() { let _ = var("X"); }"#),
-        ("use {var}", r#"use std::env::{var}; fn f() { let _ = var("X"); }"#),
-        ("use env as", r#"use std::env as e; fn f() { let _ = e::var("X"); }"#),
+        (
+            "use var",
+            r#"use std::env::var; fn f() { let _ = var("X"); }"#,
+        ),
+        (
+            "use {var}",
+            r#"use std::env::{var}; fn f() { let _ = var("X"); }"#,
+        ),
+        (
+            "use env as",
+            r#"use std::env as e; fn f() { let _ = e::var("X"); }"#,
+        ),
     ] {
         assert!(!scan_env(src).is_empty(), "{name}: не спіймано");
     }
@@ -760,9 +1035,21 @@ fn environment_reads_are_caught() {
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(tmp.join("build.rs"), "fn main() {}").unwrap();
     // Контроль: env::var("X") у модулі runner — червоне; поза обсягом (other.rs) — ні; дозволене місце — ні.
-    std::fs::write(tmp.join("src/runner.rs"), r#"fn f() { let _ = std::env::var("X"); }"#).unwrap();
-    std::fs::write(tmp.join("src/other.rs"), r#"fn f() { let _ = std::env::var("X"); }"#).unwrap();
-    std::fs::write(tmp.join("src/unica.rs"), r#"fn default_registry() { let _ = std::env::var_os("USERPROFILE"); }"#).unwrap();
+    std::fs::write(
+        tmp.join("src/runner.rs"),
+        r#"fn f() { let _ = std::env::var("X"); }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/other.rs"),
+        r#"fn f() { let _ = std::env::var("X"); }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/unica.rs"),
+        r#"fn default_registry() { let _ = std::env::var_os("USERPROFILE"); }"#,
+    )
+    .unwrap();
     let v = env_violations(&tmp, ALLOWED_ENV);
     assert_eq!(v.len(), 1, "{v:?}");
     assert!(v[0].starts_with("src/runner.rs:1"));
@@ -771,5 +1058,8 @@ fn environment_reads_are_caught() {
     std::fs::write(tmp.join("src/runner.rs"), "fn f() {}").unwrap();
     let v = env_violations(&tmp, ALLOWED_ENV);
     let _ = std::fs::remove_dir_all(&tmp);
-    assert_eq!(v, vec!["застарілий дозвіл оточення: src/unica.rs default_registry".to_string()]);
+    assert_eq!(
+        v,
+        vec!["застарілий дозвіл оточення: src/unica.rs default_registry".to_string()]
+    );
 }

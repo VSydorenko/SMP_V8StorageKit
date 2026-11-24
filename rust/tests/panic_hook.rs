@@ -20,10 +20,23 @@ fn panic_child() {
 #[test]
 fn panic_does_not_echo_payload() {
     let exe = std::env::current_exe().unwrap();
-    let out = Command::new(exe).args(["--exact", "panic_child", "--nocapture", "--test-threads=1"]).env(CHILD_ENV, "1").output().unwrap();
+    let out = Command::new(exe)
+        .args(["--exact", "panic_child", "--nocapture", "--test-threads=1"])
+        .env(CHILD_ENV, "1")
+        .output()
+        .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(!out.status.success(), "дитина мала впасти: {stdout}{stderr}");
-    assert!(!stderr.contains(MARKER) && !stdout.contains(MARKER), "payload паніки витік:\n{stdout}{stderr}");
-    assert!(stderr.contains(kit::PANIC_TEXT), "немає сталого тексту:\n{stderr}");
+    assert!(
+        !out.status.success(),
+        "дитина мала впасти: {stdout}{stderr}"
+    );
+    assert!(
+        !stderr.contains(MARKER) && !stdout.contains(MARKER),
+        "payload паніки витік:\n{stdout}{stderr}"
+    );
+    assert!(
+        stderr.contains(kit::PANIC_TEXT),
+        "немає сталого тексту:\n{stderr}"
+    );
 }

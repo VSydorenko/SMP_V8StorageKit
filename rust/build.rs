@@ -17,9 +17,12 @@ const KIT_TARGET: &str = "x86_64-pc-windows-msvc";
 fn main() {
     let target = std::env::var("TARGET").unwrap_or_default();
     if target != KIT_TARGET {
-        panic!("kit збирається лише для цілі {KIT_TARGET}, а ціль збірки — '{target}': встановіть тулчейн MSVC (rust-toolchain.toml) і збирайте без --target");
+        panic!(
+            "kit збирається лише для цілі {KIT_TARGET}, а ціль збірки — '{target}': встановіть тулчейн MSVC (rust-toolchain.toml) і збирайте без --target"
+        );
     }
-    let dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let dir =
+        std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let (inputs, dirs) = fingerprint_inputs(&dir).expect("вхід відбитка джерел крейта");
     for (_, path) in &inputs {
         println!("cargo:rerun-if-changed={}", path.display());

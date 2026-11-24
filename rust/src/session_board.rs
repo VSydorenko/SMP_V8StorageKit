@@ -56,7 +56,10 @@ struct Fail {
 }
 
 fn fail(code: i32, message: impl Into<String>) -> Fail {
-    Fail { code, message: message.into() }
+    Fail {
+        code,
+        message: message.into(),
+    }
 }
 
 fn write_line(buf: &mut String, text: &str) {
@@ -71,7 +74,10 @@ pub fn run(args: &[String], cwd: &Path) -> Outcome {
         Err(f) => {
             // `Write-KitError`: перший рядок — `<команда>: ERROR <причина>`; помилка виклику — вказівка на -Help.
             let mut lines = f.message.split('\n').map(|l| l.trim_end_matches('\r'));
-            write_line(&mut out.stderr, &format!("{COMMAND}: ERROR {}", lines.next().unwrap_or("")));
+            write_line(
+                &mut out.stderr,
+                &format!("{COMMAND}: ERROR {}", lines.next().unwrap_or("")),
+            );
             if f.code == 2 {
                 write_line(&mut out.stderr, &format!("usage: {COMMAND} -Help"));
             } else {
@@ -94,7 +100,12 @@ fn sb_git(cwd: &Path, args: &[&str]) -> Option<String> {
     if out.code != 0 {
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n").trim().to_string())
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .replace("\r\n", "\n")
+            .trim()
+            .to_string(),
+    )
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -111,12 +122,19 @@ fn parse_worktrees(text: &str) -> Vec<Worktree> {
     let mut out: Vec<Worktree> = Vec::new();
     for line in text.split('\n').map(|l| l.trim_end_matches('\r')) {
         if let Some(p) = line.strip_prefix("worktree ") {
-            out.push(Worktree { path: p.to_string(), ..Default::default() });
+            out.push(Worktree {
+                path: p.to_string(),
+                ..Default::default()
+            });
         } else if let Some(cur) = out.last_mut() {
             if let Some(h) = line.strip_prefix("HEAD ") {
                 cur.head = h.to_string();
             } else if let Some(b) = line.strip_prefix("branch ") {
-                let short = if b.len() >= 11 && b[..11].eq_ignore_ascii_case("refs/heads/") { &b[11..] } else { b };
+                let short = if b.len() >= 11 && b[..11].eq_ignore_ascii_case("refs/heads/") {
+                    &b[11..]
+                } else {
+                    b
+                };
                 cur.branch = Some(short.to_string());
             } else if line == "detached" {
                 cur.detached = true;
@@ -131,7 +149,9 @@ fn parse_worktrees(text: &str) -> Vec<Worktree> {
 // ---------- чисті функції таблиці ----------
 
 fn format_age(seconds: Option<i64>) -> String {
-    let Some(s) = seconds else { return "?".to_string() };
+    let Some(s) = seconds else {
+        return "?".to_string();
+    };
     if s < 3600 {
         return format!("{}m", ((s as f64 / 60.0).round() as i64).max(0));
     }
@@ -148,11 +168,20 @@ fn utf16_len(s: &str) -> usize {
 /// Рядки → вирівняна таблиця; ширина колонки — за найдовшим значенням (у одиницях UTF-16, як `.Length`).
 fn format_table(headers: &[String], rows: &[Vec<String>]) -> String {
     let widths: Vec<usize> = (0..headers.len())
-        .map(|i| rows.iter().map(|r| utf16_len(&r[i])).chain([utf16_len(&headers[i])]).max().unwrap_or(0))
+        .map(|i| {
+            rows.iter()
+                .map(|r| utf16_len(&r[i]))
+                .chain([utf16_len(&headers[i])])
+                .max()
+                .unwrap_or(0)
+        })
         .collect();
     let line = |cells: &[String]| {
-        let padded: Vec<String> =
-            cells.iter().enumerate().map(|(i, c)| format!("{c}{}", " ".repeat(widths[i].saturating_sub(utf16_len(c))))).collect();
+        let padded: Vec<String> = cells
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("{c}{}", " ".repeat(widths[i].saturating_sub(utf16_len(c)))))
+            .collect();
         padded.join("  ").trim_end().to_string()
     };
     let mut lines = vec![line(headers)];
@@ -175,7 +204,9 @@ fn truthy(v: &Value) -> bool {
 fn number_text(v: &Value) -> String {
     match v {
         Value::Number(n) => match n.as_f64() {
-            Some(f) if f.fract() == 0.0 && n.as_i64().is_none() && n.as_u64().is_none() => format!("{}", f as i64),
+            Some(f) if f.fract() == 0.0 && n.as_i64().is_none() && n.as_u64().is_none() => {
+                format!("{}", f as i64)
+            }
             _ => n.to_string(),
         },
         other => ps_string(other),
@@ -233,13 +264,16 @@ fn read_sessions(file: &str) -> Result<Vec<Session>, Fail> {
     if !path.is_file() {
         return Err(fail(2, format!("файл сесій не знайдено: {file}")));
     }
-    let bytes = std::fs::read(path).map_err(|e| fail(1, format!("файл сесій не прочитано: {e}")))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| fail(1, format!("файл сесій не прочитано: {e}")))?;
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     let text = strip_json_comments(&String::from_utf8_lossy(body));
     let shape = "sessions file must be a JSON object { \"<session>\": \"<branch>\" | { \"branch\", \"role\" } }";
-    let root: Value =
-        serde_json::from_str(&text).map_err(|e| fail(1, format!("файл сесій не розібрано як JSON: {e}")))?;
-    let Value::Object(map) = &root else { return Err(fail(1, shape)) };
+    let root: Value = serde_json::from_str(&text)
+        .map_err(|e| fail(1, format!("файл сесій не розібрано як JSON: {e}")))?;
+    let Value::Object(map) = &root else {
+        return Err(fail(1, shape));
+    };
     let mut list = Vec::new();
     for name in top_level_keys(&text) {
         let Some(v) = map.get(&name) else { continue };
@@ -256,7 +290,9 @@ fn read_sessions(file: &str) -> Result<Vec<Session>, Fail> {
             }
             _ => {}
         }
-        let Some(branch) = branch else { return Err(fail(1, format!("session \"{name}\": branch missing"))) };
+        let Some(branch) = branch else {
+            return Err(fail(1, format!("session \"{name}\": branch missing")));
+        };
         list.push(Session { name, branch, role });
     }
     Ok(list)
@@ -272,7 +308,9 @@ struct State {
 }
 
 fn now_unix() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn all_digits(s: &str) -> bool {
@@ -282,7 +320,9 @@ fn all_digits(s: &str) -> bool {
 /// Вік і ahead/behind проти origin/<base> для ref у теці.
 fn get_state(cwd: &Path, reference: &str, base: &str) -> State {
     let mut s = State::default();
-    if let Some(ct) = sb_git(cwd, &["log", "-1", "--format=%ct", reference]).filter(|t| all_digits(t)) {
+    if let Some(ct) =
+        sb_git(cwd, &["log", "-1", "--format=%ct", reference]).filter(|t| all_digits(t))
+    {
         s.age_sec = ct.parse::<i64>().ok().map(|c| now_unix() - c);
     }
     let range = format!("origin/{base}...{reference}");
@@ -327,7 +367,11 @@ fn to_pr(v: &Value) -> Option<(String, Pr)> {
         name,
         Pr {
             number: v.get("number").cloned().unwrap_or(Value::Null),
-            oid: v.get("headRefOid").and_then(Value::as_str).unwrap_or("").to_string(),
+            oid: v
+                .get("headRefOid")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
             draft: v.get("isDraft").is_some_and(truthy),
         },
     ))
@@ -335,14 +379,47 @@ fn to_pr(v: &Value) -> Option<(String, Pr)> {
 
 /// branch (без регістру) → PR; відкритий важливіший за старий злитий з тією ж назвою гілки.
 fn get_pr_map(cwd: &Path) -> Result<HashMap<String, PrEntry>, GhError> {
-    let open = gh::run_json(&["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,headRefOid,isDraft"], cwd)?;
-    let merged = gh::run_json(&["pr", "list", "--state", "merged", "--limit", "50", "--json", "number,headRefName,headRefOid"], cwd)?;
+    let open = gh::run_json(
+        &[
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,headRefName,headRefOid,isDraft",
+        ],
+        cwd,
+    )?;
+    let merged = gh::run_json(
+        &[
+            "pr",
+            "list",
+            "--state",
+            "merged",
+            "--limit",
+            "50",
+            "--json",
+            "number,headRefName,headRefOid",
+        ],
+        cwd,
+    )?;
     let mut map: HashMap<String, PrEntry> = HashMap::new();
     for (name, pr) in merged.iter().filter_map(to_pr) {
-        map.entry(name.to_lowercase()).or_insert(PrEntry { open: None, merged: Some(pr) });
+        map.entry(name.to_lowercase()).or_insert(PrEntry {
+            open: None,
+            merged: Some(pr),
+        });
     }
     for (name, pr) in open.iter().filter_map(to_pr) {
-        map.insert(name.to_lowercase(), PrEntry { open: Some(pr), merged: None });
+        map.insert(
+            name.to_lowercase(),
+            PrEntry {
+                open: Some(pr),
+                merged: None,
+            },
+        );
     }
     Ok(map)
 }
@@ -361,7 +438,11 @@ struct Row {
 }
 
 fn new_row(branch: Option<String>) -> Row {
-    Row { branch, tree: "-".to_string(), ..Default::default() }
+    Row {
+        branch,
+        tree: "-".to_string(),
+        ..Default::default()
+    }
 }
 
 struct NextInput<'a> {
@@ -405,7 +486,11 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail> {
-    let spec = [("Sessions", Kind::Str), ("Fetch", Kind::Switch), ("All", Kind::Switch)];
+    let spec = [
+        ("Sessions", Kind::Str),
+        ("Fetch", Kind::Switch),
+        ("All", Kind::Switch),
+    ];
     let a = cli::parse(args, &spec).map_err(|e| fail(2, e.0))?;
     if a.help {
         write_line(stdout, &USAGE.replace('\n', "\r\n"));
@@ -416,10 +501,18 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
     }
 
     let profile = Profile::load(cwd).map_err(|e| fail(e.code, e.message))?;
-    let base = profile.value("pr.base").map_or_else(|| "main".to_string(), ps_string);
-    let mode = profile.value("workspace.mode").map_or_else(|| "shared".to_string(), ps_string).to_lowercase();
+    let base = profile
+        .value("pr.base")
+        .map_or_else(|| "main".to_string(), ps_string);
+    let mode = profile
+        .value("workspace.mode")
+        .map_or_else(|| "shared".to_string(), ps_string)
+        .to_lowercase();
     if mode != "shared" && mode != "worktree" {
-        return Err(fail(3, format!("поле профілю \"workspace.mode\": \"{mode}\" — допустимо shared або worktree")));
+        return Err(fail(
+            3,
+            format!("поле профілю \"workspace.mode\": \"{mode}\" — допустимо shared або worktree"),
+        ));
     }
     let worktree_mode = mode == "worktree";
 
@@ -461,13 +554,20 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
         }
         // Сесії з файлу, для яких worktree вже немає: показати, чим закінчились.
         for s in &sessions {
-            if !rows.iter().any(|r| r.branch.as_deref().is_some_and(|b| same(b, &s.branch))) {
+            if !rows
+                .iter()
+                .any(|r| r.branch.as_deref().is_some_and(|b| same(b, &s.branch)))
+            {
                 rows.push(new_row(Some(s.branch.clone())));
             }
         }
     } else {
         let branches: Vec<String> = if sessions.is_empty() {
-            let all = sb_git(cwd, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).unwrap_or_default();
+            let all = sb_git(
+                cwd,
+                &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+            )
+            .unwrap_or_default();
             all.split('\n')
                 .map(|l| l.trim_end_matches('\r'))
                 .filter(|b| !b.is_empty() && !same(b, &base) && !b.starts_with("storage/"))
@@ -479,7 +579,11 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
         let current = sb_git(cwd, &["symbolic-ref", "--short", "-q", "HEAD"]);
         for b in branches {
             let mut r = new_row(Some(b.clone()));
-            let head = sb_git(cwd, &["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).unwrap_or_default();
+            let head = sb_git(
+                cwd,
+                &["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")],
+            )
+            .unwrap_or_default();
             if !head.is_empty() {
                 r.head = head;
                 r.state = get_state(cwd, &format!("refs/heads/{b}"), &base);
@@ -499,8 +603,10 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
         Err(GhError::BadJson(m)) => return Err(fail(1, m)),
     };
 
-    let mut headers: Vec<String> =
-        ["session", "role", "branch", "HEAD", "age", "tree"].iter().map(|s| s.to_string()).collect();
+    let mut headers: Vec<String> = ["session", "role", "branch", "HEAD", "age", "tree"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     headers.push(format!("vs {base}"));
     headers.extend(["PR".to_string(), "next".to_string()]);
     if worktree_mode {
@@ -509,7 +615,11 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
 
     let mut table: Vec<Vec<String>> = Vec::new();
     for r in &rows {
-        let session = r.branch.as_deref().and_then(|b| session_of.get(&b.to_lowercase())).map(|i| &sessions[*i]);
+        let session = r
+            .branch
+            .as_deref()
+            .and_then(|b| session_of.get(&b.to_lowercase()))
+            .map(|i| &sessions[*i]);
         let entry = match (&prs, r.branch.as_deref().filter(|b| !b.is_empty())) {
             (Some(m), Some(b)) => m.get(&b.to_lowercase()),
             _ => None,
@@ -526,7 +636,12 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
             unpushed = !r.head.is_empty() && !r.head.eq_ignore_ascii_case(&p.oid);
         } else if let Some(p) = entry.and_then(|e| e.merged.as_ref()) {
             let is_base = r.branch.as_deref().is_some_and(|b| same(b, &base));
-            if !is_base && (r.head.is_empty() || r.head.eq_ignore_ascii_case(&p.oid) || r.state.ahead == Some(0)) && truthy(&p.number) {
+            if !is_base
+                && (r.head.is_empty()
+                    || r.head.eq_ignore_ascii_case(&p.oid)
+                    || r.state.ahead == Some(0))
+                && truthy(&p.number)
+            {
                 merged_num = Some(number_text(&p.number));
             }
         }
@@ -555,9 +670,19 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
         let mut cells = vec![
             session.map_or("-".to_string(), |s| s.name.clone()),
             session.map_or(String::new(), |s| s.role.clone()),
-            if r.detached { "(detached)".to_string() } else { r.branch.clone().unwrap_or_default() },
-            if r.head.is_empty() { "-".to_string() } else { r.head.chars().take(7).collect() },
-            if !r.head.is_empty() && (!worktree_mode || r.path.as_deref().is_some_and(|p| !p.is_empty())) {
+            if r.detached {
+                "(detached)".to_string()
+            } else {
+                r.branch.clone().unwrap_or_default()
+            },
+            if r.head.is_empty() {
+                "-".to_string()
+            } else {
+                r.head.chars().take(7).collect()
+            },
+            if !r.head.is_empty()
+                && (!worktree_mode || r.path.as_deref().is_some_and(|p| !p.is_empty()))
+            {
                 format_age(r.state.age_sec)
             } else {
                 "-".to_string()
@@ -577,9 +702,16 @@ fn execute(args: &[String], cwd: &Path, stdout: &mut String) -> Result<i32, Fail
     }
 
     // Без файлу сесій колонки session/role порожні — не займати ними екран.
-    let keep: Vec<usize> = if sessions.is_empty() { (2..headers.len()).collect() } else { (0..headers.len()).collect() };
+    let keep: Vec<usize> = if sessions.is_empty() {
+        (2..headers.len()).collect()
+    } else {
+        (0..headers.len()).collect()
+    };
     let hdr: Vec<String> = keep.iter().map(|&i| headers[i].clone()).collect();
-    let body: Vec<Vec<String>> = table.iter().map(|c| keep.iter().map(|&i| c[i].clone()).collect()).collect();
+    let body: Vec<Vec<String>> = table
+        .iter()
+        .map(|c| keep.iter().map(|&i| c[i].clone()).collect())
+        .collect();
     write_line(stdout, &format_table(&hdr, &body));
     if let Some(problem) = gh_problem {
         write_line(stdout, &format!("PR not checked: {problem}"));
@@ -604,19 +736,27 @@ mod tests {
 
     #[test]
     fn table_pads_by_utf16_and_trims_the_tail() {
-        let t = format_table(&["a".into(), "bb".into()], &[vec!["\u{1F600}x".into(), "".into()]]);
+        let t = format_table(
+            &["a".into(), "bb".into()],
+            &[vec!["\u{1F600}x".into(), "".into()]],
+        );
         assert_eq!(t, "a    bb\n\u{1F600}x");
     }
 
     #[test]
     fn detached_worktree_parses_without_branch() {
-        let w = parse_worktrees("worktree C:/r\nHEAD abc\nbranch refs/heads/main\n\nworktree C:/d\nHEAD def\ndetached\nprunable gone");
+        let w = parse_worktrees(
+            "worktree C:/r\nHEAD abc\nbranch refs/heads/main\n\nworktree C:/d\nHEAD def\ndetached\nprunable gone",
+        );
         assert_eq!(w[0].branch.as_deref(), Some("main"));
         assert!(w[1].branch.is_none() && w[1].detached && w[1].prunable);
     }
 
     #[test]
     fn session_keys_keep_file_order() {
-        assert_eq!(top_level_keys(r#"{ "b": {"x": 1}, "a": "q,\"z\"", "c": [1, {"d": 2}] }"#), vec!["b", "a", "c"]);
+        assert_eq!(
+            top_level_keys(r#"{ "b": {"x": 1}, "a": "q,\"z\"", "c": [1, {"d": 2}] }"#),
+            vec!["b", "a", "c"]
+        );
     }
 }

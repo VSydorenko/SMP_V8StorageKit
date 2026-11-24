@@ -27,7 +27,8 @@ pub fn find_program(name: &str) -> Option<PathBuf> {
 /// Убиває дерево процесів дочірнього (`taskkill /T /F`; session-check запускає git і раннер, gh — git і
 /// браузер), потім — сам процес на випадок, коли taskkill не спрацював, і чекає його завершення.
 pub fn kill_tree(child: &mut Child) {
-    let system_root = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    let system_root =
+        std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     let taskkill = system_root.join("System32").join("taskkill.exe");
     let _ = Command::new(&taskkill)
         .args(["/T", "/F", "/PID", &child.id().to_string()])
