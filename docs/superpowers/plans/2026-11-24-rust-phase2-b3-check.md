@@ -92,7 +92,11 @@ B1 — розділ «Відомі відмінності від PowerShell» п
   префлайту (у.5): `Mode::Check` для `kit check`, `Mode::Lenient` для B4; за `ctx.manifest == None` імена
   `-Workspace`/`-Source` не звіряються. `Report { findings: Vec<config::Finding>, not_checked: Vec<config::Finding>,
   code: i32 }` (у.1): «не перевірено» — окремий список повних знахідок (не рядків); належність до списку і є ознакою,
-  `Finding` не змінюється. Код за рішенням 2.
+  `Finding` не змінюється. «Не перевірено» — властивість знахідки, а не рівня (рішення архітектора 2026-11-24 після
+  задачі 2): error стража секрету на збої git теж у `not_checked`. Інваріант: `not_checked ⊆ findings` (той самий
+  рівень); код — 1, якщо у `findings` є error, інакше 3, якщо `not_checked` непорожній, інакше 0.
+- `config::dev_base_overlaps(ctx, ws)` — обгортка в `preflight.rs` над `config::agent_base::dev_base_overlaps` (так само,
+  як `agent_base(ctx, ws)`); усі перетини бази агента з дев-базами накладки в порядку накладки. B4 бере її.
 - `fake_runner` (`rust/tests/support/fake_runner.rs`): тривалість сну на `--version` — параметр (аргумент чи файл/змінна
   тестової цілі), а не лише «довше за стелю» (у.2): на ньому стоять тест B3 «стеля спрацьовує» і тест B4 «менше за
   стелю — не спрацьовує».
