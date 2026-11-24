@@ -43,7 +43,7 @@ function Invoke-KitInstallHooks {
     $problems = @($left | Where-Object Level -ne 'info')
     foreach ($f in $problems) { Write-Host "  [$($f.Level)] $($f.Message)" -ForegroundColor Yellow }
     Write-Host 'Готово. .githooks уже в індексі.' -ForegroundColor Green
-    # ExitCode рахує лише error (контракт як у check): warn — те, що команда за побудовою не могла
+    # ExitCode рахує лише error (кодів 0/1, як у PowerShell-версії check; у kit.exe check є ще код 3 «не перевірено», сюди він не переноситься): warn — те, що команда за побудовою не могла
     # полагодити сама (старий хук старту сесії в settings.json: файл вона не чіпає), а не зупинка;
     # людина вже бачить його рядком вище.
     $errors = @($problems | Where-Object Level -eq 'error')

@@ -41,20 +41,19 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $r.Output | Should -BeLike '*у самому v8storagekit.yaml записано*'
     }
 
-    # Раніше невідомий -Workspace давав сирий "Exception: ..."
-    # і жоден зі стовпців [-]/[!]/[i] узагалі не друкувався (throw усередині Select-KitSources
-    # ще ДО того, як Invoke-KitCheck дійшов до Write-Host). kit.ps1 ловить це на диспетчерському
-    # рівні (той самий зразок, що вже стояв для невідомої команди) — код 1 (раніше
-    # код 2 конфліктував зі штатним частковим успіхом sync — той самий код
-    # означав і "диспетчер відмовив", і "sync: злиття не виконано"), охайний рядок, без слова
-    # "Exception".
-    It '-Workspace звужує перевірку; невідомий — код 1, охайний рядок без "Exception"' {
+    # Ім'я воркспейсу, якого немає в МАНІФЕСТІ, — помилка виклику (рішення 3 плану B3): код 2, один рядок
+    # `check: ERROR …` з переліком імен маніфесту, без шапки, знахідок і підсумку. Раніше (PowerShell) це був
+    # код 1. Воркспейс, який Є в маніфесті, але не розв'язався (помилка конфігу), — звичайний звіт із error
+    # префлайту, код 1 (тест нижче).
+    It '-Workspace звужує перевірку; невідомий — код 2, охайний рядок без "Exception", без звіту' {
         $repo = New-GoodRepo 'ws-filter'
         (Invoke-Check -Repo $repo -More @('-Workspace', 'Alpha_SMB')).ExitCode | Should -Be 0
         $r = Invoke-Check -Repo $repo -More @('-Workspace', 'Nope')
-        $r.ExitCode | Should -Be 1
-        $r.Output | Should -BeLike "*'Nope'*Alpha_SMB*"
+        $r.ExitCode | Should -Be 2
+        $r.Output | Should -BeLike "check: ERROR*'Nope'*Alpha_SMB*"
         $r.Output | Should -Not -BeLike '*Exception*'
+        $r.Output | Should -Not -BeLike '*kit check —*'
+        $r.Output | Should -Not -BeLike '*Попереджень*'
     }
 
     # Друга діра з тієї самої знахідки рев'ю: Test-KitGitHooks
@@ -64,13 +63,27 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # .git/index — перевірений у цьому репозиторії прийом (StorageSync.Tests.ps1, сценарій
     # "git status fails"), який ламає САМЕ git-виклики, що читають індекс (тут — git
     # ls-files -s усередині Test-KitGitHooks), і не займає команд, що індекс не читають.
+    #
+    # Рішення 2, 5, 6, 8 плану B3: збій git — «не перевірено» з дослівним stderr git, а не «немає». Код 1 дають
+    # стражі файла з паролем (`overlay-ignored`, `local-ignored`, vendor-`gitignore`): вони лишаються fail-closed
+    # і на збої git — error «не перевірено: …». Неохоронні перевірки (`hooks`, `gitattributes`, `build-artifacts`)
+    # стають [!] «не перевірено: …». Рядка «Аудит хуків впав» більше немає.
     It 'збій git усередині аудиту хуків не губить решти зібраних знахідок' {
         $repo = New-GoodRepo 'hooks-git-fails'
         Set-Content -LiteralPath (Join-Path $repo '.git/index') -Encoding UTF8 -Value 'зумисно пошкоджений індекс'
         $r = Invoke-Check -Repo $repo
         $r.ExitCode | Should -Be 1
         $r.Output | Should -BeLike '*Маніфест:*'
-        $r.Output | Should -BeLike '*Аудит хуків впав*'
+        $r.Output | Should -Not -BeLike '*Аудит хуків впав*'
+        $r.Output | Should -Match '(?m)^\[-\] не перевірено: гітігнорування v8storagekit\.local\.yaml'
+        $r.Output | Should -Match '(?m)^\[-\] не перевірено: гітігнорування Alpha_SMB/v8project\.local\.yaml'
+        $r.Output | Should -Match '(?m)^\[-\] не перевірено: Alpha_SMB/base: відстеження дерева'
+        # Неохоронні — [!], не [-]: hooks (режим хука в індексі), gitattributes, build-artifacts.
+        $r.Output | Should -Match '(?m)^\[!\] не перевірено: режим хука \.githooks/pre-commit в індексі'
+        $r.Output | Should -Match '(?m)^\[!\] не перевірено: Alpha_SMB/Alpha_SMB: політика кінців рядків'
+        $r.Output | Should -Match '(?m)^\[!\] не перевірено: Alpha_SMB: артефакти збірки в git'
+        $r.Output | Should -BeLike '*index file corrupt*'
+        $r.Output | Should -Match 'з них не перевірено: \d+'
     }
 
     # Той самий зразок, що вище для git-хуків, тепер для
@@ -87,9 +100,12 @@ Describe 'kit check — інваріанти репозиторію-спожив
         $fs = [System.IO.File]::Open($settingsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
         try {
             $r = Invoke-Check -Repo $repo
-            $r.ExitCode | Should -Be 0    # warn, не error: чужий файл не зупиняє session-check по сховищах
+            # Рішення 2, 8, 12: файл не прочитано — «не перевірено» (код 3, не зелений), а не «не читається як JSON».
+            $r.ExitCode | Should -Be 3
             $r.Output | Should -BeLike '*Маніфест:*'
-            $r.Output | Should -BeLike '*settings.json не читається як JSON*'
+            $r.Output | Should -Match '(?m)^\[!\] не перевірено:.*settings\.json'
+            $r.Output | Should -Not -BeLike '*не читається як JSON*'
+            $r.Output | Should -Not -Match '(?m)^\[-\]'
         } finally { $fs.Close() }
     }
     # Той самий зразок, що вище для хуків, — тепер для другого захищеного виклику
@@ -104,15 +120,19 @@ Describe 'kit check — інваріанти репозиторію-спожив
     # ("fatal: not a tree object") — саме цей виклик і кидає виняток, який перетворюється
     # на знахідку error, а не зносить решту звіту.
     It 'збій git усередині аудиту інваріантів гілки storage/X не губить решти зібраних знахідок' {
+        # Рішення 2, 5: точковий збій неохоронної перевірки — «не перевірено» (код 3), не error (код 1).
         $repo = New-GoodRepo 'branch-invariants-git-fails'
         $blob = (git -C $repo hash-object -w -- (Join-Path $repo 'v8storagekit.yaml') | Out-String).Trim()
         $refDir = Join-Path $repo '.git/refs/heads/storage'
         New-Item -ItemType Directory -Force -Path $refDir | Out-Null
         Set-Content -LiteralPath (Join-Path $refDir 'Alpha_SMB') -Value "$blob`n" -Encoding ascii -NoNewline
         $r = Invoke-Check -Repo $repo
-        $r.ExitCode | Should -Be 1
+        $r.ExitCode | Should -Be 3
         $r.Output | Should -BeLike '*Маніфест:*'
-        $r.Output | Should -BeLike '*аудит інваріантів гілки*впав*'
+        $r.Output | Should -Match '(?m)^\[!\] не перевірено: Alpha_SMB/Alpha_SMB: інваріанти гілки storage/Alpha_SMB'
+        $r.Output | Should -BeLike '*not a tree object*'
+        $r.Output | Should -BeLike '*Помилок немає*'
+        $r.Output | Should -Not -Match '(?m)^\[-\]'
     }
 
     It 'HEAD з кириличною парою регістру під шляхом джерела — error case-collision, код 1' {

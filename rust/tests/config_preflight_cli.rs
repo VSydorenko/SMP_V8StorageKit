@@ -95,3 +95,55 @@ fn json_shape_and_secrets_mask() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["selected"].as_array().unwrap().len(), 0);
 }
+
+// Інваріант: будь-який вивід шляху сховища йде через маску userinfo. Маркер у паролі адреси не потрапляє ні в
+// stdout, ні в stderr; позитивний двійник — `***@host` у виводі є (шлях дійшов до друку).
+#[test]
+fn storage_path_userinfo_is_masked_in_stdout_and_stderr() {
+    let d = repo("userinfo");
+    let (m1, m2) = ("МАРКЕР-адреса-1", "МАРКЕР-накладка-2");
+    std::fs::write(
+        d.join("v8storagekit.yaml"),
+        format!("version: 1\nproduct: P\nworkspaces:\n  - path: ws\n    sources:\n      cf: {{ truth: storage, storage: {{ path: 'tcp://user:{m1}@host/x' }} }}\n"),
+    )
+    .unwrap();
+    let args = |extra: &[&'static str]| {
+        let mut a = vec!["-RepoRoot".to_string(), d.to_string_lossy().into_owned()];
+        a.extend(extra.iter().map(|s| s.to_string()));
+        a
+    };
+    let run = |a: Vec<String>| {
+        let refs: Vec<&str> = a.iter().map(String::as_str).collect();
+        kit(&refs)
+    };
+    let out = run(args(&["-Mode", "Lenient", "-Truth", "storage"]));
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    );
+    assert!(
+        !stdout.contains(m1) && !stderr.contains(m1),
+        "{stdout}{stderr}"
+    );
+    assert!(stdout.contains("tcp://***@host/x"), "{stdout}");
+
+    // Шлях із накладки — теж через маску (і в `selected`, і в самій накладці).
+    std::fs::write(
+        d.join("v8storagekit.local.yaml"),
+        format!("storages:\n  cf: {{ path: 'http://u:{m2}@srv/r' }}\n"),
+    )
+    .unwrap();
+    let out = run(args(&["-Mode", "Lenient", "-Truth", "storage"]));
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    );
+    assert!(
+        !stdout.contains(m1)
+            && !stderr.contains(m1)
+            && !stdout.contains(m2)
+            && !stderr.contains(m2),
+        "{stdout}{stderr}"
+    );
+    assert!(stdout.matches("http://***@srv/r").count() >= 2, "{stdout}");
+}

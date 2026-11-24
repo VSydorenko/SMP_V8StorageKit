@@ -28,6 +28,7 @@ use super::overlay::Overlay;
 use super::v8project::{AgentInfobase, V8Project, full_path, join_ps, resolve_agent_infobase};
 use super::yaml::eq_ci;
 use super::{ConfigError, RawConnection, Secret, SecretTree};
+use crate::case_guard::fold_char;
 use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 
@@ -213,18 +214,9 @@ pub fn canonical_path(path: &str) -> Result<String, ConfigError> {
     Err(ConfigError::new(ERR_LINK_CHAIN))
 }
 
-/// Порівняння без регістру посимвольно (`OrdinalIgnoreCase`): простий верхній регістр, без розширення довжини.
-fn fold(c: char) -> char {
-    let mut up = c.to_uppercase();
-    match (up.next(), up.next()) {
-        (Some(x), None) => x,
-        _ => c,
-    }
-}
-
 fn starts_with_ci(a: &str, b: &str) -> bool {
-    let mut ai = a.chars().map(fold);
-    b.chars().map(fold).all(|bc| ai.next() == Some(bc))
+    let mut ai = a.chars().map(fold_char);
+    b.chars().map(fold_char).all(|bc| ai.next() == Some(bc))
 }
 
 /// Єдиний предикат перетину для вже канонізованих шляхів: рівні, один під іншим чи над ним. Порівняння з
@@ -354,7 +346,7 @@ pub fn runner_memory_path(project: &V8Project, infobase: &str) -> String {
 // ---------------------------------------------------------------------------------------------------------
 // Перетин двох підключень
 
-enum Canonical {
+pub enum Canonical {
     Parsed {
         kind: InfobaseKind,
         identity: String,
@@ -367,7 +359,7 @@ enum Canonical {
 }
 
 /// Розбір одного підключення на канонічну форму. Відносний `File=` тут завжди нерозбірний: бази відліку немає.
-fn canonical_form(connection: &str) -> Canonical {
+pub fn canonical_form(connection: &str) -> Canonical {
     let parsed = match parse_str(connection) {
         Ok(p) => p,
         Err(e) => {
@@ -813,6 +805,59 @@ pub struct AgentBase {
     pub exists: bool,
 }
 
+/// Дев-база накладки, з якою перетинається база агента.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DevBaseOverlap {
+    pub name: String,
+}
+
+/// ВСІ перетини підключення бази агента воркспейсу з дев-базами накладки, у порядку накладки: `Ok` — база
+/// перетинається, `Err` — звірити не вдалося (fail-closed: підключення нерозбірне). Бази, що не перетинаються
+/// і розібрані, у переліку немає. Єдине правило перетину для `resolve_agent_base` (перший елемент) і для
+/// `local-audit` (усі). Відносний `File=` розв'язується від теки конфіга, як в `resolve_agent_infobase_path`.
+pub fn dev_base_overlaps(
+    overlay: Option<&Overlay>,
+    workspace_path: &str,
+    project: &V8Project,
+    connection: &RawConnection,
+) -> Vec<Result<DevBaseOverlap, ConfigError>> {
+    let Some(overlay) = overlay else {
+        return Vec::new();
+    };
+    let resolved = match resolve_agent_infobase_path(project, connection) {
+        Ok(r) => r,
+        Err(e) => return vec![Err(e)],
+    };
+    let agent_conn = match (&resolved.kind, &resolved.path) {
+        (InfobaseKind::File, Some(p)) => format!("File={p}"),
+        _ => connection.expose().to_string(),
+    };
+    let left_origin = format!(
+        "база агента воркспейсу '{workspace_path}' (infobases.origin у v8project.local.yaml)"
+    );
+    let mut found = Vec::new();
+    for human in &overlay.infobases {
+        let right_origin = format!("дев-база '{}' у v8storagekit.local.yaml", human.name);
+        match infobases_overlap(
+            &agent_conn,
+            human.connection.expose(),
+            &Origins {
+                left: &left_origin,
+                right: &right_origin,
+                left_kind: CredentialsKind::Agent,
+                right_kind: CredentialsKind::Overlay,
+            },
+        ) {
+            Ok(false) => {}
+            Ok(true) => found.push(Ok(DevBaseOverlap {
+                name: human.name.clone(),
+            })),
+            Err(e) => found.push(Err(e)),
+        }
+    }
+    found
+}
+
 /// База агента воркспейсу плюс аудит: це не база людини. Збіг з дев-базою накладки чи нерозбірне підключення —
 /// помилка до будь-якої дії. `None` — бази не налаштовано на цій машині.
 pub fn resolve_agent_base(
@@ -825,33 +870,17 @@ pub fn resolve_agent_base(
     };
     let resolved = resolve_agent_infobase_path(project, &ib.connection)?;
 
-    if let Some(overlay) = overlay {
-        let agent_conn = match (&resolved.kind, &resolved.path) {
-            (InfobaseKind::File, Some(p)) => format!("File={p}"),
-            _ => ib.connection.expose().to_string(),
-        };
-        let left_origin = format!(
-            "база агента воркспейсу '{workspace_path}' (infobases.origin у v8project.local.yaml)"
-        );
-        for human in &overlay.infobases {
-            let right_origin = format!("дев-база '{}' у v8storagekit.local.yaml", human.name);
-            let overlaps = infobases_overlap(
-                &agent_conn,
-                human.connection.expose(),
-                &Origins {
-                    left: &left_origin,
-                    right: &right_origin,
-                    left_kind: CredentialsKind::Agent,
-                    right_kind: CredentialsKind::Overlay,
-                },
-            )?;
-            if overlaps {
-                return Err(ConfigError::new(format!(
-                    "База агента воркспейсу '{workspace_path}' ({}) збігається з дев-базою людини '{}' із накладки kit або перетинається з нею (та сама тека, вкладена чи батьківська). Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.",
-                    ib.origin, human.name
-                )));
-            }
-        }
+    if let Some(first) = dev_base_overlaps(overlay, workspace_path, project, &ib.connection)
+        .into_iter()
+        .next()
+    {
+        return Err(match first {
+            Err(e) => e,
+            Ok(human) => ConfigError::new(format!(
+                "База агента воркспейсу '{workspace_path}' ({}) збігається з дев-базою людини '{}' із накладки kit або перетинається з нею (та сама тека, вкладена чи батьківська). Kit ніколи не пише в базу людини (принцип 3): приберіть infobases.origin з v8project.local.yaml або дайте агентові окрему базу.",
+                ib.origin, human.name
+            )),
+        });
     }
 
     let exists = match (&resolved.kind, &resolved.path) {

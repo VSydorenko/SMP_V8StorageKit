@@ -15,6 +15,9 @@
 //  grandchild — запускає онука (режим hold), що успадковує канали, друкує `pid:<PID онука>` і виходить;
 //  hold      — спить 10 с;
 //  code7     — код виходу 7.
+//
+// `--version` спить N с, коли поруч з exe є файл `version-sleep.txt` з числом N (порожній — 60): стеля
+// `runner::version`.
 
 use std::io::Write;
 
@@ -29,6 +32,12 @@ fn main() {
         .collect();
     if args.first().map(String::as_str) == Some("--version") {
         let exe = std::env::current_exe().unwrap();
+        // Файл `version-sleep.txt` поруч з exe: `--version` спить стільки секунд, скільки в файлі (порожній чи
+        // не число — 60), потім відповідає як зазвичай.
+        if let Ok(text) = std::fs::read_to_string(exe.with_file_name("version-sleep.txt")) {
+            let secs = text.trim().parse::<u64>().unwrap_or(60);
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+        }
         let version = std::fs::read_to_string(exe.with_file_name("version.txt"))
             .unwrap_or_else(|_| "0.18.1".to_string());
         println!("v8-runner {}", version.trim());

@@ -30,10 +30,11 @@ pub mod preflight;
 pub mod v8project;
 pub mod yaml;
 
+pub use manifest::{is_server_storage_path, mask_storage_path};
 pub use preflight::{
     Context, Finding, Level, Mode, PreflightStop, Source, Workspace, agent_base,
-    agent_base_collisions, agent_base_missing_message, local_has_dev_infobase_line, preflight,
-    select_sources, workspace_needs_agent_base,
+    agent_base_collisions, agent_base_missing_message, dev_base_overlaps,
+    local_has_dev_infobase_line, preflight, select_sources, workspace_needs_agent_base,
 };
 
 use std::fmt;

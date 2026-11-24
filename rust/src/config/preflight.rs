@@ -18,15 +18,17 @@
 // переліках — множиною.
 
 use super::agent_base::{
-    AgentBase, AgentBaseCollision, InfobaseKind, WorkspaceRef,
+    AgentBase, AgentBaseCollision, DevBaseOverlap, InfobaseKind, WorkspaceRef,
     agent_base_collisions as collisions_of, agent_base_missing_message as missing_of,
-    resolve_agent_base, workspace_needs_agent_base as needs_of,
+    dev_base_overlaps as overlaps_of, resolve_agent_base, workspace_needs_agent_base as needs_of,
 };
 use super::connection::{self, Connection, assert_secret_quote_free};
+use super::manifest::mask_storage_path;
 use super::manifest::{Manifest, ProductKind, read_manifest};
 use super::overlay::{Overlay, read_overlay};
 use super::v8project::{
     self, V8Project, config_problems, join_ps, read_local_infobase, read_v8project,
+    resolve_agent_infobase,
 };
 use super::yaml::eq_ci;
 use super::{RawConnection, Secret, Truth};
@@ -539,6 +541,28 @@ pub fn agent_base(ctx: &Context, workspace: &Workspace) -> Result<Option<AgentBa
         .map_err(|e| e.message().to_string())
 }
 
+/// Усі перетини бази агента воркспейсу (його `infobases.origin`) з дев-базами накладки, у порядку накладки: `Ok` —
+/// перетин, `Err` — звірити не вдалося (fail-closed). Порожньо, коли бази не налаштовано чи накладки немає.
+pub fn dev_base_overlaps(
+    ctx: &Context,
+    workspace: &Workspace,
+) -> Vec<Result<DevBaseOverlap, String>> {
+    let ib = match resolve_agent_infobase(&workspace.project) {
+        Ok(Some(ib)) => ib,
+        Ok(None) => return Vec::new(),
+        Err(e) => return vec![Err(e.message().to_string())],
+    };
+    overlaps_of(
+        ctx.overlay.as_ref(),
+        &workspace.path,
+        &workspace.project,
+        &ib.connection,
+    )
+    .into_iter()
+    .map(|r| r.map_err(|e| e.message().to_string()))
+    .collect()
+}
+
 /// `Find-KitAgentBaseCollisions`: перетини бази агента з базами й пам'яттю раннера ІНШИХ воркспейсів.
 pub fn agent_base_collisions(
     ctx: &Context,
@@ -611,7 +635,7 @@ fn mask_source(s: &Source) -> Value {
         "path": s.path,
         "repoPath": s.repo_path,
         "fullPath": s.full_path,
-        "storagePath": s.storage_path,
+        "storagePath": s.storage_path.as_deref().map(mask_storage_path),
         "storageUser": s.storage_user,
         "storagePasswordSet": !s.storage_password.is_empty(),
         "dumpFrom": s.dump_from,
@@ -623,7 +647,7 @@ fn mask_overlay(o: &Overlay) -> Value {
     json!({
         "path": o.path.to_string_lossy(),
         "infobases": o.infobases.iter().map(|i| json!({ "name": i.name, "connection": mask_connection(&i.connection), "user": i.user })).collect::<Vec<_>>(),
-        "storages": o.storages.iter().map(|s| json!({ "key": s.key, "path": s.path, "user": s.user, "passwordSet": s.password.as_ref().is_some_and(|p| !p.is_empty()) })).collect::<Vec<_>>(),
+        "storages": o.storages.iter().map(|s| json!({ "key": s.key, "path": s.path.as_deref().map(mask_storage_path), "user": s.user, "passwordSet": s.password.as_ref().is_some_and(|p| !p.is_empty()) })).collect::<Vec<_>>(),
         "workspaces": o.workspaces.iter().map(|w| json!({ "path": w.path, "agentBaseTemplate": w.agent_base_template })).collect::<Vec<_>>(),
     })
 }

@@ -358,10 +358,25 @@ fn parse_version(stdout: &str) -> Option<String> {
     })
 }
 
+/// Стеля `--version`: виміряно 13-33 мс (2026-11-24); запас понад сто разів і вкладається в стелю хука 15 с.
+const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Версія раннера з `--version` (`Get-KitRunnerVersion`): з `v8-runner 0.18.1` береться `0.18.1`.
 pub fn version(runner: &Path) -> Result<String, String> {
-    let o = exec(runner, Path::new("."), &[OsStr::new("--version")], None)
-        .map_err(|e| e.to_string())?;
+    let o = exec(
+        runner,
+        Path::new("."),
+        &[OsStr::new("--version")],
+        Some(VERSION_TIMEOUT),
+    )
+    .map_err(|e| match e {
+        // Раннер є, але не відповідає: текст іде в вердикт `runner-version` (error), не в «не перевірено».
+        RunError::Timeout { seconds, .. } => format!(
+            "раннер не відповів на --version за {seconds} с, процес убито: {}",
+            runner.display()
+        ),
+        other => other.to_string(),
+    })?;
     parse_version(&o.stdout).ok_or_else(|| {
         format!(
             "Раннер {} на --version відповів не рядком 'v8-runner <версія>': код виходу {}, вивід: {} {}",

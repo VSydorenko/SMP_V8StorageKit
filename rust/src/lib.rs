@@ -1,15 +1,23 @@
 // Бібліотечна частина крейта kit: модулі, які перевіряють інтеграційні тести rust/tests/ (тест бінарного
 // крейта не може імпортувати його модулі). Перенесені команди беруть їх звідси.
 
+// Аудит репозиторію-споживача `kit check` (блок B3).
+pub mod case_guard;
+pub mod ceiling;
+pub mod check;
+
 // Розбір сирих аргументів команди — та сама форма, що `ConvertFrom-KitArguments` (tools/lib/KitCli.psm1).
 pub mod cli;
 pub mod config;
 pub mod gh;
 pub mod git;
+pub mod hooks;
 pub mod proc;
 pub mod profile;
 pub mod runner;
 pub mod session_board;
+pub mod storage_branch;
+pub mod supply;
 pub mod unica;
 
 /// Хук паніки всього `kit.exe` (спека §6, ADR-0014): невиловлена паніка друкує сталий текст без payload і місця.

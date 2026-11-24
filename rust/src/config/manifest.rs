@@ -118,20 +118,45 @@ pub(crate) fn assert_entry_has_value(
 /// Шлях сховища має форму шляху сховища: `X:\…`, `\\…`, `tcp://…`, `http://…`, `https://…`. Правило-властивість:
 /// пароль, що потрапив у поле шляху через друкарську помилку, формі не відповідає й відхиляється без друку.
 pub(crate) fn assert_storage_path_form(path: &str, where_: &str) -> Result<(), ConfigError> {
-    let lower = path.to_lowercase();
     let mut chars = path.chars();
     let drive = matches!((chars.next(), chars.next(), chars.next()), (Some(a), Some(':'), Some('\\')) if a.is_ascii_alphabetic());
-    let ok = drive
-        || path.starts_with("\\\\")
-        || ["tcp://", "http://", "https://"]
-            .iter()
-            .any(|p| lower.starts_with(p));
+    let ok = drive || path.starts_with("\\\\") || is_server_storage_path(path);
     if ok {
         return Ok(());
     }
     Err(ConfigError::new(format!(
         "{where_} — шлях сховища має форму абсолютного шляху з диском (X:\\…), UNC (\\\\сервер\\…) або адреси tcp://…, http://…, https://… (значення не друкується). {HINT}"
     )))
+}
+
+/// Схеми серверних адрес шляху сховища: `tcp://`, `http://`, `https://`.
+const SERVER_SCHEMES: [&str; 3] = ["tcp://", "http://", "https://"];
+
+/// Чи шлях сховища — серверна адреса (`tcp://`, `http://`, `https://`, без регістру), а не каталог: доступність
+/// такого сховища файловою пробою не перевіряється.
+pub fn is_server_storage_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    SERVER_SCHEMES.iter().any(|p| lower.starts_with(p))
+}
+
+/// Шлях сховища для будь-якого тексту kit: без userinfo (`scheme://***@host/…`). Форма шляху (`tcp://user:pass@h`)
+/// пропускає облікові дані в адресі, тож друкується лише ця маска. Усе від `://` до ОСТАННЬОГО `@` вважається
+/// userinfo (пароль може містити `/`): надлишкове маскування безпечне, недостатнє — витік.
+pub fn mask_storage_path(path: &str) -> String {
+    let Some(at) = path.find("://") else {
+        return path.to_string();
+    };
+    let start = at.saturating_add(3);
+    let (Some(scheme), Some(rest)) = (path.get(..start), path.get(start..)) else {
+        return path.to_string();
+    };
+    match rest.rfind('@') {
+        Some(i) => {
+            let tail = rest.get(i.saturating_add(1)..).unwrap_or_default();
+            format!("{scheme}***@{tail}")
+        }
+        None => path.to_string(),
+    }
 }
 
 pub(crate) fn is_blank(s: &str) -> bool {

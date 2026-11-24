@@ -203,7 +203,7 @@ Describe 'Copy-KitTools — повнота пісочниці' {
     }
 
     It 'check у пісочниці не падає на відсутньому файлі плагіна' {
-        $out = & pwsh -NoProfile -File $script:SandboxKit check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>&1 | Out-String
+        $out = & (Get-KitExe -Kit $script:SandboxKit) check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>&1 | Out-String
         $code = $LASTEXITCODE
         # Клас «щось не скопіювали» має власний почерк: .NET кидає саме такими фразами,
         # і жодна штатна зупинка kit так не звучить.
@@ -275,7 +275,12 @@ Describe 'Контракт кодів — кожен код справжньою
             param([string]$Cwd, [string[]]$Arguments)
             $errFile = Join-Path $TestDrive "codes-err-$([guid]::NewGuid()).txt"
             Push-Location $Cwd
-            try { $out = & pwsh -NoProfile -File $script:Kit @Arguments 2>$errFile; $code = $LASTEXITCODE }
+            try {
+                # check виконує kit.exe сам (блок B3), решту — диспетчер.
+                if ($Arguments[0] -eq 'check') { $out = & (Get-KitExe -Kit $script:Kit) @Arguments 2>$errFile }
+                else { $out = & pwsh -NoProfile -File $script:Kit @Arguments 2>$errFile }
+                $code = $LASTEXITCODE
+            }
             finally { Pop-Location }
             [pscustomobject]@{
                 ExitCode = $code

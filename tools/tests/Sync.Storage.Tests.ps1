@@ -94,7 +94,7 @@ Describe 'kit sync — реальне сховище (перший і повто
     }
 
     It 'kit check після реплею — без помилок' {
-        $out = & pwsh -NoProfile -File $script:Kit check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>&1 | Out-String
+        $out = & (Get-KitExe -Kit $script:Kit) check -RepoRoot $script:Repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0 -Because $out
     }
 }

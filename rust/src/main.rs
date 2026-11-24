@@ -9,7 +9,8 @@
 // Коди (ADR-0014): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
-// Перенесені команди: `session-board` (ADR-0014).
+// Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell; `check.psm1`
+// лишається бібліотекою `session-check` до B4).
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
@@ -24,7 +25,7 @@ mod fingerprint;
 mod session_start;
 mod subagent_start;
 
-use kit::{cli, config, runner, session_board, unica};
+use kit::{check, cli, config, runner, session_board, unica};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -35,6 +36,12 @@ const EMBEDDED_FINGERPRINT: &str = env!("KIT_SOURCE_FINGERPRINT");
 
 /// Прихована підкоманда запобіжника «бінарник = джерело»: не в довідці, не команда для людини.
 const FINGERPRINT_COMMAND: &str = "source-fingerprint";
+
+/// Імена команд — без регістру, як у диспетчері PowerShell (`-notcontains`): інакше `kit.exe Check` пішов би в
+/// `pwsh` і виконав би старий PowerShell-`check` (з сирим шляхом сховища у виводі).
+fn is_command(given: &str, name: &str) -> bool {
+    given.eq_ignore_ascii_case(name)
+}
 
 fn fail(command: &str, message: &str, code: i32) -> ! {
     eprintln!("{command}: ERROR {message}");
@@ -66,6 +73,10 @@ fn print_help(root: Option<&Path>) {
         .collect();
     // Команди, перенесені на Rust, модуля .psm1 не мають.
     names.push("session-board".to_string());
+    // `check` поки має й модуль .psm1 (бібліотека `session-check`) — без дубля в переліку.
+    if !names.iter().any(|n| n == "check") {
+        names.push("check".to_string());
+    }
     names.sort();
     if !names.is_empty() {
         println!("команди: {}", names.join(", "));
@@ -255,10 +266,85 @@ fn tool_verdicts(args: &[String]) -> i32 {
     0
 }
 
+const CHECK_COMMAND: &str = "check";
+
+/// `kit check [-RepoRoot p] [-Workspace w] [-Source s] [-InstalledPluginsPath p] [-RunnerPath p] [-Quiet]`
+/// (блок B3): префлайт `Mode::Check` → `check::run` → друк. Коди: 0/1/3 — звіт; 2 — помилка виклику;
+/// зупинка префлайту (корінь не існує чи не git) — `check: ERROR …`, код 1, як у диспетчері.
+fn check_command(args: &[String]) -> i32 {
+    let spec = [
+        ("RepoRoot", cli::Kind::Str),
+        ("Workspace", cli::Kind::Str),
+        ("Source", cli::Kind::Str),
+        ("InstalledPluginsPath", cli::Kind::Str),
+        ("RunnerPath", cli::Kind::Str),
+        ("Quiet", cli::Kind::Switch),
+    ];
+    let parsed =
+        cli::parse(args, &spec).unwrap_or_else(|cli::UsageError(m)| fail(CHECK_COMMAND, &m, 2));
+    if parsed.help {
+        println!(
+            "usage: kit check [-InstalledPluginsPath <значення>] [-Quiet] [-RepoRoot <значення>] [-RunnerPath <значення>] [-Source <значення>] [-Workspace <значення>]"
+        );
+        return 0;
+    }
+    if let Some(first) = parsed.positional.first() {
+        fail(
+            CHECK_COMMAND,
+            &format!(
+                "позиційний токен '{first}': команди сховища приймають лише -Ім'я значення і -Прапорець (pwsh -File розщеплює -Ім'я:значення на два токени — пиши -Ім'я значення)"
+            ),
+            2,
+        );
+    }
+    let text = |n: &str| match parsed.named.get(n) {
+        Some(cli::Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let quiet = matches!(parsed.named.get("Quiet"), Some(cli::Value::Switch(true)));
+    let registry = text("InstalledPluginsPath")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(unica::default_registry)
+        .unwrap_or_else(|| {
+            fail(
+                CHECK_COMMAND,
+                "домашню теку не визначено: вкажіть -InstalledPluginsPath",
+                2,
+            )
+        });
+    let repo_root = match text("RepoRoot") {
+        Some(r) => PathBuf::from(r),
+        None => std::env::current_dir()
+            .unwrap_or_else(|e| fail(CHECK_COMMAND, &format!("поточна тека не визначена: {e}"), 1)),
+    };
+    let ctx = config::preflight(&repo_root, config::Mode::Check)
+        .unwrap_or_else(|stop| fail(CHECK_COMMAND, &stop.message, 1));
+    let opts = check::Options {
+        workspace: text("Workspace"),
+        source: text("Source"),
+        registry,
+        runner: text("RunnerPath")
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from),
+    };
+    let report =
+        check::run(&ctx, &opts).unwrap_or_else(|check::UsageError(m)| fail(CHECK_COMMAND, &m, 2));
+    if !quiet {
+        check::print(&report, Path::new(&ctx.repo_root));
+        let _ = std::io::stdout().flush();
+    }
+    report.code
+}
+
 fn main() {
     kit::install_panic_hook();
     let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if raw.first().is_some_and(|a| a == RUNNER_EXEC_COMMAND) {
+    if raw
+        .first()
+        .and_then(|a| a.to_str())
+        .is_some_and(|a| is_command(a, RUNNER_EXEC_COMMAND))
+    {
         exit(runner_exec(&raw[1..]));
     }
     let mut tokens = Vec::new();
@@ -279,13 +365,13 @@ fn main() {
             2,
         );
     };
-    if command == FINGERPRINT_COMMAND {
+    if is_command(&command, FINGERPRINT_COMMAND) {
         exit(source_fingerprint(&tokens[1..]));
     }
-    if command == VERDICTS_COMMAND {
+    if is_command(&command, VERDICTS_COMMAND) {
         exit(tool_verdicts(&tokens[1..]));
     }
-    if command == session_start::COMMAND {
+    if is_command(&command, session_start::COMMAND) {
         // Хук старту сесії (ADR-0014): код 0 завжди, вивід — одним записом або жодного.
         let out = plugin_root()
             .ok()
@@ -298,7 +384,7 @@ fn main() {
         }
         exit(0);
     }
-    if command == subagent_start::COMMAND {
+    if is_command(&command, subagent_start::COMMAND) {
         // Хук SubagentStart: код 0 завжди, вивід — одним записом або жодного (блокувати хук не може).
         let out = plugin_root()
             .ok()
@@ -311,10 +397,13 @@ fn main() {
         }
         exit(0);
     }
-    if command == "config-preflight" {
+    if is_command(&command, "config-preflight") {
         exit(config_preflight(&tokens[1..]));
     }
-    if command == "session-board" {
+    if is_command(&command, CHECK_COMMAND) {
+        exit(check_command(&tokens[1..]));
+    }
+    if is_command(&command, "session-board") {
         // Перенесена команда (ADR-0014): вивід і код — як у PowerShell-версії, байти без перетворень.
         let cwd = std::env::current_dir().unwrap_or_else(|e| {
             fail(
