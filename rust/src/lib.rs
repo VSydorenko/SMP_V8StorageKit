@@ -3,6 +3,7 @@
 
 // Аудит репозиторію-споживача `kit check` (блок B3).
 pub mod case_guard;
+pub mod ceiling;
 pub mod check;
 
 // Розбір сирих аргументів команди — та сама форма, що `ConvertFrom-KitArguments` (tools/lib/KitCli.psm1).

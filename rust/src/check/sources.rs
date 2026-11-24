@@ -12,7 +12,6 @@ use crate::supply::{self, Purpose, RecipeState, State};
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::mpsc;
 use std::time::Duration;
 
 /// Стеля проби каталогу сховища (рішення 4): недоступний мережевий диск не повісить `check`.
@@ -243,6 +242,9 @@ fn supply_checks(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
         ),
     }
 
+    // `.bin` не прочитано — один рядок «не перевірено» на збій читання (рішення 8): стан поставки нижче його не
+    // повторює.
+    let mut bin_unreadable = false;
     match supply::is_described(tree) {
         Ok(true) => {
             // Дві проби: `.cf` і позначка `.kit-bin-sha1` (стан машини, теж не для git) — правило лише на `*.cf` чи з
@@ -267,11 +269,14 @@ fn supply_checks(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
             }
         }
         Ok(false) => {}
-        Err(e) => c.unchecked(
-            "supply",
-            &format!("{tag}: ознаки підтримки '{bin_rel}'"),
-            &e.to_string(),
-        ),
+        Err(e) => {
+            bin_unreadable = true;
+            c.unchecked(
+                "supply",
+                &format!("{tag}: ознаки підтримки '{bin_rel}'"),
+                &e.to_string(),
+            );
+        }
     }
 
     match c.tracked(root, &supply_rel) {
@@ -291,7 +296,7 @@ fn supply_checks(c: &mut Collector, ctx: &Context, tag: &str, src: &Source) {
         ),
     }
 
-    if src.truth != Truth::Storage {
+    if src.truth != Truth::Storage || bin_unreadable {
         return;
     }
     let (state, detail) = match supply::state(tree) {
@@ -329,17 +334,12 @@ fn on_main_branch(root: &Path, main_branch: &str) -> bool {
     })
 }
 
-/// Проба існування каталогу з потоку зі стелею: `None` — не вклався (потік не зупиняється, тож висить, поки ОС не
-/// відповість, але звіт від нього не залежить).
+/// Проба існування каталогу з потоку зі стелею: `None` — не вклався.
 pub(super) fn probe_with_ceiling<F>(path: String, ceiling: Duration, probe: F) -> Option<bool>
 where
     F: FnOnce(&str) -> bool + Send + 'static,
 {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(probe(&path));
-    });
-    rx.recv_timeout(ceiling).ok()
+    crate::ceiling::run(ceiling, move || probe(&path))
 }
 
 /// `storage-path`: каталог сховища (файловий) існує на цій машині. Серверна адреса файлово не пробується (рішення

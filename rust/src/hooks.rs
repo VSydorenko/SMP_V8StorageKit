@@ -18,11 +18,14 @@ use serde_json::Value;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub const HOOKS_DIR: &str = ".githooks";
 pub const HOOK_NAMES: [&str; 2] = ["pre-commit", "pre-merge-commit"];
 const SESSION_HOOK: &str = ".claude/hooks/session-start.ps1";
 const SETTINGS: &str = ".claude/settings.json";
+/// Стеля розв'язання абсолютного `core.hooksPath` (мережевий шлях може не відповісти).
+const PATH_CEILING: Duration = Duration::from_secs(5);
 
 /// Результат одного пункту аудиту: знахідка рівня `level` або «не перевірено» (перевірку треба було виконати, а
 /// вона не вдалася).
@@ -55,29 +58,43 @@ pub fn plugin_templates_dir() -> Option<PathBuf> {
 
 /// Шлях `core.hooksPath` за коренем: `./.githooks`, `.githooks/`, абсолютний шлях до тієї самої теки — та сама
 /// тека. Порівняння без регістру (NTFS).
-fn hooks_path_is_default(root: &Path, configured: &str) -> bool {
+///
+/// `Err` — абсолютний шлях не вдалося розв'язати за стелю (недоступний UNC-хост): `canonicalize` ходить у мережу,
+/// тож іде з потоку зі стелею. Спершу — порівняння рядків (збіг не потребує мережі).
+fn hooks_path_is_default(
+    root: &Path,
+    configured: &str,
+    ceiling: Duration,
+    canon: fn(&Path) -> io::Result<PathBuf>,
+) -> Result<bool, String> {
     let unified = configured.replace('\\', "/");
     let mut rel = unified.trim_end_matches('/');
     while let Some(rest) = rel.strip_prefix("./") {
         rel = rest.trim_start_matches('/');
     }
     if rel == HOOKS_DIR {
-        return true;
+        return Ok(true);
     }
     if !Path::new(configured).is_absolute() {
-        return false;
+        return Ok(false);
     }
     let want = root.join(HOOKS_DIR);
-    match (fs::canonicalize(configured), fs::canonicalize(&want)) {
-        (Ok(a), Ok(b)) => fold(&a.to_string_lossy()) == fold(&b.to_string_lossy()),
-        _ => {
-            fold(unified.trim_end_matches('/'))
-                == fold(
-                    want.to_string_lossy()
-                        .replace('\\', "/")
-                        .trim_end_matches('/'),
-                )
-        }
+    let want_text = want.to_string_lossy().replace('\\', "/");
+    if fold(unified.trim_end_matches('/')) == fold(want_text.trim_end_matches('/')) {
+        return Ok(true);
+    }
+    let (configured_path, want_path) = (PathBuf::from(configured), want);
+    let resolved = crate::ceiling::run(ceiling, move || {
+        (canon(&configured_path), canon(&want_path))
+    });
+    match resolved {
+        None => Err(format!(
+            "шлях core.hooksPath не розв'язався за {} с",
+            ceiling.as_secs().max(1)
+        )),
+        Some((Ok(a), Ok(b))) => Ok(fold(&a.to_string_lossy()) == fold(&b.to_string_lossy())),
+        // Не розв'язується (шляху немає) — не та сама тека.
+        Some(_) => Ok(false),
     }
 }
 
@@ -112,13 +129,15 @@ pub fn audit(root: &Path, templates: Option<&Path>) -> Vec<Outcome> {
     match query(root, &["config", "--get", "core.hooksPath"], &[0, 1]) {
         Ok(o) => {
             let configured = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !hooks_path_is_default(root, &configured) {
-                out.push(finding(
+            match hooks_path_is_default(root, &configured, PATH_CEILING, |p| fs::canonicalize(p)) {
+                Ok(true) => {}
+                Err(reason) => out.push(unchecked("core.hooksPath", reason)),
+                Ok(false) => out.push(finding(
                     Level::Error,
                     format!(
                         "core.hooksPath не вказує на {HOOKS_DIR} (зараз: '{configured}') — хуки захисту storage/* не працюють. Увімкнути: git config core.hooksPath {HOOKS_DIR} (скіл onboarding робить це сам)."
                     ),
-                ));
+                )),
             }
         }
         Err(reason) => out.push(unchecked("core.hooksPath", reason)),
@@ -363,4 +382,38 @@ fn has_legacy_command(json: &Value) -> Result<bool, &'static str> {
         }
     }
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hooks_path_is_default;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
+
+    fn hang(_: &Path) -> io::Result<PathBuf> {
+        std::thread::sleep(Duration::from_secs(3));
+        Ok(PathBuf::new())
+    }
+
+    fn same(p: &Path) -> io::Result<PathBuf> {
+        Ok(p.to_path_buf())
+    }
+
+    // Стеля розв'язання абсолютного `core.hooksPath`: недоступний мережевий шлях не вішає `check`; збіг рядків
+    // мережі не потребує, а розв'язання, що вклалось, дає відповідь.
+    #[test]
+    fn absolute_hooks_path_resolution_has_a_ceiling_and_string_match_skips_it() {
+        let root = Path::new("C:\\repo");
+        let started = Instant::now();
+        let r = hooks_path_is_default(root, r"\\srv\share\h", Duration::from_millis(100), hang);
+        assert!(r.is_err_and(|e| e.contains("не розв'язався")));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        // Збіг рядків — без звернення до розв'язувача (той висів би).
+        let r = hooks_path_is_default(root, "C:/repo/.githooks/", Duration::from_millis(100), hang);
+        assert_eq!(r, Ok(true));
+        // Розв'язувач вклався: різні теки — «ні».
+        let r = hooks_path_is_default(root, "C:\\other", Duration::from_secs(5), same);
+        assert_eq!(r, Ok(false));
+    }
 }

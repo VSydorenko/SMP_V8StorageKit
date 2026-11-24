@@ -25,6 +25,19 @@ function script:ConvertTo-ParityConnection([string]$Connection) {
     }
 }
 
+# Маска userinfo шляху сховища — те саме правило, що `config::mask_storage_path` у Rust: усе від `://` до ОСТАННЬОГО `@`
+# замінюється на `***`. PowerShell-продукт друкує шлях сирим (відома відмінність, виправлений дефект Rust).
+function script:ConvertTo-ParityStoragePath($Path) {
+    if ($null -eq $Path) { return $null }
+    $text = [string]$Path
+    $i = $text.IndexOf('://', [System.StringComparison]::Ordinal)
+    if ($i -lt 0) { return $text }
+    $rest = $text.Substring($i + 3)
+    $at = $rest.LastIndexOf('@')
+    if ($at -lt 0) { return $text }
+    $text.Substring(0, $i + 3) + '***@' + $rest.Substring($at + 1)
+}
+
 # Узагальнений обхід усіх властивостей: ім'я -> camelCase; секретні імена (за переліком) -> ознака «задано».
 # Словник без правила проєкції — виняток (нове поле-словник з одного боку не мусить пройти непоміченим).
 function script:ConvertTo-ParityTree {
@@ -51,6 +64,7 @@ function script:ConvertTo-ParityTree {
             $out[(ConvertTo-ParityKey $name)] = @($items)
             continue
         }
+        if ($name -eq 'StoragePath' -or $full -eq 'Overlay.Storages.Path') { $out[(ConvertTo-ParityKey $name)] = ConvertTo-ParityStoragePath $v; continue }
         if ($name -like '*Password') { $out[(ConvertTo-ParityKey $name) + 'Set'] = -not [string]::IsNullOrEmpty([string]$v); continue }
         if ($name -eq 'Dbms') { $out['dbmsSet'] = ($null -ne $v); continue }
         if ($name -eq 'Providers') { $out['providersSet'] = ($null -ne $v); continue }

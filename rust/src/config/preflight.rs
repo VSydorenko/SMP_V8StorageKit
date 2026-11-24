@@ -23,6 +23,7 @@ use super::agent_base::{
     dev_base_overlaps as overlaps_of, resolve_agent_base, workspace_needs_agent_base as needs_of,
 };
 use super::connection::{self, Connection, assert_secret_quote_free};
+use super::manifest::mask_storage_path;
 use super::manifest::{Manifest, ProductKind, read_manifest};
 use super::overlay::{Overlay, read_overlay};
 use super::v8project::{
@@ -634,7 +635,7 @@ fn mask_source(s: &Source) -> Value {
         "path": s.path,
         "repoPath": s.repo_path,
         "fullPath": s.full_path,
-        "storagePath": s.storage_path,
+        "storagePath": s.storage_path.as_deref().map(mask_storage_path),
         "storageUser": s.storage_user,
         "storagePasswordSet": !s.storage_password.is_empty(),
         "dumpFrom": s.dump_from,
@@ -646,7 +647,7 @@ fn mask_overlay(o: &Overlay) -> Value {
     json!({
         "path": o.path.to_string_lossy(),
         "infobases": o.infobases.iter().map(|i| json!({ "name": i.name, "connection": mask_connection(&i.connection), "user": i.user })).collect::<Vec<_>>(),
-        "storages": o.storages.iter().map(|s| json!({ "key": s.key, "path": s.path, "user": s.user, "passwordSet": s.password.as_ref().is_some_and(|p| !p.is_empty()) })).collect::<Vec<_>>(),
+        "storages": o.storages.iter().map(|s| json!({ "key": s.key, "path": s.path.as_deref().map(mask_storage_path), "user": s.user, "passwordSet": s.password.as_ref().is_some_and(|p| !p.is_empty()) })).collect::<Vec<_>>(),
         "workspaces": o.workspaces.iter().map(|w| json!({ "path": w.path, "agentBaseTemplate": w.agent_base_template })).collect::<Vec<_>>(),
     })
 }

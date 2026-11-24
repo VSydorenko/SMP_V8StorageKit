@@ -2113,3 +2113,20 @@ fn hook_shim_legacy_settings_shim_file_not_json_structure_and_unreadable() {
     );
     assert_eq!(r.code, 3, "{:?}", r.findings);
 }
+
+#[test]
+fn supply_state_is_one_line_when_the_bin_is_unreadable() {
+    // Рішення 8: збій читання `.bin` — один рядок «не перевірено» про поставку, а не два.
+    let h = healthy("supply-once");
+    supply_fixture(&h, true);
+    write_file(&h.root, &format!("{SUPPLY}/a.cf"), "cf");
+    write_file(&h.root, &format!("{SUPPLY}/.kit-bin-sha1"), "0000");
+    let _lock = lock_file(&h.root.join("ws/cf/Ext/ParentConfigurations.bin"));
+    let r = run_h(&h);
+    let lines: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.message.contains("поставк"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{:?}", r.findings);
+}
