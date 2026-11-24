@@ -243,6 +243,25 @@ Describe 'секрети не у виводі' {
             # Contains, не -BeLike: `*` у шаблоні збіглась би з будь-чим, і маска лишилась би неперевіреною.
             $out.Contains('tcp://***@host/x') | Should -BeTrue -Because $out
         }
+        It 'пароль у userinfo шляху сховища «<Scheme>://user:МАРКЕР@host/x» — ні в stdout, ні в stderr kit.exe session-check (текст і -AsJson); рядок джерела друкується' -TestCases @(
+            foreach ($scheme in 'tcp', 'http') { foreach ($more in @(@{ M = @() }, @{ M = @('-AsJson') })) { @{ Scheme = $scheme; More = $more.M } } }
+        ) {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive ("h6-$Scheme-" + [guid]::NewGuid().ToString('N').Substring(0, 6))) -WithHooks -WithGitattributes -WithGitignore -OverlayText "storages:`n  Alpha_SMB: '${Scheme}://user:MARKZ9МАРКЗ9@host/x'"
+            $errFile = Join-Path $TestDrive ("h6-err-$Scheme.txt")
+            $out = & (Get-KitExe -Kit $script:Kit) session-check -RepoRoot $repo -InstalledPluginsPath (New-KitFakeUnicaRegistry) -RunnerPath (Join-Path $PSScriptRoot 'fixtures/runner/v8-runner.cmd') @More 2>$errFile | Out-String
+            $err = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw -Encoding UTF8 } else { '' }
+            foreach ($m in 'MARKZ9', 'МАРКЗ9') {
+                $out | Should -Not -BeLike "*$m*"
+                $err | Should -Not -BeLike "*$m*"
+            }
+            # Тест не зеленіє від мовчання: сигнал джерела надруковано (для tcp/http — «серверне сховище»).
+            if ($More -contains '-AsJson') { @($out | ConvertFrom-Json)[0].NewInStorageReason | Should -Be 'server' }
+            else { $out | Should -BeLike '*- Alpha_SMB: серверне сховище:*' }
+        }
+        It 'контроль маркера: вивід, у який маркер потрапив, перевірку не проходить' {
+            $leaked = "- Alpha_SMB: сховище недоступне (каталог недоступний: tcp://user:MARKZ9МАРКЗ9@host/x)"
+            { $leaked | Should -Not -BeLike '*MARKZ9*' } | Should -Throw
+        }
     }
 
     Context '(в) Usr/Pwd у підключенні дев-бази людини з накладки' {

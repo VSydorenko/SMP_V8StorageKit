@@ -26,6 +26,15 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         (Get-KitFakePwsh -Kit $script:Kit).Marker | Should -Not -Exist
     }
 
+    # session-check виконує kit.exe сам (блок B4): та сама гарантія фікстури, що для check.
+    It 'session-check через фікстуру не запускає pwsh (маркера немає); звичайний звіт, а не помилка диспетчера' {
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'marker-session-check') -WithHooks -WithGitattributes -WithGitignore
+        $r = Invoke-KitCommand -Kit $script:Kit -Command 'session-check' -Repo $repo
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -BeLike 'session-check — product Fake*'
+        (Get-KitFakePwsh -Kit $script:Kit).Marker | Should -Not -Exist
+    }
+
     It 'контроль маркера: неперенесена команда через ТОЙ САМИЙ kit.exe і PATH запускає фальшивий pwsh — маркер є' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'marker-control') -WithHooks -WithGitattributes -WithGitignore
         $fake = Get-KitFakePwsh -Kit $script:Kit
@@ -73,6 +82,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
         It 'маршрут <Route> у формі <Given> не падає в диспетчер PowerShell (маркера немає), код і вивід — як у малих літер' -ForEach @(
             @{ Route = 'check'; Given = 'Check'; Rest = @('-Help') }
             @{ Route = 'check'; Given = 'CHECK'; Rest = @('-Help') }
+            @{ Route = 'session-check'; Given = 'Session-Check'; Rest = @('-Help') }
             @{ Route = 'session-start'; Given = 'Session-Start'; Rest = @() }
             @{ Route = 'subagent-start'; Given = 'SUBAGENT-START'; Rest = @() }
             @{ Route = 'session-board'; Given = 'Session-Board'; Rest = @() }
@@ -86,7 +96,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
             $lower = Invoke-WithFakePwsh (@($Route) + $Rest)
             $lower.Launched | Should -BeFalse
             $mixed.ExitCode | Should -Be $lower.ExitCode
-            if ($Route -in 'check', 'tool-verdicts', 'runner-exec') { $mixed.Output | Should -Be $lower.Output }
+            if ($Route -in 'check', 'session-check', 'tool-verdicts', 'runner-exec') { $mixed.Output | Should -Be $lower.Output }
         }
         It 'контроль: неперенесена команда в іншому регістрі (Verify) іде в pwsh — маркер є' {
             (Invoke-WithFakePwsh @('Verify', '-RepoRoot', $script:CaseRepo)).Launched | Should -BeTrue

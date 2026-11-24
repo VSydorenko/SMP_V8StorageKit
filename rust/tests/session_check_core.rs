@@ -649,3 +649,46 @@ fn mirror_tip_without_a_numeric_version_is_a_git_problem() {
     let problem = snapshot(&tmp.0, "storage/k", "main").unwrap_err();
     assert!(problem.0.contains("Storage-Version"), "{problem}");
 }
+
+#[test]
+fn missing_commit_object_of_the_mirror_is_a_git_problem_not_a_missing_ref() {
+    // `rev-parse --verify --quiet <ref>^{commit}` на відсутньому об'єкті мовчить із кодом 1 — зламане дзеркало
+    // виглядало б як «гілки немає» (порада `kit sync -Apply` будує другу історію). Знімок мусить дати GitProblem.
+    let tmp = TempDir::new("snap-missing-object");
+    repo_with_mirror(&tmp.0, 1);
+    let tip = git_out(&tmp.0, &["rev-parse", "storage/k"]);
+    assert!(snapshot(&tmp.0, "storage/k", "main").is_ok());
+    let object = tmp
+        .0
+        .join(".git")
+        .join("objects")
+        .join(&tip[..2])
+        .join(&tip[2..]);
+    // Файли об'єктів git лише для читання (Windows не дає їх видалити); тека — тимчасова, прав на Unix не торкаємось.
+    #[allow(clippy::permissions_set_readonly_false)]
+    fn make_writable(path: &Path) {
+        let mut perm = std::fs::metadata(path).unwrap().permissions();
+        perm.set_readonly(false);
+        std::fs::set_permissions(path, perm).unwrap();
+    }
+    make_writable(&object);
+    std::fs::remove_file(&object).unwrap();
+    let problem = snapshot(&tmp.0, "storage/k", "main").unwrap_err();
+    assert!(problem.0.contains("bad object"), "{problem}");
+}
+
+#[test]
+fn json_dates_follow_powershell_convertto_json() {
+    // 2026-01-10T08:00:00Z без дробу; з дробом — рівно 7 цифр, включно з нулями наприкінці.
+    let base = ticks::parse_iso("2026-01-10T08:00:00Z").unwrap();
+    assert_eq!(ticks::format_iso(base), "2026-01-10T08:00:00Z");
+    assert_eq!(
+        ticks::format_iso(base + 1_234_567),
+        "2026-01-10T08:00:00.1234567Z"
+    );
+    assert_eq!(
+        ticks::format_iso(base + 1_200_000),
+        "2026-01-10T08:00:00.1200000Z"
+    );
+    assert_eq!(ticks::format_iso(base + 1), "2026-01-10T08:00:00.0000001Z");
+}

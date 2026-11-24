@@ -385,10 +385,10 @@ function Invoke-KitCommand {
     if ($Command -in @('check', 'session-check') -and (@($More) -notcontains '-RunnerPath')) {
         $cmdArgs.Add('-RunnerPath'); $cmdArgs.Add((Join-Path $PSScriptRoot 'runner/v8-runner.cmd'))
     }
-    if ($Command -eq 'check') {
-        # check виконує сам kit.exe (блок B3): диспетчер його більше не отримує. Бінарник — із копії Copy-KitTools
+    if ($Command -in @('check', 'session-check')) {
+        # check (блок B3) і session-check (блок B4) виконує сам kit.exe: диспетчер їх більше не отримує. Бінарник — із копії Copy-KitTools
         # (bin/kit.exe поруч із tools/), ніколи не `kit` з PATH. Фальшивий pwsh.exe першим у PATH лишає маркер,
-        # якщо check усе ж запустить pwsh: тоді виклик падає, а не мовчки лишається на PowerShell.
+        # якщо команда усе ж запустить pwsh: тоді виклик падає, а не мовчки лишається на PowerShell.
         $exe = Get-KitExe -Kit $Kit
         $fake = Get-KitFakePwsh -Kit $Kit
         Remove-Item -LiteralPath $fake.Marker -Force -ErrorAction SilentlyContinue
@@ -403,7 +403,7 @@ function Invoke-KitCommand {
             if ($null -eq $savedMarker) { Remove-Item Env:FAKE_PWSH_MARKER -ErrorAction SilentlyContinue } else { $env:FAKE_PWSH_MARKER = $savedMarker }
         }
         if (Test-Path -LiteralPath $fake.Marker) {
-            throw "kit.exe check запустив pwsh (маркер $($fake.Marker)): $(Get-Content -LiteralPath $fake.Marker -Raw)"
+            throw "kit.exe $Command запустив pwsh (маркер $($fake.Marker)): $(Get-Content -LiteralPath $fake.Marker -Raw)"
         }
         return [pscustomobject]@{ ExitCode = $code; Output = $out }
     }

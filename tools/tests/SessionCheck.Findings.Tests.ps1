@@ -49,6 +49,20 @@ Describe 'kit session-check — сигнал без платформи' {
         @($json)[0].NewInStorage | Should -BeTrue
     }
 
+    # Рішення 15 плану B4: JSON — типізована структура, порядок полів — порядок оголошення, як у PowerShell. Порядок
+    # перевіряється на СИРОМУ тексті (розібраний об'єкт його не показує); дати — як ConvertTo-Json PowerShell: ISO UTC
+    # з Z, а дріб — рівно 7 цифр і лише коли він ненульовий.
+    It '-AsJson: поля сигналу йдуть у порядку PowerShell (сирий текст); дати — ISO UTC з Z, 7 цифр дробу лише коли він є' {
+        $mtime = $script:Old.ToUniversalTime().AddTicks(1234567)
+        $s = New-FakeStorage -Name 'json-raw' -ObjectsWrite $mtime -DbWrite $script:Old
+        $r = Invoke-SessionCheck -Repo (New-Repo -Name 'json-raw' -StoragePath $s -MirrorDate $script:Old -Merge) -More @('-AsJson')
+        $topLevel = @([regex]::Matches($r.Output, '(?m)^    "(\w+)":') | ForEach-Object { $_.Groups[1].Value })
+        $topLevel -join ',' | Should -BeExactly 'Key,Branch,MirrorExists,LastMirrorDate,StorageWrite,NewInStorage,NewInStorageReason,UnmergedCommits,Accessible,GitProblem,Text,OriginGap'
+        $r.Output | Should -Match '"LastMirrorDate": "\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"'
+        $expected = $mtime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff", [cultureinfo]::InvariantCulture) + 'Z'
+        $r.Output | Should -Match ('"StorageWrite": "' + [regex]::Escape($expected) + '"')
+    }
+
     # Недоступність сховища раніше "з'їдала" сигнал незлитих комітів — текст
     # згадував ЛИШЕ недоступність, хоч $unmerged рахувався незалежно від Accessible і код виходу
     # вже на нього дивився. Сценарій: ноутбук поза мережею, а на дзеркалі є незлитий коміт —

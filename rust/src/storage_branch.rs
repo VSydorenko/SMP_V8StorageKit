@@ -236,11 +236,13 @@ pub fn invariants(root: &Path, branch: &str, source_key: &str, repo_path: &str) 
 // --- Перенесене для `session-check` (B4, рішення 23 плану). PowerShell-копії лишаються: їх кличуть `sync`/`adopt`.
 // Усі запити розрізняють «так», «ні» і «git відповів збоєм» (збій — `Err` з дослівним stderr).
 
-/// SHA коміту, на який указує повне ім'я рефа (`refs/heads/…`, `refs/remotes/…`): `Some` — є, `None` — немає,
+/// SHA, на який указує повне ім'я рефа (`refs/heads/…`, `refs/remotes/…`): `Some` — є, `None` — немає,
 /// `Err` — збій git. Код 1 з повідомленням у stderr (`warning: ignoring broken ref …`) — збій, а не «немає».
 pub fn ref_sha(root: &Path, full_name: &str) -> Result<Option<String>, String> {
-    let spec = format!("{full_name}^{{commit}}");
-    let out = query(root, &["rev-parse", "--verify", "--quiet", &spec], &[0, 1])?;
+    // Без `^{commit}`: з ним `--quiet` ковтає відсутній об'єкт коміту (код 1 без stderr) і зламаний ref виглядав би як
+    // «гілки немає». Відсутній об'єкт покаже перший запит від SHA (`log`, `rev-list`) — збоєм git джерела.
+    let spec = full_name;
+    let out = query(root, &["rev-parse", "--verify", "--quiet", spec], &[0, 1])?;
     if out.code == 1 {
         if out.stderr.iter().all(u8::is_ascii_whitespace) {
             return Ok(None);

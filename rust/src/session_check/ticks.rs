@@ -58,6 +58,18 @@ pub fn format_utc(ticks: i64) -> String {
     )
 }
 
+/// Те, що дає PowerShell `ConvertTo-Json` для `DateTime` у UTC: `yyyy-MM-ddTHH:mm:ssZ`, а коли частка секунди
+/// ненульова, — ще й рівно 7 цифр дробу (`.fffffff`) перед `Z`.
+pub fn format_iso(ticks: i64) -> String {
+    let fraction = (ticks - UNIX_EPOCH_TICKS).rem_euclid(TICKS_PER_SECOND);
+    let base = format_utc(ticks).replacen(' ', "T", 1);
+    if fraction == 0 {
+        format!("{base}Z")
+    } else {
+        format!("{base}.{fraction:07}Z")
+    }
+}
+
 fn digits(b: &[u8], from: usize, n: usize) -> Option<i64> {
     let part = b.get(from..from.checked_add(n)?)?;
     if !part.iter().all(u8::is_ascii_digit) {
