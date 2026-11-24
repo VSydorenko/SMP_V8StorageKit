@@ -39,7 +39,7 @@ const EMBEDDED_FINGERPRINT: &str = env!("KIT_SOURCE_FINGERPRINT");
 const FINGERPRINT_COMMAND: &str = "source-fingerprint";
 
 /// Імена команд — без регістру, як у диспетчері PowerShell (`-notcontains`): інакше `kit.exe Check` пішов би в
-/// `pwsh` і виконав би старий PowerShell-`check` (з сирим шляхом сховища у виводі).
+/// `pwsh` як невідома диспетчеру команда (перенесені команди в диспетчері вже відсутні).
 fn is_command(given: &str, name: &str) -> bool {
     given.eq_ignore_ascii_case(name)
 }

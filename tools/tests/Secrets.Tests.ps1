@@ -29,6 +29,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: помилка, маркера немає, рецепт infobases.origin є' -TestCases @(
             @{ Cmd = 'check'; More = @() }
             @{ Cmd = 'provision'; More = @() }
+            @{ Cmd = 'session-check'; More = @() }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoA -More $More
             $r.ExitCode | Should -Not -Be 0
@@ -47,6 +48,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: помилка з Origin, маркера немає' -TestCases @(
             @{ Cmd = 'check' }
             @{ Cmd = 'sync' }
+            @{ Cmd = 'session-check' }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoB
             $r.ExitCode | Should -Not -Be 0
@@ -58,7 +60,7 @@ Describe 'секрети не у виводі' {
 
     Context '(д) "=" у значенні рядка підключення' {
         It '<Cmd>: помилка без значення, маркера немає' -TestCases @(
-            @{ Cmd = 'check' }, @{ Cmd = 'provision' }
+            @{ Cmd = 'check' }, @{ Cmd = 'provision' }, @{ Cmd = 'session-check' }
         ) {
             $repo = New-KitFakeRepo -Root (Join-Path $TestDrive "d-$Cmd") -WithHooks -WithGitattributes -WithGitignore
             Set-KitFakeAgentBase -Repo $repo -Connection 'File=C:\x,Pwd=SECRETI1МАРКЕР-И1'
@@ -299,6 +301,7 @@ Describe 'секрети не у виводі' {
         It '<Cmd>: маркера немає ні в stdout, ні в stderr' -TestCases @(
             @{ Cmd = 'check' }
             @{ Cmd = 'provision' }
+            @{ Cmd = 'session-check' }
         ) {
             $r = Invoke-Kit -Command $Cmd -Repo $script:RepoC
             $r.Output | Should -Not -BeLike '*СЕКРЕТ-Ж7*'

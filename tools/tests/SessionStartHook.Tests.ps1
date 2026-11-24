@@ -354,6 +354,20 @@ class FakePwsh { static int Main(string[] a) {
             if ($Mask) { $ctx.Contains($Mask) | Should -BeTrue -Because $ctx }
         }
 
+        It 'Usr/Pwd у рядку підключення бази агента (клас (а)) не з''являються в контексті хука; рецепт є' {
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'repo-secret-a') -WithHooks -WithGitattributes -WithGitignore
+            Set-KitFakeAgentBase -Repo $repo -Connection 'File=build/ib;Usr=agent;Pwd=SECRETZ7СЕКРЕТ-Ж7'
+            $r = Invoke-Hook -ProjectDir $repo
+            $r.ExitCode | Should -Be 0
+            foreach ($m in 'SECRETZ7', 'СЕКРЕТ-Ж7', 'Pwd=') {
+                $r.Output | Should -Not -BeLike "*$m*"
+                $r.Err | Should -Not -BeLike "*$m*"
+            }
+            # Позитивна асерція: помилку підключення дійшло до контексту (без неї відсутність маркера нічого б не доводила).
+            $ctx = ($r.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+            $ctx | Should -BeLike '*задаються ключами user і password в infobases.origin*' -Because $ctx
+        }
+
         It 'контроль маркера: контекст, у який маркер потрапив, перевірку не проходить' {
             $leaked = '{"hookSpecificOutput":{"additionalContext":"- Alpha_SMB: сховище недоступне (каталог недоступний: tcp://user:MARKZ9МАРКЗ9@host/x)"}}'
             { $leaked | Should -Not -BeLike '*MARKZ9*' } | Should -Throw

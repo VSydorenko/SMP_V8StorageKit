@@ -399,18 +399,22 @@ fn session_check_status(repo: &Path) -> Result<String, String> {
     let repo_arg = repo
         .to_str()
         .ok_or_else(|| format!("шлях {} — не коректний Unicode", repo.display()))?;
-    let exe = std::env::current_exe().map_err(|e| format!("шлях kit.exe не визначено: {e}"))?;
     let out = TempFile::new("out")?;
     let err = TempFile::new("err")?;
-    let mut cmd = Command::new(&exe);
+    let mut cmd = Command::new(
+        std::env::current_exe().map_err(|e| format!("шлях kit.exe не визначено: {e}"))?,
+    );
     cmd.args(kit::session_hook::child_tokens(repo_arg))
         .stdin(Stdio::null())
         .stdout(out.stdio()?)
         .stderr(err.stdio()?);
     std_handles_not_inheritable();
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("{} не запустився: {e}", exe.display()))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        format!(
+            "{} не запустився: {e}",
+            std::path::Path::new(cmd.get_program()).display()
+        )
+    })?;
     // Дескриптори-копії в `cmd` закриваються: файли тримає лише дочірній процес.
     drop(cmd);
 

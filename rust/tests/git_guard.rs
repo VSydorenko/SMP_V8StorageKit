@@ -60,7 +60,7 @@ const ALLOWED_DYNAMIC: &[(&str, &str, &str)] = &[
     ),
     (
         "src/session_start.rs",
-        "&exe",
+        "std::env::current_exe().map_err(|e|format!(\"шлях kit.exe не визначено: {e}\"))?,",
         "хук старту сесії: дочірній session-check — сам kit.exe (current_exe), не з PATH",
     ),
 ];

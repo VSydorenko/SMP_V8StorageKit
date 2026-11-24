@@ -100,11 +100,21 @@ struct HookRun {
     seconds: f64,
 }
 
+/// Власна тека `TEMP`/`TMP` хука: за нею видно, чи прибрано тимчасові файли `kit-session-check-*`.
+fn hook_temp(s: &Setup) -> PathBuf {
+    let dir = s.tmp.0.join("hook-temp");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// Хук до кінця читання його stdout і stderr (EOF), як читає Claude Code: нащадок, що успадкував канал stdout
 /// хука, тримав би читання до власного кінця.
 fn run_hook(s: &Setup, timeout: Option<&str>) -> HookRun {
+    let temp = hook_temp(s);
     let mut cmd = Command::new(&s.exe);
     cmd.arg("session-start")
+        .env("TEMP", &temp)
+        .env("TMP", &temp)
         .current_dir(&s.tmp.0)
         .env("CLAUDE_PROJECT_DIR", &s.repo)
         .env("USERPROFILE", &s.home)
@@ -204,6 +214,16 @@ fn ceiling_kills_the_tree_including_the_grandchild() {
         "контроль: онук справді стартував до стелі, інакше перевірка нижче порожня"
     );
     assert_eq!(still, Some(false), "kill_tree мав убити й онука");
+    let left: Vec<_> = std::fs::read_dir(hook_temp(&s))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("kit-session-check-"))
+        .collect();
+    assert!(
+        left.is_empty(),
+        "тимчасові файли хука не прибрано після вбивства: {left:?}"
+    );
 }
 
 /// Нащадок, що пережив нормальний вихід session-check, не тримає читання виводу хука: власні дескриптори хука

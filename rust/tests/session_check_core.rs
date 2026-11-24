@@ -345,6 +345,16 @@ fn imprint_is_current_only_on_an_untouched_disk() {
     write_file(&storage.join("data/pack/p1.pack"), "pppp", base_time() + 5);
     assert!(current(&repo, "k", &path, 7, &read_storage(&path)));
 
+    // Той самий час, інша довжина .pack — не актуальний.
+    write_file(
+        &storage.join("data/pack/p1.pack"),
+        "pppp-longer",
+        base_time() + 5,
+    );
+    assert!(!current(&repo, "k", &path, 7, &read_storage(&path)));
+    write_file(&storage.join("data/pack/p1.pack"), "pppp", base_time() + 5);
+    assert!(current(&repo, "k", &path, 7, &read_storage(&path)));
+
     // Новий .pack.
     write_file(&storage.join("data/pack/p3.pack"), "n", base_time());
     assert!(!current(&repo, "k", &path, 7, &read_storage(&path)));
