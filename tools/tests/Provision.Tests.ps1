@@ -1,5 +1,9 @@
 #Requires -Version 7
 
+# $PSDefaultParameterValues живе в сесії, а не у файлі: паралельний раннер (-Full) проганяє кілька файлів в одному
+# процесі, і без цього прибирання наступний файл воркера (напр. Check.Storage) отримував основу truth: dump.
+AfterAll { $PSDefaultParameterValues.Remove('New-KitFakeRepo:DefaultConfigTruth') }
+
 Describe 'kit provision — прев''ю і зупинки без платформи' {
     BeforeAll {
         Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
