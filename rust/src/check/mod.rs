@@ -77,7 +77,7 @@ impl Collector {
             .get_or_insert_with(|| gitq::index_files(root))
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(gitq::under_ci(list, path))
+        gitq::under_ci(list, path)
     }
 
     /// Неігноровані файли на диску під шляхом: правило, що «ігнорує» канонічне ім'я, може не ловити файл в іншому
@@ -88,7 +88,7 @@ impl Collector {
             .get_or_insert_with(|| gitq::unignored_files(root))
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(gitq::under_ci(list, path))
+        gitq::under_ci(list, path)
     }
 
     pub fn add(&mut self, level: Level, check: &str, message: impl Into<String>) {

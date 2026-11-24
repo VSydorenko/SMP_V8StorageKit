@@ -1203,3 +1203,98 @@ fn tracked_secret_file_in_another_case_is_still_committed() {
     assert!(l[0].message.contains("вже закомічено"), "{}", l[0].message);
     assert_eq!(r.code, 1);
 }
+
+#[test]
+fn unignored_file_in_another_case_is_caught_when_rule_ignores_the_canonical_name() {
+    // `core.ignorecase=false`: правило ігнорує канонічне ім'я, а файли на диску в іншому регістрі лишаються
+    // неігнорованими й потрапили б у перший же `git add -A`.
+    let tmp = TempDir::new("unignored");
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["cf", "vd"]);
+    write_manifest(
+        &root,
+        None,
+        &[("ws", &[("cf", "storage"), ("vd", "vendor")])],
+    );
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    git(&root, &["config", "core.ignorecase", "false"]);
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    assert!(
+        by(&r, "overlay-ignored").is_empty()
+            && by(&r, "local-ignored").is_empty()
+            && by(&r, "gitignore").is_empty(),
+        "контроль: без файлів в іншому регістрі знахідок немає: {:?}",
+        r.findings
+    );
+
+    write_file(&root, "V8StorageKit.local.yaml", "infobases: {}\n");
+    write_file(&root, "ws/V8Project.local.yaml", "infobases: {}\n");
+    write_file(&root, "ws/VD/Configuration.xml", "<x/>");
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    for (id, text) in [
+        ("overlay-ignored", "не гітігноровано"),
+        ("local-ignored", "не гітігноровано"),
+        ("gitignore", "не гітігноровано (truth: vendor)"),
+    ] {
+        let f = by(&r, id);
+        assert_eq!(f.len(), 1, "{id}: {:?}", r.findings);
+        assert_eq!(f[0].level, Level::Error);
+        assert!(f[0].message.contains(text), "{id}: {}", f[0].message);
+    }
+    assert_eq!(r.code, 1);
+}
+
+/// Воркспейс `ws` з одним source-set `vd` (vendor), шлях якого в `v8project.yaml` — `source_path`.
+fn vendor_with_source_path(tag: &str, source_path: &str) -> (TempDir, PathBuf, PathBuf) {
+    let tmp = TempDir::new(tag);
+    let root = tmp.0.join("repo");
+    init_repo(&root, "main", true);
+    write_workspace(&root, "ws", &["vd"]);
+    write_file(
+        &root,
+        "ws/v8project.yaml",
+        &format!(
+            "providers: {{ push: designer, pull: designer, download: designer }}\nsource-set:\n  - {{ name: vd, type: CONFIGURATION, path: '{source_path}' }}\n"
+        ),
+    );
+    write_manifest(&root, None, &[("ws", &[("vd", "vendor")])]);
+    let (registry, _) = install_unica(&tmp, "user", None, "0.16.0", "0.18.1");
+    (tmp, root, registry)
+}
+
+#[test]
+fn source_path_with_dot_segments_is_normalized_before_matching_the_index() {
+    let (_tmp, root, registry) = vendor_with_source_path("dotpath", "./vd");
+    write_file(&root, "ws/vd/Configuration.xml", "<x/>");
+    git(&root, &["add", "-f", "--", "ws/vd/Configuration.xml"]);
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = by(&r, "gitignore");
+    assert_eq!(f.len(), 1, "{:?}", r.findings);
+    assert!(
+        f[0].message
+            .contains("відстежується git — у ньому 1 файл(ів)"),
+        "{}",
+        f[0].message
+    );
+    assert_eq!(r.code, 1);
+}
+
+#[test]
+fn source_path_escaping_the_repository_is_an_unchecked_guard_error() {
+    let (_tmp, root, registry) = vendor_with_source_path("escape", "../../out");
+    let r = run_check(&root, &opts(&registry)).unwrap();
+    let f = by(&r, "gitignore");
+    assert!(!f.is_empty(), "{:?}", r.findings);
+    assert!(
+        f.iter()
+            .all(|x| x.level == Level::Error && x.message.starts_with("не перевірено: ")),
+        "{f:?}"
+    );
+    assert!(f.iter().all(|x| r.not_checked.contains(x)));
+    assert!(
+        f.iter().any(|x| x.message.contains("виходить за корінь")),
+        "{f:?}"
+    );
+    assert_eq!(r.code, 1);
+}

@@ -1,8 +1,10 @@
 // Запити git для перевірок `check` (рішення 5 плану B3): кожен розрізняє «так», «ні» і «git відповів збоєм»
 // (код поза контрактом команди, git не запустився). Збій — `Err` з дослівним stderr git, а не «немає». Усе —
 // через `git::run_at_root`: від кореня, зі стелею `GIT_CEILING_DIRECTORIES`, тож зламана тека `.git` дає збій,
-// а не відповідь зовнішнього репозиторію. Pathspec ls-files — буквальний (`:(literal)`): `[`, `*`, `?` у шляху
-// воркспейсу чи джерела не змінюють запиту; `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
+// а не відповідь зовнішнього репозиторію. Факт відстеження й неігновані файли беруться списком без pathspec
+// (git звіряє pathspec з урахуванням регістру) і фільтруються в Rust за нормалізованим шляхом без регістру
+// (`under_ci`): `[`, `*`, `?` у шляху — літерали; `.`, `..`, `//` згортаються, вихід за корінь — помилка.
+// `check-ignore`, `check-attr` і `ls-tree` приймають шлях як є.
 
 use crate::case_guard::fold;
 use crate::git;
@@ -55,10 +57,30 @@ pub(super) fn unignored_files(root: &Path) -> Result<Vec<String>, String> {
     Ok(nul_split(&out.stdout))
 }
 
+/// Шлях без сегментів `.` і порожніх, з розгорнутими `..`. `..` понад корінь репозиторію — помилка (fail-closed:
+/// шлях поза репозиторієм перевірити неможливо, а мовчання читалося б як «нічого не відстежується»).
+fn normalized(path: &str) -> Result<String, String> {
+    let mut parts: Vec<&str> = Vec::new();
+    let unified = path.replace('\\', "/");
+    for seg in unified.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(format!("шлях '{path}' виходить за корінь репозиторію"));
+                }
+            }
+            s => parts.push(s),
+        }
+    }
+    Ok(parts.join("/"))
+}
+
 /// Записи списку, що збігаються з шляхом (сам файл чи вміст теки) за юнікодним `OrdinalIgnoreCase`, як у NTFS.
-pub(super) fn under_ci(list: &[String], path: &str) -> Vec<String> {
-    let want = fold(&slashed(path));
-    list.iter()
+pub(super) fn under_ci(list: &[String], path: &str) -> Result<Vec<String>, String> {
+    let want = fold(&normalized(path)?);
+    Ok(list
+        .iter()
         .filter(|e| {
             let f = fold(e);
             f == want
@@ -66,7 +88,7 @@ pub(super) fn under_ci(list: &[String], path: &str) -> Vec<String> {
                     .is_some_and(|rest| rest.starts_with('/'))
         })
         .cloned()
-        .collect()
+        .collect())
 }
 
 /// Чи є в репозиторії `HEAD` (немає — свіжий репозиторій до першого коміту).
