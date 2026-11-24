@@ -1,4 +1,4 @@
-// Чисті функції хука старту сесії (рішення 16 плану B4): токени дочірнього `kit.exe session-check`, стеля часу зі
+// Чисті функції хука старту сесії (ADR-0021 п. 6): токени дочірнього `kit.exe session-check`, стеля часу зі
 // змінної оточення й текст розділу «Стан сховищ» з коду, stdout і stderr дочірнього процесу. Запуск, тимчасові
 // файли й убивство дерева живуть у самому хуку (`src/session_start.rs` бінарника); тут — лише відображення, які
 // перевіряють unit-тести.
@@ -27,7 +27,7 @@ pub fn child_tokens(repo: &str) -> Vec<String> {
     ]
 }
 
-/// Стеля з значення `V8KIT_SESSION_CHECK_TIMEOUT` (рішення 11, 17): ціле `1..=55` — як є; більше — 55;
+/// Стеля з значення `V8KIT_SESSION_CHECK_TIMEOUT` (ADR-0021 п. 6): ціле `1..=55` — як є; більше — 55;
 /// нечисло, порожньо, `≤ 0`, змінної немає (`None`) — 15.
 pub fn timeout_sec(value: Option<&str>) -> u64 {
     let Some(v) = value.map(str::trim) else {
@@ -58,7 +58,7 @@ fn truncate_utf8(s: &str, limit: usize) -> &str {
     &s[..end]
 }
 
-/// Текст розділу «Стан сховищ» (рішення 10). `code` — код виходу `session-check`, `None` — убито на стелі
+/// Текст розділу «Стан сховищ». `code` — код виходу `session-check`, `None` — убито на стелі
 /// `timeout` с. У контекст іде лише `stdout`; `stderr` — лише за неочікуваного коду, обрізаний до 2 КБ.
 pub fn status_text(code: Option<i32>, stdout: &str, stderr: &str, timeout: u64) -> String {
     let out = stdout.trim();

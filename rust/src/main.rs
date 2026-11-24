@@ -9,14 +9,14 @@
 // Коди (ADR-0014): 0 — так; 1 — зупинка; 2 — помилка виклику; 3 — не перевірено; 4 — виконано, є наступний
 // крок. Помилка — перший рядок stderr `<команда>: ERROR …`.
 //
-// Перенесені команди: `session-board` (ADR-0014), `check` (блок B3: аудит репозиторію без PowerShell),
-// `session-check` (блок B4: сигнал сховищ без PowerShell). Модулів `.psm1` вони не мають. Хук старту сесії
+// Перенесені команди: `session-board` (ADR-0014), `check` (аудит репозиторію без PowerShell),
+// `session-check` (сигнал сховищ без PowerShell). Модулів `.psm1` вони не мають. Хук старту сесії
 // кличе `session-check` дочірнім `kit.exe` (current_exe), не диспетчер.
 //
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
 // `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С;
-// `config-preflight` — префлайт конфігурації як JSON із маскою секретів (блок B1, живе, доки живе PowerShell-копія);
+// `config-preflight` — префлайт конфігурації як JSON із маскою секретів (живе, доки живе PowerShell-копія);
 // `runner-exec <шлях раннера> <робоча тека> <аргумент>…` — запуск раннера Уніки для PowerShell до фази 3
 // (ADR-0019): аргументи раннера дослівно, без розбору `cli::parse`, потоки успадковані, код — код раннера;
 // `tool-verdicts [-InstalledPluginsPath p] [-RunnerPath p]` — вердикти версій Уніки й раннера одним JSON
@@ -268,7 +268,7 @@ fn tool_verdicts(args: &[String]) -> i32 {
 const CHECK_COMMAND: &str = "check";
 
 /// `kit check [-RepoRoot p] [-Workspace w] [-Source s] [-InstalledPluginsPath p] [-RunnerPath p] [-Quiet]`
-/// (блок B3): префлайт `Mode::Check` → `check::run` → друк. Коди: 0/1/3 — звіт; 2 — помилка виклику;
+/// префлайт `Mode::Check` → `check::run` → друк. Коди: 0/1/3 — звіт; 2 — помилка виклику;
 /// зупинка префлайту (корінь не існує чи не git) — `check: ERROR …`, код 1, як у диспетчері.
 fn check_command(args: &[String]) -> i32 {
     let spec = [
@@ -339,8 +339,8 @@ fn check_command(args: &[String]) -> i32 {
 const SESSION_CHECK_COMMAND: &str = "session-check";
 
 /// `kit session-check [-RepoRoot p] [-Workspace w] [-Source s] [-AsJson] [-InstalledPluginsPath p] [-RunnerPath p]`
-/// (блок B4): префлайт `Mode::Lenient` → `check::run` → сигнали джерел `truth: storage`. Коди — шапка модуля
-/// `session_check::command`; виклик (рішення 18): невідомий параметр (зокрема `-Apply`) — 2, `-Help` — 0, корінь не
+/// префлайт `Mode::Lenient` → `check::run` → сигнали джерел `truth: storage`. Коди — шапка модуля
+/// `session_check::command`; виклик: невідомий параметр (зокрема `-Apply`) — 2, `-Help` — 0, корінь не
 /// існує чи не git — `session-check: ERROR …`, код 1.
 fn session_check_command(args: &[String]) -> i32 {
     const NAME: &str = SESSION_CHECK_COMMAND;

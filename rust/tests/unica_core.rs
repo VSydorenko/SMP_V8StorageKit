@@ -1,5 +1,5 @@
 // Тести модуля `unica` (ADR-0019): семантика реєстру (регістр імені, одиночний запис і масив, BOM), вибір запису
-// (рішення 4 плану B2) і таблиці вердиктів з тими самими рядками й текстами, що в Pester
+// (ADR-0021 п. 7) і таблиці вердиктів з тими самими рядками й текстами, що в Pester
 // (tools/tests/Environment.Tests.ps1, Runner.Tests.ps1). Лише фальшиві реєстри й фальшивий раннер.
 
 use kit::unica::{self, Level};
@@ -158,7 +158,7 @@ fn registry_and_disk_may_disagree() {
     assert_eq!(i.reason, "Запис про 'unica' є, але без installPath");
 }
 
-// ---- Вибір запису (рішення 4) ----
+// ---- Вибір запису ----
 
 #[test]
 fn foreign_project_entry_first_is_not_chosen() {

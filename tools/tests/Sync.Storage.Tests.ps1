@@ -106,7 +106,7 @@ Describe 'kit sync — сховище КОНФІГУРАЦІЇ (без -Extensio
         $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
         # Найменше живе сховище конфігурації — знайдене спайком:
         # КормЦентр_DEV, 1cv8ddb.1CD = 1,27 МБ. Обхід змінною середовища — щоб підставити інше
-        # сховище без правки тесту (рішення архітектора).
+        # сховище без правки тесту.
         $script:CfgStorage = if ($env:V8KIT_CFG_STORAGE) { $env:V8KIT_CFG_STORAGE } else { 'R:\СховищаКонфігурацій_1С\КормЦентр_DEV' }
         $ws = [ordered]@{ 'Client_UNF' = @{ Infobase = 'File=build/ib'; Sets = @(@{ Name = 'base'; Type = 'CONFIGURATION'; Path = 'cf/src' }) } }
         $manifest = @('version: 1', 'client: Client', 'workspaces:', '  - path: Client_UNF', '    sources:',

@@ -1,5 +1,5 @@
-// Тести модуля `check` (блок B3, задача 1): коди 0/1/2/3, машина (`unica-version`, `runner-version`, стеля
-// `version`), зведення маніфесту, `agent-base-required`, `main-branch`, `unique-keys`, `undeclared-source`.
+// Тести модуля `check` (коди 0/1/2/3, машина (`unica-version`, `runner-version`, стеля
+// `version`), зведення маніфесту, `agent-base-required`, `main-branch`, `unique-keys`, `undeclared-source`).
 // Лише синтетичні репозиторії (справжній git у тимчасовій теці), фальшивий реєстр і фальшивий раннер.
 
 use kit::check::{self, Options, Report};
@@ -463,7 +463,7 @@ fn missing_unica_is_reported_only_by_runner_version() {
 
 #[test]
 fn project_scope_unica_is_seen_through_the_repo_root() {
-    // Уніка лише зі scope project, чий projectPath — корінь репозиторію: бачиться (виправлений дефект B2);
+    // Уніка лише зі scope project, чий projectPath — корінь репозиторію: бачиться (виправлений дефект Rust-блоку раннера: `check` не передавав корінь репозиторію в `unica::installation`);
     // з чужим projectPath — не бачиться.
     let h = healthy("scope");
     let (reg, _) = install_unica(&h.tmp, "project", Some(&h.root), "0.16.0", "0.18.1");
@@ -511,7 +511,7 @@ fn explicit_runner_overrides_the_registry() {
     assert!(by(&r, "runner-version").is_empty(), "{:?}", r.findings);
 }
 
-/// Рішення 4: завислий `--version` не вішає check. Контроль, що тест уміє впасти: той самий фальшивий раннер без
+/// Завислий `--version` не вішає check. Контроль, що тест уміє впасти: той самий фальшивий раннер без
 /// стелі спав би 60 с (перевіряється тут же прямим `exec` зі стелею 1 с: без стелі в `version` тест червоний).
 #[test]
 fn hanging_runner_version_is_cut_by_the_ceiling() {
@@ -791,7 +791,7 @@ fn broken_nested_git_dir_does_not_fall_through_to_the_outer_repository() {
     assert_eq!(r.code, 1, "{:?}", r.findings);
 }
 
-// ---- Задача 2: git-стражі й локальні файли ----
+// ---- git-стражі й локальні файли ----
 
 fn commit(root: &Path, message: &str) {
     // Без хуків репозиторію: тест кладе в коміт фантом регістру, який pre-commit плагіна відхилив би.
@@ -868,7 +868,7 @@ fn healthy_repository_has_no_guard_findings_and_overlay_guard_sees_rule_and_fact
 
 #[test]
 fn overlay_guard_runs_when_the_manifest_is_unread_and_local_guard_for_unresolved_workspace() {
-    // Рішення 6: страж не залежить від розв'язаного контексту.
+    // Страж не залежить від розв'язаного контексту.
     let h = healthy("guards-ctx");
     write_file(&h.root, ".gitignore", "");
     write_file(&h.root, "v8storagekit.yaml", "це: [не маніфест\n");
@@ -1185,7 +1185,7 @@ fn dump_from_overlay_connection_and_broken_overlay() {
             .all(|f| f.level == Level::Warn)
     );
 
-    // Накладка зламана (рішення 7): «накладки немає» не кажемо, звірку позначаємо «не перевірено».
+    // Накладка зламана (ADR-0021 п. 2): «накладки немає» не кажемо, звірку позначаємо «не перевірено».
     write_file(
         &root,
         "v8storagekit.local.yaml",
@@ -1449,7 +1449,7 @@ fn source_path_escaping_the_repository_is_an_unchecked_guard_error() {
     assert_eq!(r.code, 1);
 }
 
-// ---- Задача 3: поставка, сховище, `storage/*`, `config-name`, хуки ----
+// ---- поставка, сховище, `storage/*`, `config-name`, хуки ----
 
 fn git_stdin(dir: &Path, args: &[&str], stdin: &str) -> String {
     use std::io::Write;
@@ -2123,7 +2123,7 @@ fn hooks_missing_plugin_template_and_git_failure_are_unchecked() {
 
 #[test]
 fn hooks_and_hook_shim_run_when_the_manifest_is_unread() {
-    // Рішення 6: страж не залежить від розв'язаного контексту.
+    // Страж не залежить від розв'язаного контексту.
     let h = healthy("hooks-ctx");
     write_file(&h.root, "v8storagekit.yaml", "це: [не маніфест\n");
     git(&h.root, &["config", "--unset", "core.hooksPath"]);
@@ -2220,7 +2220,7 @@ fn hook_shim_legacy_settings_shim_file_not_json_structure_and_unreadable() {
 
 #[test]
 fn supply_state_is_one_line_when_the_bin_is_unreadable() {
-    // Рішення 8: збій читання `.bin` — один рядок «не перевірено» про поставку, а не два.
+    // Збій читання `.bin` — один рядок «не перевірено» про поставку, а не два.
     let h = healthy("supply-once");
     supply_fixture(&h, true);
     write_file(&h.root, &format!("{SUPPLY}/a.cf"), "cf");
@@ -2235,7 +2235,7 @@ fn supply_state_is_one_line_when_the_bin_is_unreadable() {
     assert_eq!(lines.len(), 1, "{:?}", r.findings);
 }
 
-// Мережеві проби паралельно (рішення архітектора, п. 7 доповнення задачі 4): `run` стартує їх заздалегідь — проби
+// Мережеві проби паралельно (ADR-0021 п. 6): `run` стартує їх заздалегідь — проби
 // каталогу кожного джерела `truth: storage` і розв'язання абсолютного `core.hooksPath`. Шов `Probes` підставляє
 // повільні проби; без prefetch у `run` проби йшли б послідовно в порядку перевірок.
 
@@ -2320,7 +2320,7 @@ fn run_starts_network_probes_ahead_and_keeps_finding_order() {
     );
 }
 
-// Рішення архітектора (приймання PR #124): мережева проба, що не вклалась у стелю, — відповідь «недоступно з цієї
+// ADR-0021 п. 2: мережева проба, що не вклалась у стелю, — відповідь «недоступно з цієї
 // машини» (warn, код 0), а не «не перевірено» (код 3): повтор на такій машині нічого б не змінив.
 fn hanging_dir_exists(_: &str) -> bool {
     std::thread::sleep(Duration::from_secs(7));

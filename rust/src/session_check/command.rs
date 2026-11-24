@@ -4,9 +4,9 @@
 // нічого не означає); знахідки стану машини (Уніка, її раннер) сигналів не блокують і друкуються поряд із ними.
 // Далі для кожного джерела `truth: storage` — сигнал (`signal::compute`): усі читання сховищ стартують разом
 // (`start_reading`, кожне зі стелею 5 с), а рядок джерела друкується, щойно його читання готове, у порядку
-// маніфесту (рішення 8, 24 плану B4); `next:` — останнім.
+// маніфесту; `next:` — останнім.
 //
-// Коди (рішення 2 плану B4, пріоритет 1 > 3 > 4 > 0): 1 — блокувальна помилка `check` чи `GitProblem` джерела;
+// Коди (ADR-0021 п. 2, пріоритет 1 > 3 > 4 > 0): 1 — блокувальна помилка `check` чи `GitProblem` джерела;
 // 3 — `partial-read` джерела або `check` дав «не перевірено» (стан не зелений); 4 — є крок (`NewInStorage` чи
 // незлиті коміти); 0 — інакше. Серверне сховище (`server`) і сховище, що не відповіло, — стан машини, код 0.
 
@@ -26,7 +26,7 @@ pub struct Options {
 fn header(ctx: &Context) -> String {
     match (&ctx.kind, &ctx.label) {
         (Some(kind), Some(label)) => format!("session-check — {} {label}", kind.as_str()),
-        // Маніфесту не прочитано: без порожнього хвоста «—» (рішення 19).
+        // Маніфесту не прочитано: без порожнього хвоста «—».
         _ => "session-check".to_string(),
     }
 }
@@ -46,7 +46,7 @@ pub fn run(ctx: &Context, opts: &Options, out: &mut dyn Write) -> Result<i32, ch
         .filter(|f| f.level == Level::Error)
         .collect();
     let blocking = errors.iter().any(|f| !is_machine(f));
-    // «Не перевірено» друкується завжди (рішення 1); решта warn — крім `storage-path`: недоступний каталог описує
+    // «Не перевірено» друкується завжди; решта warn — крім `storage-path`: недоступний каталог описує
     // сигнал джерела з порадою про накладку.
     let unchecked = |f: &crate::config::Finding| report.not_checked.contains(f);
     let warns: Vec<_> = report

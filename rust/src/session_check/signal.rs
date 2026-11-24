@@ -1,6 +1,6 @@
 // Сигнал одного джерела `truth: storage` (`kit session-check`): з узгодженого git-знімка, читання сховища й відбитка
 // будується текст рядка, причина `NewInStorageReason`, крок для `next:` і прапорці для кодів виходу. Нічого не друкує
-// й не пише. Поведінка перенесена з PowerShell-версії (видалена в B4; історія git).
+// й не пише. Поведінка перенесена з PowerShell-версії (видалена; історія git).
 //
 // Причини (`NewInStorageReason`): `remote-only` (дзеркала немає локально, є `origin/<гілка>`), `imprint-ahead`
 // (відбиток актуальний, його версія більша за дзеркало), `partial-read` (обхід сховища дістав помилку читання —
@@ -8,7 +8,7 @@
 // `packed-newer`, `server` (серверне сховище не перевіряється, код 0). Причина `partial-read` має перевагу над
 // евристиками: час під помилкою читання занижений.
 //
-// Поля JSON — порядок оголошення (рішення 15 плану B4), як у PowerShell: Key, Branch, MirrorExists, LastMirrorDate,
+// Поля JSON — порядок оголошення (ADR-0021 п. 5), як у PowerShell: Key, Branch, MirrorExists, LastMirrorDate,
 // StorageWrite, NewInStorage, NewInStorageReason, UnmergedCommits, Accessible, GitProblem, Text, OriginGap.
 // `Accessible` — каталог сховища відповів на цій машині; серверне сховище й недоступне — `false`.
 

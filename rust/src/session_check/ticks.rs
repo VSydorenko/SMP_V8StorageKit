@@ -44,7 +44,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// `yyyy-MM-dd HH:mm:ss` UTC фіксованим форматом (рішення 7: без культури).
+/// `yyyy-MM-dd HH:mm:ss` UTC фіксованим форматом (без культури).
 pub fn format_utc(ticks: i64) -> String {
     let unix_secs = (ticks - UNIX_EPOCH_TICKS).div_euclid(TICKS_PER_SECOND);
     let days = unix_secs.div_euclid(SECONDS_PER_DAY);

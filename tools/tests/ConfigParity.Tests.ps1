@@ -1,8 +1,8 @@
 #Requires -Version 7
 # Паритет Rust-префлайту (bin/kit.exe config-preflight) з PowerShell-префлайтом (Invoke-KitPreflight,
-# Select-KitSources, функції бази агента) — гейт блоків B3 і B4. Тег Docs не ставити: тест читає код, не документи.
+# Select-KitSources, функції бази агента) — гейт перенесених команд. Тег Docs не ставити: тест читає код, не документи.
 # Кожен випадок — репозиторій з .git (New-KitFakeRepo); порівняння розібраними значеннями, множина ключів кожного
-# об'єкта рівна з обох боків. Відомі відмінності (рішення 9, доповнення задачі 4) — паритет класом, не текстом.
+# об'єкта рівна з обох боків. Відомі відмінності (ADR-0021 п. 1) — паритет класом, не текстом.
 BeforeDiscovery {
     . (Join-Path $PSScriptRoot 'fixtures/ConfigParitySetup.ps1')
     . (Join-Path $PSScriptRoot 'fixtures/ConfigParityCases.ps1')

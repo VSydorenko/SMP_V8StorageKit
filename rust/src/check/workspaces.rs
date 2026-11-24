@@ -20,7 +20,7 @@ pub(super) fn check(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts:
     for src in selected_sources(ctx, opts) {
         sources::check_source(c, ctx, src);
     }
-    // Воркспейси, задекларовані в маніфесті (рішення 6): страж `local-ignored` не залежить від того, чи
+    // Воркспейси, задекларовані в маніфесті: страж `local-ignored` не залежить від того, чи
     // воркспейс розв'язався; решта перевірок воркспейсу — лише для розв'язаних (помилка префлайту вже error).
     for declared in &manifest.workspaces {
         if opts
@@ -98,7 +98,7 @@ fn summary(c: &mut Collector, ctx: &Context, manifest: &Manifest, opts: &Options
 }
 
 /// `agent-base-required`: дамп версії сховища виконується в базі агента, тож для кожного воркспейсу з
-/// `truth: storage` база — передумова. Одна знахідка на воркспейс (рішення 11), а не на джерело. warn, не
+/// `truth: storage` база — передумова. Одна знахідка на воркспейс, а не на джерело. warn, не
 /// error: репозиторій несуперечливий — просто ще не готовий до sync на ЦІЙ машині. Помилка бази агента
 /// (збіг з дев-базою людини, нерозбірне підключення) — error: звіряти `v8project.local.yaml` у `local-audit`
 /// недостатньо, підключення законно буває й у закоміченому `v8project.yaml`.
@@ -184,7 +184,7 @@ fn main_branch(c: &mut Collector, ctx: &Context, manifest: &Manifest) {
 }
 
 /// `unique-keys`: ключі `truth: storage` унікальні в межах репозиторію (гілка `storage/<ключ>` одна).
-/// Порівняння без регістру (refs на NTFS — рішення 10); не залежить від `-Workspace`/`-Source`.
+/// Порівняння без регістру (refs на NTFS); не залежить від `-Workspace`/`-Source`.
 fn unique_keys(c: &mut Collector, ctx: &Context) {
     let mut groups: Vec<(String, Vec<&str>)> = Vec::new();
     for src in ctx

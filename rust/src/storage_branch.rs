@@ -1,9 +1,10 @@
 // Гілки `storage/*`: спільний бібліотечний модуль (без друку; git — лише через ядро `git`). `check` бере звідси
-// «гілка існує / ненароджена / немає» й аудит інваріантів дзеркала; `sync`, `verify`, `session-check` (B4, фаза 3)
-// додають сюди решту (`remote_only`, `restore_mirror_step`, `last_storage_version`). Еталон —
+// «гілка існує / ненароджена / немає» й аудит інваріантів дзеркала.
+// `remote_only`, `restore_mirror_step`, `last_storage_version` уже тут (їх переніс `session-check`);
+// `sync`/`verify` — фаза 3 (#54). Еталон —
 // tools/lib/StorageBranch.psm1.
 //
-// Кожен запит розрізняє «так», «ні» і «git відповів збоєм» (рішення 5 плану B3): збій — `Err` з дослівним
+// Кожен запит розрізняє «так», «ні» і «git відповів збоєм» (ADR-0021 п. 3): збій — `Err` з дослівним
 // stderr git, а не «гілки немає». Рефи — повними іменами `refs/heads/<гілка>`; запити йдуть від кореня
 // репозиторію зі стелею `GIT_CEILING_DIRECTORIES` (`git::run_at_root`).
 
@@ -233,7 +234,7 @@ pub fn invariants(root: &Path, branch: &str, source_key: &str, repo_path: &str) 
     result
 }
 
-// --- Перенесене для `session-check` (B4, рішення 23 плану). PowerShell-копії лишаються: їх кличуть `sync`/`adopt`.
+// --- Перенесене для `session-check`. PowerShell-копії лишаються: їх кличуть `sync`/`adopt`.
 // Усі запити розрізняють «так», «ні» і «git відповів збоєм» (збій — `Err` з дослівним stderr).
 
 /// SHA, на який указує повне ім'я рефа (`refs/heads/…`, `refs/remotes/…`): `Some` — є, `None` — немає,

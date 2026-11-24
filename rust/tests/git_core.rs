@@ -157,7 +157,7 @@ fn failure_stderr_is_byte_exact() {
     }
 }
 
-/// `GIT_NO_LAZY_FETCH=1` ядра (рішення архітектора 2026-11-24): у partial clone запит, якому бракує об'єкта, не
+/// `GIT_NO_LAZY_FETCH=1` ядра (ADR-0021 п. 3): у partial clone запит, якому бракує об'єкта, не
 /// ходить до promisor-віддаленого, а одразу завершується помилкою. Контроль, що тест уміє впасти: той самий запит
 /// голим git без змінної намагається fetch (stderr «could not fetch … from promisor remote»).
 #[test]

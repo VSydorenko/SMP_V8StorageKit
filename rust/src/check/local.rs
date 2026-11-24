@@ -11,9 +11,9 @@ use std::path::Path;
 
 /// Підключення кожної дев-бази накладки розбирається й тоді, коли її ні з чим не звіряють: нерозбірне
 /// підключення (непарна лапка, голий шлях, `Srvr=` без `Ref=`) інакше проходило б `check` і падало лише на `dump`.
-/// Та сама канонізація, що у перетинах баз (рішення 11): відносний `File=` дає warn тут. warn, не error: error
+/// Та сама канонізація, що у перетинах баз (ADR-0021 п. 7): відносний `File=` дає warn тут. warn, не error: error
 /// гасив би сигнали сховищ у хуку старту сесії, а дев-база потрібна лише `dump`. Накладка є, але не розібрана
-/// (рішення 7), — «не перевірено».
+/// — «не перевірено».
 pub(super) fn overlay_connection(c: &mut Collector, ctx: &Context) {
     let Some(overlay_path) = ctx.overlay_path.as_deref() else {
         return;
@@ -118,7 +118,7 @@ pub(super) fn local_audit(c: &mut Collector, ctx: &Context, ws: &Workspace) {
     let local_path = Path::new(&ws.full_path).join("v8project.local.yaml");
     let mut local_conn = None;
     let mut read_failed = false;
-    // Файл, який не вдалося прочитати, — «не перевірено» (рішення 8); прочитаний, але нерозібраний — error.
+    // Файл, який не вдалося прочитати, — «не перевірено» (ADR-0021 п. 2); прочитаний, але нерозібраний — error.
     match std::fs::read(&local_path) {
         Err(e) if local_path.is_file() => {
             read_failed = true;
@@ -238,7 +238,7 @@ fn base_collisions(c: &mut Collector, ctx: &Context, ws: &Workspace, rel: &str) 
 
 /// Підключення бази агента з `v8project.local.yaml` проти дев-баз накладки — та сама формула ідентичності, що в
 /// `resolve_agent_base` (`config::agent_base::dev_base_overlaps`): текстова нормалізація не бачить, що `File=D:\x\`
-/// і `File=D:\x` — та сама тека. Усі збіги в порядку накладки (рішення 10); `Err` — fail-closed на нерозбірному.
+/// і `File=D:\x` — та сама тека. Усі збіги в порядку накладки; `Err` — fail-closed на нерозбірному.
 fn dev_base_audit(
     c: &mut Collector,
     ctx: &Context,

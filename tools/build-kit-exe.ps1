@@ -102,7 +102,7 @@ try {
         # Форматування — ворота, а не порада: невідформатований код у поставку не йде (#116).
         & cargo fmt --check
         if ($LASTEXITCODE) { Fail "cargo fmt --check завершився кодом $LASTEXITCODE — запусти ``cargo fmt`` у rust/" }
-        # Лінти тримають і розбір у модулі config (#![deny] — спека §6): червоний clippy — червона збірка поставки.
+        # Лінти тримають і розбір у модулі config (#![deny], ADR-0021 п. 5): червоний clippy — червона збірка поставки.
         & cargo clippy --all-targets --locked -- -D warnings
         if ($LASTEXITCODE) { Fail "cargo clippy завершився кодом $LASTEXITCODE" }
         & cargo test --locked

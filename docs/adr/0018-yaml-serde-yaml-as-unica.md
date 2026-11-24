@@ -2,7 +2,7 @@
 
 Status: accepted 2026-11-23
 Decided by: architect
-Spec: docs/superpowers/specs/2026-11-23-rust-phase2-session-check-design.md §5.1
+Supplemented by: ADR-0021
 
 ## Context
 
@@ -44,5 +44,5 @@ Spec: docs/superpowers/specs/2026-11-23-rust-phase2-session-check-design.md §5.
 
 - Оновлення `serde_yaml` у kit — лише разом з Унікою й раннером; Dependabot-оновлення поодинці не приймають.
 - Поки команди фази 3 лишаються в PowerShell, ті самі файли читають два парсери (`powershell-yaml` і
-  `serde_yaml`); однаковість тримає тест паритету на всіх фікстурах маніфестів (спека §5.1). Модуль
+  `serde_yaml`); однаковість тримає тест паритету на всіх фікстурах маніфестів. Модуль
   `powershell-yaml` зникає з залежностей kit разом з останньою PowerShell-командою, що читає YAML.
