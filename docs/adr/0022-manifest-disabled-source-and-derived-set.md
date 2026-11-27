@@ -1,6 +1,6 @@
 # ADR-0022: Вимкнене джерело й похідний набір — явні позначки в маніфесті
 
-Status: proposed
+Status: accepted 2026-11-28
 Decided by: owner
 Spec: docs/superpowers/specs/2026-11-27-workspace-sets-design.md §5.1
 
