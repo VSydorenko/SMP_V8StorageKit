@@ -123,7 +123,8 @@ Claude Code: робоча копія задачі — `pr-gate start` (`.worktre
 - **Push, PR і злиття — через `pr-gate` (`open`, `ready`, `land`) без запиту**: код `pr-gate` пушить
   лише поточну гілку в однойменну звичайним push, ніколи головну чи `storage/*`, і зливає лише PR цього репозиторію
   на голові, яку прочитав. **Голі `git push`, `gh pr create`, `gh pr merge` і `gh release` — лише за явним
-  проханням** (у `.claude/settings.json` — `ask`); force push — лише за явним проханням.
+  проханням** (у `.claude/settings.json` — `ask`); force push — лише за явним проханням. Дзеркала `storage/*`
+  в origin пушить сам `kit sync -Apply` (лише fast-forward); людині цей push не передають.
 
 ## Дозволи
 

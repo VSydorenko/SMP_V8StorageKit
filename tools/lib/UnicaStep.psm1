@@ -165,4 +165,18 @@ function Write-KitAlignStops {
     }
 }
 
-Export-ModuleMember -Function Reset-KitNextStep, Register-KitNextStep, Write-KitNextStepLine, Format-KitUnicaRun, Write-KitNextSteps, Get-KitAlignStep, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops
+function Write-KitStopLines {
+    <#
+    .SYNOPSIS
+        Рядки «ЗУПИНКА: …» з готових текстів (напр. відмова push дзеркала) — останніми, як Write-KitAlignStops;
+        після них рядка `next:` немає.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Messages)
+    foreach ($m in $Messages) {
+        Write-Host "ЗУПИНКА: $m" -ForegroundColor Red
+        $script:KitNextStep.Stopped = $true
+    }
+}
+
+Export-ModuleMember -Function Reset-KitNextStep, Register-KitNextStep, Write-KitNextStepLine, Format-KitUnicaRun, Write-KitNextSteps, Get-KitAlignStep, Write-KitSupplyStateNotComputed, Write-KitAlignStep, Write-KitAlignStops, Write-KitStopLines

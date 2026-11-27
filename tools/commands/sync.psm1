@@ -62,6 +62,51 @@ function Invoke-KitMainMerge {
     }
 }
 
+function Invoke-KitMirrorPush {
+    <#
+    .SYNOPSIS
+        Push дзеркала storage/<ключ> в origin — робота kit, а не людини (#149). Лише fast-forward.
+    .DESCRIPTION
+        Нічого не робить, коли немає origin, локальної гілки чи нових комітів для origin. Дзеркало, що
+        розійшлося з origin (коміти є і там, і тут), — зупинка без спроби push: fast-forward неможливий,
+        а force kit не робить ніколи. Відмова git push (мережа, права, гонка) — теж зупинка з сирим
+        виводом git. Без -Apply лише каже, що запушить -Apply. Повертає Outcome і текст зупинки (Stop).
+    #>
+    param([Parameter(Mandatory)][string]$RepoRoot, [Parameter(Mandatory)][string]$Branch, [bool]$Apply)
+    $nothing = [pscustomobject]@{ Outcome = 'none'; Stop = $null }
+    $remote = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @('remote', 'get-url', 'origin')
+    if ($remote.ExitCode -ne 0) { return $nothing }
+    if (-not (Test-KitBranchExists -RepoRoot $RepoRoot -Branch $Branch)) { return $nothing }
+
+    $gap = Get-KitOriginGap -RepoRoot $RepoRoot -Branch $Branch
+    if ($gap.HasRemote -and $gap.Ahead -eq 0) { return $nothing }
+    if ($gap.HasRemote -and $gap.Behind -gt 0) {
+        return [pscustomobject]@{ Outcome = 'stop'; Stop = (
+            "push $Branch в origin не виконано: дзеркало й origin розійшлися (лише локально — {0}, лише на origin — {1} комітів), " +
+            'fast-forward неможливий. Kit не робить force. Доповісти людині: дзеркало цього сховища оновлювали з двох місць.') -f $gap.Ahead, $gap.Behind }
+    }
+
+    $what = if ($gap.HasRemote) { "попереду origin на $($gap.Ahead)" } else { 'ще немає на origin' }
+    if (-not $Apply) {
+        Write-Host "  Дзеркало $what — kit sync -Apply запушить його (лише fast-forward)." -ForegroundColor Yellow
+        return [pscustomobject]@{ Outcome = 'preview'; Stop = $null }
+    }
+    # Ті самі стелі, що в fetch на старті sync: ключ під passphrase без агента підвісив би git назавжди.
+    # Явний refspec без '+': git сам відмовить на не-fast-forward.
+    $push = Invoke-KitGitProcess -RepoRoot $RepoRoot -Arguments @(
+        '-c', 'core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=5',
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=10',
+        'push', '--quiet', 'origin', "refs/heads/${Branch}:refs/heads/$Branch")
+    if ($push.ExitCode -ne 0) {
+        $raw = (($push.Stderr, $push.Stdout) -join "`n").Trim()
+        return [pscustomobject]@{ Outcome = 'stop'; Stop = (
+            "git push origin $Branch відхилено (код {0}): {1} — kit не робить force; доповісти людині з цим виводом." -f $push.ExitCode, $raw) }
+    }
+    $done = if ($gap.HasRemote) { "нових комітів: $($gap.Ahead)" } else { 'нова гілка на origin' }
+    Write-Host "  Дзеркало запушено в origin: $Branch ($done)." -ForegroundColor Green
+    [pscustomobject]@{ Outcome = 'pushed'; Stop = $null }
+}
+
 function Format-KitPlatformList {
     <#
     .SYNOPSIS
@@ -286,6 +331,9 @@ function Invoke-KitSync {
     $mergeFailed = $false
     # Кроки вирівнювання пам'яті раннера: по одному на набір, базу якого зрушив sync.
     $alignSteps = [System.Collections.Generic.List[object]]::new()
+    # Тексти зупинок push дзеркал (Invoke-KitMirrorPush): решта джерел обробляється далі, рядки ЗУПИНКА
+    # друкуються наприкінці, код виходу — 1.
+    $pushStops = [System.Collections.Generic.List[string]]::new()
 
     # Друк уже обчислених кроків і ЗУПИНКА — у finally: виняток у пізнішому джерелі не має губити крок,
     # уже потрібний агентові від попередніх наборів. Виняток і код виходу — незмінні.
@@ -439,12 +487,10 @@ function Invoke-KitSync {
             if ($pending.Count -eq 0) {
                 Write-Host 'Нових версій немає — дзеркало синхронне зі сховищем.'
 
-                # Дзеркало могло лишитись попереду origin від попереднього прогону — попередження
-                # стосується стану гілки, не цього прогону.
-                $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
-                if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}  (цей push робить людина: агент гілки storage/* не пушить — передайте їй команду)" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
-                }
+                # Дзеркало могло лишитись попереду origin від попереднього прогону — push стосується
+                # стану гілки, не цього прогону.
+                $pushed = Invoke-KitMirrorPush -RepoRoot $root -Branch $src.Branch -Apply $Apply
+                if ($pushed.Stop) { $pushStops.Add($pushed.Stop) }
 
                 $merged = $false
                 if ($MergeMain -and $Apply -and $null -ne $last) { $merged = Invoke-KitMainMerge -Context $Context -Source $src -Into $into; if (-not $merged) { $mergeFailed = $true } }
@@ -561,10 +607,8 @@ function Invoke-KitSync {
                 }
                 Write-Host ("Перенесено версій: {0} → {1}" -f $done.Count, $src.Branch) -ForegroundColor Green
 
-                $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
-                if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}  (цей push робить людина: агент гілки storage/* не пушить — передайте їй команду)" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
-                }
+                $pushed = Invoke-KitMirrorPush -RepoRoot $root -Branch $src.Branch -Apply $true
+                if ($pushed.Stop) { $pushStops.Add($pushed.Stop) }
 
                 # Контракт sync: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента. Після нього
                 # пам'ять раннера розходиться з базою, тож sync закінчується кроком вирівнювання (нижче).
@@ -620,14 +664,18 @@ function Invoke-KitSync {
             } else {
                 Write-Host 'Нових версій не було, але злиття в основну гілку не вдалось — див. повідомлення вище.' -ForegroundColor Yellow
             }
+        } elseif ($pushStops.Count -gt 0) {
+            Write-Host 'Push дзеркала в origin не виконано — див. ЗУПИНКА нижче.' -ForegroundColor Yellow
         } elseif ($completed) {
             Write-Host 'Готово.' -ForegroundColor Green
         }
         Write-KitAlignStops -Steps $alignSteps.ToArray()
+        Write-KitStopLines -Messages $pushStops.ToArray()
     }
     # Після ЗУПИНКА і після винятку рядка немає (ADR-0014): finally вище його не друкує.
     Write-KitNextStepLine
-    [pscustomobject]@{ ExitCode = $(if ($mergeFailed) { 4 } else { 0 }); Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
+    $exitCode = if ($pushStops.Count -gt 0) { 1 } elseif ($mergeFailed) { 4 } else { 0 }
+    [pscustomobject]@{ ExitCode = $exitCode; Synced = $results.ToArray(); AlignSteps = $alignSteps.ToArray() }
 }
 
 Export-ModuleMember -Function Invoke-KitSync
