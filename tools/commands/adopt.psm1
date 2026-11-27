@@ -87,15 +87,33 @@ function Invoke-KitAdopt {
 
         $adopted.Add([pscustomobject]@{ Key = $src.Key; Mirror = $mirror; Incoming = $incoming.Count; Dropped = $diff.OnlyInTree.Count; Applied = $false })
 
-        if (-not $Apply) {
-            Write-Host '  Це попередній перегляд. Заміна — з -Apply (дерево джерела буде переписане вмістом дзеркала).' -ForegroundColor Cyan
-            continue
+        # CrOnly входить у перевірку «збігається» нарівні з Incoming/OnlyInTree: різниця лише в CR — підпис
+        # зламаної політики тексту, і -Apply має її виправити, як змістовну розбіжність.
+        $equalToMirror = ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0 -and $diff.CrOnly.Count -eq 0)
+
+        # Вміст уже дорівнює дзеркалу (закомічене + незакомічене, #41): знищувати й копіювати нічого — файли
+        # і так ті самі. Лишається те, що вміст дати не може: ancestry (дзеркало — предок HEAD) і, якщо
+        # незакомічене рівне дзеркалу, його коміт (інваріант «гілка ≡ дзеркало» після adopt — той самий,
+        # що в звичайному шляху: коміт фіксує індекс, зібраний із диска). Тож резервна копія зайва.
+        $ancestryOnly = $false
+        if ($equalToMirror) {
+            $isAnc = Invoke-KitGitProcess -RepoRoot $root -Arguments @('merge-base', '--is-ancestor', $mirror, 'HEAD')
+            $dirtyEq = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
+            if ($isAnc.ExitCode -eq 0 -and $dirtyEq.Count -eq 0) {
+                if ($Apply) { Write-Host '  Дерево вже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray }
+                else { Write-Host '  Дерево вже збігається з дзеркалом.' -ForegroundColor DarkGray }
+                continue
+            }
+            $ancestryOnly = $true
+            Write-Host '  Вміст уже дорівнює дзеркалу — буде лише злиття ancestry (файли не чіпаються, резервної копії немає).' -ForegroundColor Cyan
         }
 
-        # CrOnly входить у перевірку no-op нарівні з Incoming/OnlyInTree: різниця лише в CR — підпис
-        # зламаної політики тексту, і -Apply має її виправити, як змістовну розбіжність.
-        if ($incoming.Count -eq 0 -and $diff.OnlyInTree.Count -eq 0 -and $diff.CrOnly.Count -eq 0) {
-            Write-Host '  Дерево вже збігається з дзеркалом — заміняти нічого.' -ForegroundColor DarkGray
+        if (-not $Apply) {
+            if (-not $ancestryOnly) {
+                Write-Host '  Це попередній перегляд. Заміна — з -Apply (дерево джерела буде переписане вмістом дзеркала).' -ForegroundColor Cyan
+            } else {
+                Write-Host '  Це попередній перегляд. Запис ancestry — з -Apply.' -ForegroundColor Cyan
+            }
             continue
         }
 
@@ -170,7 +188,7 @@ function Invoke-KitAdopt {
         # Страховка перед знищенням: копія лягає у гітігноровану build/-теку воркспейсу.
         $dirty = @(Get-KitDirtyRecords -RepoRoot $root -RepoPath $src.RepoPath)
         $backupDir = $null
-        if ($dirty.Count -gt 0) {
+        if ($dirty.Count -gt 0 -and -not $ancestryOnly) {
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
             $backupDir = Join-Path $ws.FullPath (Join-Path $ws.Project.WorkPath (Join-Path 'adopt-backup' "$($src.Key)-$stamp"))
             $null = Backup-KitDirtyFiles -RepoRoot $root -RepoPath $src.RepoPath -Records $dirty -BackupRoot $backupDir -MustBeUnder $ws.FullPath -OwnedRoot (Join-Path $ws.FullPath $ws.Project.WorkPath)
@@ -204,11 +222,12 @@ function Invoke-KitAdopt {
             Assert-SafeWorkPath -Path $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root -Description "дерево джерела $($src.Key)"
             # Поставка вендора: у дзеркалі .cf немає — повне стирання
             # лишило б .bin без .cf, і наступне повне завантаження впало б.
-            Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root
+            if (-not $ancestryOnly) { Clear-KitTreeExceptSupply -TreeRoot $src.FullPath -MustBeUnder $ws.FullPath -RepoRoot $root }
             # Пофайлово, не Copy-Item <mirror>\* -Recurse: тека Ext тепер може вже існувати (у ній
             # поставка), а рекурсивна копія теки в наявну теку кладе її ВСЕРЕДИНУ (Ext/Ext/…).
             $mirrorFull = (Resolve-Path -LiteralPath $mirrorDir).Path
-            foreach ($f in @(Get-ChildItem -LiteralPath $mirrorFull -Recurse -File -Force)) {
+            $filesToCopy = if ($ancestryOnly) { @() } else { @(Get-ChildItem -LiteralPath $mirrorFull -Recurse -File -Force) }
+            foreach ($f in $filesToCopy) {
                 $relInMirror = $f.FullName.Substring($mirrorFull.Length).TrimStart('\', '/')
                 # Дзеркало, записане версією ≤1.2.0, може нести .cf поставки в історії: локальну
                 # поставку воно перезаписати не має.
