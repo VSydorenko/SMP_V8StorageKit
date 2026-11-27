@@ -68,7 +68,7 @@ Describe 'templates/settings.json — дозволи споживача' -Tag 'D
         $s = Get-Content -LiteralPath (Join-Path $script:Root 'templates/settings.json') -Raw | ConvertFrom-Json
         $s.PSObject.Properties.Name | Should -Not -Contain 'hooks'
     }
-    It 'дозволи Уніки 0.16: у allow рівно читальні інструменти й run; apply — явно в ask' {
+    It 'дозволи Уніки 0.16: у allow рівно читальні інструменти, run і apply (рішення власника #120); в ask Уніки немає' {
         # run — в allow: перезапис бази агента Уніка однаково питає людину своїм питанням, а дозвіл
         # Claude Code перед ним лише дублює запит. Інструментів задач (unica_task_*) у живому
         # tools/list Уніки 0.16 немає — у переліку їх бути не може.
@@ -77,7 +77,7 @@ Describe 'templates/settings.json — дозволи споживача' -Tag 'D
         # префіксом інструмента: маска сервера (`mcp__plugin_unica_unica` чи `…__*`) мовчки дозволила б
         # run/apply і нові інструменти наступних версій, а регістронечутливий збіг пропустив би «двійника».
         $unica = @($s.permissions.allow | Where-Object { $_ -match '(?i)unica|^mcp__' } | Sort-Object { $_ } -CaseSensitive)
-        $want = @('view', 'search', 'resolve', 'docs', 'check', 'diff', 'run') |
+        $want = @('view', 'search', 'resolve', 'docs', 'check', 'diff', 'run', 'apply') |
             ForEach-Object { "mcp__plugin_unica_unica__unica_$_" } | Sort-Object { $_ } -CaseSensitive
         $unica.Count | Should -Be $want.Count -Because 'у allow рівно перелічені інструменти, жодної маски чи двійника'
         for ($i = 0; $i -lt $want.Count; $i++) {
@@ -89,11 +89,9 @@ Describe 'templates/settings.json — дозволи споживача' -Tag 'D
                 $e | Should -Not -MatchExactly '^mcp__plugin_unica_unica$' -Because 'ім''я сервера без інструмента — маска всього сервера'
             }
         }
-        $full = 'mcp__plugin_unica_unica__unica_apply'
-        @($s.permissions.allow) -ccontains $full | Should -BeFalse
-        # Головна причина — режим auto: класифікатор не питає, коли запису немає в ask; acceptEdits/bypass — додаткові.
-        @($s.permissions.ask) -ccontains $full | Should -BeTrue -Because 'відсутність в allow не гарантує запиту в режимах auto/acceptEdits/bypass'
-        @($s.permissions.ask | Where-Object { $_ -match '(?i)unica|^mcp__' }) | Should -Be @($full) -Because 'в ask з інструментів Уніки — лише apply'
+        # apply — в allow (рішення власника 2026-11-24/25, #120): обмеження — git diff і рев'ю; захист vendor — хук блоку #81.
+        @($s.permissions.allow) -ccontains 'mcp__plugin_unica_unica__unica_apply' | Should -BeTrue
+        @($s.permissions.ask | Where-Object { $_ -match '(?i)unica|^mcp__' }) | Should -BeNullOrEmpty -Because 'інструмент в allow й ask одночасно — суперечність'
     }
     It 'правила команд процесу в шаблоні — рівно перелік-орієнтир; кожна команда процесу має рішення про дозвіл (D8 (1))' {
         # Незалежний орієнтир: перелік — літерал тут, а не з kit-setup чи шаблону. Команди процесу —

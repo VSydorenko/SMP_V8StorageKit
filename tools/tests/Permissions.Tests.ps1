@@ -99,6 +99,7 @@ Describe 'знімок permissions і hooks — .claude/settings.json і templat
             'permissions.allow[] = mcp__plugin_unica_unica__unica_check'
             'permissions.allow[] = mcp__plugin_unica_unica__unica_diff'
             'permissions.allow[] = mcp__plugin_unica_unica__unica_run'
+            'permissions.allow[] = mcp__plugin_unica_unica__unica_apply'
             'permissions.ask[] = Bash(git push:*)'
             'permissions.ask[] = PowerShell(git push:*)'
             'permissions.ask[] = Bash(gh pr create:*)'
@@ -107,7 +108,6 @@ Describe 'знімок permissions і hooks — .claude/settings.json і templat
             'permissions.ask[] = PowerShell(gh pr merge:*)'
             'permissions.ask[] = Bash(gh release:*)'
             'permissions.ask[] = PowerShell(gh release:*)'
-            'permissions.ask[] = mcp__plugin_unica_unica__unica_apply'
             'permissions.deny[] = Bash(gitsync:*)'
             'permissions.deny[] = Bash(oscript:*)'
             )
