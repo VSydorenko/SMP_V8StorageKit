@@ -187,10 +187,19 @@ function Invoke-KitVerify {
 
                 Write-Host ("  Побайтово рівних: $($diff.Equal) із $($diff.Total)" +
                     $(if ($diff.CaseCollidedPaths -gt 0) { " (ще $($diff.CaseCollidedPaths) шлях(ів) — у групах регістру, окремий клас нижче)" } else { '' }))
-                Write-KitDiffList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
-                Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
-                Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
-                Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
+                # Поки дзеркало має неслиті версії, дамп — на версії $ver (merge-base), а файли вже є в новішій версії
+                # сховища: списки «незастосоване» вводили б в оману. Спершу звірочний коміт, потім розбір.
+                $listUnapplied = ($vv.NewerVersions.Count -eq 0)
+                if (-not $listUnapplied) {
+                    Write-Host ("  Порівняно з версією $ver (merge-base), дзеркало $($src.Branch) вже на $($vv.NewerVersions[-1]) — спершу kit verify -Apply (звірочний коміт); " +
+                                "списки розбіжностей до того не друкуються (вони вводили б в оману).") -ForegroundColor Yellow
+                }
+                if ($listUnapplied) {
+                    Write-KitDiffList -Title 'лише CR (зіпсована політика тексту — docs/text-policy.md)' -Items $diff.CrOnly
+                    Write-KitDiffList -Title 'змістовні розбіжності' -Items $diff.Content
+                    Write-KitDiffList -Title 'тільки в дампі зі сховища' -Items $diff.OnlyInDump
+                    Write-KitDiffList -Title "тільки в дереві '$ref'" -Items $diff.OnlyInTree
+                }
                 Write-KitDiffList -Title "регістр-дублікати в дереві '$ref' (на Windows — один файл)" -Items @($diff.CaseCollisions | ForEach-Object {
                     $real = $_.InDump
                     ($_.Paths | ForEach-Object { if ($_ -ceq $real) { "$_ (як у дампі)" } else { "$_ (фантом)" } }) -join ' | '
@@ -207,7 +216,7 @@ function Invoke-KitVerify {
                     Write-Host ("  Увага: у дереві git шлях має старий регістр імені порівняно зі сховищем — це розбіжність імені, а не вмісту; " +
                                 "робота для сховища тут не потрібна (docs/storage-and-git.md, «Перейменування регістром»).") -ForegroundColor Yellow
                 }
-                if ($diff.OnlyInDump.Count -gt 0) {
+                if ($listUnapplied -and $diff.OnlyInDump.Count -gt 0) {
                     # -f поза дужками PowerShell зв'язав би як -ForegroundColor — оператор формату всередині.
                     Write-Host (("  Увага: {0} файл(ів) є лише в дампі зі сховища — '{1}' їх ВТРАТИВ. Це не «робота, яку треба застосувати у сховищі», " +
                                  "а прогалина в '{1}': перевірте злиття {2} у '{1}' і канонізацію.") -f $diff.OnlyInDump.Count, $ref, $src.Branch) -ForegroundColor Yellow
@@ -248,6 +257,15 @@ function Invoke-KitVerify {
                     $onMain = Test-KitOnMainBranch -RepoRoot $root -MainBranch $Context.MainBranch
                     $alignStep = Get-KitAlignStep -Source $src -OnMainBranch $onMain -MainBranch $Context.MainBranch
                     Write-KitAlignStep -Step $alignStep
+                    # push Уніки вантажить РОБОЧЕ дерево, а не '$ref'. Крок однаково потрібен зараз: verify уже зрушив
+                    # базу агента, і без нього база лишилась би сумішшю. Коли '$ref' не поточна гілка, база після кроку
+                    # дорівнює робочому дереву, а не звіреному '$ref' — це треба сказати, а не мовчки лишити.
+                    $currentBranch = try { Get-KitCurrentBranch -RepoRoot $root } catch { '' }
+                    if ($alignStep.Op -ne 'blocked' -and $currentBranch -cne $ref) {
+                        Write-Host ("  Увага: '$ref' не є поточною гілкою робочої копії ('$currentBranch'). Крок вище вантажить у базу агента робоче дерево, " +
+                                    "а не '$ref' — виконайте його зараз (база вже зрушена), а коли '$ref' стане робочим деревом (злиття PR і pull / switch), " +
+                                    "звичайний push довантажить його.") -ForegroundColor Yellow
+                    }
                     $alignSteps.Add($alignStep)
                 } catch {
                     Write-Host "  Крок вирівнювання для '$($src.Key)' не обчислено: $($_.Exception.Message) — база агента зрушена; вирівняйте її вручну (push force:true цього набору)." -ForegroundColor Red
