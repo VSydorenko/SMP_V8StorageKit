@@ -16,6 +16,7 @@
 // Приховані підкоманди (не в довідці й не в переліку команд процесу): `source-fingerprint` — запобіжник
 // «бінарник = джерело» (ADR-0014); `session-start` — хук SessionStart плагіна (`hooks/hooks.json`, ADR-0014);
 // `subagent-start` — хук SubagentStart плагіна: специфіка 1С агентам процесу в репозиторіях 1С;
+// `pretool-1c` — хук PreToolUse плагіна: підказка Уніки на текстове читання вихідників 1С (лише підказка);
 // `config-preflight` — префлайт конфігурації як JSON із маскою секретів (живе, доки живе PowerShell-копія);
 // `runner-exec <шлях раннера> <робоча тека> <аргумент>…` — запуск раннера Уніки для PowerShell до фази 3
 // (ADR-0019): аргументи раннера дослівно, без розбору `cli::parse`, потоки успадковані, код — код раннера;
@@ -23,6 +24,7 @@
 // для `check-environment.ps1`.
 
 mod fingerprint;
+mod pretool_1c;
 mod session_start;
 mod subagent_start;
 
@@ -460,6 +462,16 @@ fn main() {
             .ok()
             .and_then(|root| subagent_start::run_stdin(&root));
         if let Some(text) = out {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout
+                .write_all(text.as_bytes())
+                .and_then(|_| stdout.flush());
+        }
+        exit(0);
+    }
+    if is_command(&command, pretool_1c::COMMAND) {
+        // Хук PreToolUse: лише підказка про Уніку; код 0 завжди, вивід — одним записом або жодного.
+        if let Some(text) = pretool_1c::run_stdin() {
             let mut stdout = std::io::stdout().lock();
             let _ = stdout
                 .write_all(text.as_bytes())

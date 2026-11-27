@@ -141,6 +141,40 @@ Describe 'kit adopt — прев''ю показує ціну заміни' {
         (git -C $repo rev-parse HEAD) | Should -Be $before
     }
 
+    It 'незакомічене дорівнює дзеркалу (#41) — лише ancestry: без резервної копії, файли не переписані; контроль — один файл інший' {
+        $repo = New-AdoptRepo -Name 'adopt-equal-dirty'
+        $src  = Join-Path $repo 'Alpha_SMB/cfe/src'
+        Set-Content -LiteralPath (Join-Path $src 'Shared.xml') -Value 'версія сховища' -Encoding UTF8
+        Remove-Item -LiteralPath (Join-Path $src 'OnlyInBranch.xml') -Force
+        $stamp = [datetime]::new(2020, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+        (Get-Item -LiteralPath (Join-Path $src 'Shared.xml')).LastWriteTimeUtc = $stamp
+
+        $preview = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB')
+        $preview.Output | Should -BeLike '*дорівнює дзеркалу*'
+
+        $r = Invoke-Adopt -Repo $repo -More @('-Source', 'Alpha_SMB', '-Apply')
+        $r.ExitCode | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Not -BeLike '*резервн*копія перед*'
+        Join-Path $repo 'Alpha_SMB/build/adopt-backup' | Should -Not -Exist
+        (Get-Item -LiteralPath (Join-Path $src 'Shared.xml')).LastWriteTimeUtc | Should -Be $stamp
+        git -C $repo merge-base --is-ancestor 'storage/Alpha_SMB' HEAD
+        $LASTEXITCODE | Should -Be 0
+        (git -C $repo status --porcelain) | Should -BeNullOrEmpty
+        # Піддерево джерела в коміті = дереву дзеркала (blob id).
+        (git -C $repo rev-parse 'HEAD:Alpha_SMB/cfe/src').Trim() | Should -Be (git -C $repo rev-parse 'storage/Alpha_SMB:Alpha_SMB/cfe/src').Trim()
+
+        # Контроль: один файл відрізняється — звичайний шлях із резервною копією.
+        $repo2 = New-AdoptRepo -Name 'adopt-equal-dirty-ctl'
+        $src2  = Join-Path $repo2 'Alpha_SMB/cfe/src'
+        Set-Content -LiteralPath (Join-Path $src2 'Shared.xml') -Value 'версія сховища' -Encoding UTF8
+        Remove-Item -LiteralPath (Join-Path $src2 'OnlyInBranch.xml') -Force
+        Set-Content -LiteralPath (Join-Path $src2 'Shared.xml') -Value 'інша правка' -Encoding UTF8
+        $c = Invoke-Adopt -Repo $repo2 -More @('-Source', 'Alpha_SMB', '-Apply')
+        $c.ExitCode | Should -Be 0 -Because $c.Output
+        Join-Path $repo2 'Alpha_SMB/build/adopt-backup' | Should -Exist
+        (Get-Content -LiteralPath (Join-Path $src2 'Shared.xml') -Raw).Trim() | Should -Be 'версія сховища'
+    }
+
     It 'файл різниться лише CR — прев''ю називає окремо, -Apply замінює і не каже «вже збігається»' {
         # Регресія: CrOnly ігнорувався і в перевірці no-op, і в прев'ю —
         # дерево, що різниться з дзеркалом лише кінцями рядків, виглядало як «вже збігається»,

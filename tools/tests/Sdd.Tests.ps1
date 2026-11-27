@@ -213,3 +213,44 @@ Second.
         $r.Err[0] | Should -Not -BeLike '*немає відкритого журналу*'
     }
 }
+
+Describe 'sdd init — план без заголовків задач' {
+    BeforeAll {
+        Import-Module (Resolve-Path "$PSScriptRoot/fixtures/KitFixtures.psm1").Path -Force
+        $script:Kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit')
+        $script:Bash = Get-KitBashPath
+        $script:KitRoot = Split-Path (Split-Path $script:Kit -Parent) -Parent
+        function script:New-PlanRepo {
+            param([string]$Name, [string]$PlanText)
+            $dir = Join-Path $TestDrive $Name
+            New-Item -ItemType Directory -Path (Join-Path $dir 'docs/plans') -Force | Out-Null
+            git -C $dir init -q -b main 2>$null
+            [System.IO.File]::WriteAllText((Join-Path $dir 'docs/plans/p.md'), $PlanText, [System.Text.UTF8Encoding]::new($false))
+            git -C $dir add -A 2>$null
+            git -C $dir -c user.name=t -c user.email=t@e.invalid commit -q -m init 2>$null
+            $dir
+        }
+        function script:Invoke-Init {
+            param([string]$Dir)
+            $errFile = Join-Path $TestDrive "err-$([guid]::NewGuid()).txt"
+            Push-Location $Dir
+            try { $out = & $script:Bash (Join-Path $script:KitRoot 'bin/sdd') init docs/plans/p.md 2>$errFile; $code = $LASTEXITCODE }
+            finally { Pop-Location }
+            [pscustomobject]@{ Code = $code; Out = ($out -join "`n"); Err = (@(Get-Content -LiteralPath $errFile -Encoding UTF8 -ErrorAction SilentlyContinue) -join "`n") }
+        }
+    }
+
+    It 'лише таблиця задач — попередження з підказкою `## Задача N`, без next; із заголовками — без попередження' {
+        $bad = New-PlanRepo 'plan-table' "# План`n`n| # | задача |`n|---|---|`n| 1 | перша |`n"
+        $r = Invoke-Init $bad
+        $r.Err | Should -Match 'WARNING'
+        $r.Err | Should -Match '## Задача N'
+        $r.Out | Should -Not -Match 'next:'
+
+        $good = New-PlanRepo 'plan-headings' "# План`n`n## Задача 1`nЗробити.`n"
+        $g = Invoke-Init $good
+        $g.Code | Should -Be 0
+        $g.Err | Should -Not -Match 'WARNING'
+        $g.Out | Should -Match 'next:'
+    }
+}

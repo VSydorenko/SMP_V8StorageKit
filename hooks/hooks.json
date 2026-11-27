@@ -13,6 +13,18 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/kit.exe\" pretool-1c; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "matcher": "^v8storagekit:",

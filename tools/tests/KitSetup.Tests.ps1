@@ -192,8 +192,8 @@ Describe 'kit-setup — підключення проєкту' {
             $o | Should -Not -Match 'unica_view|make test'
             Get-ReportLine $out 'застарілі імена Уніки в ask:' | Should -Match ([regex]::Escape($script:Obsolete.Ask))
             $out | Should -Not -Match ([regex]::Escape($script:Obsolete.Deny)) -Because 'deny проєкту не обговорюється'
-            # unica_apply
-            Get-ReportLine $out 'в allow, а шаблон тримає його в ask' | Should -Match 'unica_apply'
+            # unica_apply в allow — не відхилення (#120)
+            $out | Should -Not -Match 'unica_apply' -Because $out
             # перетин за першим токеном: ask проєкту закриває pr-gate (обидві форми) і session-cost
             $pg = @(Get-ReportLine $out $script:HeldPrefix)
             $pg.Count | Should -Be 1 -Because $out
@@ -218,7 +218,6 @@ Describe 'kit-setup — підключення проєкту' {
             $script:Json.Code | Should -Be 0 -Because $script:Json.Out
             $j = $script:Json.Out | ConvertFrom-Json
             $j.permissions.clean | Should -BeFalse
-            $j.permissions.applyInAllow | Should -BeTrue
             @($j.permissions.shim).Count | Should -Be 6
             $j.permissions.obsolete.allow | Should -Contain $script:Obsolete.Allow
             @($j.permissions.heldByAskDeny.'pr-gate').Count | Should -BeGreaterThan 0
@@ -273,6 +272,31 @@ Describe 'kit-setup — підключення проєкту' {
         $r2 = Invoke-Setup (Split-Path (Split-Path $f2 -Parent) -Parent) -Arguments $script:NoFiles
         $r2.Out | Should -Not -Match 'відхилень від шаблону немає' -Because $r2.Out
         $r2.Out | Should -Match 'немає в allow проєкту, є в шаблоні \(1\)'
+    }
+
+    It 'правило шаблону лише в settings.local.json — не «немає», з назвою файла; правила немає ніде — названо (#147)' {
+        $tpl = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../templates/settings.json') -Raw | ConvertFrom-Json -AsHashtable
+        $apply = 'mcp__plugin_unica_unica__unica_apply'
+        $tpl.permissions.allow | Should -Contain $apply -Because 'шаблон тримає unica_apply в allow'
+        $rest = @($tpl.permissions.allow | Where-Object { $_ -cne $apply })
+        $mk = {
+            param($Name, $Local)
+            $repo = New-Repo $Name
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.yaml') -Value 'sources: []' -Encoding utf8NoBOM
+            $null = Write-Settings $repo ([ordered]@{ permissions = [ordered]@{ allow = $rest; ask = $tpl.permissions.ask; deny = $tpl.permissions.deny } })
+            if ($Local) {
+                [System.IO.File]::WriteAllText((Join-Path $repo '.claude/settings.local.json'), (ConvertTo-Json -InputObject @{ permissions = @{ allow = @($apply) } }) + "`n", [System.Text.UTF8Encoding]::new($false))
+            }
+            $repo
+        }
+        $r = Invoke-Setup (& $mk 'loc-has' $true) -Arguments $script:NoFiles
+        $r.Code | Should -Be 0 -Because $r.Out
+        (Get-ReportLine $r.Out 'немає в allow проєкту') | Should -BeNullOrEmpty -Because $r.Out
+        (Get-ReportLine $r.Out 'settings.local.json') | Should -Match 'unica_apply' -Because $r.Out
+        $r.Out | Should -Match 'відхилень від шаблону немає' -Because $r.Out
+        # Контроль, що вміє впасти: правила немає ніде — звіт його називає.
+        $c = Invoke-Setup (& $mk 'loc-none' $false) -Arguments $script:NoFiles
+        (Get-ReportLine $c.Out 'немає в allow проєкту, є в шаблоні') | Should -Match 'unica_apply' -Because $c.Out
     }
 
     It 'невалідний JSON на вході — код 3, «звіт не перевірено», settings.json байт-у-байт той самий, нічого не записано (тест (4))' {

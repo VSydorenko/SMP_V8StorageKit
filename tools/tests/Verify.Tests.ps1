@@ -416,6 +416,28 @@ Describe 'kit verify — мок платформного шару: щаслив�
             $lines[-1] | Should -BeExactly "next: $($script:R.AlignSteps[0].Steps[0])"
             $lines[-1] | Should -BeLike 'next: unica.run {"op":"push"*'
         }
+        It '#133: -Ref не поточна гілка — крок push лишається (база вже зрушена), попередження каже, що він вантажить робоче дерево' {
+            $repo = New-AlignVerifyRepo -Name 'al-ref-other' -Merge
+            $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'storage/Alpha_SMB' } 6>&1 | Out-String
+            $text | Should -BeLike '*unica.run {"op":"push"*' -Because 'verify зрушив базу агента: без кроку вона лишилась би сумішшю'
+            $text | Should -BeLike "*'storage/Alpha_SMB' не є поточною гілкою*вантажить у базу агента робоче дерево*"
+            $control = & { $null = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+            $control | Should -Not -BeLike '*не є поточною гілкою*' -Because 'контроль: на поточній гілці попередження немає'
+        }
+        It '#133: дзеркало має неслиті версії — примітка про версії, списків «незастосоване» немає; без неслитих — список є' {
+            $repo = New-AlignVerifyRepo -Name 'al-newer' -Merge
+            $script:MockContent = $script:MockContent + '<!-- дамп відрізняється від дерева -->'
+            $control = & { $null = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+            $control | Should -BeLike '*змістовні розбіжності*' -Because 'контроль: без неслитих версій список друкується'
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                -FileName 'Configuration.xml' -Content ($script:MockContent + '<!-- v2 -->') -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 2')
+            $text = & { $script:R = Invoke-KitVerify -Context (Invoke-KitPreflight -RepoRoot $repo) -Ref 'main' } 6>&1 | Out-String
+            $script:R.Results[0].Verdict | Should -Be 'mixed'
+            $script:R.ExitCode | Should -Be 4
+            $text | Should -BeLike '*Порівняно з версією 1 (merge-base), дзеркало*вже на 2*kit verify -Apply*'
+            $text | Should -Not -BeLike '*змістовні розбіжності*'
+            $text | Should -Not -BeLike '*тільки в дереві*'
+        }
         It 'поставка missing на головній гілці — blocked, рецепт: повний pull і supply-marker, без push; на від''єднаному HEAD — «спершу поставка на головній гілці», без pull' {
             Mock -ModuleName UnicaStep Get-KitSupplyState { 'missing' }
             $repo = New-AlignVerifyRepo -Name 'al-supply' -Config -Merge

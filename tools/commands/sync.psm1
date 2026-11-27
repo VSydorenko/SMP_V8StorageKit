@@ -443,7 +443,7 @@ function Invoke-KitSync {
                 # стосується стану гілки, не цього прогону.
                 $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
                 if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}  (цей push робить людина: агент гілки storage/* не пушить — передайте їй команду)" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
                 }
 
                 $merged = $false
@@ -563,7 +563,7 @@ function Invoke-KitSync {
 
                 $originGap = Get-KitOriginGap -RepoRoot $root -Branch $src.Branch
                 if ($originGap.HasRemote -and $originGap.Ahead -gt 0) {
-                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
+                    Write-Host ("  Дзеркало попереду origin на {0} — git push origin {1}  (цей push робить людина: агент гілки storage/* не пушить — передайте їй команду)" -f $originGap.Ahead, $src.Branch) -ForegroundColor Yellow
                 }
 
                 # Контракт sync: перемотування історії ЗАМІНЮЄ конфігурацію в базі агента. Після нього

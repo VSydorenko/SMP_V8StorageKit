@@ -884,6 +884,8 @@ function Test-DocAnchorSource {
         }
         # `шлях:НОМЕР` на справжній шлях: номери рядків зсуваються від першої правки.
         $base = $script:RxLineSuffix.Replace($pathPart, '')
+        # Токен лише з суфікса рядка (`:57`, `:228-255`) — не якір шляху.
+        if (-not $base) { continue }
         if ($base -cne $pathPart -and (Test-DocRepoPath -A $A -Token $base) -and (Test-DocPathExists -Path (Join-DocPath -Root $root -Rel $base))) {
             $A.Stats.paths++
             Add-DocBroken -Broken $broken -Rel $rel -Text $text -Index $at -Message "номер рядка в якорі ``$token`` — вказуйте на файл (і розділ), а не на рядок"
