@@ -120,7 +120,7 @@ Glossary: `docs/GLOSSARY.md` (джерело, вимкнене джерело, �
   джерело без source-set; «додати набір» — явний крок рядка `<ws>/<path>/** -text` (#11); похідний набір.
 - `storage-rules` — читання `source-disabled` і `source-set-path-missing` у розділі стану.
 - `docs/storage-and-git.md`, розділ «Маніфест і накладка» — інваріанти §5.1.1–§5.1.2 з посиланням на ADR-0022.
-- `CHANGELOG.md` і `upgrades.md`: чекліст — закоментовані джерела перевести на `enabled: false` + `reason`,
+- `CHANGELOG.md` і `skills/onboarding/references/upgrades.md`: чекліст — закоментовані джерела перевести на `enabled: false` + `reason`,
   похідні набори — на `truth: derived`. Номер версії — §7.
 
 ### 5.2 B2 Дефекти `check`, процесів і `adopt`
@@ -157,7 +157,7 @@ Glossary: `docs/GLOSSARY.md` (джерело, вимкнене джерело, �
 
 #### 5.2.5 Версія, журнал
 
-Patch над версією B1, запис `CHANGELOG.md` і розділ `upgrades.md`. Чекліст — `Нічого робити не треба.`, якщо #139
+Patch над версією B1, запис `CHANGELOG.md` і розділ `skills/onboarding/references/upgrades.md`. Чекліст — `Нічого робити не треба.`, якщо #139
 не додав знахідки `local-audit`; інакше — пункт «прогнати `kit check` і виправити невідомі ключі `infobases.origin`».
 
 ## 6. Security and data integrity
