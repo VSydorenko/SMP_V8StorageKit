@@ -85,6 +85,7 @@ Describe 'фікстура Invoke-KitCommand — спільний виклик k
             @{ Route = 'session-check'; Given = 'Session-Check'; Rest = @('-Help') }
             @{ Route = 'session-start'; Given = 'Session-Start'; Rest = @() }
             @{ Route = 'subagent-start'; Given = 'SUBAGENT-START'; Rest = @() }
+            @{ Route = 'pretool-1c'; Given = 'PRETOOL-1C'; Rest = @() }
             @{ Route = 'session-board'; Given = 'Session-Board'; Rest = @() }
             @{ Route = 'config-preflight'; Given = 'Config-Preflight'; Rest = @('-Help') }
             @{ Route = 'runner-exec'; Given = 'Runner-Exec'; Rest = @() }

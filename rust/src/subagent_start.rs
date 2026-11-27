@@ -75,7 +75,7 @@ fn agent_name(agent_type: &str) -> Option<&str> {
 }
 
 /// Чи `cwd` — у репозиторії 1С (див. шапку файлу).
-fn is_1c_repo(cwd: &Path) -> bool {
+pub fn is_1c_repo(cwd: &Path) -> bool {
     if cwd
         .ancestors()
         .any(|d| d.join("v8storagekit.yaml").is_file())
