@@ -49,6 +49,7 @@
 | Уніка не бачить потрібної теки | `v8storagekit:1c-unica` (`references/unica-folders.md`) |
 | карта інструментів Уніки, пастки платформи | `v8storagekit:1c-unica` |
 | тексти для людини в багатомовній конфігурації | `v8storagekit:1c-localization` |
+| рішення на кількох базових конфігураціях: спільне ядро, адаптація, перенесення | `v8storagekit:1c-shared-core` |
 | службовий користувач ІБ із розширення на БСП | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-з'єднання бази з зовнішнім сервером | `v8storagekit:1c-websocket-client` |
 | написати, виправити чи прогнати тест YaXUnit | `v8storagekit:1c-yaxunit` |
