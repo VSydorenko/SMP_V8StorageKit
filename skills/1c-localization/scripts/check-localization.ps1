@@ -5,14 +5,18 @@
 Джерело — скіл v8storagekit:1c-localization плагіна v8storagekit (скрипт у його теці scripts/). Копії в
 репозиторіях (для CI) не редагувати: правити в скілі плагіна й копіювати заново.
 
-Ловить чотири вади:
+Ловить п'ять вад:
   1. багатомовний рядок метаданих чи форми (синонім, заголовок, підказка) без одної з мов конфігурації;
   2. НСтр без одної з мов конфігурації;
   3. фраза для людини (кирилиця, від двох слів з малої літери) у рядковому літералі BSL поза НСтр;
-  4. команда або поле форми без заголовка — платформа показує ім'я ідентифікатора без перекладу.
+  4. команда або поле форми без заголовка — платформа показує ім'я ідентифікатора без перекладу;
+  5. назва події журналу реєстрації — НСтр без коду мови, тобто мовою сеансу, а не основною мовою
+     конфігурації (#std498 п. 2.1, #std784 п. 1). Ловить лише форму ЗаписьЖурналаРегистрации(НСтр("…"))
+     з закритою дужкою НСтр у рядку кінця літерала; назву зі змінної чи функції не бачить. Лише для кількох мов.
 
 Мови — ті, що оголошено в Languages/*.xml джерела. Виняток для вади 3 — коментар `// без НСтр: <причина>`
-у рядку, де починається літерал (імена подій журналу, тексти запитів тощо).
+у рядку, де починається літерал (тексти запитів, уривки повідомлень платформи тощо). Назва події журналу
+під виняток не підпадає: вона локалізується основною мовою (вада 5).
 
 Запуск: pwsh -NoProfile -File check-localization.ps1 [корінь вихідників ...]
 Корінь — тека з Configuration.xml і Languages/ (напр. cf/src, cfe/src). Без аргументів — усі такі теки під
@@ -30,6 +34,8 @@ $CyrPhrase = [regex]::new("[А-Яа-яІіЇїЄєҐґ']{2,} [а-яіїєґ']{2,
 $Exception = [regex]::new('//\s*без НСтр:')
 $NStrLang = [regex]::new("(?:^|;)\s*\|?\s*(\w+)\s*=\s*'")
 $NStrPrefix = [regex]::new('(НСтр|NStr)\(\s*$')
+$EventNStrPrefix = [regex]::new('(ЗаписьЖурналаРегистрации|WriteLogEvent)\(\s*(НСтр|NStr)\(\s*$')
+$NoLangCodeTail = [regex]::new('^\s*\)')
 $Utf8 = [System.Text.UTF8Encoding]::new($false, $true)
 
 function Read-Text([string]$Path) {
@@ -185,7 +191,7 @@ function Get-Literals([string]$Text) {
             $tailStart = [Math]::Min($j + 1, $n)
             $tailEnd = if ($eol -lt 0) { $n } else { $eol }
             $tail = if ($tailEnd -gt $tailStart) { $Text.Substring($tailStart, $tailEnd - $tailStart) } else { '' }
-            $res.Add([pscustomobject]@{ Line = $startLine; Value = $buf.ToString(); Prefix = $prefix; Tail = $tail })
+            $res.Add([pscustomobject]@{ Line = $startLine; Start = $i; Value = $buf.ToString(); Prefix = $prefix; Tail = $tail })
             $i = $j + 1
         }
     }
@@ -219,6 +225,12 @@ function Test-Bsl([string]$Root, $Langs, $Out) {
                 foreach ($m in $NStrLang.Matches($lit.Value)) { [void]$found.Add($m.Groups[1].Value) }
                 $missing = Get-Missing $Langs $found
                 if ($missing.Count -gt 0) { $Out.Add("$($f.Display):$($lit.Line): НСтр без мов $(Format-Langs $missing)") }
+                # Текст перед літералом через переведення рядка: виклик буває розбитий на рядки.
+                $from = [Math]::Max(0, $lit.Start - 200)
+                $before = $text.Substring($from, $lit.Start - $from)
+                if ($Langs.Count -gt 1 -and $EventNStrPrefix.IsMatch($before) -and $NoLangCodeTail.IsMatch($lit.Tail)) {
+                    $Out.Add("$($f.Display):$($lit.Line): назва події журналу мовою сеансу: потрібен НСтр(…, КодОсновногоЯзыка)")
+                }
             } elseif ($CyrPhrase.IsMatch($lit.Value) -and -not $Exception.IsMatch($lit.Tail)) {
                 $v = $lit.Value
                 if ($v.Length -gt 70) { $v = $v.Substring(0, 70) }
