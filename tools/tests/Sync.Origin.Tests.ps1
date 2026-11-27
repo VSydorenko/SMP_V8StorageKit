@@ -31,7 +31,7 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         }
     }
 
-    It 'дзеркало отримало новий коміт, а origin відстав — підказка "git push origin (гілка)" з точним числом' {
+    It 'дзеркало отримало новий коміт, а origin відстав — sync -Apply сам пушить дзеркало fast-forward' {
         $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'push-hint') -WithHooks -WithAgentBase
         $storageDir = Join-Path $TestDrive 'push-hint-storage'
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
@@ -55,7 +55,10 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
         $result.ExitCode | Should -Be 0
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
-        $text | Should -BeLike '*Дзеркало попереду origin на 1 — git push origin storage/Alpha_SMB*'
+        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (було попереду origin на 1)*'
+        # Доказ — стан самого origin, а не текст: вершина дзеркала там та сама, що локально.
+        (git -C $up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be (git -C $repo rev-parse 'refs/heads/storage/Alpha_SMB')
+        $text | Should -Not -BeLike '*цей push робить людина*'
     }
 
     It 'дзеркало вже синхронне з origin (Ahead=0) — підказки про push немає' {
@@ -85,43 +88,93 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
     }
 
-    # Підказка друкувалась лише в гілці коду з новими версіями;
-    # дзеркало, що лишилось попереду origin ЩЕ З ПОПЕРЕДНЬОГО прогону (git push тоді не зробили),
-    # при sync БЕЗ нових версій мовчало. Тут версія 5 — локальний коміт, зроблений ДО клонування
-    # origin (тобто "попередній прогін"), а цей прогін bачить ту саму версію 5 у звіті — pending
-    # порожній, реплею не буде взагалі.
-    It 'дзеркало попереду origin ще з попереднього прогону, а нових версій цього разу немає — підказка про push однаково друкується' {
-        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'push-hint-stale') -WithHooks -WithAgentBase
-        $storageDir = Join-Path $TestDrive 'push-hint-stale-storage'
-        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
-            @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
-        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
-            -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
-            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 4')
+    # Дзеркало, що лишилось попереду origin ЩЕ З ПОПЕРЕДНЬОГО прогону, при sync БЕЗ нових версій теж
+    # має дійти до origin. Тут версія 5 — локальний коміт, зроблений ПІСЛЯ клонування origin (тобто
+    # "попередній прогін" без push), а цей прогін бачить ту саму версію 5 у звіті — pending порожній,
+    # реплею не буде взагалі. Функція повертає репозиторій і bare-origin, що стоїть на версії 4.
+    BeforeAll {
+        function script:New-KitStaleMirrorRepo {
+            param([Parameter(Mandatory)][string]$Name)
+            $repo = New-KitFakeRepo -Root (Join-Path $TestDrive $Name) -WithHooks -WithAgentBase
+            $storageDir = Join-Path $TestDrive "$Name-storage"
+            New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $repo 'v8storagekit.local.yaml') -Encoding UTF8 -Value (
+                @('storages:', "  Alpha_SMB: '$storageDir'") -join "`n")
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                -FileName 'Configuration.xml' -Content (New-KitFakeConfigurationXml -Name 'Alpha_SMB') `
+                -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 4')
 
-        # origin клонується ТУТ — бачить лише версію 4.
-        $up = Join-Path $TestDrive 'push-hint-stale-upstream'
-        git clone -q --bare $repo $up 2>&1 | Out-Null
-        git -C $repo remote add origin $up 2>&1 | Out-Null
+            # origin клонується ТУТ — бачить лише версію 4.
+            $up = Join-Path $TestDrive "$Name-upstream"
+            git clone -q --bare $repo $up 2>&1 | Out-Null
+            git -C $repo remote add origin $up 2>&1 | Out-Null
 
-        # Версія 5 — попереднім прогоном sync, локально; origin про неї не знає (не запушили).
-        # Контент версії 5 мусить ВІДРІЗНЯТИСЬ від версії 4 — інакше git commit побачить чисте
-        # дерево ("nothing to commit") і сам коміт не відбудеться.
-        Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
-            -FileName 'Configuration.xml' -Content ((New-KitFakeConfigurationXml -Name 'Alpha_SMB') + "`r`n<!-- v5 -->") `
-            -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+            # Контент версії 5 мусить ВІДРІЗНЯТИСЬ від версії 4 — інакше git commit побачить чисте
+            # дерево ("nothing to commit") і сам коміт не відбудеться.
+            Add-KitFakeStorageCommit -Repo $repo -Branch 'storage/Alpha_SMB' -RepoPath 'Alpha_SMB/cfe/src' `
+                -FileName 'Configuration.xml' -Content ((New-KitFakeConfigurationXml -Name 'Alpha_SMB') + "`r`n<!-- v5 -->") `
+                -Trailers @('Storage-Source: Alpha_SMB', 'Storage-Version: 5')
+            [pscustomobject]@{ Repo = $repo; Up = $up; UpBefore = (git -C $up rev-parse 'refs/heads/storage/Alpha_SMB') }
+        }
+    }
 
-        $ctx = New-KitTestContext -Repo $repo
+    BeforeEach {
         Mock -ModuleName StoragePlatform Invoke-V8Designer { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         # Той самий номер версії, що вже на вершині — pending порожній, реплею немає взагалі.
         Mock -ModuleName sync Get-StorageVersions { , @(New-KitFakeStorageVersion -Version 5 -Comment 'синхронна версія') }
+    }
 
-        $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
+    It 'дзеркало попереду origin ще з попереднього прогону, нових версій немає — sync -Apply однаково пушить його' {
+        $r = New-KitStaleMirrorRepo -Name 'push-stale'
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $r.Repo) -Apply $true -InformationVariable infoRecords
         $result.ExitCode | Should -Be 0
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
         $text | Should -BeLike '*Нових версій немає*'
-        $text | Should -BeLike '*Дзеркало попереду origin на 1 — git push origin storage/Alpha_SMB*'
+        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (було попереду origin на 1)*'
+        (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be (git -C $r.Repo rev-parse 'refs/heads/storage/Alpha_SMB')
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+    }
+
+    It 'прев''ю без -Apply не пушить — лише каже, що запушить -Apply' {
+        $r = New-KitStaleMirrorRepo -Name 'push-preview'
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $r.Repo) -Apply $false -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 0
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*Дзеркало попереду origin на 1 — kit sync -Apply запушить його (лише fast-forward)*'
+        (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be $r.UpBefore
+    }
+
+    It 'дзеркало й origin розійшлися — ЗУПИНКА, код 1, push не пробується і origin не змінено' {
+        $r = New-KitStaleMirrorRepo -Name 'push-diverged'
+        # Інша машина записала у storage/Alpha_SMB на origin свій коміт поверх версії 4.
+        $other = Join-Path $TestDrive 'push-diverged-other'
+        git clone -q --branch 'storage/Alpha_SMB' $r.Up $other 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path $other 'other.txt') -Value 'інша машина'
+        git -C $other add other.txt 2>&1 | Out-Null
+        git -C $other -c user.name=other -c user.email=other@example.invalid commit -q -m 'інша машина' 2>&1 | Out-Null
+        git -C $other push -q origin 'storage/Alpha_SMB' 2>&1 | Out-Null
+        $upDiverged = git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB'
+        $upDiverged | Should -Not -Be $r.UpBefore
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $r.Repo) -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 1
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*ЗУПИНКА: push storage/Alpha_SMB в origin не виконано: дзеркало й origin розійшлися (лише локально — 1, лише на origin — 1 комітів)*'
+        $text | Should -Not -BeLike '*Готово.*'
+        $text | Should -Not -BeLike '*next:*'
+        (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be $upDiverged
+    }
+
+    It 'origin відхилив push — ЗУПИНКА з сирим виводом git, код 1, без force' {
+        $r = New-KitStaleMirrorRepo -Name 'push-rejected'
+        # Хук сервера відхиляє будь-який push — так само поводиться захищена гілка чи брак прав.
+        Set-Content -LiteralPath (Join-Path $r.Up 'hooks/pre-receive') -Encoding ascii -NoNewline -Value "#!/bin/sh`necho 'kit-test: push denied' >&2`nexit 1`n"
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $r.Repo) -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 1
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*ЗУПИНКА: git push origin storage/Alpha_SMB відхилено (код *kit-test: push denied*kit не робить force*'
+        $text | Should -Not -BeLike '*next:*'
+        (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be $r.UpBefore
     }
 }
