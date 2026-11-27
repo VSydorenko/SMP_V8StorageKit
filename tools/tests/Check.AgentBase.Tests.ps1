@@ -121,6 +121,28 @@ Describe 'kit check — інваріанти репозиторію-спожив
         ([regex]::Matches($r.Output, 'та сама серверна база')).Count | Should -Be 1
     }
 
+    It 'Та сама серверна база: однаковий власник (dump.from) — порада перенести набір; різні власники — окрема тека' {
+        $ws = [ordered]@{
+            'Alpha_SMB' = @{ Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+            'Beta_SMB'  = @{ Sets = @(@{ Name = 'baseB'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Beta_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
+        }
+        $repo = New-KitFakeRepo -Root (Join-Path $TestDrive 'check-srv-owner') -Workspaces $ws -WithHooks -WithGitignore
+        foreach ($n in 'Alpha_SMB', 'Beta_SMB') { Set-KitFakeAgentBase -Repo $repo -Workspace $n -Connection 'Srvr=VSDEV;Ref=agent_shared;' }
+        $same = Invoke-Check -Repo $repo
+        $same.ExitCode | Should -Be 1
+        $same.Output | Should -BeLike '*перенесіть набір у воркспейс того самого власника*'
+        $same.Output | Should -Not -BeLike '*окрему теку infobases.origin.connection*'
+
+        $manifest = Join-Path $repo 'v8storagekit.yaml'
+        $text = Get-Content -LiteralPath $manifest -Raw
+        $text = $text -replace '(baseB: \{ truth: \w+, dump: \{ from: )dev', '${1}devB'
+        Set-Content -LiteralPath $manifest -Value $text -Encoding UTF8 -NoNewline
+        $diff = Invoke-Check -Repo $repo
+        $diff.ExitCode | Should -Be 1
+        $diff.Output | Should -BeLike '*окрему теку infobases.origin.connection*'
+        $diff.Output | Should -Not -BeLike '*перенесіть набір у воркспейс того самого власника*'
+    }
+
     It 'Контроль: build/ibA і build/ibB — check не скаржиться на перетин' {
         $ws = [ordered]@{
             'Alpha_SMB' = @{ Infobase = 'File=build/ibA'; Sets = @(@{ Name = 'baseA'; Type = 'CONFIGURATION'; Path = 'cf/src' }, @{ Name = 'Alpha_SMB'; Type = 'EXTENSION'; Path = 'cfe/src' }) }
