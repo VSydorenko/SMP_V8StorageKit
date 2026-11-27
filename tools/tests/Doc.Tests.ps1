@@ -90,4 +90,23 @@ Describe 'doc — запобіжники' {
         $present = Invoke-DocAnchors
         $present.Code | Should -Be 0 -Because $present.Out
     }
+
+    It 'anchors: токен лише з суфікса рядка (`:228-255`, `:57`) не валить перевірку, справжній битий якір знайдено' {
+        $kit = Copy-KitTools -Root (Join-Path $TestDrive 'kit-suffix')
+        $kitRoot = Split-Path (Split-Path $kit -Parent) -Parent
+        $repo = Join-Path $TestDrive 'repo-suffix'
+        New-Item -ItemType Directory -Path (Join-Path $repo 'docs'), (Join-Path $repo '.agents') -Force | Out-Null
+        git -C $repo init -q 2>$null
+        [System.IO.File]::WriteAllText((Join-Path $repo '.agents/kit.profile.json'), '{ "docs": { "docs": "docs", "anchors": { "roots": ["src"] } } }')
+        [System.IO.File]::WriteAllText((Join-Path $repo 'docs/a.md'), "# A`n`nРядки ``:228-255`` і ``:57``, а ``src/no/such.bsl`` бите.`n")
+        Push-Location $repo
+        try {
+            $out = & pwsh -NoProfile -File (Join-Path $kitRoot 'tools/kit.ps1') doc anchors 2>&1 | ForEach-Object { [string]$_ }
+            $code = $LASTEXITCODE
+        } finally { Pop-Location }
+        $text = $out -join "`n"
+        $code | Should -Be 1 -Because $text
+        $text | Should -Match ([regex]::Escape('src/no/such.bsl'))
+        $text | Should -Not -Match 'Cannot bind|не може бути порожн|empty string'
+    }
 }
