@@ -55,7 +55,7 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         $result = Invoke-KitSync -Context $ctx -Apply $true -InformationVariable infoRecords
         $result.ExitCode | Should -Be 0
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
-        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (було попереду origin на 1)*'
+        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (нових комітів: 1)*'
         # Доказ — стан самого origin, а не текст: вершина дзеркала там та сама, що локально.
         (git -C $up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be (git -C $repo rev-parse 'refs/heads/storage/Alpha_SMB')
         $text | Should -Not -BeLike '*цей push робить людина*'
@@ -130,9 +130,23 @@ Describe 'kit sync — origin: fetch перед реплеєм і підказк
         $result.ExitCode | Should -Be 0
         $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
         $text | Should -BeLike '*Нових версій немає*'
-        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (було попереду origin на 1)*'
+        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (нових комітів: 1)*'
         (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be (git -C $r.Repo rev-parse 'refs/heads/storage/Alpha_SMB')
         Should -Invoke -ModuleName StoragePlatform Invoke-V8Designer -Times 0
+    }
+
+    It 'гілки дзеркала на origin ще немає (перший sync) — sync -Apply створює її push-ем' {
+        $r = New-KitStaleMirrorRepo -Name 'push-first'
+        # На origin гілки немає, і локальної remote-tracking гілки теж (fetch без --prune її б не прибрав).
+        git -C $r.Up branch -D 'storage/Alpha_SMB' 2>&1 | Out-Null
+        git -C $r.Repo update-ref -d 'refs/remotes/origin/storage/Alpha_SMB' 2>&1 | Out-Null
+        git -C $r.Up rev-parse --verify --quiet 'refs/heads/storage/Alpha_SMB' | Should -BeNullOrEmpty
+
+        $result = Invoke-KitSync -Context (New-KitTestContext -Repo $r.Repo) -Apply $true -InformationVariable infoRecords
+        $result.ExitCode | Should -Be 0
+        $text = ($infoRecords | ForEach-Object { $_.MessageData.Message }) -join "`n"
+        $text | Should -BeLike '*Дзеркало запушено в origin: storage/Alpha_SMB (нова гілка на origin)*'
+        (git -C $r.Up rev-parse 'refs/heads/storage/Alpha_SMB') | Should -Be (git -C $r.Repo rev-parse 'refs/heads/storage/Alpha_SMB')
     }
 
     It 'прев''ю без -Apply не пушить — лише каже, що запушить -Apply' {

@@ -102,7 +102,8 @@ function Invoke-KitMirrorPush {
         return [pscustomobject]@{ Outcome = 'stop'; Stop = (
             "git push origin $Branch відхилено (код {0}): {1} — kit не робить force; доповісти людині з цим виводом." -f $push.ExitCode, $raw) }
     }
-    Write-Host "  Дзеркало запушено в origin: $Branch (було $what)." -ForegroundColor Green
+    $done = if ($gap.HasRemote) { "нових комітів: $($gap.Ahead)" } else { 'нова гілка на origin' }
+    Write-Host "  Дзеркало запушено в origin: $Branch ($done)." -ForegroundColor Green
     [pscustomobject]@{ Outcome = 'pushed'; Stop = $null }
 }
 
