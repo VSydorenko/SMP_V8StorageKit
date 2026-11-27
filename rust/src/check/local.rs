@@ -5,6 +5,7 @@ use super::Collector;
 use super::gitq::slashed;
 use crate::config::agent_base::{Canonical, CollisionKind, canonical_form, dev_base_overlaps};
 use crate::config::connection::{CredentialsKind, credentials_recipe};
+use crate::config::manifest::Manifest;
 use crate::config::v8project::read_local_infobase;
 use crate::config::{Context, Level, RawConnection, Workspace};
 use std::path::Path;
@@ -226,14 +227,34 @@ fn base_collisions(c: &mut Collector, ctx: &Context, ws: &Workspace, rel: &str) 
         } else {
             "kit створив би чи завантажив базу агента в теку (базу) іншого воркспейсу, а порада provision видалити теку бази зачепила б чужу базу"
         };
+        let advice = if hit.server && same_owner(ctx.manifest.as_ref(), p, other) {
+            "Обидва воркспейси мають одну конфігурацію-власника: розширення одного власника — набори одного воркспейсу з однією базою агента, тож перенесіть набір у воркспейс того самого власника (v8storagekit:infobase-agent, «Спершу власник»)."
+        } else {
+            "Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:infobase-agent)."
+        };
         c.add(
             Level::Error,
             "local-audit",
-            format!(
-                "{rel}: {detail}{one_dir} — {consequence}. Задайте кожному воркспейсу окрему теку infobases.origin.connection (v8storagekit:infobase-agent)."
-            ),
+            format!("{rel}: {detail}{one_dir} — {consequence}. {advice}"),
         );
     }
+}
+
+/// Конфігурація-власник воркспейсу — множина `dump.from` його джерел у маніфесті (так маніфест зберігає власника
+/// основи). Однаковий непорожній збір у двох воркспейсів — той самий власник; без `dump.from` власника не знаємо.
+fn same_owner(manifest: Option<&Manifest>, a: &str, b: &str) -> bool {
+    let owner = |path: &str| -> Option<Vec<String>> {
+        let ws = manifest?.workspaces.iter().find(|w| w.path == path)?;
+        let mut v: Vec<String> = ws
+            .sources
+            .iter()
+            .filter_map(|s| s.dump_from.clone())
+            .collect();
+        v.sort();
+        v.dedup();
+        (!v.is_empty()).then_some(v)
+    };
+    matches!((owner(a), owner(b)), (Some(x), Some(y)) if x == y)
 }
 
 /// Підключення бази агента з `v8project.local.yaml` проти дев-баз накладки — та сама формула ідентичності, що в
@@ -264,5 +285,58 @@ fn dev_base_audit(
         }
         reported.push(message.clone());
         c.add(Level::Error, "local-audit", message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Truth;
+    use crate::config::manifest::{ManifestSource, ManifestWorkspace, ProductKind};
+
+    fn ws(path: &str, from: Option<&str>) -> ManifestWorkspace {
+        ManifestWorkspace {
+            path: path.into(),
+            sources: vec![ManifestSource {
+                key: "base".into(),
+                truth: Truth::Vendor,
+                truth_text: "vendor".into(),
+                storage_path: None,
+                storage_user: None,
+                dump_from: from.map(str::to_string),
+            }],
+        }
+    }
+
+    fn manifest(a: Option<&str>, b: Option<&str>) -> Manifest {
+        Manifest {
+            path: "v8storagekit.yaml".into(),
+            version: 1,
+            kind: ProductKind::Product,
+            label: "x".into(),
+            main_branch: "main".into(),
+            workspaces: vec![ws("A", a), ws("B", b)],
+            has_kit_version: false,
+        }
+    }
+
+    #[test]
+    fn same_dump_from_is_same_owner() {
+        assert!(same_owner(
+            Some(&manifest(Some("dev"), Some("dev"))),
+            "A",
+            "B"
+        ));
+    }
+
+    #[test]
+    fn different_or_missing_owner_is_not_same() {
+        assert!(!same_owner(
+            Some(&manifest(Some("devA"), Some("devB"))),
+            "A",
+            "B"
+        ));
+        assert!(!same_owner(Some(&manifest(None, None)), "A", "B"));
+        assert!(!same_owner(None, "A", "B"));
     }
 }
