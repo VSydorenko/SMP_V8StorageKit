@@ -353,6 +353,14 @@ function Invoke-SddInit {
     else { Out-Sdd "відновлено $($l.Dir): задач у журналі: $($p.Rows.Count)$(if ($p.Closed) { ", закрито $($p.Closed)" })" }
     if ($p.Closed) { Out-Sdd "журнал закрито $($p.Closed): init його не відкриває наново; працюють лише $($script:AfterClose -join ', ')" }
     Out-Sdd "прив'язано до $($info.Checkout): аргумент плану тут необов'язковий"
+    # План без жодної задачі за шаблоном заголовка — не мовчазне «0/0»: журнал створено (це не помилка
+    # плану), але наступної команди немає, і причину названо.
+    $pat = (Get-SddSettings ([pscustomobject]@{ Checkout = $info.Checkout })).Pattern
+    $planIds = @(Get-KitSddPlanTaskIds -PlanText (Read-SddPlan ([pscustomobject]@{ Plan = $info.Path })) -Pattern $pat)
+    if (-not $planIds.Count -and -not $p.Rows.Count) {
+        [Console]::Error.WriteLine("sdd: WARNING у плані немає жодної задачі за шаблоном заголовка ($pat): задача — заголовок ``## Задача N`` (N — цифри; таблиця задач не рахується); виправ план чи plans.taskHeading профілю, повтор sdd init безпечний")
+        return
+    }
     if (-not $p.Closed) { Write-KitNext (Get-SddNextCommand (New-SddContext -PlanArg $PlanArg -Command 'init' -RepoRoot $RepoRoot) $p.Rows) }
 }
 
