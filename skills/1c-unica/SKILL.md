@@ -28,6 +28,7 @@ description: Довідник 1С того, чого не знає Уніка �
 | Службовий користувач ІБ із розширення (БСП) | `v8storagekit:1c-bsp-service-user` |
 | WebSocket-клієнт у розширенні | `v8storagekit:1c-websocket-client` |
 | Тексти кількома мовами | `v8storagekit:1c-localization` |
+| Одне рішення на кількох базових конфігураціях: ядро й адаптація | `v8storagekit:1c-shared-core` |
 
 ## Діагностика MCP Уніки поза сесією
 
