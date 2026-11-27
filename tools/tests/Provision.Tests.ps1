@@ -133,6 +133,8 @@ Describe 'kit provision — прев''ю і зупинки без платфор
                 $r = Invoke-Provision -Repo $repo -More $more
                 $r.ExitCode | Should -Be 1 -Because $r.Output
                 $r.Output | Should -BeLike '*видаліть*'
+                # #64: звірка infobases.origin.connection названа ДО поради видалити (помилковий шлях на чужу порожню теку).
+                $r.Output | Should -Match '(?s)звірте infobases\.origin\.connection.*видаліть самі'
                 $r.Output.Contains([System.IO.Path]::GetFullPath($base)) | Should -BeTrue -Because 'називає теку бази'
                 $r.Output | Should -BeLike '*.local*infobases*origin*' -Because 'називає теку пам''яті раннера'
                 $r.Output | Should -BeLike '*"op":"infobase.create"*' -Because 'і крок створення'
