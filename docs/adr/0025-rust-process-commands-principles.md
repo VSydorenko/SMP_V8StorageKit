@@ -1,6 +1,6 @@
 # ADR-0025: Перенесення команд процесу в Rust — формати для інших, регулярні вирази, корінь `-C`, тести
 
-Status: proposed
+Status: accepted 2026-11-28
 Decided by: architect
 Spec: docs/superpowers/specs/2026-11-28-rust-phase4-process-design.md §5
 Supplements: ADR-0014, ADR-0021

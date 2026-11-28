@@ -1,6 +1,6 @@
 # ADR-0026: `kit run-tests` — рівні тестів профілю і цільовий прогін за зміною
 
-Status: proposed
+Status: accepted 2026-11-28
 Decided by: architect
 Spec: docs/superpowers/specs/2026-11-28-rust-phase4-process-design.md §5.8
 Supplements: ADR-0020 (простір імен `v8storagekit.tests`)
