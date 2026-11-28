@@ -1,7 +1,7 @@
 # ADR-0023: Перенесення контуру сховища в Rust — запобіжники втрати даних як типи, шви тестів, правило обходу сховища
 
-Status: proposed 2026-11-28
-Decided by: architect (очікує прийняття разом зі спекою фази 3)
+Status: accepted 2026-11-28
+Decided by: architect
 Supplements: ADR-0014, ADR-0019, ADR-0021
 Spec: docs/superpowers/specs/2026-11-28-rust-phase3-storage-design.md
 
