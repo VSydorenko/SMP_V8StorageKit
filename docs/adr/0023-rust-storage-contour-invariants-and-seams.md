@@ -3,6 +3,7 @@
 Status: accepted 2026-11-28
 Decided by: architect
 Supplements: ADR-0014, ADR-0019, ADR-0021
+Partially superseded: п. 2 (механізм правила «вантажити лише в базу під `build/`») superseded by ADR-0024
 Spec: docs/superpowers/specs/2026-11-28-rust-phase3-storage-design.md
 
 ## Context
