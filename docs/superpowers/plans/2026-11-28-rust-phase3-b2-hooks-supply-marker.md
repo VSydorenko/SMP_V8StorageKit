@@ -1,6 +1,6 @@
 # План B2 «`install-hooks`, `supply-marker`» — фаза 3 переходу на Rust (#54)
 
-Статус: на прийняття архітектором (`smp-v8storagekit-cd`). Issue блоку: #158.
+Статус: прийнято архітектором 2026-11-28 (`360439d`). Issue блоку: #158.
 Спека: `docs/superpowers/specs/2026-11-28-rust-phase3-storage-design.md` §3 (рядок B2), §5.0, §5.2, §6; ADR-0014 п. 7,
 ADR-0021 п. 1, ADR-0023.
 Якорі після: злиття B1 (#157; план B1 — PR #174, після злиття — у теці планів).
@@ -77,7 +77,9 @@ PowerShell.
 
 ## Задача 0
 
-Звірити якорі плану з `main` після злиття B1: цільовий коміт `main` — у журналі; `git log <коміт плану>..main --
+Звірити якорі плану з `main` після злиття B1: цільовий коміт `main` — у журналі; він мусить містити злиття #152
+(вимога архітектора 2026-11-28: #152 змінює `supply-marker` і `provision`, і еталон до нього зафіксував би стару
+поведінку) — інакше задача 1 не починається; `git log <коміт плану>..main --
 tools/commands/install-hooks.psm1 tools/commands/supply-marker.psm1 tools/lib/Hooks.psm1 tools/lib/Supply.psm1
 tools/tests/InstallHooks.Tests.ps1 tools/tests/SupplyMarker.Tests.ps1 tools/tests/Hooks.Tests.ps1
 tools/tests/fixtures/KitFixtures.psm1` — зміна стає поправкою плану тим самим комітом. Перевірити, що зупинка
