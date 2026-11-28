@@ -20,7 +20,7 @@ Glossary: `docs/GLOSSARY.md` (головний checkout, еталон вивод
 - Команди сховища (`sync`, `verify`, `adopt`, `dump`, `provision`, `supply-marker`, `install-hooks`) і їхні модулі
   — фаза 3 (#54), сесія `smp-v8storagekit-91`; межа — §4.
 - Зміни `doc anchors`, `doc refs`, `doc history` і розділ `Decisions outside ADR` у `kit-scan` — блок D (#115,
-  план `docs/superpowers/plans/2026-11-27-block-d-process.md` на гілці `issue-115-block-d-process`). Ця спека
+  план блоку D від 2026-11-27 у теці планів гілки `issue-115-block-d-process`). Ця спека
   описує стан **після** злиття D: R4 і R5 переносять уже змінену поведінку.
 - Хук старту сесії для репозиторіїв з `permissions.additionalDirectories` (#93, друга частина) — OQ-1.
 - Рівні тестів 1С (`syntax`, `yaxunit`), поле `reporter`, `--at`, `--last` agent-kit (ADR-0026 п. 6).
@@ -63,7 +63,7 @@ Glossary: `docs/GLOSSARY.md` (головний checkout, еталон вивод
 | Модуль `markdown`: рядки з позначкою огорожі, заголовки, номер `§N`, slug | API крейта | R0 | R3, R4 | §5.1.5 |
 | Модуль `gh` (виклик, 404, «недоступно», stdin, `GH_REPO`) | API крейта | R0 (наявний модуль фази 2 розширено) | R2, R3, `session-board` | §5.1.6 |
 | Пакет рецензії (функція й файл `review-<b7>-<h7>.md`) | API крейта / формат файла | R1 | `sdd review`, `review-pack`, скіли `review`, `execute` | §5.2.2 |
-| Журнал `sdd` (`progress.md`) і рядки стану, вікна, рішення | формат файла | R1 | R7 (`BASE` задачі), скіл `execute`, архітектор | §5.2.1, ADR-0025 п. 2 |
+| Журнал `sdd` (`.agents/sdd/<slug>/progress.md`) і рядки стану, вікна, рішення | формат файла | R1 | R7 (`BASE` задачі), скіл `execute`, архітектор | §5.2.1, ADR-0025 п. 2 |
 | Маркери `track` у тілах issue | формат даних GitHub | R3 | `track status`, наявні issue | §5.4, ADR-0025 п. 2 |
 | `tests.levels.<рівень>` (`command`, `args`, `changedArgs`, `ci`, `timeout`, `lock`), `tests.docsLevel`, `tests.codePaths` | формат профілю | R7 | `sdd brief`, профіль kit, онбординг | §5.8, ADR-0026 |
 | Стан PowerShell після фази 3: `kit.ps1` і `module-order.txt` без розділу сховища; лишаються `KitCli`, процес, `PathSafety` | стан дерева | фаза 3 | R8 | спека фази 3 |
@@ -171,8 +171,9 @@ PowerShell-версія його не знімала, і перший загол
 
 Підкоманди, параметри, тексти довідки й рядки виводу — як у `tools/commands/sdd.psm1`: `init`, `brief`, `dispatch`,
 `resume`, `watch`, `review`, `fix`, `done`, `log`, `ruling`, `status`, `handoff`, `close`. Стан — тека
-`<головний checkout>/.agents/sdd/<slug>/` (`plan-path`, `checkout`, `progress.md`, `task-N-brief.md`,
-`task-N-review[-roundK].md`, `handoff.md`) і запасна стара `.superpowers/sdd/`.
+`<головний checkout>/.agents/sdd/<slug>/` з файлами `plan-path`, `checkout`, `<тека>/progress.md`,
+`<тека>/task-<N>-brief.md`, `<тека>/task-<N>-review[-round<K>].md`, `<тека>/handoff.md` і запасна стара
+`.superpowers/sdd/`.
 
 Інваріанти, що тримають тести:
 
@@ -187,7 +188,7 @@ PowerShell-версія його не знімала, і перший загол
 4. Ліміт двох раундів `fix`; третій — лише з `-ApprovedBy`.
 5. Коміти задачі — об'єднання її вікон; чужий коміт між вікнами не входить у пакет і в `done`.
 
-Кандидати: `close` пише `# closed` до перевірки відкритих задач; тимчасові файли `-windowK.md` лишаються при збої між
+Кандидати: `close` пише `# closed` до перевірки відкритих задач; тимчасові файли вікон (`<пакет>-window<K>.md`) лишаються при збої між
 створенням і видаленням; `resume` у стані `fix` з `-Note` додає хибний запис раунду; «немає журналу» й «журнал
 закрито» мають код `2`, хоча це стан, а не виклик.
 
@@ -279,7 +280,7 @@ Context).
 `codex-audit -Prompt <файл> [-Embed <файл>]… [-NoRepo] [-Freeze] [-Out <файл>]` і
 `codex-audit review (-Commit|-Base|-Uncommitted) [-Out]`; профіль `codex.*` (`model`, `reasoningEffort`
 обов'язкові). Аргументи `codex exec`, тека прогону `<головний checkout>/<private>/codex/<UTC>-<ім'я>/`, файли
-`prompt.md`, `events.jsonl`, `codex.log`, `report.json|md`, `status.json`, вердикт «справжній прогін» за подіями
+`<тека>/prompt.md`, `events.jsonl`, `codex.log`, `report.json|md`, `status.json`, вердикт «справжній прогін» за подіями
 (читання дерева `command_execution` з кодом 0, `turn.completed`, жодного `error`/`turn.failed`), перевірка звіту за
 схемою `tools/assets/codex-findings.schema.json` і `files_read` без привидів — як у
 `tools/commands/codex-audit.psm1`. `-Freeze` — `git archive` у теку прогону, видалення — через `path_safety`.
